@@ -1,0 +1,21 @@
+# Framework-level settings
+framework:
+  timezone: "US/Eastern"
+  market_open: "09:30"
+  market_close: "16:00"
+  data_dir: "data"
+  reports_dir: "reports"
+
+# Default backtest settings
+backtest:
+  starting_capital: 30000.0
+  risk_free_rate: 0.0525
+  dividend_yield: 0.013
+
+# Board of personas
+board:
+  min_score_to_advance: 6     # minimum average score to advance to paper
+  advance_rules:
+    all_approve: 5            # 5 approve -> advance
+    four_approve_one_cond: 4  # 4 approve + 1 conditional -> advance
+    three_approve_two_cond: 3 # 3 approve + 2 conditional -> advance with tracked conditions

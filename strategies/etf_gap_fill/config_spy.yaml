@@ -1,0 +1,35 @@
+strategy:
+  name: "etf_gap_fill"
+  version: "1.0.0"
+  description: >
+    SPY gap fill — validated baseline (84.5% WR, Sharpe 0.80, ~10 trades/yr).
+    Small-to-medium gaps (0.05–0.30%), F30 fade required.
+
+data:
+  primary_symbol: "SPY"
+  symbols: ["SPY", "VIXY"]
+  timeframes: ["1Min"]
+  lookback_days: 1
+
+entry:
+  time: "10:00"
+  min_gap_pct: 0.05
+  max_gap_pct: 0.30
+  require_f30_fade: true
+
+exit:
+  time_stop: "15:30"
+  stop_pct: 0.25
+  max_hold_days: 3
+
+filters:
+  min_vixy: 0.0
+  max_vixy: 80.0
+
+instrument:
+  type: "leveraged"
+  leverage: 3.0
+
+risk:
+  position_size_pct: 5.0
+  starting_capital: 30000

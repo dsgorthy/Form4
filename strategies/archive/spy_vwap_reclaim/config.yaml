@@ -1,0 +1,50 @@
+# SPY VWAP Reclaim Bounce Strategy
+# Academic basis: VWAP anchoring as institutional execution benchmark
+# Practitioner basis: "VWAP Strategies" - Kissell & Glantz (2003),
+# Quantpedia: VWAP mean-reversion documented in institutional order flow research
+# Concept: When SPY deviates significantly below VWAP and then reclaims it,
+# institutional VWAP benchmarked buyers re-enter, creating upward pressure.
+# Mirror logic applies for shorts.
+strategy:
+  name: spy_vwap_reclaim
+  description: "Trade SPY when it reclaims VWAP after a significant deviation"
+  asset_type: equity
+  version: "1.0.0"
+
+data:
+  symbols: ["SPY", "VIXY"]
+  timeframes: ["1Min"]
+  lookback_days: 30
+  requires_options: false
+
+# Entry parameters
+entry:
+  time: "13:30"                     # Engine bar-loading cutoff
+  scan_start: "10:30"               # Start scanning for deviation + reclaim
+  scan_end: "13:30"                 # Latest entry time
+  min_deviation_pct: 0.10           # Price must deviate >= 0.10% from VWAP to qualify
+  deviation_lookback_bars: 3        # Must stay deviated for this many bars
+  reclaim_confirmation_bars: 1      # Number of consecutive bars back above VWAP to confirm reclaim
+  instrument_type: equity
+
+# Exit parameters
+exit:
+  time_stop: "15:30"
+  target_pct: 0.30                  # 0.30% from entry
+  stop_pct: 0.15                    # 0.15% stop (back to opposite VWAP side)
+  trailing_stop: false
+
+instrument:
+  type: equity
+
+sizing:
+  starting_capital: 30000.0
+  position_size_pct: 2.0
+  min_pct: 1.0
+  max_pct: 3.0
+
+filters:
+  min_vixy: 10.0
+  max_vixy: 50.0                    # Higher ceiling — VWAP reclaims valid in moderate volatility
+  reject_on_fomc: true
+  require_vwap_slope_positive: false # Disable slope filter to generate signals

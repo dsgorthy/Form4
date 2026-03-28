@@ -1,0 +1,69 @@
+# SPY Noon Session Range Break Strategy
+# Derek's observation: establish 9AM-noon session H/L, trade breakout with strength
+strategy:
+  name: spy_noon_break
+  description: "Trade SPY breakouts from the 9AM–noon session range with strength confirmation"
+  asset_type: equity   # also supports options
+  version: "1.0.0"
+
+data:
+  symbols: ["SPY", "VIXY"]
+  timeframes: ["1Min", "5Min"]
+  lookback_days: 30
+  requires_options: false
+
+# Session range definition (establishes H/L)
+session_range:
+  start_time: "09:00"   # Pre-market open (SPY often active)
+  end_time: "12:00"     # Noon — full morning session
+
+# Entry parameters
+entry:
+  time: "15:00"                  # Engine entry cutoff for bar loading
+  window_start: "12:01"          # First bar eligible for entry signal
+  window_end: "15:00"            # Latest entry (allow time for trade)
+  min_break_pct: 0.15            # Price must breach range by at least 0.15% to qualify
+  confirm_bars: 2                # Require N consecutive bars outside range before entry
+  vwap_filter: "none"            # "aligned"=momentum, "counter"=reversal, "none"=off. Backtest shows noon break is a COUNTER-VWAP reversal setup.
+  instrument_type: equity        # equity or options
+
+# Exit parameters
+exit:
+  time_stop: "15:30"             # Hard EOD exit — no overnight holds
+  target_pct: 0.40               # Take profit at +0.40% from entry
+  stop_pct: 0.20                 # Stop loss at -0.20% adverse (back into range)
+  trailing_stop: false
+
+# Instrument selection
+instrument:
+  type: equity                   # equity or options
+  leverage_multiplier: 1.0       # 1=SPY, 2=SSO-equivalent, 3=UPRO-equivalent (intraday only)
+  # Options params (only used when type=options)
+  expiry_dte: 0                  # 0=0DTE, 1=1DTE. 1DTE strongly preferred for noon entries.
+  use_atm: true
+  strike_offset: 0               # 0 = ATM; positive = OTM by N dollars (e.g., 3 = $3 OTM)
+  stop_premium_pct: 50           # Stop out at 50% premium loss
+  target_premium_pct: 75         # Take profit at 75% premium gain
+
+# Position sizing
+sizing:
+  starting_capital: 30000.0
+  position_size_pct: 2.0
+  min_pct: 1.0
+  max_pct: 3.0
+
+# Filters
+filters:
+  min_range_width_pct: 0.10     # Morning range must be at least 0.10% wide
+  max_range_width_pct: 2.5      # Skip extreme volatile mornings
+  max_vixy: 45.0                 # Skip high-panic days (VIXY > 45)
+  min_vixy: 10.0
+  reject_on_fomc: true
+  min_break_strength_pct: 0.15  # Breakout magnitude threshold (same as entry)
+  # Flat day filters (Derek: noon break doesn't work on flat days)
+  min_opening_range_width_pct: 0.12  # 9:30-10:00 range must be > 0.12% (flat open = no energy)
+  min_morning_move_pct: 0.10    # SPY must move >= 0.10% from open to noon range high or low
+  # RVOL filter — breakout bar volume vs 14-day same-minute average
+  # Research: RVOL > 1.5x at breakout associated with ~40% greater follow-through
+  rvol_min: 1.5
+  rvol_lookback_days: 14

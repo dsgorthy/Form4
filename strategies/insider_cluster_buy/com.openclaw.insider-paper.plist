@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.openclaw.insider-paper</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/openclaw/claude-agent/workspace/trading-framework/strategies/insider_cluster_buy/.venv/bin/python</string>
+        <string>/Users/openclaw/claude-agent/workspace/trading-framework/strategies/insider_cluster_buy/paper_runner.py</string>
+        <string>start</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/openclaw/claude-agent/workspace/trading-framework/strategies/insider_cluster_buy</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <key>StandardOutPath</key>
+    <string>/Users/openclaw/claude-agent/workspace/trading-framework/strategies/insider_cluster_buy/logs/runner.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/openclaw/claude-agent/workspace/trading-framework/strategies/insider_cluster_buy/logs/runner.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/Users/openclaw/claude-agent/workspace/trading-framework/strategies/insider_cluster_buy/.venv/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>PYTHONPATH</key>
+        <string>/Users/openclaw/claude-agent/workspace/trading-framework</string>
+    </dict>
+</dict>
+</plist>

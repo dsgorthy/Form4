@@ -1,0 +1,41 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.api
+    env_file: .env
+    environment:
+      - INSIDERS_DB_PATH=/data/insiders/insiders.db
+      - NOTIFICATIONS_DB_PATH=/data/notifications/notifications.db
+    volumes:
+      - ${INSIDERS_DB_DIR:-./strategies/insider_catalog}:/data/insiders
+      - ${NOTIFICATIONS_DB_DIR:-./api}:/data/notifications
+      - ./data:/data/app_data:ro
+      - ./pipelines/data:/data/runner:ro
+    networks:
+      - internal
+    expose:
+      - "8000"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000/api/v1}
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-}
+        NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-}
+        NEXT_PUBLIC_STRIPE_PRO_MONTHLY_PRICE_ID: ${NEXT_PUBLIC_STRIPE_PRO_MONTHLY_PRICE_ID:-}
+        NEXT_PUBLIC_STRIPE_PRO_YEARLY_PRICE_ID: ${NEXT_PUBLIC_STRIPE_PRO_YEARLY_PRICE_ID:-}
+        NEXT_PUBLIC_STRIPE_API_MONTHLY_PRICE_ID: ${NEXT_PUBLIC_STRIPE_API_MONTHLY_PRICE_ID:-}
+    env_file: .env
+    environment:
+      - API_URL_INTERNAL=http://api:8000/api/v1
+    networks:
+      - internal
+    expose:
+      - "3000"
+
+networks:
+  internal:
+    driver: bridge

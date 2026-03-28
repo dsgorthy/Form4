@@ -1,0 +1,37 @@
+strategy:
+  name: "spy_gap_fill"
+  version: "1.1.0"
+  description: >
+    IWM gap fill: synthetic 3x leveraged exposure on IWM (Russell 2000 ETF).
+    Small-cap ETF tends to have wider gaps and higher fill rates than large-caps.
+    Same mean-reversion edge: small gaps (0.05–0.30%) with F30 fade.
+    5% position sizing; VIXY used as vol filter (market-wide proxy).
+
+data:
+  primary_symbol: "IWM"
+  symbols: ["IWM", "VIXY"]
+  timeframes: ["1Min"]
+  lookback_days: 1
+
+entry:
+  time: "10:00"
+  min_gap_pct: 0.05
+  max_gap_pct: 0.30
+  require_f30_fade: true
+
+exit:
+  time_stop: "15:30"
+  stop_pct: 0.25
+  max_hold_days: 3
+
+filters:
+  min_vixy: 0.0
+  max_vixy: 80.0
+
+instrument:
+  type: "leveraged"
+  leverage: 3.0
+
+risk:
+  position_size_pct: 5.0
+  starting_capital: 30000

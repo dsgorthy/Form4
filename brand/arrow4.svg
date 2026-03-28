@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 500">
+  <!-- Arrow-4 matched to concept 3 -->
+  <!-- Key features: diagonal goes from bottom-left to top-right,
+       arrowhead extends PAST the vertical stem to the right,
+       wide bold strokes, prominent arrow -->
+  <path d="
+    M 50 310
+    L 225 70
+    L 225 15
+    L 270 15
+    L 370 -5
+    L 330 80
+    L 290 80
+    L 290 310
+    L 360 310
+    L 360 360
+    L 290 360
+    L 290 485
+    L 225 485
+    L 225 360
+    L 50 360
+    Z
+  " fill="#3B82F6" />
+  <!-- Inner triangle cutout -->
+  <path d="
+    M 225 175
+    L 105 330
+    L 225 330
+    Z
+  " fill="#0A0A0F" />
+</svg>

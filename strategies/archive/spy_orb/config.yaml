@@ -1,0 +1,59 @@
+# SPY Opening Range Breakout Strategy Configuration
+strategy:
+  name: spy_orb
+  description: "Trade the breakout from the opening range (9:30–10:00 AM ET)"
+  asset_type: options   # can also use "equity" by setting instrument.type=equity
+  version: "1.0.0"
+
+# Data requirements
+data:
+  symbols: ["SPY", "VIXY"]
+  timeframes: ["1Min", "5Min", "15Min"]
+  lookback_days: 30
+  requires_options: false   # initially trade equity, enable options later
+
+# Entry parameters
+entry:
+  time: "10:30"                # Used by engine to load bars up to this point
+  time_window_start: "10:01"   # First bar AFTER the opening range ends (exclusive)
+  time_window_end: "10:30"     # Latest entry time
+  direction_rule: breakout      # "breakout" = trade in direction of range break
+  min_range_width_pct: 0.20    # Opening range must be at least 0.20% wide
+  gap_direction_filter: true   # Only trade if gap direction matches breakout
+
+# Opening range definition
+opening_range:
+  start_time: "09:30"
+  end_time: "10:00"
+
+# Exit parameters
+exit:
+  time_stop: "15:30"            # Eastern Time
+  stop_mode: "underlying"
+  stop_underlying_pct: 0.25     # 0.25% adverse SPY move triggers stop
+  target_underlying_pct: 0.50   # 0.50% favorable SPY move triggers target
+  trailing_stop: false
+
+# Instrument selection
+instrument:
+  type: equity                  # "equity" or "options"
+  expiry_dte: 0                 # Only used when type=options
+  use_atm: true
+
+# Position sizing
+sizing:
+  starting_capital: 30000.0
+  position_size_pct: 2.0        # More conservative than reversal (momentum has higher variance)
+  min_pct: 1.0
+  max_pct: 3.0
+
+# Filters
+filters:
+  min_gap_pct: 0.0              # Any gap (positive = gap up, negative = gap down)
+  max_gap_pct: 2.0              # Skip extreme gap days
+  min_range_width_pct: 0.20    # Opening range must be wide enough to be meaningful
+  max_range_width_pct: 2.0     # Skip extremely volatile opens
+  min_vix: 12.0                 # Lower VIX floor for momentum strategy
+  max_vix: 60.0
+  daily_loss_cap_pct: 5.0
+  reject_on_fomc: true          # FOMC days are bad for momentum

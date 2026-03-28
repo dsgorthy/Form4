@@ -1,0 +1,36 @@
+strategy:
+  name: "etf_gap_fill"
+  version: "1.0.0"
+  description: >
+    QQQ gap fill — sweep-optimised (62.0% WR, Sharpe 0.57, ~19 trades/yr).
+    Wider gap range than SPY; small QQQ gaps (0.05–0.10%) are noise.
+    Tighter stop (0.15%) improves R:R; break-even WR drops to ~55%.
+
+data:
+  primary_symbol: "QQQ"
+  symbols: ["QQQ", "VIXY"]
+  timeframes: ["1Min"]
+  lookback_days: 1
+
+entry:
+  time: "10:00"
+  min_gap_pct: 0.15              # Small QQQ gaps are below-noise; skip them
+  max_gap_pct: 0.40              # Wider ceiling vs SPY; QQQ ~$490, needs broader range
+  require_f30_fade: true
+
+exit:
+  time_stop: "15:30"
+  stop_pct: 0.15                 # Tighter stop: Sharpe 0.57 vs 0.08 at baseline 0.25%
+  max_hold_days: 3
+
+filters:
+  min_vixy: 0.0
+  max_vixy: 80.0
+
+instrument:
+  type: "leveraged"
+  leverage: 3.0
+
+risk:
+  position_size_pct: 5.0
+  starting_capital: 30000

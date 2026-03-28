@@ -1,0 +1,56 @@
+# SPY 0DTE End-of-Day Reversal Strategy Configuration
+strategy:
+  name: spy_0dte_reversal
+  description: "Buy options at 3:29 PM expecting mean-reversion toward the open"
+  asset_type: options  # "options" or "equity"
+  version: "1.0.0"
+
+# Data requirements
+data:
+  symbols: ["SPY", "VIXY"]
+  timeframes: ["1Min", "5Min"]
+  lookback_days: 30
+  requires_options: true
+
+# Entry parameters
+entry:
+  time: "15:29"            # Eastern Time
+  direction_rule: reversal  # "reversal" = against intraday move
+
+# Exit parameters
+# stop_mode:
+#   "premium"    — uses real option price % moves (requires use_real_options or BS consistent)
+#                  This is the validated mode matching original backtest_real.py results.
+#   "underlying" — uses SPY price levels; best combined with use_real_options=false (pure BS)
+exit:
+  time_stop: "15:55"        # Eastern Time
+  stop_mode: "premium"      # "underlying" or "premium" — premium matches original validation
+  stop_underlying_pct: 0.15  # 0.15% SPY move triggers stop (underlying mode only)
+  target_underlying_pct: 0.20  # 0.20% SPY reversal triggers target (underlying mode only)
+  stop_loss_pct: 0.30        # 30% premium loss triggers stop (premium mode)
+  take_profit_pct: 0.25      # 25% premium gain triggers target (premium mode)
+
+# Instrument selection
+instrument:
+  expiry_dte: 0             # 0=same day, 1=next day, etc.
+  use_spot_strikes: true    # anchor strikes to spot price at entry
+  use_real_options: true    # use actual Alpaca options data when available
+  max_strike_offset: 1.0    # max $offset from reference price
+
+# Position sizing
+sizing:
+  starting_capital: 30000.0
+  position_size_pct: 3.0    # base allocation % of capital
+  min_pct: 2.0
+  max_pct: 5.0
+
+# Filters
+filters:
+  min_intraday_move_pct: 0.10   # minimum 0.10% move required
+  max_intraday_move_pct: 3.0    # skip extreme trend days
+  min_vix: 15.0                 # VIXY floor (thin premiums below)
+  max_vix: 70.0                 # VIXY ceiling (trend day likely above)
+  daily_loss_cap_pct: 5.0
+  latest_entry_time: "15:35"
+  reject_on_fomc: false
+  reject_on_cpi: false

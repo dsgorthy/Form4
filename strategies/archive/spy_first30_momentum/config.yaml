@@ -1,0 +1,48 @@
+# SPY First Half-Hour Momentum Strategy
+# Academic basis: Gao, Han, Li & Zhou (2018) NBER WP 25120
+# "Intraday Momentum: The First Half-Hour Return Predicts the Last Half-Hour Return"
+# Also validated by Guo et al. (2023) out-of-sample, and extensively documented
+# in practitioner research (Quantpedia ID #181, AlphaArchitect replications).
+strategy:
+  name: spy_first30_momentum
+  description: "Trade SPY in direction of first 30-minute return; intraday momentum"
+  asset_type: equity
+  version: "1.0.0"
+
+data:
+  symbols: ["SPY", "VIXY"]
+  timeframes: ["1Min", "5Min"]
+  lookback_days: 30
+  requires_options: false
+
+# Entry at 3:30 PM — trade executes in the LAST half-hour of day
+# Signal is the first 30-min return (9:30-10:00); trade is at close (3:30-4:00 PM)
+# This is the canonical Gao et al. implementation: first half predicts last half.
+entry:
+  time: "15:30"                   # Load bars through 3:30 PM for signal generation
+  signal_window_start: "09:30"    # Measure return from market open
+  signal_window_end: "10:00"      # Through the first 30 minutes
+  min_signal_pct: 0.15            # First-30-min return must exceed this threshold
+  instrument_type: equity
+
+# Exit parameters — hold the LAST 30 min of the day
+exit:
+  time_stop: "15:59"              # Exit at 3:59 PM (1 min before close) — no overnight
+  target_pct: 0.25                # 0.25% target in 30-min window
+  stop_pct: 0.12                  # 0.12% stop (tight, short hold period)
+  trailing_stop: false
+
+instrument:
+  type: equity
+
+sizing:
+  starting_capital: 30000.0
+  position_size_pct: 2.0
+  min_pct: 1.0
+  max_pct: 3.0
+
+filters:
+  min_vixy: 10.0
+  max_vixy: 45.0                  # Avoid extreme panic days
+  reject_on_fomc: true
+  min_signal_pct: 0.15            # Duplicate of entry.min_signal_pct for clarity

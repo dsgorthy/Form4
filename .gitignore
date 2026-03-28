@@ -1,0 +1,64 @@
+# Credentials — NEVER commit secrets
+.env
+.env.development
+.env.sandbox
+frontend/.env.local
+frontend/.env.development
+frontend/.env.sandbox
+config.env
+
+# Python
+__pycache__/
+*.pyc
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# State files
+state.json
+state.json.tmp
+pipelines/data/portfolio_runner_state.json
+pipelines/data/pending_orders.json
+pipelines/data/portfolio_runner_heartbeat.json
+
+# Logs
+logs/
+*.log
+
+# Data (large files — not in git)
+data/
+pipelines/data/
+pipelines/insider_study/data/
+strategies/insider_catalog/*.db
+strategies/insider_catalog/*.db-*
+strategies/insider_catalog/*.bak*
+strategies/insider_catalog/sandbox/
+
+# Reports (generated output)
+reports/
+
+# Node / Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+.next/
+
+# API
+api/.venv/
+api/notifications.db
+
+# Docker
+.docker/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Backups
+data/db-backups/
+data/content-archive/

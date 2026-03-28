@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.openclaw.form4-notifications</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>/Users/openclaw/trading-framework/pipelines/notification_scanner.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/openclaw/trading-framework</string>
+
+    <key>StartInterval</key>
+    <integer>900</integer>
+
+    <key>StandardOutPath</key>
+    <string>/Users/openclaw/trading-framework/logs/notification_scanner.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/openclaw/trading-framework/logs/notification_scanner.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin</string>
+        <key>PYTHONPATH</key>
+        <string>/Users/openclaw/trading-framework</string>
+    </dict>
+</dict>
+</plist>

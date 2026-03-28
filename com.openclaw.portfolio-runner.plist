@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.openclaw.portfolio-runner</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/openclaw/trading-framework/pipelines/run_portfolio_runner.sh</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/openclaw/trading-framework</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin</string>
+        <key>PYTHONPATH</key>
+        <string>/Users/openclaw/trading-framework</string>
+    </dict>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+    <key>StandardOutPath</key>
+    <string>/Users/openclaw/trading-framework/pipelines/data/portfolio_runner.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/openclaw/trading-framework/pipelines/data/portfolio_runner.log</string>
+</dict>
+</plist>

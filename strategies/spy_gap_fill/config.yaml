@@ -1,0 +1,33 @@
+strategy:
+  name: "spy_gap_fill"
+  version: "1.0.0"
+  description: >
+    SPY gap fill: fade same-day gaps after 30-minute confirmation.
+    Entry: 10:00 AM if first-30-min direction fades the gap.
+    Target: previous day's close. Multi-day holds supported.
+    Empirical fill rate (2020-2026): 76.7% on small gaps + F30 fade.
+
+data:
+  primary_symbol: "SPY"
+  symbols: ["SPY", "VIXY"]
+  timeframes: ["1Min"]
+  lookback_days: 1
+
+entry:
+  time: "10:00"                   # Enter after first 30 min (F30 confirmation)
+  min_gap_pct: 0.05               # Minimum gap size (noise floor)
+  max_gap_pct: 0.30               # Maximum gap size (beyond 0.30% fill rate drops sharply)
+  require_f30_fade: true          # F30 must fade the gap direction (strongest predictor)
+
+exit:
+  time_stop: "15:30"              # Daily time stop — cut if no fill by 3:30 PM
+  stop_pct: 0.25                  # Stop loss: 0.25% adverse move from entry
+  max_hold_days: 3                # Hold up to 3 trading days for fill
+
+filters:
+  min_vixy: 0.0                   # No hard floor — VIXY used for sizing context only
+  max_vixy: 80.0                  # Avoid extreme crisis days (COVID-level dislocations)
+
+risk:
+  position_size_pct: 3.0
+  starting_capital: 30000

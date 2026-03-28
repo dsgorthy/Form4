@@ -1,0 +1,36 @@
+strategy:
+  name: "etf_gap_fill"
+  version: "1.0.0"
+  description: >
+    GLD gap fill — sweep-optimised (58.4% WR, Sharpe 0.61, ~30 trades/yr).
+    Wider gap range (0.20–0.50%), tight stop (0.20%).
+    Gold — uncorrelated to equity ETFs, valuable for diversification.
+
+data:
+  primary_symbol: "GLD"
+  symbols: ["GLD", "VIXY"]
+  timeframes: ["1Min"]
+  lookback_days: 1
+
+entry:
+  time: "10:00"
+  min_gap_pct: 0.20
+  max_gap_pct: 0.50
+  require_f30_fade: true
+
+exit:
+  time_stop: "15:30"
+  stop_pct: 0.20
+  max_hold_days: 3
+
+filters:
+  min_vixy: 0.0
+  max_vixy: 80.0
+
+instrument:
+  type: "leveraged"
+  leverage: 3.0
+
+risk:
+  position_size_pct: 5.0
+  starting_capital: 30000

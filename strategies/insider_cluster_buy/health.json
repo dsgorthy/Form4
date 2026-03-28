@@ -1,0 +1,16 @@
+{
+  "pid": 35781,
+  "uptime_sec": 254768,
+  "last_heartbeat": "2026-03-14T23:37:43.366573",
+  "open_positions": 0,
+  "queued_signals": 0,
+  "total_trades": 0,
+  "total_pnl": 0.0,
+  "circuit_breaker": false,
+  "last_edgar_check": "2026-03-14T23:37:43.362520",
+  "solo_enabled": true,
+  "solo_open": 0,
+  "solo_queued": 0,
+  "solo_trades": 0,
+  "solo_pnl": 0.0
+}

@@ -1,0 +1,46 @@
+# Sandbox stack — runs alongside production on different ports
+# Usage: docker compose -f docker-compose.yml -f docker-compose.sandbox.yml up -d
+#
+# sandbox.form4.app → Caddy → sandbox-frontend:3100 / sandbox-api:8100
+
+services:
+  sandbox-api:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.api
+    env_file: .env.sandbox
+    environment:
+      - INSIDERS_DB_PATH=/data/insiders/insiders.db
+      - NOTIFICATIONS_DB_PATH=/data/notifications/notifications.db
+      - CORS_ORIGINS=https://sandbox.form4.app
+      - FORM4_ENV=sandbox
+    volumes:
+      - ${INSIDERS_DB_DIR:-./strategies/insider_catalog/sandbox}:/data/insiders:ro
+      - ${NOTIFICATIONS_DB_DIR:-./strategies/insider_catalog/sandbox}:/data/notifications
+    networks:
+      - internal
+    expose:
+      - "8100"
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8100
+
+  sandbox-frontend:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.frontend
+      args:
+        NEXT_PUBLIC_API_URL: https://sandbox.form4.app/api/v1
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_dHJ1ZS1tYWxhbXV0ZS00OC5jbGVyay5hY2NvdW50cy5kZXYk
+        NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_51TB7p11UBflDNF9lW21UZ3jNEh090MKr3hEVwHaD8EMabt6gxxox1FpgJcbxhoQCwfx88SXNRlsHmFfIG61TeORt00SvDlwVDc
+        NEXT_PUBLIC_STRIPE_PRO_MONTHLY_PRICE_ID: price_1TB7rJ1UBflDNF9l5bSmXmH1
+        NEXT_PUBLIC_STRIPE_PRO_YEARLY_PRICE_ID: price_1TB7rL1UBflDNF9lI3K1pH1G
+        NEXT_PUBLIC_STRIPE_API_MONTHLY_PRICE_ID: price_1TB7rM1UBflDNF9ltvuVDyrT
+    environment:
+      - HOSTNAME=0.0.0.0
+      - PORT=3100
+      - FORM4_ENV=sandbox
+      - CLERK_SECRET_KEY=${CLERK_SECRET_KEY:-}
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
+    networks:
+      - internal
+    expose:
+      - "3100"

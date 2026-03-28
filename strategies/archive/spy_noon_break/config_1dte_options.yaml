@@ -1,0 +1,70 @@
+# SPY Noon Break — 1DTE Options Variant
+# Rationale for 1DTE over 0DTE at noon entry:
+#   0DTE at noon: 65% theta decay from entry to 3:30PM exit → structural negative EV
+#   1DTE at noon: only 28% theta decay from entry to 1:30PM exit (10.5hr → 9hr remaining)
+#   1DTE costs 2.71x more per contract but theta/hr is 2.5x lower
+#   Hard time stop at 1:30 PM — exit before the 2:00 PM theta kill zone
+strategy:
+  name: spy_noon_break
+  description: "SPY noon breakout — 1DTE options, exit by 1:30PM before theta accelerates"
+  asset_type: options
+  version: "1.1.0"
+
+data:
+  symbols: ["SPY", "VIXY"]
+  timeframes: ["1Min", "5Min"]
+  lookback_days: 30
+  requires_options: false
+
+# Session range definition
+session_range:
+  start_time: "09:00"
+  end_time: "12:00"
+
+# Entry parameters
+entry:
+  time: "15:00"                  # Engine bar loading cutoff (we enter much earlier)
+  window_start: "12:01"
+  window_end: "13:00"            # Tighter entry window: only take signals by 1:00 PM
+  min_break_pct: 0.15
+  confirm_bars: 2
+  instrument_type: options
+
+# Exit parameters — 1:30 PM hard stop (before theta kill zone at 2:00 PM)
+exit:
+  time_stop: "13:30"             # 1:30 PM hard stop — get out before theta kills you
+  target_pct: 0.40               # Underlying reference (not used for options)
+  stop_pct: 0.20                 # Underlying reference (not used for options)
+  trailing_stop: false
+
+# Instrument selection — 1DTE options
+instrument:
+  type: options
+  leverage_multiplier: 1.0
+  expiry_dte: 1                  # 1DTE: expires NEXT trading day
+  use_atm: true
+  strike_offset: 0               # ATM — best balance of delta and capital efficiency
+  stop_premium_pct: 40           # Tighter stop for 1DTE (40% vs 50%) — more capital at risk per contract
+  target_premium_pct: 60         # More achievable target with 1DTE (60% vs 75%) given lower theta help
+
+# Position sizing
+sizing:
+  starting_capital: 30000.0
+  position_size_pct: 2.0
+  min_pct: 1.0
+  max_pct: 3.0
+
+# Filters — same as equity variant + RVOL required for options
+filters:
+  min_range_width_pct: 0.10
+  max_range_width_pct: 2.5
+  max_vixy: 45.0
+  min_vixy: 10.0
+  reject_on_fomc: true
+  min_break_strength_pct: 0.15
+  # Flat day filters
+  min_opening_range_width_pct: 0.12
+  min_morning_move_pct: 0.10
+  # RVOL: require volume confirmation — critical for options since theta requires fast moves
+  rvol_min: 1.5
+  rvol_lookback_days: 14

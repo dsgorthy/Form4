@@ -1,0 +1,64 @@
+# SPY VWAP Mean Reversion Strategy
+#
+# Hypothesis: Price deviation from VWAP at 10:30 AM reverts toward VWAP during
+# the remainder of the session, not continues trending away from it.
+#
+# Academic anchors:
+#   - Madhavan (2002): VWAP-benchmarked institutional algos create intraday mean
+#     reversion around VWAP. Execution pressure resists large deviations.
+#   - Berkowitz et al. (1988): intraday mean reversion strengthens post-10:00 AM
+#     as opening order imbalances clear.
+#
+# Empirical basis: 2025–2026 YTD data shows the VWAP TREND signal had 28.6%
+# win rate — meaning price moved AGAINST the 10:30 AM VWAP deviation 71.4% of
+# the time. The mean-reversion signal is the empirically-supported direction.
+#
+# Version history:
+#   v1.0: VWAP trend-following (above VWAP → long). 2020-2023: Sharpe -0.62.
+#   v1.1: Lowered min_deviation to 0.10%. 2024 in-sample: Sharpe 1.24 (anomaly).
+#         2025 OOS: Sharpe -1.44. 2026 YTD: Sharpe -3.42. Edge not confirmed.
+#   v2.0: Signal flipped to mean reversion (above VWAP → short, below → long).
+#         Reduced target to 0.20% (MR captures partial reversion, not trend extension).
+#         Reduced min_sustained_bars to 15 (MR doesn't need 20-min trend confirmation).
+
+strategy:
+  name: spy_vwap_trend
+  description: "VWAP mean reversion: fade 10:30 AM VWAP deviation, target reversion to VWAP"
+  asset_type: equity
+  version: "2.0.0"
+
+data:
+  symbols: ["SPY", "VIXY"]
+  timeframes: ["1Min"]
+  lookback_days: 30
+  requires_options: false
+
+# Entry at 10:30 AM — 1 hour of VWAP gives a reliable daily anchor
+entry:
+  time: "10:30"
+  min_vwap_deviation_pct: 0.15    # Must be >= 0.15% from VWAP (above → short, below → long)
+  min_sustained_bars: 15          # 15 bars on same side = ~15 min; confirms real deviation
+                                  # (not just a noisy 1-bar spike), but short enough to
+                                  # precede genuine breakout trend
+  instrument_type: equity
+
+exit:
+  time_stop: "15:30"              # Hold up to 5 hours for reversion to VWAP
+  target_pct: 0.20                # Partial reversion target: 1:1 R:R (needs > 50% WR)
+  stop_pct: 0.20                  # Cut if price extends further from VWAP
+  trailing_stop: false
+
+instrument:
+  type: equity
+
+sizing:
+  starting_capital: 30000.0
+  position_size_pct: 2.0
+  min_pct: 1.0
+  max_pct: 3.0
+
+filters:
+  min_vixy: 12.0
+  max_vixy: 50.0                  # Block extreme volatility regimes
+  reject_on_fomc: true
+  min_opening_move_pct: 0.05      # Skip flat opens — no VWAP deviation to fade

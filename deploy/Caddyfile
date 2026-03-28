@@ -1,0 +1,47 @@
+# Caddy reverse proxy — routes prod and sandbox
+# Receives traffic from Cloudflare Tunnel on :80
+
+:80 {
+    # ─── Sandbox: sandbox.form4.app ───────────────
+    @sandbox_api {
+        host sandbox.form4.app
+        path /api/*
+        not path /api/checkout
+        not path /api/billing-portal
+    }
+    @sandbox_fe_api {
+        host sandbox.form4.app
+        path /api/checkout /api/billing-portal
+    }
+    @sandbox {
+        host sandbox.form4.app
+    }
+
+    handle @sandbox_fe_api {
+        reverse_proxy sandbox-frontend:3100
+    }
+    handle @sandbox_api {
+        reverse_proxy sandbox-api:8100
+    }
+    handle @sandbox {
+        reverse_proxy sandbox-frontend:3100
+    }
+
+    # ─── Production: form4.app (default) ──────────
+    handle /api/checkout {
+        reverse_proxy frontend:3000
+    }
+    handle /api/billing-portal {
+        reverse_proxy frontend:3000
+    }
+    handle /api/* {
+        reverse_proxy api:8000
+    }
+    handle {
+        reverse_proxy frontend:3000
+    }
+
+    log {
+        output stdout
+    }
+}

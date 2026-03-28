@@ -1,0 +1,27 @@
+# Cloudflare Tunnel config for form4.app
+# Location: ~/.cloudflared/config.yml (symlinked or copied from here)
+#
+# Setup:
+#   1. cloudflared tunnel login
+#   2. cloudflared tunnel create form4
+#   3. Copy the tunnel UUID into this file
+#   4. cloudflared tunnel route dns form4 form4.app
+#   5. cloudflared tunnel route dns form4 www.form4.app
+#   6. cp deploy/cloudflare-tunnel.yml ~/.cloudflared/config.yml
+#      (replace TUNNEL_UUID with actual UUID)
+#   7. sudo cloudflared service install
+#   8. sudo launchctl load /Library/LaunchDaemons/com.cloudflare.cloudflared.plist
+
+tunnel: TUNNEL_UUID
+credentials-file: /Users/openclaw/.cloudflared/TUNNEL_UUID.json
+
+ingress:
+  # All traffic → Caddy reverse proxy (running in Docker on port 80)
+  - hostname: form4.app
+    service: http://localhost:80
+  - hostname: www.form4.app
+    service: http://localhost:80
+  - hostname: sandbox.form4.app
+    service: http://localhost:80
+  # Catch-all (required by cloudflared)
+  - service: http_status:404

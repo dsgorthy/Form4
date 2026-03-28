@@ -1,0 +1,36 @@
+strategy:
+  name: "spy_gap_fill"
+  version: "1.1.0"
+  description: >
+    SPY gap fill: full gap range (0.05–0.30%) using 0DTE ATM options.
+    Gap up → buy PUT (fade short). Gap down → buy CALL (fade long).
+    B-S pricing with VIXY-derived IV. Alpaca $0.65/contract per leg.
+    0DTE only — no multi-day holds.
+
+data:
+  primary_symbol: "SPY"
+  symbols: ["SPY", "VIXY"]
+  timeframes: ["1Min"]
+  lookback_days: 1
+
+entry:
+  time: "10:00"
+  min_gap_pct: 0.05
+  max_gap_pct: 0.30
+  require_f30_fade: true
+
+exit:
+  time_stop: "15:30"
+  stop_pct: 0.25
+  max_hold_days: 1                 # 0DTE — always closes same day
+
+filters:
+  min_vixy: 0.0
+  max_vixy: 80.0
+
+instrument:
+  type: "option"
+
+risk:
+  position_size_pct: 3.0
+  starting_capital: 30000
