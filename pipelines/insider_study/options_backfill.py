@@ -62,7 +62,7 @@ THETA_CACHE_DB = SCRIPT_DIR / "data" / "theta_cache.db"
 
 # Telegram config (same as V3.3 paper runner)
 TG_BOT_TOKEN = "8738253569:AAGHNvkFuyVEaZzGlUesgP5AN9F4vT24mtA"
-TG_CHAT_ID = "8585305446"
+TG_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
 
 def send_telegram(text: str) -> bool:

@@ -3,7 +3,7 @@
 # Kill with: kill $(cat /tmp/pull_monitor.pid)
 
 BOT_TOKEN="8676824600:AAHcTkRFmRL25HwW1OC-l1jPyoDmYiu69u0"
-CHAT_ID="8585305446"
+CHAT_ID="${TELEGRAM_CHAT_ID}"
 LOG_DIR="/Users/openclaw/trading-framework/pipelines/insider_study/data"
 PULL_DIR="/Users/openclaw/trading-framework/pipelines/insider_study"
 LOG_FILE="${1:-full_pull_2016_2019.log}"
