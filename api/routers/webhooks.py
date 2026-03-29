@@ -14,6 +14,8 @@ from api.config import (
     API_PRICE_IDS,
 )
 
+from api.rate_limit import limiter
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/webhooks", tags=["webhooks"])
@@ -52,6 +54,7 @@ def _determine_tier_from_items(line_items: list) -> tuple[str, bool]:
 
 
 @router.post("/stripe")
+@limiter.exempt
 async def stripe_webhook(
     request: Request,
     stripe_signature: str = Header(alias="Stripe-Signature"),

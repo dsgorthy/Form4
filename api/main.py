@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import os
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from api.auth import UserContext, get_current_user
+from api.rate_limit import limiter
 
 from api.notifications_db import init_db as init_notifications_db
 from api.routers import (
@@ -33,6 +37,10 @@ app = FastAPI(
     version="0.2.0",
 )
 
+# Rate limiting
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:3000").split(","),
@@ -40,6 +48,39 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    """Set rate limit key and tier based on auth context before route handlers run."""
+    # Default to anonymous
+    request.state.rate_limit_key = None
+    request.state.rate_limit_tier = "anon"
+
+    # Check for API key first
+    api_key = request.headers.get("x-api-key")
+    if api_key and api_key.startswith("ie_"):
+        # Extract user_id from key format ie_{user_id}_{hex}
+        last_underscore = api_key.rfind("_")
+        if last_underscore > 3:
+            request.state.rate_limit_key = f"apikey:{api_key[3:last_underscore]}"
+            request.state.rate_limit_tier = "api_key"
+    elif request.headers.get("authorization", "").startswith("Bearer "):
+        # JWT auth — extract user_id from token without full validation
+        # (full validation happens in the route dependency)
+        try:
+            import jwt as _jwt
+            token = request.headers["authorization"][7:]
+            claims = _jwt.decode(token, options={"verify_signature": False})
+            user_id = claims.get("sub", "")
+            if user_id:
+                request.state.rate_limit_key = f"user:{user_id}"
+                request.state.rate_limit_tier = "auth"
+        except Exception:
+            pass
+
+    response = await call_next(request)
+    return response
 
 app.include_router(clusters.router)
 app.include_router(congress.router)
@@ -65,6 +106,7 @@ def startup() -> None:
 
 
 @app.get("/api/v1/health")
+@limiter.exempt
 def health() -> dict:
     return {"status": "ok"}
 
@@ -104,4 +146,5 @@ async def me(user: "UserContext" = Depends(get_current_user)) -> dict:
         "tier": user.tier,
         "is_pro": user.is_pro,
         "trial_days_left": user.trial_days_left,
+        "grace_days_left": user.grace_days_left,
     }

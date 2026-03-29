@@ -1,17 +1,19 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 
 from api.auth import UserContext, get_current_user
 from api.db import get_db
 from api.gating import null_items_track_records
 from api.id_encoding import encode_response_ids
+from api.rate_limit import limiter
 
 router = APIRouter(prefix="/api/v1/search", tags=["search"])
 
 
 @router.get("")
-def search(q: str = Query(..., min_length=1, max_length=100), user: UserContext = Depends(get_current_user)) -> dict:
+@limiter.limit("30/minute")
+def search(q: str = Query(..., min_length=1, max_length=100), request: Request = None, user: UserContext = Depends(get_current_user)) -> dict:
     """Search for tickers and insiders. Returns top 5 of each."""
     query = q.strip()
     query_upper = query.upper()
