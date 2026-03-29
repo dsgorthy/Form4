@@ -241,32 +241,72 @@ export default function SettingsPage() {
       {(() => {
         const meta = user?.unsafeMetadata as Record<string, unknown> | undefined;
         const skipped = meta?.onboardingSkipped || !meta?.userType;
-        return skipped ? (
-          <div className="rounded-lg border border-[#F59E0B]/30 bg-[#F59E0B]/5 p-6">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-[#F59E0B] mb-4">
-              Action Required
-            </h2>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-[#E8E8ED]">
-                  Complete your profile to unlock personalized signals
-                </p>
-                <p className="text-xs text-[#8888A0] mt-1">
-                  Takes 30 seconds — we'll tailor your dashboard, alerts, and recommendations.
-                </p>
+
+        const labels: Record<string, string> = {
+          individual: "Individual Investor", advisor: "Financial Advisor", quant: "Quant / Analyst",
+          fund_manager: "Fund Manager", journalist: "Journalist / Researcher", student: "Student / Academic",
+          trading_signals: "Trading Signals", research: "Research & Due Diligence", portfolio: "Portfolio Monitoring",
+          compliance: "Compliance Monitoring", academic: "Academic Research", tracking: "Tracking Insiders",
+          beginner: "New to it", intermediate: "Somewhat familiar", expert: "Regular user",
+        };
+
+        if (skipped) {
+          return (
+            <div className="rounded-lg border border-[#F59E0B]/30 bg-[#F59E0B]/5 p-6">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-[#F59E0B] mb-4">
+                Action Required
+              </h2>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-[#E8E8ED]">
+                    Complete your profile to unlock personalized signals
+                  </p>
+                  <p className="text-xs text-[#8888A0] mt-1">
+                    Takes 30 seconds — we'll tailor your dashboard, alerts, and recommendations.
+                  </p>
+                </div>
+                <a
+                  href="/onboarding"
+                  onClick={() => { user?.update({ unsafeMetadata: {} }); }}
+                  className="shrink-0 rounded-lg bg-[#F59E0B] px-4 py-2 text-sm font-semibold text-[#0A0A0F] hover:bg-[#D97706] transition-colors"
+                >
+                  Set Up Profile
+                </a>
               </div>
+            </div>
+          );
+        }
+
+        return (
+          <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] p-6">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-[#55556A] mb-4">
+              Profile
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <p className="text-xs text-[#55556A] mb-1">Role</p>
+                <p className="text-sm text-[#E8E8ED]">{labels[meta?.userType as string] || String(meta?.userType || "—")}</p>
+              </div>
+              <div>
+                <p className="text-xs text-[#55556A] mb-1">Primary Use</p>
+                <p className="text-sm text-[#E8E8ED]">{labels[meta?.primaryUseCase as string] || String(meta?.primaryUseCase || "—")}</p>
+              </div>
+              <div>
+                <p className="text-xs text-[#55556A] mb-1">Experience</p>
+                <p className="text-sm text-[#E8E8ED]">{labels[meta?.experienceLevel as string] || String(meta?.experienceLevel || "—")}</p>
+              </div>
+            </div>
+            <div className="mt-4 pt-4 border-t border-[#2A2A3A]">
               <a
                 href="/onboarding"
-                onClick={() => {
-                  user?.update({ unsafeMetadata: {} });
-                }}
-                className="shrink-0 rounded-lg bg-[#F59E0B] px-4 py-2 text-sm font-semibold text-[#0A0A0F] hover:bg-[#D97706] transition-colors"
+                onClick={() => { user?.update({ unsafeMetadata: {} }); }}
+                className="text-xs text-[#55556A] hover:text-[#8888A0] transition-colors"
               >
-                Set Up Profile
+                Edit profile
               </a>
             </div>
           </div>
-        ) : null;
+        );
       })()}
 
       {/* Subscription */}
