@@ -21,16 +21,14 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt -r api/requirements.txt
-          pip install httpx stripe "PyJWT[crypto]" pydantic python-dotenv resend
+          pip install httpx stripe "PyJWT[crypto]" pydantic python-dotenv resend slowapi
           pip install ruff pytest
 
       - name: Lint (ruff — critical errors only, tighten over time)
         run: ruff check api/ --select E9,F63,F7,F82
 
       - name: Test
-        run: pytest tests/unit -x -q
-        env:
-          PYTHONPATH: ${{ github.workspace }}
+        run: PYTHONPATH="${{ github.workspace }}" pytest tests/unit -x -q
 
   frontend:
     name: Frontend (typecheck + build)
