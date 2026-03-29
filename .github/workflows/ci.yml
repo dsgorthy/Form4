@@ -29,6 +29,8 @@ jobs:
 
       - name: Test
         run: pytest tests/unit -x -q
+        env:
+          PYTHONPATH: ${{ github.workspace }}
 
   frontend:
     name: Frontend (typecheck + build)
