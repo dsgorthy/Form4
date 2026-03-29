@@ -68,9 +68,7 @@ jobs:
     if: github.ref == 'refs/heads/staging' && github.event_name == 'push'
     steps:
       - name: Pull latest and deploy sandbox
-        run: |
-          security unlock-keychain -p "" ~/Library/Keychains/login.keychain-db 2>/dev/null || true
-          cd /Users/openclaw/trading-framework && git pull origin staging && ./deploy/deploy.sh --env sandbox
+        run: cd /Users/openclaw/trading-framework && git pull origin staging && ./deploy/deploy.sh --env sandbox
 
   deploy-prod:
     name: Deploy to production
@@ -79,6 +77,4 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
       - name: Pull latest and deploy production
-        run: |
-          security unlock-keychain -p "" ~/Library/Keychains/login.keychain-db 2>/dev/null || true
-          cd /Users/openclaw/trading-framework && git pull origin main && ./deploy/deploy.sh --env prod
+        run: cd /Users/openclaw/trading-framework && git pull origin main && ./deploy/deploy.sh --env prod
