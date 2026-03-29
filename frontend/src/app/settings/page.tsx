@@ -242,21 +242,26 @@ export default function SettingsPage() {
         const meta = user?.unsafeMetadata as Record<string, unknown> | undefined;
         const skipped = meta?.onboardingSkipped || !meta?.userType;
         return skipped ? (
-          <div className="rounded-lg border border-[#3B82F6]/20 bg-[#3B82F6]/5 p-4 flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-[#E8E8ED]">Complete your profile</p>
-              <p className="text-xs text-[#8888A0] mt-0.5">Help us personalize your Form4 experience</p>
+          <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] p-6">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-[#55556A] mb-4">
+              Profile
+            </h2>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-[#8888A0]">
+                  Help us personalize your Form4 experience
+                </p>
+              </div>
+              <a
+                href="/onboarding"
+                onClick={() => {
+                  user?.update({ unsafeMetadata: {} });
+                }}
+                className="shrink-0 rounded-lg border border-[#3B82F6]/30 bg-[#3B82F6]/10 px-4 py-2 text-sm font-medium text-[#3B82F6] hover:bg-[#3B82F6]/20 transition-colors"
+              >
+                Set Up Profile
+              </a>
             </div>
-            <a
-              href="/onboarding"
-              onClick={() => {
-                // Clear onboardingComplete so the page works
-                user?.update({ unsafeMetadata: {} });
-              }}
-              className="shrink-0 rounded-md bg-[#3B82F6] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#2563EB] transition-colors"
-            >
-              Set Up Profile
-            </a>
           </div>
         ) : null;
       })()}
