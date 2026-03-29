@@ -27,7 +27,8 @@ logs/
 *.log
 
 # Data (large files — not in git)
-data/
+/data/
+!framework/data/
 pipelines/data/
 pipelines/insider_study/data/
 strategies/insider_catalog/*.db
