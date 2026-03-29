@@ -123,7 +123,7 @@ export default function RootLayout({
           // UserProfile (Manage Account modal)
           userProfilePage: { backgroundColor: "#0A0A0F" },
           profilePage: { backgroundColor: "#0A0A0F" },
-          page: { backgroundColor: "#0A0A0F" },
+          page: { backgroundColor: "#0A0A0F", color: "#E8E8ED" },
           pageScrollBox: { backgroundColor: "#0A0A0F" },
           rootBox: { backgroundColor: "#0A0A0F" },
           modalContent: { backgroundColor: "#0A0A0F" },
@@ -140,13 +140,17 @@ export default function RootLayout({
           profileSectionContent: { color: "#E8E8ED" },
           profileSectionPrimaryButton: { color: "#3B82F6" },
           accordionTriggerButton: { color: "#E8E8ED" },
-          accordionContent: { backgroundColor: "#12121A" },
+          accordionContent: { backgroundColor: "#12121A", color: "#E8E8ED" },
           badge: { backgroundColor: "#1A1A26", color: "#8888A0", border: "1px solid #2A2A3A" },
           tagInputContainer: { backgroundColor: "#1A1A26", borderColor: "#2A2A3A" },
           activeDeviceIcon: { color: "#22C55E" },
           menuButton: { color: "#8888A0" },
           menuList: { backgroundColor: "#12121A", border: "1px solid #2A2A3A" },
           menuItem: { color: "#E8E8ED" },
+          // Catch-all for text elements Clerk renders inside the profile modal
+          formFieldLabelRow__error: { color: "#EF4444" },
+          tableHead: { color: "#8888A0" },
+          providerIcon__google: { filter: "brightness(0.9)" },
         },
       }}
     >

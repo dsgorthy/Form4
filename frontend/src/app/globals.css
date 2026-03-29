@@ -170,3 +170,56 @@
   color: #8888A0 !important;
 }
 
+/* Clerk UserProfile modal — force all text visible on dark bg */
+.cl-userProfile-root,
+.cl-userProfile-root *,
+.cl-modalContent,
+.cl-modalContent * {
+  --clerk-text: #E8E8ED;
+}
+
+.cl-profileSection__profile p,
+.cl-profileSection__emailAddresses p,
+.cl-profileSection__connectedAccounts p,
+.cl-profileSection__activeDevices p,
+.cl-profileSection__danger p,
+.cl-userProfile-root p,
+.cl-userProfile-root span,
+.cl-userProfile-root label,
+.cl-userProfile-root h1,
+.cl-userProfile-root h2,
+.cl-userProfile-root h3,
+.cl-userProfile-root td,
+.cl-userProfile-root th,
+.cl-userProfile-root li,
+.cl-userProfile-root div[class*="text"],
+.cl-modalContent p,
+.cl-modalContent span,
+.cl-modalContent label,
+.cl-modalContent h1,
+.cl-modalContent h2,
+.cl-modalContent h3,
+.cl-modalContent td,
+.cl-modalContent th,
+.cl-modalContent li {
+  color: #E8E8ED !important;
+}
+
+.cl-userProfile-root .cl-profileSectionTitle__profile,
+.cl-userProfile-root .cl-profileSectionTitle__emailAddresses,
+.cl-userProfile-root .cl-profileSectionTitle__connectedAccounts,
+.cl-userProfile-root .cl-profileSectionTitle__activeDevices,
+.cl-userProfile-root .cl-profileSectionTitle__danger {
+  border-bottom-color: #2A2A3A !important;
+}
+
+.cl-userProfile-root button[class*="destructive"],
+.cl-modalContent button[class*="destructive"] {
+  color: #EF4444 !important;
+}
+
+.cl-userProfile-root a,
+.cl-modalContent a {
+  color: #3B82F6 !important;
+}
+
