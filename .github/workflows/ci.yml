@@ -66,14 +66,7 @@ jobs:
     runs-on: self-hosted
     needs: [backend, frontend]
     if: github.ref == 'refs/heads/staging' && github.event_name == 'push'
-    env:
-      DOCKER_CONFIG: /Users/openclaw/trading-framework/actions-runner/.docker-ci
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Ensure clean Docker config
-        run: mkdir -p "$DOCKER_CONFIG" && echo '{"auths":{},"currentContext":"desktop-linux"}' > "$DOCKER_CONFIG/config.json"
-
       - name: Pull latest and deploy sandbox
         run: cd /Users/openclaw/trading-framework && git pull origin staging && ./deploy/deploy.sh --env sandbox
 
@@ -82,13 +75,6 @@ jobs:
     runs-on: self-hosted
     needs: [backend, frontend]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    env:
-      DOCKER_CONFIG: /Users/openclaw/trading-framework/actions-runner/.docker-ci
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Ensure clean Docker config
-        run: mkdir -p "$DOCKER_CONFIG" && echo '{"auths":{},"currentContext":"desktop-linux"}' > "$DOCKER_CONFIG/config.json"
-
       - name: Pull latest and deploy production
         run: cd /Users/openclaw/trading-framework && git pull origin main && ./deploy/deploy.sh --env prod
