@@ -242,14 +242,17 @@ export default function SettingsPage() {
         const meta = user?.unsafeMetadata as Record<string, unknown> | undefined;
         const skipped = meta?.onboardingSkipped || !meta?.userType;
         return skipped ? (
-          <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] p-6">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-[#55556A] mb-4">
-              Profile
+          <div className="rounded-lg border border-[#F59E0B]/30 bg-[#F59E0B]/5 p-6">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-[#F59E0B] mb-4">
+              Action Required
             </h2>
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-[#8888A0]">
-                  Help us personalize your Form4 experience
+                <p className="text-sm font-medium text-[#E8E8ED]">
+                  Complete your profile to unlock personalized signals
+                </p>
+                <p className="text-xs text-[#8888A0] mt-1">
+                  Takes 30 seconds — we'll tailor your dashboard, alerts, and recommendations.
                 </p>
               </div>
               <a
@@ -257,7 +260,7 @@ export default function SettingsPage() {
                 onClick={() => {
                   user?.update({ unsafeMetadata: {} });
                 }}
-                className="shrink-0 rounded-lg border border-[#3B82F6]/30 bg-[#3B82F6]/10 px-4 py-2 text-sm font-medium text-[#3B82F6] hover:bg-[#3B82F6]/20 transition-colors"
+                className="shrink-0 rounded-lg bg-[#F59E0B] px-4 py-2 text-sm font-semibold text-[#0A0A0F] hover:bg-[#D97706] transition-colors"
               >
                 Set Up Profile
               </a>
