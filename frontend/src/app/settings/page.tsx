@@ -267,7 +267,7 @@ export default function SettingsPage() {
                 </div>
                 <a
                   href="/onboarding"
-                  onClick={() => { user?.update({ unsafeMetadata: {} }); }}
+                  onClick={() => { const prev = user?.unsafeMetadata || {}; user?.update({ unsafeMetadata: { ...prev, onboardingComplete: false } }); }}
                   className="shrink-0 rounded-lg bg-[#F59E0B] px-4 py-2 text-sm font-semibold text-[#0A0A0F] hover:bg-[#D97706] transition-colors"
                 >
                   Set Up Profile
@@ -299,7 +299,7 @@ export default function SettingsPage() {
             <div className="mt-4 pt-4 border-t border-[#2A2A3A]">
               <a
                 href="/onboarding"
-                onClick={() => { user?.update({ unsafeMetadata: {} }); }}
+                onClick={() => { const prev = user?.unsafeMetadata || {}; user?.update({ unsafeMetadata: { ...prev, onboardingComplete: false } }); }}
                 className="text-xs text-[#55556A] hover:text-[#8888A0] transition-colors"
               >
                 Edit profile

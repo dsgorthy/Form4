@@ -107,10 +107,13 @@ export default function OnboardingPage() {
   const { getToken } = useAuth();
   const router = useRouter();
 
-  const [userType, setUserType] = useState<string | null>(null);
-  const [useCase, setUseCase] = useState<string | null>(null);
-  const [experience, setExperience] = useState<string | null>(null);
-  const [referral, setReferral] = useState<string>("not_specified");
+  // Pre-fill from existing metadata (editing flow)
+  const existing = user?.unsafeMetadata as Record<string, string> | undefined;
+
+  const [userType, setUserType] = useState<string | null>(existing?.userType || null);
+  const [useCase, setUseCase] = useState<string | null>(existing?.primaryUseCase || null);
+  const [experience, setExperience] = useState<string | null>(existing?.experienceLevel || null);
+  const [referral, setReferral] = useState<string>(existing?.referralSource || "not_specified");
   const [submitting, setSubmitting] = useState(false);
 
   const canSubmit = userType && useCase && experience;
@@ -121,13 +124,16 @@ export default function OnboardingPage() {
     setSubmitting(true);
 
     try {
-      // Write to Clerk unsafeMetadata
+      // Write to Clerk unsafeMetadata, preserving existing data on skip
+      const prev = (user.unsafeMetadata || {}) as Record<string, unknown>;
       await user.update({
         unsafeMetadata: {
+          ...prev,
           onboardingComplete: true,
           ...(skipped
-            ? { onboardingSkipped: true }
+            ? { onboardingSkipped: !prev.userType }
             : {
+                onboardingSkipped: false,
                 userType,
                 primaryUseCase: useCase,
                 experienceLevel: experience,
