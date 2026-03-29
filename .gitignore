@@ -62,3 +62,4 @@ Thumbs.db
 # Backups
 data/db-backups/
 data/content-archive/
+api/*.db-*
