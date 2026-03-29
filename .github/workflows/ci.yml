@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, staging]
   pull_request:
-    branches: [main]
+    branches: [main, staging]
 
 jobs:
   backend:
@@ -61,15 +61,26 @@ jobs:
           NEXT_PUBLIC_STRIPE_PRO_YEARLY_PRICE_ID: placeholder
           NEXT_PUBLIC_STRIPE_API_MONTHLY_PRICE_ID: placeholder
 
-  docker:
-    name: Docker build
-    runs-on: ubuntu-latest
+  deploy-sandbox:
+    name: Deploy to sandbox
+    runs-on: self-hosted
     needs: [backend, frontend]
+    if: github.ref == 'refs/heads/staging' && github.event_name == 'push'
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build API image
-        run: docker build -f deploy/Dockerfile.api -t form4-api .
+      - name: Deploy sandbox
+        run: ./deploy/deploy.sh --env sandbox
+        working-directory: /Users/openclaw/trading-framework
 
-      - name: Build frontend image
-        run: docker build -f deploy/Dockerfile.frontend -t form4-frontend .
+  deploy-prod:
+    name: Deploy to production
+    runs-on: self-hosted
+    needs: [backend, frontend]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy production
+        run: ./deploy/deploy.sh --env prod
+        working-directory: /Users/openclaw/trading-framework
