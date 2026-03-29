@@ -57,6 +57,17 @@ CREATE TABLE IF NOT EXISTS scan_watermarks (
     event_type TEXT PRIMARY KEY,
     last_processed_date TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS user_profiles (
+    user_id TEXT PRIMARY KEY,
+    user_type TEXT,
+    primary_use_case TEXT,
+    experience_level TEXT,
+    referral_source TEXT,
+    onboarding_skipped INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
 """
 
 
@@ -67,6 +78,17 @@ def init_db() -> None:
         conn.executescript(SCHEMA)
         # Additive migrations — safe to re-run
         _add_column_if_missing(conn, "notification_preferences", "portfolio_alert", "INTEGER NOT NULL DEFAULT 1")
+        # Ensure user_profiles table exists on DBs created before this schema addition
+        conn.execute("""CREATE TABLE IF NOT EXISTS user_profiles (
+            user_id TEXT PRIMARY KEY,
+            user_type TEXT,
+            primary_use_case TEXT,
+            experience_level TEXT,
+            referral_source TEXT,
+            onboarding_skipped INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now'))
+        )""")
     finally:
         conn.close()
 

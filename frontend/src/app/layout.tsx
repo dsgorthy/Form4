@@ -6,6 +6,7 @@ import { Inter, JetBrains_Mono } from "next/font/google";
 import { Nav } from "@/components/nav";
 import { TrialBanner } from "@/components/trial-banner";
 import { Footer } from "@/components/footer";
+import { OnboardingGuard } from "@/components/onboarding-guard";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
 
@@ -141,6 +142,7 @@ export default function RootLayout({
           className={`${inter.variable} ${jetbrainsMono.variable} antialiased font-sans`}
         >
           <TooltipProvider>
+            <OnboardingGuard />
             <Nav />
             <TrialBanner />
             <main className="mx-auto max-w-7xl px-4 py-4 md:px-6 md:py-6">{children}</main>

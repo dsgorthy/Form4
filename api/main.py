@@ -26,6 +26,7 @@ from api.routers import (
     insiders,
     leaderboard,
     notifications,
+    onboarding,
     private_companies,
     search,
     signals,
@@ -98,6 +99,7 @@ app.include_router(webhooks.router)
 app.include_router(api_keys.router)
 app.include_router(export.router)
 app.include_router(notifications.router)
+app.include_router(onboarding.router)
 app.include_router(portfolio.router)
 app.include_router(private_companies.router)
 

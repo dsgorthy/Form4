@@ -1,7 +1,8 @@
 import { clerkMiddleware } from "@clerk/nextjs/server";
 
 // Permissive middleware — no routes are blocked.
-// Auth state is available but never required.
+// Onboarding redirect is handled client-side via OnboardingGuard component
+// because Clerk doesn't include unsafeMetadata in JWT claims by default.
 export default clerkMiddleware();
 
 export const config = {
