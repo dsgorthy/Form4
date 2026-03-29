@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, HTTPException
 
@@ -51,6 +51,11 @@ def null_items_track_records(items: list[dict]) -> list[dict]:
 def get_free_cutoff_date() -> str:
     """Return the earliest date free users can access (90 days ago)."""
     return (datetime.utcnow() - timedelta(days=FREE_TIER_DAYS)).strftime("%Y-%m-%d")
+
+
+def get_grace_cutoff_datetime() -> str:
+    """Return the cutoff datetime for grace users (24h ago). Filings filed before this are visible."""
+    return (datetime.utcnow() - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
 
 
 # Fields redacted on gated items (identifying data hidden, but structural fields kept)

@@ -24,18 +24,29 @@ def _get_jwks_client() -> PyJWKClient:
 
 
 TRIAL_DAYS = 7
+GRACE_DAYS = 7  # 7 more days after trial ends
 
 
 @dataclass
 class UserContext:
     user_id: Optional[str] = None
-    tier: str = "free"  # "free" | "pro" | "trial"
+    tier: str = "free"  # "free" | "pro" | "trial" | "grace"
     api_access: bool = False
     trial_days_left: int = 0
+    grace_days_left: int = 0
 
     @property
     def is_pro(self) -> bool:
         return self.tier in ("pro", "trial")
+
+    @property
+    def is_grace(self) -> bool:
+        return self.tier == "grace"
+
+    @property
+    def has_full_feed(self) -> bool:
+        """Pro, trial, and grace users see the full feed (no 90-day cutoff, no gated items)."""
+        return self.tier in ("pro", "trial", "grace")
 
 
 ANONYMOUS = UserContext()
@@ -129,9 +140,8 @@ async def get_current_user(
         if tier == "pro":
             return UserContext(user_id=user_id, tier="pro", api_access=api_access)
 
-        # Check for free trial based on account creation date
+        # Check for free trial / grace period based on account creation date
         created_at = metadata.get("_created_at")
-        trial_days_left = 0
         if created_at:
             import time as _time
             # Clerk returns created_at as milliseconds since epoch
@@ -142,6 +152,12 @@ async def get_current_user(
                 return UserContext(
                     user_id=user_id, tier="trial",
                     api_access=api_access, trial_days_left=trial_days_left,
+                )
+            elif age_days <= TRIAL_DAYS + GRACE_DAYS:
+                grace_days_left = max(1, int(TRIAL_DAYS + GRACE_DAYS - age_days + 0.5))
+                return UserContext(
+                    user_id=user_id, tier="grace",
+                    api_access=api_access, grace_days_left=grace_days_left,
                 )
 
         return UserContext(user_id=user_id, tier=tier or "free", api_access=api_access)

@@ -165,12 +165,13 @@ def list_clusters(
             ins_list = [dict(ir) for ir in insider_rows]
             if not user.is_pro:
                 ins_list = null_items_track_records(ins_list)
+            if not user.has_full_feed:
                 for ins in ins_list:
                     ins["gated"] = True
                 ins_list = redact_gated_items(ins_list)
             encode_response_ids(ins_list, trade=False, insider=True)
             cluster["insiders"] = ins_list
-            cluster["gated"] = not user.is_pro
+            cluster["gated"] = not user.has_full_feed
             clusters.append(cluster)
 
     return {
@@ -274,6 +275,7 @@ def get_cluster_detail(
         ins_list = deduped
         if not user.is_pro:
             ins_list = null_items_track_records(ins_list)
+        if not user.has_full_feed:
             for ins in ins_list:
                 ins["gated"] = True
             ins_list = redact_gated_items(ins_list)
@@ -319,11 +321,12 @@ def get_cluster_detail(
         trades_list = [dict(tr) for tr in trade_rows]
         if not user.is_pro:
             trades_list = null_items_track_records(trades_list)
+        if not user.has_full_feed:
             for t in trades_list:
                 t["gated"] = True
             trades_list = redact_gated_items(trades_list)
         encode_response_ids(trades_list)
         result["trades"] = trades_list
 
-    result["gated"] = not user.is_pro
+    result["gated"] = not user.has_full_feed
     return result

@@ -108,7 +108,7 @@ def get_company_trades(
 ) -> dict:
     """Paginated trades for a company. Free users see all trades but gated ones are marked."""
     ticker = ticker.upper()
-    free_cutoff = get_free_cutoff_date() if not user.is_pro else None
+    free_cutoff = get_free_cutoff_date() if not user.has_full_feed else None
 
     conditions = ["t.ticker = ?", "(t.is_duplicate = 0 OR t.is_duplicate IS NULL)"]
     params: list = [ticker]
@@ -234,7 +234,7 @@ def get_company_price_history(ticker: str, user: UserContext = Depends(get_curre
 
     add_trans_code_filter(conditions, params_list, "P,S")
 
-    if not user.is_pro:
+    if not user.has_full_feed:
         cutoff = get_free_cutoff_date()
         conditions.append("t.trade_date >= ?")
         params_list.append(cutoff)
@@ -317,7 +317,7 @@ def get_chart_data(
         trade_start = "2016-01-01"
         trade_end = date.today().isoformat()
 
-    free_cutoff = get_free_cutoff_date() if not user.is_pro else None
+    free_cutoff = get_free_cutoff_date() if not user.has_full_feed else None
 
     # Build dynamic WHERE clause for trade filters
     conditions = ["t.ticker = ?", "t.trade_date >= ?", "t.trade_date <= ?", "(t.is_duplicate = 0 OR t.is_duplicate IS NULL)"]

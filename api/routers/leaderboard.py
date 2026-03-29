@@ -99,6 +99,7 @@ def leaderboard(
     items = [dict(r) for r in rows]
     if not user.is_pro:
         items = null_items_track_records(items)
+    if not user.has_full_feed:
         for item in items:
             item["gated"] = True
         items = redact_gated_items(items)
@@ -109,7 +110,7 @@ def leaderboard(
         "limit": limit,
         "offset": offset,
         "items": items,
-        "gated": not user.is_pro,
+        "gated": not user.has_full_feed,
     }
 
 

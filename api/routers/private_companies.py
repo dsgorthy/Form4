@@ -203,7 +203,7 @@ def get_private_company_trades(
     except Exception:
         raise HTTPException(status_code=404, detail="Invalid company slug")
 
-    free_cutoff = get_free_cutoff_date() if not user.is_pro else None
+    free_cutoff = get_free_cutoff_date() if not user.has_full_feed else None
 
     conditions = [
         "t.ticker = 'NONE'",

@@ -213,7 +213,7 @@ def get_portfolio(
 
     # Gating: free users see last FREE_VISIBLE trades ungated, rest blurred
     FREE_VISIBLE = 10
-    is_pro = user.is_pro
+    is_pro = user.has_full_feed
     free_cutoff = (
         datetime.utcnow() - timedelta(days=FREE_TIER_DAYS)
     ).strftime("%Y-%m-%d")

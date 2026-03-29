@@ -101,12 +101,13 @@ def sell_cessation(
 
     if not user.is_pro:
         items = null_items_track_records(items)
+    if not user.has_full_feed:
         for item in items:
             item["gated"] = True
         items = redact_gated_items(items)
     encode_response_ids(items, trade=False, insider=True)
 
-    return {"items": items, "total": len(items), "gated": not user.is_pro}
+    return {"items": items, "total": len(items), "gated": not user.has_full_feed}
 
 
 @router.get("/tagged")
@@ -148,7 +149,7 @@ def tagged_signals(
         conditions.append("(t.is_routine != 1 OR t.is_routine IS NULL)")
 
     where_clause = " AND ".join(conditions)
-    free_cutoff = get_free_cutoff_date() if not user.is_pro else None
+    free_cutoff = get_free_cutoff_date() if not user.has_full_feed else None
 
     with get_db() as conn:
         # Check if trade_signals table exists

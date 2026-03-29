@@ -303,6 +303,7 @@ def dashboard_highlights(user: UserContext = Depends(get_current_user)) -> dict:
     if not user.is_pro:
         csuite_list = null_items_track_records(csuite_list)
         sells_list = null_items_track_records(sells_list)
+    if not user.has_full_feed:
         for item in csuite_list + sells_list:
             item["gated"] = True
         csuite_list = redact_gated_items(csuite_list)
@@ -315,7 +316,7 @@ def dashboard_highlights(user: UserContext = Depends(get_current_user)) -> dict:
         "large_sells": sells_list,
         "top_clusters": clusters_list,
         "as_of": latest,
-        "gated": not user.is_pro,
+        "gated": not user.has_full_feed,
     }
 
 
@@ -494,11 +495,11 @@ def dashboard_inflections(
     items.sort(key=lambda x: x["ratio"], reverse=True)
     items = items[:20]
 
-    if not user.is_pro:
+    if not user.has_full_feed:
         for item in items:
             item["gated"] = True
 
-    return {"items": items, "total": len(items), "gated": not user.is_pro}
+    return {"items": items, "total": len(items), "gated": not user.has_full_feed}
 
 
 @router.get("/filing-delays")
