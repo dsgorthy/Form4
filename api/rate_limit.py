@@ -37,4 +37,7 @@ def get_dynamic_rate(request: Request) -> str:
     return ANON_RATE
 
 
-limiter = Limiter(key_func=_key_func, default_limits=[get_dynamic_rate])
+# 60/min per key. Auth users each get their own bucket (by user_id),
+# anonymous users share a bucket per IP. Per-endpoint overrides for
+# expensive operations (export: 10/min, search: 30/min).
+limiter = Limiter(key_func=_key_func, default_limits=["60/minute"])
