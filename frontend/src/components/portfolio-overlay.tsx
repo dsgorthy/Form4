@@ -37,10 +37,11 @@ const RANGES = [
 ] as const;
 
 interface PortfolioOverlayProps {
+  strategy?: string;
   onDateRangeChange?: (from: string | null, to: string | null) => void;
 }
 
-export function PortfolioOverlay({ onDateRangeChange }: PortfolioOverlayProps) {
+export function PortfolioOverlay({ strategy = "form4_insider", onDateRangeChange }: PortfolioOverlayProps) {
   const { getToken } = useAuth();
   const [data, setData] = useState<OverlayData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -57,13 +58,13 @@ export function PortfolioOverlay({ onDateRangeChange }: PortfolioOverlayProps) {
     setLoading(true);
     try {
       const token = await getToken();
-      const res = await fetch(`${apiBase}/portfolio/overlay`, {
+      const res = await fetch(`${apiBase}/portfolio/overlay?strategy=${strategy}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (res.ok) setData(await res.json());
     } catch {}
     setLoading(false);
-  }, [getToken]);
+  }, [getToken, strategy]);
 
   useEffect(() => { loadData(); }, [loadData]);
 

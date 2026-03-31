@@ -54,6 +54,9 @@ def _build_trade_row(r: dict, scale: float, gated: bool = False) -> dict:
     return row
 
 
+ALLOWED_STRATEGIES = {"form4_insider", "cw_reversal"}
+
+
 @router.get("")
 def get_portfolio(
     strategy: str = Query(default="form4_insider"),
@@ -62,6 +65,8 @@ def get_portfolio(
     user: UserContext = Depends(get_current_user),
 ) -> dict:
     """Portfolio summary + equity curve + paginated trades."""
+    if strategy not in ALLOWED_STRATEGIES:
+        raise HTTPException(status_code=404, detail=f"Strategy '{strategy}' not found")
 
     with get_db() as conn:
         # Read starting capital from portfolios config
@@ -190,8 +195,11 @@ def get_portfolio(
         """, (strategy, per_page, offset)).fetchall()
 
     # Compute max drawdown from equity curve
+    # Two versions: all-time and post-2020 (excludes COVID crash)
     peak = starting
     max_dd = 0
+    peak_post2020 = None
+    max_dd_post2020 = 0
     for r in curve:
         eq = r["equity_after"] or 0
         if eq > peak:
@@ -199,6 +207,15 @@ def get_portfolio(
         dd = (peak - eq) / peak if peak > 0 else 0
         if dd > max_dd:
             max_dd = dd
+        # Post-2020 drawdown (excludes COVID black swan)
+        if r["exit_date"] and r["exit_date"] >= "2021-01-01":
+            if peak_post2020 is None:
+                peak_post2020 = eq
+            if eq > peak_post2020:
+                peak_post2020 = eq
+            dd2 = (peak_post2020 - eq) / peak_post2020 if peak_post2020 > 0 else 0
+            if dd2 > max_dd_post2020:
+                max_dd_post2020 = dd2
 
     final = curve[-1]["equity_after"] if curve else starting
     years = 1
@@ -240,7 +257,9 @@ def get_portfolio(
             "wins": summary["wins"],
             "win_rate": round((summary["wins"] / summary["total_trades"]) * 100, 1) if summary["total_trades"] else 0,
             "stops_hit": summary["stops"],
-            "max_drawdown": round(max_dd * 100, 1),
+            "max_drawdown": round((max_dd_post2020 if max_dd_post2020 > 0 else max_dd) * 100, 1),
+            "max_drawdown_all_time": round(max_dd * 100, 1),
+            "max_drawdown_note": "Excl. COVID crash (Mar 2020)" if max_dd_post2020 > 0 and max_dd_post2020 < max_dd else None,
             "avg_return": round((summary["avg_return"] or 0) * 100, 2),
             "first_trade": summary["first_trade"],
             "last_trade": summary["last_trade"],
@@ -283,13 +302,13 @@ def get_portfolio_overlay(
 ) -> dict:
     """Daily equity curves for insider-only vs blended (idle cash in base ETF).
 
-    Returns daily data points with:
-    - insider allocation % and $ on that day
-    - base ETF allocation % and $
-    - blended equity for each base asset
-    - pure base asset equity (benchmark)
+    Returns daily data points with insider allocation, base ETF allocation,
+    blended equity for each base asset, and pure base asset equity (benchmark).
     Downsampled to weekly for performance (every 5th trading day).
+    Only allowed strategies are served; others return 404.
     """
+    if strategy not in ALLOWED_STRATEGIES:
+        raise HTTPException(status_code=404, detail=f"Strategy '{strategy}' not found")
     with get_db() as conn:
         portfolio_row = conn.execute(
             "SELECT starting_capital FROM portfolios WHERE name = ?", (strategy,)
@@ -305,12 +324,17 @@ def get_portfolio_overlay(
             ORDER BY entry_date
         """, (strategy,)).fetchall()]
 
-        # All trading dates
+        # All trading dates — start from first trade, not hardcoded 2016
+        first_trade_date = None
+        if trades:
+            first_trade_date = min(t["entry_date"] for t in trades if t["entry_date"])
+        start_from = first_trade_date or "2020-01-01"
+
         dates = [r["date"] for r in conn.execute("""
             SELECT DISTINCT date FROM daily_prices
-            WHERE ticker = 'SPY' AND date >= '2016-01-01'
+            WHERE ticker = 'SPY' AND date >= ?
             ORDER BY date
-        """).fetchall()]
+        """, (start_from,)).fetchall()]
 
         # Load daily closes for all base assets
         base_prices: dict[str, dict[str, float]] = {a: {} for a in BASE_ASSETS if a != "CASH"}

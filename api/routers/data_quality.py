@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+
+from api.auth import UserContext, get_current_user
 
 router = APIRouter(prefix="/api/v1/data-quality", tags=["data-quality"])
 
@@ -11,7 +13,7 @@ REPORTS_DIR = Path(__file__).resolve().parent.parent.parent / "reports"
 
 
 @router.get("")
-def get_data_quality_report() -> dict:
+def get_data_quality_report(user: UserContext = Depends(get_current_user)) -> dict:
     """Serve the latest data quality report."""
     report_path = REPORTS_DIR / "data_quality.json"
     if not report_path.exists():

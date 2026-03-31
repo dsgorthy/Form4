@@ -35,6 +35,7 @@ strategies/insider_catalog/*.db
 strategies/insider_catalog/*.db-*
 strategies/insider_catalog/*.bak*
 strategies/insider_catalog/sandbox/
+strategies/insider_catalog/data/
 
 # Reports (generated output)
 reports/
@@ -60,7 +61,16 @@ Thumbs.db
 .vscode/
 .idea/
 
+# CI runner (local only — 500MB+)
+actions-runner/
+
+# Competitor intel / research scratch
+competitor_intel/
+
 # Backups
 data/db-backups/
 data/content-archive/
 api/*.db-*
+strategies/insider_catalog/prices.db.corrupt*
+com.openclaw.intraday-backfill.plist
+strategies/cw_strategies/com.openclaw.*.plist

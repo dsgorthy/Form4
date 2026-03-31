@@ -8,6 +8,7 @@ import json
 
 from api.auth import UserContext, get_current_user
 from api.db import get_db
+from api.filters import deduplicate_filers
 from api.gating import get_free_cutoff_date, null_items_track_records, redact_gated_items
 from api.id_encoding import encode_response_ids
 
@@ -85,19 +86,12 @@ def sell_cessation(
             items.append(item)
 
     # Deduplicate entities reporting the same economic event
-    seen_sigs: dict[str, dict] = {}
-    deduped = []
-    for item in items:
-        sig = f"{round(item['sell_value_12m'], 0)}|{item.get('last_sell_date', '')}"
-        if sig in seen_sigs:
-            seen_sigs[sig]["n_filers"] = seen_sigs[sig].get("n_filers", 1) + 1
-            if (item.get("score") or 0) > (seen_sigs[sig].get("score") or 0):
-                seen_sigs[sig].update({k: item[k] for k in ("insider_id", "name", "cik", "score", "score_tier") if k in item})
-        else:
-            item["n_filers"] = 1
-            seen_sigs[sig] = item
-            deduped.append(item)
-    items = deduped
+    items = deduplicate_filers(
+        items,
+        value_key="sell_value_12m",
+        date_key="last_sell_date",
+        identity_keys=("insider_id", "name", "cik", "score", "score_tier"),
+    )
 
     if not user.is_pro:
         items = null_items_track_records(items)

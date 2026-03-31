@@ -1,10 +1,38 @@
 # Trading Framework
 
-Event-driven backtesting engine + strategy research platform. Strategies go through research → backtest → board review → paper trading.
+Event-driven backtesting engine + strategy research platform + Form4.app product. Strategies go through research → backtest → board review → paper trading. The product frontend and API live in this same repo.
+
+## BEFORE BUILDING ANYTHING
+
+**ALWAYS check Claude memory for `reference_product_audit.md` and `reference_project_structure.md` before implementing any feature.** These contain the complete inventory of every page, component, API endpoint, and shared utility. Reuse or extend existing code instead of creating new files. Specifically:
+
+1. **Check if a component already exists** — 70+ components in `frontend/src/components/`. Don't create a new table when `trades-table.tsx` or `signals-table.tsx` already exists.
+2. **Check if an API endpoint already exists** — 13 routers with 40+ endpoints. The portfolio API already supports `?strategy=` param.
+3. **Follow existing patterns** — dark theme colors, table structure, gating logic, pagination, ID encoding all have established conventions.
+4. **The portfolio overlay already handles idle cash** — `portfolio-overlay.tsx` exists. Extend it, don't replace it.
+5. **Keep documentation current** — When adding, removing, or overhauling a feature, update `reference_product_audit.md` in Claude memory. This is a living document, not a snapshot. If you add a new page, component, or API endpoint, document it. If you remove or rename one, remove or update the entry.
+6. **Price data lives in `prices.db`** — NEVER load prices from CSV files or create new price caches. Use `prices.db` (`strategies/insider_catalog/prices.db`) via `pipelines/insider_study/price_utils.py`. It has 7,500+ tickers with daily OHLCV from 2016-present. If a ticker is missing, pull it from Alpaca and INSERT into `prices.db`. Use `price_utils.get_close(ticker, date)` for single lookups, `price_utils.load_prices(ticker)` for full series. Never accumulate all tickers in memory — load one, use it, move on.
+7. **Backtesting must use day-by-day simulation** — never pre-compute exit dates at entry time. Walk through each trading day, check exits on all open positions, then process new entries. This prevents capacity violations and ensures position counts never exceed limits. Total allocation must NEVER exceed 100% of equity.
 
 ## Architecture
 
 ```
+frontend/                       # Form4.app — Next.js 15 + Clerk auth + Tailwind
+  src/
+    app/                        # App router pages (portfolio, feed, clusters, insiders, etc.)
+    components/                 # React components (portfolio-view, charts, tables)
+    lib/                        # Utilities (echarts theme, formatting, subscription checks)
+  package.json                  # Node dependencies
+  next.config.ts
+
+api/                            # FastAPI backend — serves /api/v1/*
+  main.py                       # App entry, CORS, middleware
+  routers/                      # Route modules (portfolio.py, signals.py, clusters.py, etc.)
+  db.py                         # SQLite connection to insiders.db
+  auth.py                       # Clerk JWT verification
+  gating.py                     # Free/Pro tier gating logic
+  rate_limit.py                 # slowapi rate limiting
+
 framework/
   strategy.py               # BaseStrategy ABC (data_requirements, generate_signal, select_instrument, should_exit)
   backtest/

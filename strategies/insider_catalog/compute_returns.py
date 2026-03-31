@@ -41,10 +41,11 @@ logger = logging.getLogger(__name__)
 CATALOG_DIR = Path(__file__).resolve().parent
 DB_PATH = CATALOG_DIR / "insiders.db"
 PRICES_DIR = Path(__file__).resolve().parent.parent.parent / "pipelines" / "insider_study" / "data" / "prices"
+PRICES_DB = Path(__file__).resolve().parent / "prices.db"
 
 # Minimum calendar days that must have elapsed since trade_date before
 # we consider a return window valid.  Keyed by window label.
-WINDOW_MIN_DAYS = {"7d": 7, "30d": 30, "90d": 90, "180d": 180, "365d": 365}
+WINDOW_MIN_DAYS = {"7d": 7, "14d": 14, "30d": 30, "60d": 60, "90d": 90, "180d": 180, "365d": 365}
 
 # Ticker aliases: map tickers that share price data but have different symbols
 # e.g., GOOGL (Class A) and GOOG (Class C) trade at nearly identical prices
@@ -55,75 +56,89 @@ TICKER_ALIASES = {
     "GAP": "GPS",
 }
 
-# Cache loaded price DataFrames
-_price_cache: dict[str, Optional[pd.DataFrame]] = {}
+# ---------------------------------------------------------------------------
+# Price lookups — pure SQL, no DataFrames, no memory accumulation
+# ---------------------------------------------------------------------------
+
+_prices_conn: Optional[sqlite3.Connection] = None
 
 
-def load_prices(ticker: str) -> Optional[pd.DataFrame]:
-    """Load daily OHLCV from CSV, cached in memory. Falls back to ticker aliases."""
-    if ticker in _price_cache:
-        return _price_cache[ticker]
+def _get_prices_conn() -> Optional[sqlite3.Connection]:
+    """Lazy singleton connection to prices.db."""
+    global _prices_conn
+    if _prices_conn is not None:
+        return _prices_conn
+    if PRICES_DB.exists():
+        _prices_conn = sqlite3.connect(f"file:{PRICES_DB}?mode=ro", uri=True)
+        return _prices_conn
+    return None
 
-    path = PRICES_DIR / f"{ticker.upper()}.csv"
-    if not path.exists():
-        # Try alias
-        alias = TICKER_ALIASES.get(ticker.upper())
-        if alias:
-            path = PRICES_DIR / f"{alias}.csv"
-        if not path.exists():
-            _price_cache[ticker] = None
-            return None
 
-    try:
-        df = pd.read_csv(path, index_col=0, parse_dates=True)
-        df.index = pd.to_datetime(df.index, utc=True).tz_convert(None)
-        df.columns = [c.lower() for c in df.columns]
-        _price_cache[ticker] = df
-        return df
-    except Exception:
-        _price_cache[ticker] = None
+def _resolve_ticker(ticker: str) -> str:
+    """Resolve ticker aliases."""
+    upper = ticker.upper()
+    return TICKER_ALIASES.get(upper, upper)
+
+
+def load_prices(ticker: str) -> Optional[str]:
+    """Check if a ticker has price data. Returns the resolved ticker name or None.
+    No DataFrame, no memory — just a DB existence check."""
+    pconn = _get_prices_conn()
+    if pconn is None:
         return None
+    resolved = _resolve_ticker(ticker)
+    for t in [resolved, ticker.upper()]:
+        r = pconn.execute("SELECT 1 FROM daily_prices WHERE ticker = ? LIMIT 1", (t,)).fetchone()
+        if r:
+            return t
+    return None
 
 
 def get_price_at_offset(
-    df: pd.DataFrame,
-    ref_date: pd.Timestamp,
+    ticker_resolved: str,
+    ref_date,
     calendar_days: int = 0,
     trading_days: int = 0,
     price_col: str = "close",
 ) -> Optional[tuple[float, pd.Timestamp]]:
-    """
-    Get price at an offset from ref_date.
+    """Get price at an offset from ref_date using pure SQL.
 
-    If trading_days > 0: count trading days in the price index.
-    If calendar_days > 0: go to ref_date + calendar_days, then find the
-        nearest trading day on or after that date.
+    ticker_resolved: resolved ticker string (not a DataFrame).
+    ref_date: pd.Timestamp or string date.
 
-    Returns (price, actual_date) or None.
+    If trading_days > 0: count N trading days after ref_date.
+    If calendar_days > 0: find nearest trading day on or after ref_date + calendar_days.
+
+    Returns (price, actual_date) or None. Zero memory overhead.
     """
+    pconn = _get_prices_conn()
+    if pconn is None:
+        return None
+
+    ref_str = str(ref_date)[:10] if not isinstance(ref_date, str) else ref_date[:10]
+
     if trading_days > 0:
-        # Normalize to next calendar day to ensure T+1 (not same-day due to UTC offset)
-        next_day = (ref_date + timedelta(days=1)).normalize()
-        future = df.index[df.index >= next_day]
-        if len(future) < trading_days:
-            return None
-        target = future[trading_days - 1]
+        # Find the Nth trading day after ref_date
+        # T+1: start from the day after ref_date
+        r = pconn.execute(
+            f"SELECT date, {price_col} FROM daily_prices "
+            f"WHERE ticker = ? AND date > ? ORDER BY date LIMIT 1 OFFSET ?",
+            (ticker_resolved, ref_str, trading_days - 1),
+        ).fetchone()
     elif calendar_days > 0:
-        target_date = ref_date + timedelta(days=calendar_days)
-        future = df.index[df.index >= target_date]
-        if len(future) == 0:
-            return None
-        target = future[0]
+        # Find the first trading day on or after ref_date + calendar_days
+        target_date = (pd.Timestamp(ref_str) + timedelta(days=calendar_days)).strftime("%Y-%m-%d")
+        r = pconn.execute(
+            f"SELECT date, {price_col} FROM daily_prices "
+            f"WHERE ticker = ? AND date >= ? ORDER BY date LIMIT 1",
+            (ticker_resolved, target_date),
+        ).fetchone()
     else:
         return None
 
-    try:
-        price = float(df.loc[target, price_col])
-        if not np.isfinite(price) or price <= 0:
-            return None
-        return (price, target)
-    except (KeyError, ValueError):
-        return None
+    if r and r[1] and r[1] > 0:
+        return (float(r[1]), pd.Timestamp(r[0]))
+    return None
 
 
 def compute_return(entry_price: float, exit_price: float) -> float:
@@ -142,9 +157,9 @@ def process_trades(conn: sqlite3.Connection, windows: list[str], dry_run: bool =
     """
     today = date.today()
 
-    spy_df = load_prices("SPY")
-    if spy_df is None:
-        logger.error("SPY price data not found in %s", PRICES_DIR)
+    spy_ticker = load_prices("SPY")
+    if spy_ticker is None:
+        logger.error("SPY price data not found")
         return
 
     # Get trades that need return computation
@@ -159,13 +174,15 @@ def process_trades(conn: sqlite3.Connection, windows: list[str], dry_run: bool =
 
     # Check what already exists in trade_returns
     existing = {}
-    for row in conn.execute("SELECT trade_id, return_7d, return_30d, return_90d, return_180d, return_365d FROM trade_returns").fetchall():
+    for row in conn.execute("SELECT trade_id, return_7d, return_14d, return_30d, return_60d, return_90d, return_180d, return_365d FROM trade_returns").fetchall():
         existing[row[0]] = {
             "return_7d": row[1],
-            "return_30d": row[2],
-            "return_90d": row[3],
-            "return_180d": row[4],
-            "return_365d": row[5],
+            "return_14d": row[2],
+            "return_30d": row[3],
+            "return_60d": row[4],
+            "return_90d": row[5],
+            "return_180d": row[6],
+            "return_365d": row[7],
         }
 
     stats = {w: {"computed": 0, "skipped_exists": 0, "skipped_nodata": 0} for w in windows}
@@ -201,7 +218,7 @@ def process_trades(conn: sqlite3.Connection, windows: list[str], dry_run: bool =
         entry_price, entry_date = entry_result
 
         # SPY entry
-        spy_entry = get_price_at_offset(spy_df, filing_date, trading_days=1, price_col="open")
+        spy_entry = get_price_at_offset(spy_ticker, filing_date, trading_days=1, price_col="open")
         spy_entry_price = spy_entry[0] if spy_entry else None
 
         update = {"trade_id": trade_id, "entry_price": entry_price}
@@ -232,8 +249,12 @@ def process_trades(conn: sqlite3.Connection, windows: list[str], dry_run: bool =
             # Compute exit price
             if w == "7d":
                 exit_result = get_price_at_offset(prices, entry_date, trading_days=7, price_col="close")
+            elif w == "14d":
+                exit_result = get_price_at_offset(prices, filing_date, calendar_days=14, price_col="close")
             elif w == "30d":
                 exit_result = get_price_at_offset(prices, filing_date, calendar_days=30, price_col="close")
+            elif w == "60d":
+                exit_result = get_price_at_offset(prices, filing_date, calendar_days=60, price_col="close")
             elif w == "90d":
                 exit_result = get_price_at_offset(prices, filing_date, calendar_days=90, price_col="close")
             elif w == "180d":
@@ -255,10 +276,10 @@ def process_trades(conn: sqlite3.Connection, windows: list[str], dry_run: bool =
             spy_ret = 0.0
             if spy_entry_price:
                 if w == "7d":
-                    spy_exit = get_price_at_offset(spy_df, entry_date, trading_days=7, price_col="close")
-                elif w in ("30d", "90d", "180d", "365d"):
+                    spy_exit = get_price_at_offset(spy_ticker, entry_date, trading_days=7, price_col="close")
+                elif w in ("14d", "30d", "60d", "90d", "180d", "365d"):
                     cal_days = int(w.replace("d", ""))
-                    spy_exit = get_price_at_offset(spy_df, filing_date, calendar_days=cal_days, price_col="close")
+                    spy_exit = get_price_at_offset(spy_ticker, filing_date, calendar_days=cal_days, price_col="close")
                 else:
                     spy_exit = None
 
@@ -310,7 +331,9 @@ def _flush_returns(conn: sqlite3.Connection, batch: list):
             vals = []
             for key in ["entry_price",
                         "exit_price_7d", "return_7d", "spy_return_7d", "abnormal_7d",
+                        "exit_price_14d", "return_14d", "spy_return_14d", "abnormal_14d",
                         "exit_price_30d", "return_30d", "spy_return_30d", "abnormal_30d",
+                        "exit_price_60d", "return_60d", "spy_return_60d", "abnormal_60d",
                         "exit_price_90d", "return_90d", "spy_return_90d", "abnormal_90d",
                         "exit_price_180d", "return_180d", "spy_return_180d", "abnormal_180d",
                         "exit_price_365d", "return_365d", "spy_return_365d", "abnormal_365d"]:
@@ -427,7 +450,7 @@ def print_summary(conn: sqlite3.Connection):
 
 def main():
     parser = argparse.ArgumentParser(description="Compute multi-window forward returns")
-    parser.add_argument("--window", choices=["7d", "30d", "90d", "180d", "365d"],
+    parser.add_argument("--window", choices=["7d", "14d", "30d", "60d", "90d", "180d", "365d"],
                         help="Only compute this window (default: all)")
     parser.add_argument("--trade-type", choices=["buy", "sell", "both"], default="buy",
                         help="Trade type to process (default: buy)")
@@ -439,11 +462,11 @@ def main():
         logger.error("DB not found at %s — run backfill.py first", DB_PATH)
         return
 
-    if not PRICES_DIR.exists():
-        logger.error("Prices dir not found at %s", PRICES_DIR)
+    if not PRICES_DB.exists():
+        logger.error("prices.db not found at %s", PRICES_DB)
         return
 
-    windows = [args.window] if args.window else ["7d", "30d", "90d", "180d", "365d"]
+    windows = [args.window] if args.window else ["7d", "14d", "30d", "60d", "90d", "180d", "365d"]
     trade_types = ["buy", "sell"] if args.trade_type == "both" else [args.trade_type]
 
     conn = sqlite3.connect(str(DB_PATH))

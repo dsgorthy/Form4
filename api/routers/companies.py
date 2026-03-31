@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, timedelta
+from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.auth import UserContext, get_current_user
 from api.db import get_db
-from api.filters import add_trans_code_filter, filing_group_by
-from api.gating import get_free_cutoff_date, null_items_track_records, null_track_record_fields, redact_gated_items
-from api.id_encoding import encode_insider_id, encode_response_ids
+from api.filters import add_trans_code_filter, deduplicate_filers, filing_group_by
+from api.gating import get_free_cutoff_date, null_items_track_records, redact_gated_items
+from api.id_encoding import encode_response_ids
 
 logger = logging.getLogger(__name__)
 
@@ -189,19 +189,12 @@ def get_company_trades(
         ).fetchall()
 
     raw_list = [dict(r) for r in rows]
-    seen_sigs: dict[str, dict] = {}
-    deduped = []
-    for item in raw_list:
-        sig = f"{round(item['value'], 0)}|{item.get('last_trade_date') or item.get('trade_date', '')}"
-        if sig in seen_sigs:
-            seen_sigs[sig]["n_filers"] = seen_sigs[sig].get("n_filers", 1) + 1
-            if (item.get("score") or 0) > (seen_sigs[sig].get("score") or 0):
-                seen_sigs[sig].update({k: item[k] for k in ("insider_id", "insider_name", "cik", "score", "score_tier", "title") if k in item})
-        else:
-            item["n_filers"] = 1
-            seen_sigs[sig] = item
-            deduped.append(item)
-    items = deduped
+    items = deduplicate_filers(
+        raw_list,
+        value_key="value",
+        date_key="last_trade_date",
+        identity_keys=("insider_id", "insider_name", "cik", "score", "score_tier", "title"),
+    )
 
     # Enrich with signal quality
     with get_db() as q_conn:

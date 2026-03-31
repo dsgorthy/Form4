@@ -1,0 +1,48 @@
+strategy_name: cw_composite
+display_name: "CW Composite"
+telegram_prefix: "[COMP]"
+starting_capital: 100000
+position_size_pct: 0.033
+max_concurrent: 20
+filing_lookback_days: 2
+
+# At capacity: skip (optimization showed replacement hurts composite)
+at_capacity: skip
+
+# Global noise filters
+filters:
+  exclude_recurring: true
+  exclude_tax_sales: true
+  exclude_routine: true
+
+# Three thesis types, all with 30d hold (optimization: 30d >> 14d)
+theses:
+  - name: reversal
+    filters:
+      is_rare_reversal: 1
+      min_consecutive_sells: 5
+    exit:
+      strategy: fixed_hold
+      hold_days: 30
+      stop_loss_pct: -0.15
+
+  - name: dip_cluster
+    filters:
+      max_dip_1mo: -0.20
+      require_cluster: true
+    exit:
+      strategy: trailing_stop
+      hold_days: 30
+      stop_pct: 0.15
+
+  - name: momentum_largest
+    filters:
+      above_sma50: 1
+      above_sma200: 1
+      is_largest_ever: 1
+    exit:
+      strategy: trailing_stop
+      hold_days: 30
+      stop_pct: 0.15
+
+circuit_breaker_dd_pct: 0.10

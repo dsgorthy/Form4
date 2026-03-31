@@ -19,6 +19,9 @@ RUN pip install --no-cache-dir \
 COPY api/ /app/api/
 COPY framework/ /app/framework/
 
+# Verify all modules import cleanly — catches syntax errors before deploy
+RUN python -c "import api.main" 2>&1 || (echo "IMPORT CHECK FAILED" && exit 1)
+
 # Directories for mounted volumes
 RUN mkdir -p /app/strategies/insider_catalog /app/data
 

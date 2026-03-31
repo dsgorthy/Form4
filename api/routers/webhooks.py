@@ -127,25 +127,35 @@ async def stripe_webhook(
 
 
 async def _find_clerk_user_by_customer(customer_id: str) -> str | None:
-    """Look up Clerk user ID by Stripe customer ID stored in public_metadata."""
+    """Look up Clerk user ID by Stripe customer ID stored in public_metadata.
+
+    Paginates through all Clerk users (100 per page) to handle user bases
+    larger than a single page.
+    """
     if not customer_id:
         return None
     try:
         async with httpx.AsyncClient() as client:
-            resp = await client.get(
-                "https://api.clerk.com/v1/users",
-                headers={"Authorization": f"Bearer {CLERK_SECRET_KEY}"},
-                params={"limit": 100},
-            )
-            if resp.status_code != 200:
-                return None
-            users = resp.json()
-            if isinstance(users, dict):
-                users = users.get("data", [])
-            for user in users:
-                meta = user.get("public_metadata", {})
-                if meta.get("stripe_customer_id") == customer_id:
-                    return user["id"]
+            offset = 0
+            limit = 100
+            while True:
+                resp = await client.get(
+                    "https://api.clerk.com/v1/users",
+                    headers={"Authorization": f"Bearer {CLERK_SECRET_KEY}"},
+                    params={"limit": limit, "offset": offset},
+                )
+                if resp.status_code != 200:
+                    return None
+                body = resp.json()
+                users = body if isinstance(body, list) else body.get("data", [])
+                for user in users:
+                    meta = user.get("public_metadata", {})
+                    if meta.get("stripe_customer_id") == customer_id:
+                        return user["id"]
+                # Stop when we get fewer results than the page size
+                if len(users) < limit:
+                    break
+                offset += limit
     except Exception as e:
         logger.error("Error finding Clerk user: %s", e)
     return None

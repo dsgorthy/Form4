@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from api.auth import UserContext, get_current_user
+from api.auth import UserContext
 from api.db import get_db
 from api.filters import add_trans_code_filter, filing_group_by
 from api.gating import require_pro
-from api.id_encoding import decode_insider_id, encode_insider_id, encode_trade_id, encode_response_ids
+from api.id_encoding import decode_insider_id, encode_insider_id, encode_response_ids
 from api.signals_enrichment import enrich_items_with_signals
 from api.context_enrichment import enrich_items_with_context
 from api.price_dates import enrich_items_with_price_end

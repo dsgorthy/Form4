@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Query
 from api.auth import UserContext, get_current_user
 from api.db import get_db
 from api.gating import null_items_track_records, redact_gated_items
-from api.id_encoding import decode_insider_id, encode_insider_id, encode_response_ids
+from api.id_encoding import decode_insider_id, encode_response_ids
 
 router = APIRouter(prefix="/api/v1/leaderboard", tags=["leaderboard"])
 

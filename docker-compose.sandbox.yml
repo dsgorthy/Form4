@@ -15,7 +15,7 @@ services:
       - CORS_ORIGINS=https://sandbox.form4.app
       - FORM4_ENV=sandbox
     volumes:
-      - ${INSIDERS_DB_DIR:-./strategies/insider_catalog/sandbox}:/data/insiders:ro
+      - ${INSIDERS_DB_DIR:-./strategies/insider_catalog/sandbox}:/data/insiders
       - ${NOTIFICATIONS_DB_DIR:-./strategies/insider_catalog/sandbox}:/data/notifications
     networks:
       - internal

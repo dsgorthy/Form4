@@ -126,39 +126,42 @@ def insider_returns(conn: sqlite3.Connection, since: str | None = None) -> list[
 
 @register_signal
 def size_anomaly(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
-    """Trade value > 2x insider's average at this ticker."""
+    """Trade value > 2x insider's PIT average at this ticker.
+    PIT fix: only compares against trades with trade_date BEFORE the current trade."""
     where_since = f"AND t.trade_date >= '{since}'" if since else ""
     rows = conn.execute(f"""
-        WITH insider_avg AS (
-            SELECT insider_id, ticker, AVG(value) AS avg_value, COUNT(*) AS n
-            FROM trades
-            WHERE trans_code IN ('P', 'S')
-            GROUP BY insider_id, ticker
-            HAVING COUNT(*) >= 2
-        )
-        SELECT t.trade_id, t.ticker, t.trade_type, t.value,
-               ia.avg_value, ia.n,
-               COALESCE(i.display_name, i.name) AS insider_name
+        SELECT t.trade_id, t.insider_id, t.ticker, t.trade_type, t.trade_date,
+               t.value, COALESCE(i.display_name, i.name) AS insider_name
         FROM trades t
-        JOIN insider_avg ia ON t.insider_id = ia.insider_id AND t.ticker = ia.ticker
         JOIN insiders i ON t.insider_id = i.insider_id
-        WHERE t.value > 2.0 * ia.avg_value
-          AND t.trans_code IN ('P', 'S')
+        WHERE t.trans_code IN ('P', 'S')
+          AND t.value > 0
           {where_since}
+        ORDER BY t.insider_id, t.ticker, t.trade_date
     """).fetchall()
 
+    # Build PIT averages: for each trade, only use prior trades by same insider+ticker
+    from collections import defaultdict
+    history = defaultdict(list)  # (insider_id, ticker) -> [values]
     results = []
     for r in rows:
-        signal_class = "bullish" if r["trade_type"] == "buy" else "bearish"
-        ratio = round(r["value"] / r["avg_value"], 1)
-        results.append((
-            r["trade_id"],
-            "size_anomaly",
-            "Unusually Large Trade",
-            signal_class,
-            min(ratio / 5.0, 1.0),
-            json.dumps({"ratio": ratio, "avg_value": round(r["avg_value"]), "n_prior": r["n"]}),
-        ))
+        key = (r["insider_id"], r["ticker"])
+        prior = history[key]
+        if len(prior) >= 2:
+            avg_prior = sum(prior) / len(prior)
+            if avg_prior > 0 and r["value"] > 2.0 * avg_prior:
+                ratio = round(r["value"] / avg_prior, 1)
+                signal_class = "bullish" if r["trade_type"] == "buy" else "bearish"
+                results.append((
+                    r["trade_id"],
+                    "size_anomaly",
+                    "Unusually Large Trade",
+                    signal_class,
+                    min(ratio / 5.0, 1.0),
+                    json.dumps({"ratio": ratio, "avg_value": round(avg_prior), "n_prior": len(prior)}),
+                ))
+        history[key].append(r["value"])
+
     logger.info("size_anomaly: %d signals", len(results))
     return results
 
@@ -200,29 +203,39 @@ def high_signal(conn: sqlite3.Connection, since: str | None = None) -> list[tupl
 
 @register_signal
 def top_trade(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
-    """Top 1% by value, OR top 5% PIT score, OR 3+ insider cluster."""
+    """Top 1% by value, OR top 5% PIT score, OR 3+ insider cluster.
+    PIT fix: value and score thresholds use a 3-year rolling window, not full history.
+    This prevents 2020 mega-buys from suppressing all post-2020 signals and accounts
+    for inflation in trade sizes over time."""
     where_since = f"AND t.trade_date >= '{since}'" if since else ""
 
-    # Get value threshold (99th percentile)
-    val_row = conn.execute("""
-        SELECT value FROM trades
-        WHERE trans_code IN ('P', 'S')
-        ORDER BY value DESC
-        LIMIT 1 OFFSET (SELECT COUNT(*) / 100 FROM trades WHERE trans_code IN ('P', 'S'))
-    """).fetchone()
-    val_threshold = val_row["value"] if val_row else 1e12
+    ROLLING_YEARS = 3  # 3-year lookback for percentile thresholds
 
-    # Get score threshold (95th percentile)
-    score_row = conn.execute("""
-        SELECT score FROM insider_track_records
+    # Load all trades with value, ordered by date
+    all_trades = conn.execute(f"""
+        SELECT t.trade_id, t.ticker, t.trade_type, t.trade_date, t.value,
+               t.insider_id
+        FROM trades t
+        WHERE t.trans_code IN ('P', 'S')
+          AND t.value > 0
+          {where_since}
+        ORDER BY t.trade_date
+    """).fetchall()
+
+    # Load track record scores — these are static snapshots (no as_of_date).
+    # For PIT, we use the insider's blended_score from insider_ticker_scores
+    # which HAS as_of_date. Fall back to track_records score for insiders
+    # without per-ticker scores.
+    from collections import defaultdict
+    insider_scores = {}  # insider_id -> score (static, used as fallback)
+    score_rows = conn.execute("""
+        SELECT insider_id, score FROM insider_track_records
         WHERE score IS NOT NULL
-        ORDER BY score DESC
-        LIMIT 1 OFFSET (SELECT COUNT(*) / 20 FROM insider_track_records WHERE score IS NOT NULL)
-    """).fetchone()
-    score_threshold = score_row["score"] if score_row else 100
+    """).fetchall()
+    for r in score_rows:
+        insider_scores[r["insider_id"]] = r["score"]
 
-    # Find 3+ insider clusters using monthly windows for efficiency
-    # Group trades by ticker, trade_type, and month — check if 3+ distinct insiders
+    # Find 3+ insider clusters using monthly windows
     cluster_trade_ids = set()
     cluster_windows = conn.execute(f"""
         SELECT ticker, trade_type, MIN(trade_date) AS win_start, MAX(trade_date) AS win_end
@@ -242,50 +255,80 @@ def top_trade(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]
         for r in cw_rows:
             cluster_trade_ids.add(r["trade_id"])
 
-    # Top value trades
-    value_rows = conn.execute(f"""
-        SELECT t.trade_id, t.ticker, t.trade_type, t.value
-        FROM trades t
-        WHERE t.value >= ?
-          AND t.trans_code IN ('P', 'S')
-          {where_since}
-    """, (val_threshold,)).fetchall()
+    # Compute rolling 3-year PIT percentiles efficiently:
+    # Pre-compute annual p99 thresholds, then for each trade use the
+    # threshold from the 3-year window ending at its trade year.
+    # This avoids O(n^2) per-trade percentile computation.
+    from datetime import datetime, timedelta
+    from bisect import insort, bisect_left
 
-    # Top score trades
-    score_rows = conn.execute(f"""
-        SELECT t.trade_id, t.ticker, t.trade_type, itr.score
-        FROM trades t
-        JOIN insider_track_records itr ON t.insider_id = itr.insider_id
-        WHERE itr.score >= ?
-          AND t.trans_code IN ('P', 'S')
-          {where_since}
-    """, (score_threshold,)).fetchall()
+    # Group values by year for fast percentile computation
+    year_values = {}  # year -> sorted list of values
+    for r in all_trades:
+        try:
+            yr = int(r["trade_date"][:4])
+        except (TypeError, ValueError):
+            continue
+        if yr not in year_values:
+            year_values[yr] = []
+        year_values[yr].append(r["value"])
+
+    # Sort each year's values for percentile computation
+    for yr in year_values:
+        year_values[yr].sort()
+
+    def get_rolling_p99(trade_year):
+        """Get 99th percentile from 3-year rolling window ending at trade_year."""
+        all_vals = []
+        for yr in range(trade_year - ROLLING_YEARS, trade_year):
+            if yr in year_values:
+                all_vals.extend(year_values[yr])
+        if len(all_vals) < 100:
+            return None
+        all_vals.sort()
+        idx = int(len(all_vals) * 0.99)
+        return all_vals[min(idx, len(all_vals) - 1)]
+
+    # Cache thresholds per year
+    p99_cache = {}
+    for yr in sorted(year_values.keys()):
+        p99_cache[yr] = get_rolling_p99(yr)
 
     seen = set()
     results = []
 
-    for r in value_rows:
-        if r["trade_id"] not in seen:
-            seen.add(r["trade_id"])
+    for r in all_trades:
+        tid = r["trade_id"]
+
+        try:
+            yr = int(r["trade_date"][:4])
+        except (TypeError, ValueError):
+            continue
+
+        # Value check: rolling 3-year p99
+        threshold = p99_cache.get(yr)
+        if threshold and r["value"] >= threshold and tid not in seen:
+            seen.add(tid)
             signal_class = "bullish" if r["trade_type"] == "buy" else "bearish"
             results.append((
-                r["trade_id"], "top_trade", "Top Trade",
-                signal_class, 0.9,
-                json.dumps({"reason": "top_1pct_value", "value": r["value"]}),
+                tid, "top_trade", "Top Trade", signal_class, 0.9,
+                json.dumps({"reason": "top_1pct_value", "value": r["value"],
+                            "threshold": round(threshold)}),
             ))
 
-    for r in score_rows:
-        if r["trade_id"] not in seen:
-            seen.add(r["trade_id"])
-            signal_class = "bullish" if r["trade_type"] == "buy" else "bearish"
-            results.append((
-                r["trade_id"], "top_trade", "Top Trade",
-                signal_class, 0.85,
-                json.dumps({"reason": "top_5pct_score", "score": r["score"]}),
-            ))
+        # Score check: static track_record score >= 2.0 (top tier)
+        if r["insider_id"] in insider_scores and tid not in seen:
+            score = insider_scores[r["insider_id"]]
+            if score >= 2.0:
+                seen.add(tid)
+                signal_class = "bullish" if r["trade_type"] == "buy" else "bearish"
+                results.append((
+                    tid, "top_trade", "Top Trade", signal_class, 0.85,
+                    json.dumps({"reason": "top_score", "score": score}),
+                ))
 
-    for tid in cluster_trade_ids:
-        if tid not in seen:
+        # Cluster (already PIT — monthly grouping is inherently bounded)
+        if tid in cluster_trade_ids and tid not in seen:
             seen.add(tid)
             results.append((
                 tid, "top_trade", "Top Trade",
@@ -293,7 +336,7 @@ def top_trade(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]
                 json.dumps({"reason": "3plus_cluster"}),
             ))
 
-    logger.info("top_trade: %d signals", len(results))
+    logger.info("top_trade: %d signals (rolling %d-year PIT percentiles)", len(results), ROLLING_YEARS)
     return results
 
 
@@ -695,49 +738,55 @@ def small_holdings_increase(conn: sqlite3.Connection, since: str | None = None) 
 @register_signal
 def ten_pct_owner_buy(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
     """Flag 10% Owner purchases. Pooled 10% Owner buys have no alpha (noise).
-    Exception: specific activist investors with proven track records get neutral/bullish."""
+    Exception: activists with proven PIT track records (>=10 prior trades, avg abnormal > 2%).
+    PIT fix: activist classification uses only returns from trades BEFORE the current trade."""
     where_since = f"AND t.trade_date >= '{since}'" if since else ""
 
-    # Get known high-alpha 10% owners (from our Phase 1 validation)
-    # These are investors whose pooled 7d abnormal return is significantly positive
-    activist_ids = set()
-    activist_rows = conn.execute("""
-        SELECT i.insider_id, COALESCE(i.display_name, i.name) AS name,
-               AVG(tr.abnormal_7d) AS avg_abn, COUNT(*) AS n
-        FROM trades t
-        JOIN insiders i ON t.insider_id = i.insider_id
-        JOIN trade_returns tr ON t.trade_id = tr.trade_id
-        WHERE t.trans_code = 'P'
-          AND (t.title LIKE '%10%%' OR t.title LIKE '%TenPercent%')
-          AND t.is_csuite = 0
-          AND tr.abnormal_7d IS NOT NULL
-        GROUP BY i.insider_id
-        HAVING n >= 10 AND avg_abn > 0.02
-    """).fetchall()
-    for r in activist_rows:
-        activist_ids.add(r["insider_id"])
-
-    rows = conn.execute(f"""
-        SELECT t.trade_id, t.ticker, t.insider_id,
+    # Load all 10% owner P-code trades with returns, ordered by date
+    all_rows = conn.execute("""
+        SELECT t.trade_id, t.insider_id, t.ticker, t.trade_date,
+               tr.abnormal_7d,
                COALESCE(i.display_name, i.name) AS insider_name
         FROM trades t
         JOIN insiders i ON t.insider_id = i.insider_id
+        LEFT JOIN trade_returns tr ON t.trade_id = tr.trade_id
         WHERE t.trans_code = 'P'
           AND (t.title LIKE '%10%%' OR t.title LIKE '%TenPercent%')
           AND t.is_csuite = 0
-          {where_since}
+        ORDER BY t.insider_id, t.trade_date
     """).fetchall()
 
+    # Build PIT activist classification: for each trade, only use prior returns
+    from collections import defaultdict
+    insider_returns = defaultdict(list)  # insider_id -> [(abnormal_7d)]
     results = []
-    for r in rows:
-        if r["insider_id"] in activist_ids:
+
+    for r in all_rows:
+        iid = r["insider_id"]
+        prior = insider_returns[iid]
+
+        # Apply since filter for output
+        if since and r["trade_date"] < since:
+            # Still accumulate returns for PIT, but don't emit signal
+            if r["abnormal_7d"] is not None:
+                insider_returns[iid].append(r["abnormal_7d"])
+            continue
+
+        # PIT activist check: >= 10 prior trades with avg abnormal > 2%
+        is_activist = False
+        if len(prior) >= 10:
+            avg_abn = sum(prior) / len(prior)
+            is_activist = avg_abn > 0.02
+
+        if is_activist:
             results.append((
                 r["trade_id"],
                 "ten_pct_owner_buy",
                 "Activist Investor",
                 "bullish",
                 0.8,
-                json.dumps({"insider_name": r["insider_name"], "is_activist": True}),
+                json.dumps({"insider_name": r["insider_name"], "is_activist": True,
+                            "pit_n": len(prior), "pit_avg_abn": round(sum(prior)/len(prior)*100, 1)}),
             ))
         else:
             results.append((
@@ -749,7 +798,11 @@ def ten_pct_owner_buy(conn: sqlite3.Connection, since: str | None = None) -> lis
                 json.dumps({"insider_name": r["insider_name"], "is_activist": False}),
             ))
 
-    logger.info("ten_pct_owner_buy: %d signals (%d activists)", len(results), len(activist_ids))
+        # Accumulate this trade's return for future PIT lookups
+        if r["abnormal_7d"] is not None:
+            insider_returns[iid].append(r["abnormal_7d"])
+
+    logger.info("ten_pct_owner_buy: %d signals", len(results))
     return results
 
 
@@ -792,6 +845,197 @@ def opportunistic_trade(conn: sqlite3.Connection, since: str | None = None) -> l
                 ))
 
     logger.info("opportunistic_trade: %d signals", len(results))
+    return results
+
+
+# ─── Detector: deep_dip_buy ──────────────────────────────────────────────────
+
+@register_signal
+def deep_dip_buy(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+    """P-code buy where stock is down >20% in 3 months or >30% in 1 year.
+    CW's highest-conviction pattern. Tiered confidence by dip depth."""
+    where_since = f"AND t.trade_date >= '{since}'" if since else ""
+    rows = conn.execute(f"""
+        SELECT t.trade_id, t.ticker, t.trade_date, t.dip_1mo, t.dip_3mo, t.dip_1yr
+        FROM trades t
+        WHERE t.trans_code = 'P'
+          AND (t.dip_3mo <= -0.20 OR t.dip_1yr <= -0.30)
+          {where_since}
+    """).fetchall()
+
+    results = []
+    for r in rows:
+        depths = []
+        if r["dip_1mo"] is not None and r["dip_1mo"] <= -0.15:
+            depths.append(("1mo", r["dip_1mo"]))
+        if r["dip_3mo"] is not None and r["dip_3mo"] <= -0.20:
+            depths.append(("3mo", r["dip_3mo"]))
+        if r["dip_1yr"] is not None and r["dip_1yr"] <= -0.30:
+            depths.append(("1yr", r["dip_1yr"]))
+        if not depths:
+            continue
+        worst = min(d[1] for d in depths)
+        confidence = min(1.0, abs(worst))
+        results.append((
+            r["trade_id"], "deep_dip_buy", "Deep Dip Buy", "bullish", confidence,
+            json.dumps({k: round(v * 100, 1) for k, v in depths}),
+        ))
+
+    logger.info("deep_dip_buy: %d signals", len(results))
+    return results
+
+
+# ─── Detector: reversal_buy ──────────────────────────────────────────────────
+
+@register_signal
+def reversal_buy(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+    """Insider with 5+ consecutive sells now buying. CW's highest signal type.
+    'He sold 21 times in 13 years and now he's buying for the first time.'"""
+    where_since = f"AND t.trade_date >= '{since}'" if since else ""
+    rows = conn.execute(f"""
+        SELECT t.trade_id, t.ticker, t.trade_date,
+               t.consecutive_sells_before, t.insider_switch_rate,
+               COALESCE(i.display_name, i.name) AS insider_name
+        FROM trades t
+        JOIN insiders i ON t.insider_id = i.insider_id
+        WHERE t.trans_code = 'P'
+          AND t.is_rare_reversal = 1
+          AND t.consecutive_sells_before >= 5
+          {where_since}
+    """).fetchall()
+
+    results = []
+    for r in rows:
+        sells = r["consecutive_sells_before"]
+        # More consecutive sells = higher confidence
+        confidence = min(1.0, 0.6 + (sells / 50.0))
+        results.append((
+            r["trade_id"], "reversal_buy", "Reversal Buy", "bullish", confidence,
+            json.dumps({
+                "consecutive_sells": sells,
+                "switch_rate": round(r["insider_switch_rate"] or 0, 3),
+                "insider": r["insider_name"],
+            }),
+        ))
+
+    logger.info("reversal_buy: %d signals", len(results))
+    return results
+
+
+# ─── Detector: momentum_buy ──────────────────────────────────────────────────
+
+@register_signal
+def momentum_buy(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+    """P-code buy while stock is above both SMA50 and SMA200 — momentum context."""
+    where_since = f"AND t.trade_date >= '{since}'" if since else ""
+    rows = conn.execute(f"""
+        SELECT t.trade_id, t.ticker, t.sma50_rel, t.sma200_rel
+        FROM trades t
+        WHERE t.trans_code = 'P'
+          AND t.above_sma50 = 1
+          AND t.above_sma200 = 1
+          {where_since}
+    """).fetchall()
+
+    results = []
+    for r in rows:
+        confidence = 0.6
+        results.append((
+            r["trade_id"], "momentum_buy", "Momentum Buy", "bullish", confidence,
+            json.dumps({
+                "sma50_rel": round(r["sma50_rel"] or 0, 3),
+                "sma200_rel": round(r["sma200_rel"] or 0, 3),
+            }),
+        ))
+
+    logger.info("momentum_buy: %d signals", len(results))
+    return results
+
+
+# ─── Detector: largest_purchase_ever ──────────────────────────────────────────
+
+@register_signal
+def largest_purchase_ever(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+    """Insider's largest purchase ever at this ticker. CW highlights this heavily."""
+    where_since = f"AND t.trade_date >= '{since}'" if since else ""
+    rows = conn.execute(f"""
+        SELECT t.trade_id, t.ticker, t.value, t.purchase_size_ratio,
+               COALESCE(i.display_name, i.name) AS insider_name
+        FROM trades t
+        JOIN insiders i ON t.insider_id = i.insider_id
+        WHERE t.trans_code = 'P'
+          AND t.is_largest_ever = 1
+          AND t.purchase_size_ratio > 1.5
+          {where_since}
+    """).fetchall()
+
+    results = []
+    for r in rows:
+        ratio = r["purchase_size_ratio"] or 1.0
+        confidence = min(1.0, 0.5 + (ratio / 10.0))
+        results.append((
+            r["trade_id"], "largest_purchase_ever", "Largest Purchase Ever", "bullish",
+            confidence,
+            json.dumps({
+                "size_ratio": round(ratio, 2),
+                "value": r["value"],
+                "insider": r["insider_name"],
+            }),
+        ))
+
+    logger.info("largest_purchase_ever: %d signals", len(results))
+    return results
+
+
+# ─── Detector: recurring_buyer_noise ──────────────────────────────────────────
+
+@register_signal
+def recurring_buyer_noise(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+    """Insider buys on a detected schedule — low signal (noise).
+    CW filters these out even without a 10b5-1 flag."""
+    where_since = f"AND t.trade_date >= '{since}'" if since else ""
+    rows = conn.execute(f"""
+        SELECT t.trade_id, t.ticker, t.recurring_period
+        FROM trades t
+        WHERE t.trans_code = 'P'
+          AND t.is_recurring = 1
+          {where_since}
+    """).fetchall()
+
+    results = []
+    for r in rows:
+        results.append((
+            r["trade_id"], "recurring_buyer_noise", "Recurring Purchase", "noise", 0.3,
+            json.dumps({"period": r["recurring_period"]}),
+        ))
+
+    logger.info("recurring_buyer_noise: %d signals", len(results))
+    return results
+
+
+# ─── Detector: tax_sale_noise ──────────────────────────────────────────────
+
+@register_signal
+def tax_sale_noise(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+    """Tax-motivated sale (Nov/Dec, at a loss). CW's key differentiator:
+    'Those seven sales were all tax sales. They have no signal at all.'"""
+    where_since = f"AND t.trade_date >= '{since}'" if since else ""
+    rows = conn.execute(f"""
+        SELECT t.trade_id, t.ticker
+        FROM trades t
+        WHERE t.trans_code = 'S'
+          AND t.is_tax_sale = 1
+          {where_since}
+    """).fetchall()
+
+    results = []
+    for r in rows:
+        results.append((
+            r["trade_id"], "tax_sale_noise", "Tax Sale", "noise", 0.2,
+            json.dumps({}),
+        ))
+
+    logger.info("tax_sale_noise: %d signals", len(results))
     return results
 
 

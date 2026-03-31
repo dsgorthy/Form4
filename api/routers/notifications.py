@@ -245,7 +245,7 @@ def add_to_watchlist(
     if not exists:
         raise HTTPException(status_code=400, detail=f"Ticker '{ticker}' not found in our database")
     with get_notifications_db() as conn:
-        # Cap at 50 tickers
+        # Cap at 25 tickers
         count = conn.execute(
             "SELECT COUNT(*) AS cnt FROM watchlist WHERE user_id = ?",
             (user.user_id,),

@@ -68,17 +68,18 @@ async def rate_limit_middleware(request: Request, call_next):
             request.state.rate_limit_key = f"apikey:{api_key[3:last_underscore]}"
             request.state.rate_limit_tier = "api_key"
     elif request.headers.get("authorization", "").startswith("Bearer "):
-        # JWT auth — extract user_id from token without full validation
-        # (full validation happens in the route dependency)
+        # JWT auth — verify signature via JWKS before trusting claims
+        # (prevents forged JWTs from getting authenticated rate limits)
         try:
-            import jwt as _jwt
+            from api.auth import decode_clerk_jwt
             token = request.headers["authorization"][7:]
-            claims = _jwt.decode(token, options={"verify_signature": False})
+            claims = decode_clerk_jwt(token)
             user_id = claims.get("sub", "")
             if user_id:
                 request.state.rate_limit_key = f"user:{user_id}"
                 request.state.rate_limit_tier = "auth"
         except Exception:
+            # Invalid/expired/forged JWT — fall back to anonymous rate limits
             pass
 
     response = await call_next(request)
@@ -115,17 +116,41 @@ def health() -> dict:
 
 
 @app.get("/api/v1/portfolio/runner-status")
-def portfolio_runner_status() -> dict:
-    """Check portfolio runner health via heartbeat file."""
+def portfolio_runner_status(strategy: str = "form4_insider", user: UserContext = Depends(get_current_user)) -> dict:
+    """Check portfolio runner health via heartbeat file.
+    Supports multiple strategies with per-strategy heartbeat files."""
     import json as _json
     from pathlib import Path
     from datetime import datetime
 
-    # Try container mount path first, then local dev path
-    heartbeat_path = Path("/data/runner/portfolio_runner_heartbeat.json")
-    if not heartbeat_path.exists():
-        heartbeat_path = Path("/Users/openclaw/trading-framework/pipelines/data/portfolio_runner_heartbeat.json")
-    if not heartbeat_path.exists():
+    # Strategy -> heartbeat file mapping
+    heartbeat_paths = {
+        "form4_insider": [
+            Path("/data/runner/portfolio_runner_heartbeat.json"),
+            Path("/Users/openclaw/trading-framework/pipelines/data/portfolio_runner_heartbeat.json"),
+        ],
+        "cw_reversal": [
+            Path("/data/runner/cw_reversal_heartbeat.json"),
+            Path("/Users/openclaw/trading-framework/strategies/cw_strategies/data/cw_reversal_heartbeat.json"),
+        ],
+        "cw_composite": [
+            Path("/data/runner/cw_composite_heartbeat.json"),
+            Path("/Users/openclaw/trading-framework/strategies/cw_strategies/data/cw_composite_heartbeat.json"),
+        ],
+    }
+
+    candidates = heartbeat_paths.get(strategy, heartbeat_paths["form4_insider"])
+    heartbeat_path = None
+    for p in candidates:
+        if p.exists():
+            heartbeat_path = p
+            break
+
+    if heartbeat_path is None:
+        # Check if it's a weekend — daemons sleep on weekends, that's normal
+        now = datetime.utcnow()
+        if now.weekday() >= 5:
+            return {"status": "weekend", "healthy": True, "detail": "Daemons sleep on weekends"}
         return {"status": "unknown", "detail": "No heartbeat file found"}
 
     try:

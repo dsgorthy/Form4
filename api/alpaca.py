@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import date, timedelta
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
 from typing import List, Optional

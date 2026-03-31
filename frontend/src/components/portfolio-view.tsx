@@ -53,6 +53,8 @@ interface Summary {
   win_rate: number;
   stops_hit: number;
   max_drawdown: number;
+  max_drawdown_all_time?: number;
+  max_drawdown_note?: string | null;
   avg_return: number;
   first_trade: string;
   last_trade: string;
@@ -125,11 +127,74 @@ function StatCard({ label, value, sub, color }: { label: string; value: string; 
   );
 }
 
+const STRATEGIES = [
+  { value: "form4_insider", label: "V4 Insider Cluster", brief: "Multi-insider cluster buys with PIT quality scoring" },
+  { value: "cw_reversal", label: "CW Reversal", brief: "Insiders buying for the first time after years of selling" },
+];
+
+function StrategySelector({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const current = STRATEGIES.find((s) => s.value === value);
+  return (
+    <div className="relative inline-block">
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="appearance-none bg-[#12121A] border border-[#2A2A3A] rounded-lg px-3 py-2 pr-8 text-sm text-[#E8E8ED] font-medium cursor-pointer hover:border-[#3B82F6]/40 focus:border-[#3B82F6] focus:outline-none transition-colors"
+      >
+        {STRATEGIES.map((s) => (
+          <option key={s.value} value={s.value}>{s.label}</option>
+        ))}
+      </select>
+      <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2">
+        <svg className="h-4 w-4 text-[#55556A]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+function RunnerStatus({ strategy }: { strategy: string }) {
+  const [status, setStatus] = useState<{ healthy?: boolean; status?: string; timestamp?: string } | null>(null);
+  const { getToken } = useAuth();
+
+  useEffect(() => {
+    const check = async () => {
+      try {
+        const token = await getToken();
+        const res = await fetch(`${apiBase}/portfolio/runner-status?strategy=${strategy}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (res.ok) setStatus(await res.json());
+      } catch {}
+    };
+    check();
+    const interval = setInterval(check, 60000);
+    return () => clearInterval(interval);
+  }, [strategy, getToken]);
+
+  if (!status) return null;
+
+  const isLive = status.healthy === true;
+  const dot = isLive ? "bg-[#22C55E]" : "bg-[#55556A]";
+  const label = isLive ? "Live" : status.status === "weekend" ? "Weekend" : "Offline";
+  const ts = status.timestamp ? new Date(status.timestamp).toLocaleString() : "";
+
+  return (
+    <div className="flex items-center gap-1.5 text-[10px] text-[#8888A0]">
+      <span className={`inline-block w-2 h-2 rounded-full ${dot} ${isLive ? "animate-pulse" : ""}`} />
+      <span>{label}</span>
+      {ts && <span className="text-[#55556A]">{ts}</span>}
+    </div>
+  );
+}
+
 export function PortfolioView() {
   const { getToken, isSignedIn } = useAuth();
   const { user } = useUser();
   const userIsPro = isPro(user);
 
+  const [strategy, setStrategy] = useState("form4_insider");
   const [summary, setSummary] = useState<Summary | null>(null);
   const [equityCurve, setEquityCurve] = useState<CurvePoint[]>([]);
   const [spyBenchmark, setSpyBenchmark] = useState<{ date: string; equity: number }[]>([]);
@@ -153,7 +218,7 @@ export function PortfolioView() {
     const page = Math.floor(newOffset / limit) + 1;
     try {
       const token = await getToken();
-      const res = await fetch(`${apiBase}/portfolio?page=${page}&per_page=${limit}`, {
+      const res = await fetch(`${apiBase}/portfolio?strategy=${strategy}&page=${page}&per_page=${limit}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (res.ok) {
@@ -174,9 +239,9 @@ export function PortfolioView() {
 
     if (initial) setLoading(false);
     else setTradesLoading(false);
-  }, [getToken]);
+  }, [getToken, strategy]);
 
-  useEffect(() => { loadData(0, true); }, [loadData]);
+  useEffect(() => { setOffset(0); loadData(0, true); }, [loadData]);
 
   const handlePageChange = (newOffset: number) => {
     setOffset(newOffset);
@@ -200,8 +265,16 @@ export function PortfolioView() {
 
   return (
     <div className="space-y-6">
+      {/* Strategy selector */}
+      <div className="flex items-center gap-4">
+        <StrategySelector value={strategy} onChange={setStrategy} />
+        <div className="flex-1 min-w-0">
+          <div className="text-sm text-[#8888A0]">{STRATEGIES.find(s => s.value === strategy)?.brief}</div>
+        </div>
+        <RunnerStatus strategy={strategy} />
+      </div>
       {/* Portfolio Performance — blended equity with idle cash in base ETF */}
-      <PortfolioOverlay onDateRangeChange={(from, to) => setDateRange({ from, to })} />
+      <PortfolioOverlay strategy={strategy} onDateRangeChange={(from, to) => setDateRange({ from, to })} />
 
       {/* Everything below responds to the chart date range */}
       {(() => {
@@ -219,13 +292,25 @@ export function PortfolioView() {
         const fAvgRet = fTotal > 0 ? filtered.reduce((acc, tp) => acc + tp.pnl_pct, 0) / fTotal : 0;
         const fStops = filtered.filter(tp => tp.exit_reason === "stop_loss").length;
 
-        let peak = 0; let mdd = 0; let running = 0;
-        for (const tp of filtered) {
-          running += tp.pnl_pct;
-          if (running > peak) peak = running;
-          const dd = peak - running;
-          if (dd > mdd) mdd = dd;
-        }
+        // Use API-computed max drawdown (dollar-based equity curve, not additive pct)
+        const mdd = isFiltered
+          ? (() => {
+              // For filtered date range, recompute from equity curve points
+              const curveFiltered = equityCurve.filter(ep => {
+                if (dateRange.from && ep.date < dateRange.from) return false;
+                if (dateRange.to && ep.date > dateRange.to) return false;
+                return true;
+              });
+              let pk = curveFiltered[0]?.equity || s.starting_capital;
+              let maxDd = 0;
+              for (const ep of curveFiltered) {
+                if (ep.equity > pk) pk = ep.equity;
+                const dd = pk > 0 ? ((pk - ep.equity) / pk * 100) : 0;
+                if (dd > maxDd) maxDd = dd;
+              }
+              return maxDd;
+            })()
+          : s.max_drawdown;
 
         const rangeLabel = isFiltered
           ? `${dateRange.from?.slice(0,4) || ""} – ${dateRange.to?.slice(0,4) || ""}`
@@ -260,7 +345,11 @@ export function PortfolioView() {
         <StatCard label="Total Trades" value={`${fTotal}`} sub={isFiltered ? rangeLabel : `${s.first_trade?.slice(0,4)} – ${s.last_trade?.slice(0,4)}`} />
         <StatCard label="Win Rate" value={`${fWR.toFixed(1)}%`} sub={`${fWins}/${fTotal} trades`} color={fWR >= 50 ? "text-[#22C55E]" : "text-[#E8E8ED]"} />
         <StatCard label="Avg Return" value={`${fAvgRet > 0 ? "+" : ""}${fAvgRet.toFixed(2)}%`} sub="Per trade" color={fAvgRet >= 0 ? "text-[#22C55E]" : "text-[#EF4444]"} />
-        <StatCard label="Max Drawdown" value={`${mdd.toFixed(1)}%`} sub={`${fStops} stops hit`} />
+        <StatCard
+          label="Max Drawdown"
+          value={`${mdd.toFixed(1)}%`}
+          sub={s.max_drawdown_note ? `${s.max_drawdown_note} | All-time: ${s.max_drawdown_all_time?.toFixed(1)}%` : `${fStops} stops hit`}
+        />
       </div>
 
       {/* Return Distribution + Exit Breakdown + Annual Returns */}

@@ -3,8 +3,6 @@ from __future__ import annotations
 import hashlib
 import secrets
 from datetime import datetime
-from typing import Optional
-
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel

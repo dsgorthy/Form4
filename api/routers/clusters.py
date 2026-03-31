@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Query
 
 from api.auth import UserContext, get_current_user
 from api.db import get_db
-from api.filters import add_trans_code_filter
+from api.filters import add_trans_code_filter, deduplicate_filers
 from api.gating import null_items_track_records, redact_gated_items
 from api.id_encoding import encode_response_ids
 
@@ -140,28 +140,12 @@ def list_clusters(
             # Post-process: merge insiders with identical trade_value + date
             # (e.g. SLTA IV + SLTA V both showing $74.6M on same date)
             raw_list = [dict(ir) for ir in insider_rows]
-            seen_signatures: dict[str, dict] = {}
-            deduped_list = []
-            for ins in raw_list:
-                sig = f"{round(ins['trade_value'],0)}|{ins['last_trade_date']}"
-                if sig in seen_signatures:
-                    # Merge: keep the one with better score, note n_filers
-                    existing = seen_signatures[sig]
-                    existing["n_filers"] = existing.get("n_filers", 1) + 1
-                    if (ins.get("score") or 0) > (existing.get("score") or 0):
-                        existing.update({
-                            "insider_id": ins["insider_id"],
-                            "name": ins["name"],
-                            "cik": ins["cik"],
-                            "score": ins["score"],
-                            "score_tier": ins["score_tier"],
-                            "title": ins["title"],
-                        })
-                else:
-                    ins["n_filers"] = 1
-                    seen_signatures[sig] = ins
-                    deduped_list.append(ins)
-            insider_rows = deduped_list
+            insider_rows = deduplicate_filers(
+                raw_list,
+                value_key="trade_value",
+                date_key="last_trade_date",
+                identity_keys=("insider_id", "name", "cik", "score", "score_tier", "title"),
+            )
             ins_list = [dict(ir) for ir in insider_rows]
             if not user.is_pro:
                 ins_list = null_items_track_records(ins_list)
@@ -256,23 +240,12 @@ def get_cluster_detail(
         ).fetchall()
         # Post-process: merge insiders with identical total value + date
         raw_list = [dict(ir) for ir in insider_rows]
-        seen_sigs: dict[str, dict] = {}
-        deduped = []
-        for ins in raw_list:
-            sig = f"{round(ins['trade_value'], 0)}|{ins['last_trade_date']}"
-            if sig in seen_sigs:
-                seen_sigs[sig]["n_filers"] = seen_sigs[sig].get("n_filers", 1) + 1
-                if (ins.get("score") or 0) > (seen_sigs[sig].get("score") or 0):
-                    seen_sigs[sig].update({
-                        "insider_id": ins["insider_id"], "name": ins["name"],
-                        "cik": ins["cik"], "score": ins["score"],
-                        "score_tier": ins["score_tier"], "title": ins["title"],
-                    })
-            else:
-                ins["n_filers"] = 1
-                seen_sigs[sig] = ins
-                deduped.append(ins)
-        ins_list = deduped
+        ins_list = deduplicate_filers(
+            raw_list,
+            value_key="trade_value",
+            date_key="last_trade_date",
+            identity_keys=("insider_id", "name", "cik", "score", "score_tier", "title"),
+        )
         if not user.is_pro:
             ins_list = null_items_track_records(ins_list)
         if not user.has_full_feed:

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import statistics
-from typing import List, Optional
+from typing import List
 
 from fastapi import APIRouter, Depends, Query
 
 from api.auth import UserContext, get_current_user
 from api.db import get_db
+from api.filters import deduplicate_filers
 from api.gating import null_items_track_records, redact_gated_items
 from api.id_encoding import encode_response_ids
 
@@ -113,7 +114,7 @@ def dashboard_stats(user: UserContext = Depends(get_current_user)) -> dict:
 
 
 @router.get("/sync-status")
-def sync_status() -> dict:
+def sync_status(user: UserContext = Depends(get_current_user)) -> dict:
     """Live sync status: last fetch time, filings today, freshness."""
     with get_db() as conn:
         # Last fetch run time (updated every run, even with 0 new filings)
@@ -286,19 +287,12 @@ def dashboard_highlights(user: UserContext = Depends(get_current_user)) -> dict:
 
     # Deduplicate entities reporting the same economic event
     for _lst in (csuite_list, sells_list):
-        seen_sigs: dict[str, dict] = {}
-        deduped = []
-        for item in _lst:
-            sig = f"{round(item['value'], 0)}|{item.get('trade_date', '')}"
-            if sig in seen_sigs:
-                seen_sigs[sig]["n_filers"] = seen_sigs[sig].get("n_filers", 1) + 1
-                if (item.get("score") or 0) > (seen_sigs[sig].get("score") or 0):
-                    seen_sigs[sig].update({k: item[k] for k in ("insider_id", "insider_name", "cik", "score", "score_tier", "title") if k in item})
-            else:
-                item["n_filers"] = 1
-                seen_sigs[sig] = item
-                deduped.append(item)
-        _lst[:] = deduped
+        _lst[:] = deduplicate_filers(
+            _lst,
+            value_key="value",
+            date_key="trade_date",
+            identity_keys=("insider_id", "insider_name", "cik", "score", "score_tier", "title"),
+        )
 
     if not user.is_pro:
         csuite_list = null_items_track_records(csuite_list)
