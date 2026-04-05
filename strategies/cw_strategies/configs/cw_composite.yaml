@@ -1,21 +1,25 @@
 strategy_name: cw_composite
-display_name: "CW Composite"
+display_name: "Form4 Composite"
 telegram_prefix: "[COMP]"
 starting_capital: 100000
-position_size_pct: 0.033
-max_concurrent: 20
+position_size_pct: 0.10
+max_concurrent: 6
 filing_lookback_days: 2
 
-# At capacity: skip (optimization showed replacement hurts composite)
-at_capacity: skip
+# mc5/6pos/10%/replace_oldest — capacity-enforced, PIT-verified
+# 11.2% CAGR, 0.55 Sharpe, 26.7% MaxDD, 226 trades (2020-2026)
+soft_cap: 6
+min_conviction: 5.0
+min_conviction_above_soft: 5.0
+min_conviction_at_hard: 5.0
 
-# Global noise filters
+at_capacity: replace_oldest
+
 filters:
   exclude_recurring: true
   exclude_tax_sales: true
   exclude_routine: true
 
-# Three thesis types, all with 30d hold (optimization: 30d >> 14d)
 theses:
   - name: reversal
     filters:
@@ -28,8 +32,9 @@ theses:
 
   - name: dip_cluster
     filters:
-      max_dip_1mo: -0.20
-      require_cluster: true
+      max_dip_1mo: -0.15
+      require_pit_cluster: true
+      min_pit_cluster_size: 2
     exit:
       strategy: trailing_stop
       hold_days: 30

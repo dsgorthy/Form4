@@ -1,5 +1,11 @@
 export const dynamic = "force-dynamic";
 
+export const metadata = {
+  title: "Insider Trading Feed — Latest SEC Form 4 Filings",
+  description:
+    "Live feed of SEC Form 4 insider trades. Filter by insider grade, trade value, type, and signals. Updated as filings are published.",
+};
+
 import { SyncStatus } from "@/components/sync-status";
 import { ExportButton } from "@/components/export-button";
 import { FeedList } from "@/components/feed-list";

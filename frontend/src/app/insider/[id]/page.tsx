@@ -1,15 +1,51 @@
 export const dynamic = "force-dynamic";
 
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { fetchAPI } from "@/lib/api";
 import { fetchAPIAuth } from "@/lib/auth";
 import { formatCurrency, formatPercent } from "@/lib/format";
+import { formatTitle } from "@/lib/title-format";
 import { TierBadge } from "@/components/ui/tier-badge";
 import { TradeOutcomeTimeline } from "@/components/trade-outcome-timeline";
 import { UpgradePrompt } from "@/components/upgrade-prompt";
 import { InsiderTradesTable } from "@/components/insider-trades-table";
+import { InsiderScoreChart } from "@/components/insider-score-chart";
 import { TickerDisplay, companyToSlug } from "@/components/ui/ticker-display";
 import type { InsiderProfile, InsiderCompany, Filing, PaginatedResponse } from "@/lib/types";
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params;
+  try {
+    const res = await fetch(
+      `${process.env.API_URL_INTERNAL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1"}/insiders/${id}`,
+      { next: { revalidate: 60 } },
+    );
+    if (res.status === 403) {
+      return { title: "Insider Profile" };
+    }
+    if (!res.ok) {
+      return { title: "Insider Not Found" };
+    }
+    const profile: InsiderProfile = await res.json();
+    const tr = profile.track_record;
+    const grade = (profile as any).best_pit_grade;
+    const parts: string[] = [];
+    if (grade) parts.push(`Grade ${grade}`);
+    if (tr) parts.push(`${tr.buy_count + tr.sell_count} trades across ${tr.n_tickers} companies`);
+    const description = parts.length > 0
+      ? `${profile.name} insider trading profile. ${parts.join(". ")}. SEC Form 4 analysis on Form4.app.`
+      : `${profile.name} insider trading profile on Form4.app.`;
+    return {
+      title: `${profile.name} — Insider Profile`,
+      description,
+      openGraph: { title: `${profile.name} — Insider Profile`, description },
+    };
+  } catch {
+    return { title: "Insider Not Found" };
+  }
+}
 
 function StatBox({
   label,
@@ -118,16 +154,20 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
       {/* Header */}
       <div className="flex items-center gap-4 mb-2">
         <h1 className="text-2xl font-bold text-[#E8E8ED]">{profile.name}</h1>
-        {tr && <TierBadge tier={tr.score_tier} />}
+        {(profile as any).best_pit_grade ? (
+          <TierBadge pitGrade={(profile as any).best_pit_grade} bestTicker={(profile as any).best_pit_ticker} tickerCount={(profile as any).n_scored_tickers} />
+        ) : tr ? (
+          <TierBadge tier={tr.score_tier} />
+        ) : null}
       </div>
       {(() => {
         const cos = companies.companies;
         const primary = cos.length > 0
           ? [...cos].sort((a, b) => b.trade_count - a.trade_count)[0]
           : null;
-        const title = ((primary as any)?.normalized_title || primary?.title)?.replace(/;/g, ", ") || tr?.primary_title?.replace(/;/g, ", ");
+        const title = formatTitle((primary as any)?.normalized_title || primary?.title) || formatTitle(tr?.primary_title);
         const otherCount = cos.length > 1 ? cos.length - 1 : 0;
-        const skipTitle = !title || ["See Remarks", "Other", "Unknown"].includes(title);
+        const skipTitle = !title;
         return (
           <>
             {!skipTitle && (
@@ -216,6 +256,38 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
           </div>
         );
       })()}
+
+      {/* Grade by Ticker */}
+      {(profile as any).ticker_grades?.length > 0 && (
+        <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] p-4 mb-8">
+          <h3 className="text-xs font-semibold uppercase tracking-widest text-[#55556A] mb-3">
+            Grade by Ticker
+          </h3>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+            {((profile as any).ticker_grades as { ticker: string; grade: string; score: number; trade_count: number }[]).map(
+              (tg, i) => (
+                <Link
+                  key={tg.ticker}
+                  href={`/company/${tg.ticker}`}
+                  className={`flex items-center justify-between rounded-md border px-3 py-2 transition-colors ${
+                    i === 0
+                      ? "border-[#F59E0B]/30 bg-[#F59E0B]/5"
+                      : "border-[#2A2A3A] hover:border-[#3A3A4A]"
+                  }`}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <TierBadge pitGrade={tg.grade} />
+                    <span className="text-sm font-mono text-[#E8E8ED] truncate">{tg.ticker}</span>
+                  </div>
+                  <span className="text-[10px] text-[#55556A] font-mono shrink-0 ml-2">
+                    {tg.trade_count} {tg.trade_count === 1 ? "trade" : "trades"}
+                  </span>
+                </Link>
+              ),
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Track Records + Transaction Volume */}
       {tr && (() => {
@@ -378,6 +450,11 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
         );
       })()}
 
+      {/* PIT Score Over Time */}
+      <div className="mb-8">
+        <InsiderScoreChart insiderId={id} />
+      </div>
+
       {/* Trade Performance Scatter */}
       {returnDist && returnDist.timeline && returnDist.timeline.length > 0 && (
         <div className="mb-8">
@@ -413,9 +490,8 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                   )}
                   <div className="text-xs text-[#55556A] mt-1">
                     {(() => {
-                      const t = (c as any).normalized_title || c.title;
-                      const show = t && !["See Remarks", "Other", "Unknown"].includes(t);
-                      return show ? `${t.replace(/;/g, ", ")} · ` : "";
+                      const t = formatTitle((c as any).normalized_title || c.title);
+                      return t ? `${t} · ` : "";
                     })()}{formatCurrency(c.total_value)}
                   </div>
                 </Link>

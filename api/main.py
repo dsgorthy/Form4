@@ -29,6 +29,7 @@ from api.routers import (
     private_companies,
     search,
     signals,
+    sitemap,
     webhooks,
 )
 
@@ -102,6 +103,7 @@ app.include_router(notifications.router)
 app.include_router(onboarding.router)
 app.include_router(portfolio.router)
 app.include_router(private_companies.router)
+app.include_router(sitemap.router)
 
 
 @app.on_event("startup")

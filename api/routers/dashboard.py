@@ -34,15 +34,15 @@ def dashboard_stats(user: UserContext = Depends(get_current_user)) -> dict:
     with get_db() as conn:
         latest = _latest_filing_date(conn)
 
-        # Signals today: trades from Tier 2+ insiders filed on the latest filing date
+        # Signals today: trades from PIT grade A/B insiders filed on the latest filing date
         signals_today = conn.execute(
             """
             SELECT COUNT(*) AS cnt
             FROM trades t
-            JOIN insider_track_records itr ON t.insider_id = itr.insider_id
             WHERE t.filing_date = ?
-              AND itr.score_tier >= 2
+              AND t.pit_grade IN ('A', 'B')
               AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
+              AND t.superseded_by IS NULL
               AND """ + _PS_FILTER + """
             """,
             (latest,),
@@ -57,6 +57,7 @@ def dashboard_stats(user: UserContext = Depends(get_current_user)) -> dict:
                 FROM trades
                 WHERE filing_date BETWEEN date(?, '-7 days') AND ?
                   AND (is_duplicate = 0 OR is_duplicate IS NULL)
+                  AND superseded_by IS NULL
                   AND """ + _PS_FILTER_BARE + """
                 Group BY ticker, trade_type
                 HAVING COUNT(DISTINCT insider_id) >= 2
@@ -73,6 +74,7 @@ def dashboard_stats(user: UserContext = Depends(get_current_user)) -> dict:
                 COALESCE(SUM(CASE WHEN trade_type = 'sell' THEN value ELSE 0 END), 0) AS sell_val
             FROM trades
             WHERE filing_date BETWEEN date(?, '-5 days') AND ?
+              AND superseded_by IS NULL
               AND """ + _PS_FILTER_BARE + """
             """,
             (latest, latest),
@@ -92,6 +94,7 @@ def dashboard_stats(user: UserContext = Depends(get_current_user)) -> dict:
             WHERE filing_date = ?
               AND ticker != 'NONE'
               AND (is_duplicate = 0 OR is_duplicate IS NULL)
+              AND superseded_by IS NULL
               AND """ + _PS_FILTER_BARE + """
             GROUP BY ticker
             HAVING COUNT(DISTINCT insider_id) >= 2
@@ -141,6 +144,7 @@ def sync_status(user: UserContext = Depends(get_current_user)) -> dict:
             """SELECT COUNT(*) AS cnt FROM trades
                WHERE filing_date = date('now')
                AND (is_duplicate = 0 OR is_duplicate IS NULL)
+               AND superseded_by IS NULL
                AND """ + _PS_FILTER_BARE
         ).fetchone()["cnt"]
 
@@ -151,7 +155,7 @@ def sync_status(user: UserContext = Depends(get_current_user)) -> dict:
 
         # Total trades (P/S only)
         total = conn.execute(
-            "SELECT COUNT(*) AS cnt FROM trades WHERE (is_duplicate = 0 OR is_duplicate IS NULL) AND " + _PS_FILTER_BARE
+            "SELECT COUNT(*) AS cnt FROM trades WHERE (is_duplicate = 0 OR is_duplicate IS NULL) AND superseded_by IS NULL AND " + _PS_FILTER_BARE
         ).fetchone()["cnt"]
 
     return {
@@ -169,7 +173,7 @@ def dashboard_highlights(user: UserContext = Depends(get_current_user)) -> dict:
     with get_db() as conn:
         latest = _latest_filing_date(conn)
 
-        # Top 5 recent C-suite buys $100K+ (Tier 2+)
+        # Top 5 recent C-suite buys $100K+ (PIT grade A/B)
         csuite_buys = conn.execute(
             """
             SELECT
@@ -177,6 +181,7 @@ def dashboard_highlights(user: UserContext = Depends(get_current_user)) -> dict:
                 agg.trade_type, agg.trade_date, agg.filing_date,
                 agg.price, agg.qty, agg.value, agg.lot_count,
                 agg.is_csuite, agg.accession,
+                agg.pit_grade, agg.pit_blended_score,
                 COALESCE(i.display_name, i.name) AS insider_name, i.cik,
                 itr.score, itr.score_tier, itr.percentile,
                 itr.buy_win_rate_7d, itr.buy_avg_return_7d, itr.buy_avg_abnormal_7d,
@@ -191,14 +196,16 @@ def dashboard_highlights(user: UserContext = Depends(get_current_user)) -> dict:
                     SUM(t.qty) AS qty,
                     SUM(t.value) AS value,
                     COUNT(*) AS lot_count,
-                    t.is_csuite, t.accession
+                    t.is_csuite, t.accession,
+                    MAX(t.pit_grade) AS pit_grade,
+                    MAX(t.pit_blended_score) AS pit_blended_score
                 FROM trades t
-                JOIN insider_track_records itr ON t.insider_id = itr.insider_id
                 WHERE t.trade_type = 'buy'
                   AND t.is_csuite = 1
-                  AND itr.score_tier >= 2
+                  AND t.pit_grade IN ('A', 'B')
                   AND t.filing_date >= date(?, '-30 days')
                   AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
+                  AND t.superseded_by IS NULL
                   AND """ + _PS_FILTER + """
                 GROUP BY t.insider_id, t.ticker, t.trade_type, t.trade_date
                 HAVING SUM(t.value) >= 100000
@@ -220,6 +227,7 @@ def dashboard_highlights(user: UserContext = Depends(get_current_user)) -> dict:
                 agg.trade_type, agg.trade_date, agg.filing_date,
                 agg.price, agg.qty, agg.value, agg.lot_count,
                 agg.is_csuite, agg.accession,
+                agg.pit_grade, agg.pit_blended_score,
                 COALESCE(i.display_name, i.name) AS insider_name, i.cik,
                 itr.score, itr.score_tier, itr.percentile,
                 itr.buy_win_rate_7d, itr.buy_avg_return_7d, itr.buy_avg_abnormal_7d,
@@ -234,11 +242,14 @@ def dashboard_highlights(user: UserContext = Depends(get_current_user)) -> dict:
                     SUM(t.qty) AS qty,
                     SUM(t.value) AS value,
                     COUNT(*) AS lot_count,
-                    t.is_csuite, t.accession
+                    t.is_csuite, t.accession,
+                    MAX(t.pit_grade) AS pit_grade,
+                    MAX(t.pit_blended_score) AS pit_blended_score
                 FROM trades t
                 WHERE t.trade_type = 'sell'
                   AND t.filing_date >= date(?, '-30 days')
                   AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
+                  AND t.superseded_by IS NULL
                   AND """ + _PS_FILTER + """
                 GROUP BY t.insider_id, t.ticker, t.trade_type, t.trade_date
                 HAVING SUM(t.value) >= 1000000
@@ -266,12 +277,15 @@ def dashboard_highlights(user: UserContext = Depends(get_current_user)) -> dict:
                 MAX(t.filing_date) AS latest_filing,
                 COUNT(*) AS trade_count,
                 SUM(CASE WHEN t.is_csuite = 1 THEN 1 ELSE 0 END) AS csuite_count,
-                AVG(itr.score) AS avg_score
+                AVG(itr.score) AS avg_score,
+                MAX(t.pit_grade) AS pit_grade,
+                AVG(t.pit_blended_score) AS avg_pit_blended_score
             FROM trades t
             LEFT JOIN insider_track_records itr ON t.insider_id = itr.insider_id
             WHERE t.filing_date >= date(?, '-7 days')
               AND t.filing_date <= ?
               AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
+              AND t.superseded_by IS NULL
               AND """ + _PS_FILTER + """
             GROUP BY t.ticker, t.trade_type
             HAVING COUNT(DISTINCT t.insider_id) >= 2
@@ -333,6 +347,7 @@ def dashboard_sentiment(
                 COALESCE(SUM(CASE WHEN trade_type = 'sell' THEN value ELSE 0 END), 0) AS sell_value
             FROM trades
             WHERE filing_date BETWEEN date(?, '-' || ? || ' days') AND ?
+              AND superseded_by IS NULL
               AND {_PS_FILTER_BARE}
               {routine_filter}
             GROUP BY filing_date
@@ -375,6 +390,7 @@ def dashboard_heatmap(days: int = Query(default=90, ge=1, le=365)) -> List[dict]
                 SUM(value) AS total_value
             FROM trades
             WHERE filing_date BETWEEN date(?, '-' || ? || ' days') AND ?
+              AND superseded_by IS NULL
               AND """ + _PS_FILTER_BARE + """
             GROUP BY filing_date
             ORDER BY filing_date
@@ -388,6 +404,7 @@ def dashboard_heatmap(days: int = Query(default=90, ge=1, le=365)) -> List[dict]
             SELECT filing_date AS date, ticker, SUM(value) AS tv
             FROM trades
             WHERE filing_date BETWEEN date(?, '-' || ? || ' days') AND ?
+              AND superseded_by IS NULL
               AND """ + _PS_FILTER_BARE + """
             GROUP BY filing_date, ticker
             ORDER BY filing_date, tv DESC
@@ -437,6 +454,7 @@ def dashboard_inflections(
                 MAX(filing_date) AS latest_filing
             FROM trades
             WHERE filing_date BETWEEN date(?, '-7 days') AND ?
+              AND superseded_by IS NULL
               AND {_PS_FILTER_BARE}
               {routine_filter}
             GROUP BY ticker, trade_type
@@ -453,6 +471,7 @@ def dashboard_inflections(
                 SUM(value) / 90.0 AS daily_avg
             FROM trades
             WHERE filing_date BETWEEN date(?, '-90 days') AND date(?, '-8 days')
+              AND superseded_by IS NULL
               AND {_PS_FILTER_BARE}
               {routine_filter}
             GROUP BY ticker, trade_type
@@ -505,6 +524,7 @@ def filing_delays() -> dict:
             SELECT CAST(julianday(filing_date) - julianday(trade_date) AS INTEGER) AS delay_days
             FROM trades
             WHERE filing_date IS NOT NULL AND trade_date IS NOT NULL
+              AND superseded_by IS NULL
               AND """ + _PS_FILTER_BARE + """
             """,
         ).fetchall()

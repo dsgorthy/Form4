@@ -83,7 +83,7 @@ export function PrivateTradesTable({ slug, initialData }: PrivateTradesTableProp
                     {t.insider_name}
                   </span>
                   {(t.score_tier ?? t.tier) != null && (
-                    <TierBadge tier={t.score_tier ?? t.tier} />
+                    <TierBadge tier={t.score_tier ?? t.tier} pitGrade={t.pit_grade} />
                   )}
                 </div>
                 <Badge

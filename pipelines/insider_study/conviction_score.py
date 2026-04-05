@@ -1,17 +1,17 @@
 """
-Conviction scoring for CW insider trading signals.
+Conviction scoring for insider trading signals.
 
-Combines predictive indicators into a single score (0-10) used for:
-1. Minimum entry threshold (filter out low-conviction noise)
-2. Position replacement when at capacity (swap weakest for stronger)
-3. Position sizing tiers (future: size proportional to conviction)
+Two scoring paths:
+- Reversal: driven by consecutive sells, streak break, grade, holdings change
+- Composite (dip_cluster, momentum_largest): driven by role, cluster size,
+  dip depth, first-ever buy, cohen routine — NO insider history needed
 
 Derived from empirical return analysis (2020-2026):
-- Consecutive sells: strong predictor (50+ sells = 66% WR, +4.2% avg 30d)
-- Dip depth: very strong predictor (-60%+ dip = +14.3% avg 30d)
-- Signal grade: moderate predictor (A/B >> C >> D/F)
-- Insider type: VP/SVP/EVP outperform (68% WR at conv 5-7); 10% owners underperform (36% WR)
-- Purchase size ratio: not predictive (excluded)
+- VP/SVP/EVP: 62% WR, +5.0% avg 30d on composite signals
+- 4+ insiders + CEO cluster: 57% WR, +6.1% avg
+- 40%+ dip: +5.3% avg regardless of insider role
+- First-ever buy: +2.6% vs +1.2% for repeat
+- Trade value $2M+: NEGATIVE signal (-1.5%) — excluded
 """
 
 from __future__ import annotations
@@ -22,8 +22,6 @@ def _categorize_insider(title: str | None, is_csuite: bool = False) -> str:
     if not title:
         return "other"
     t = title.upper()
-    # Order matters — check VP/EVP/SVP before PRESIDENT (since "VICE PRESIDENT" contains "PRESIDENT")
-    # Check DIRECTOR before CTO (since "DIRECTOR" contains "CTO")
     if "CEO" in t or "CHIEF EXECUTIVE" in t:
         return "ceo"
     if "CFO" in t or "CHIEF FINANCIAL" in t:
@@ -36,7 +34,7 @@ def _categorize_insider(title: str | None, is_csuite: bool = False) -> str:
         return "director"
     if "COO" in t or "CHIEF OPERATING" in t or "CTO" in t or "CHIEF TECH" in t:
         return "csuite"
-    # President without another C-suite title — exclude (unreliable signal)
+    # President without another C-suite title — exclude
     if "PRESIDENT" in t and not any(x in t for x in ["CEO", "CFO", "COO", "CTO", "CHIEF"]):
         return "president"
     if "10%" in t or "TENPERCENT" in t:
@@ -60,39 +58,59 @@ def compute_conviction(
     holdings_pct_change: float | None = None,
     streak_break_days: int | None = None,
     cluster_size: int | None = None,
+    is_first_buy: bool = False,
+    is_opportunistic: bool = False,
+    trade_value: float | None = None,
 ) -> float:
     """Compute conviction score (0-10) for an insider trade signal.
 
-    Higher = stronger conviction. Used for entry thresholds and
-    position replacement decisions.
+    Reversal trades score on: consecutive sells, grade, holdings, streak break.
+    Composite trades score on: role, cluster, dip depth, first buy, opportunistic.
+    Both filter out 10% owners and solo presidents.
     """
     score = 0.0
 
-    # --- Insider type filter (returns -999 for excluded types) ---
+    # --- Insider type filter ---
     role = _categorize_insider(insider_title, is_csuite)
     if role == "10pct_owner":
-        return 0.0  # Always excluded — 36% WR, -0.4% avg at conv 5-7
+        return 0.0
     if role == "president":
-        return 0.0  # Excluded — 50% WR at high conviction, unreliable
+        return 0.0
 
-    # --- Thesis base (0-1) ---
-    thesis_scores = {
-        "reversal": 1.0,
-        "dip_cluster": 0.5,
-        "momentum_largest": 0.3,
-    }
-    score += thesis_scores.get(thesis, 0.0)
+    # --- Trade value filter (>$2M is negative signal for composite) ---
+    if thesis in ("dip_cluster", "momentum_largest") and trade_value and trade_value >= 2_000_000:
+        return 0.0  # -1.5% avg, 42% WR — actively bad
 
-    # --- Signal grade (0-3) ---
-    # NOTE: If using pre-computed signal_grade from trades table, caller must
-    # ensure it's PIT (computed from insider_ticker_scores with as_of_date <= filing_date).
-    # The static signal_grade on trades uses full-history track records and is NOT PIT.
-    # For backtesting, pass pit_score instead and use pit_score_to_grade().
+    if thesis == "reversal":
+        return _score_reversal(
+            score, role, signal_grade, consecutive_sells,
+            dip_1mo, dip_3mo, is_largest_ever, above_sma50, above_sma200,
+            holdings_pct_change, streak_break_days, cluster_size,
+        )
+    else:
+        return _score_composite(
+            score, role, thesis, signal_grade,
+            dip_1mo, dip_3mo, is_largest_ever, above_sma50, above_sma200,
+            cluster_size, is_first_buy, is_opportunistic, trade_value,
+        )
+
+
+def _score_reversal(
+    score, role, signal_grade, consecutive_sells,
+    dip_1mo, dip_3mo, is_largest_ever, above_sma50, above_sma200,
+    holdings_pct_change, streak_break_days, cluster_size,
+) -> float:
+    """Reversal scoring — driven by insider behavior (sells→buy flip)."""
+
+    # Thesis base
+    score += 1.0
+
+    # Signal grade (PIT)
     if signal_grade:
-        grade_scores = {"A": 3.0, "B": 2.0, "C": 1.0, "D": 0.0, "F": -1.0}
+        grade_scores = {"A+": 3.5, "A": 3.0, "B": 2.0, "C": 1.0, "D": 0.0}
         score += grade_scores.get(signal_grade, 0.0)
 
-    # --- Consecutive sells (0-3) ---
+    # Consecutive sells (strongest predictor)
     if consecutive_sells is not None and consecutive_sells >= 5:
         if consecutive_sells >= 50:
             score += 3.0
@@ -103,7 +121,7 @@ def compute_conviction(
         else:
             score += 0.5
 
-    # --- Dip depth (0-3) ---
+    # Dip depth
     best_dip = min(d for d in [dip_1mo, dip_3mo] if d is not None) if any(
         d is not None for d in [dip_1mo, dip_3mo]
     ) else None
@@ -117,70 +135,136 @@ def compute_conviction(
         else:
             score += 0.5
 
-    # --- Momentum context (0-0.5) ---
+    # Momentum context
     if above_sma50 and above_sma200:
         score += 0.5
     if is_largest_ever:
         score += 0.5
 
-    # --- Insider type bonus (0-0.5) ---
-    # VP/SVP/EVP: 68% WR at conv 5-7, +11.2% avg — strongest performers
+    # Insider type bonus
     if role == "vp":
         score += 0.5
 
-    # --- Holdings % change (0-1.0) ---
-    # Only for reversals — insider CHOOSING to size up on their first buy is meaningful.
-    # For dip_cluster/momentum, everyone buys big when it's cheap — not a signal.
-    if holdings_pct_change is not None and thesis == "reversal":
-        if holdings_pct_change >= 1.0:  # doubled or more
+    # Holdings % change (reversal only)
+    if holdings_pct_change is not None:
+        if holdings_pct_change >= 1.0:
             score += 1.0
-        elif holdings_pct_change >= 0.5:  # 50-100% increase
+        elif holdings_pct_change >= 0.5:
             score += 0.5
 
-    # --- Streak break gap (0-0.5) ---
-    # Only for reversals — longer gap since last buy = more meaningful flip.
-    if streak_break_days is not None and thesis == "reversal":
-        if streak_break_days >= 730:  # 2+ years
+    # Streak break gap (reversal only)
+    if streak_break_days is not None:
+        if streak_break_days >= 730:
             score += 0.5
-        elif streak_break_days >= 365:  # 1-2 years
+        elif streak_break_days >= 365:
             score += 0.25
 
-    # --- Cluster size (0-0.5) ---
-    # For all theses — more insiders buying = stronger collective signal
+    # Cluster size
     if cluster_size is not None and cluster_size >= 4:
         score += 0.5
 
     return round(min(10.0, max(0.0, score)), 2)
 
 
+def _score_composite(
+    score, role, thesis, signal_grade,
+    dip_1mo, dip_3mo, is_largest_ever, above_sma50, above_sma200,
+    cluster_size, is_first_buy, is_opportunistic, trade_value,
+) -> float:
+    """Composite scoring — driven by trade context, NOT insider history.
+
+    Key insight: PIT insider grades give 70% of composite insiders grade D,
+    making grade nearly useless. Instead, score on role + cluster + dip + context.
+    """
+
+    # --- Role (strongest composite predictor) ---
+    # VP/SVP/EVP: 62% WR, +5.0% avg
+    # CFO: 55% WR, +4.0% avg
+    # CEO: 49% WR, +0.8% avg (not predictive alone)
+    # Director: 50% WR, +1.5% avg
+    role_scores = {
+        "vp": 2.0,
+        "cfo": 1.5,
+        "ceo": 0.5,
+        "csuite": 1.0,
+        "director": 0.5,
+        "other": 0.0,
+    }
+    score += role_scores.get(role, 0.0)
+
+    # --- Cluster size (strong for composite) ---
+    # 4+ insiders: 57% WR with CEO, +6.1%
+    # 3+ insiders: 55% WR, +5.0%
+    # 2+ insiders: 51% WR, +2.8%
+    if cluster_size is not None:
+        if cluster_size >= 4:
+            score += 2.0
+        elif cluster_size >= 3:
+            score += 1.5
+        elif cluster_size >= 2:
+            score += 0.5
+
+    # --- Dip depth (works for composite without history) ---
+    # 40%+ dip: +5.3% avg
+    # 25-40%: +0.7% avg
+    best_dip = min(d for d in [dip_1mo, dip_3mo] if d is not None) if any(
+        d is not None for d in [dip_1mo, dip_3mo]
+    ) else None
+    if best_dip is not None:
+        if best_dip <= -0.40:
+            score += 2.0
+        elif best_dip <= -0.25:
+            score += 1.0
+        elif best_dip <= -0.15:
+            score += 0.5
+
+    # --- First-ever buy at this company ---
+    # +2.6% vs +1.2% for repeat buyers
+    if is_first_buy:
+        score += 0.5
+
+    # --- Opportunistic (cohen_routine = 0) ---
+    # Filters out routine/scheduled buys
+    if is_opportunistic:
+        score += 0.5
+
+    # --- Momentum context ---
+    if above_sma50 and above_sma200:
+        score += 0.5
+    if is_largest_ever:
+        score += 0.5
+
+    # --- Grade (reduced weight for composite — PIT grades are mostly D) ---
+    # Only give bonus for A (the few insiders with proven PIT records)
+    if signal_grade == "A":
+        score += 1.0
+    elif signal_grade == "B":
+        score += 0.5
+
+    return round(min(10.0, max(0.0, score)), 2)
+
+
 def pit_score_to_grade(blended_score: float | None) -> str | None:
-    """Convert a PIT insider_ticker_scores.blended_score to a letter grade.
+    """Convert PIT blended_score to a letter grade.
 
-    Use this instead of the pre-computed signal_grade column on trades,
-    which uses full-history track records (not PIT-safe for backtesting).
-
-    Thresholds match the scoring tiers in pit_scoring.py:
-    - A: score >= 2.0 (top performers)
-    - B: score >= 1.0
-    - C: score >= 0.5
-    - D: score >= 0.0
-    - F: score < 0.0 or no data
+    v2 thresholds (Bayesian scorer):
+      A+ (≥2.5), A (≥2.0), B (≥1.2), C (≥0.6), D (≥0.0), None (no data)
     """
     if blended_score is None:
         return None
+    if blended_score >= 2.5:
+        return "A+"
     if blended_score >= 2.0:
         return "A"
-    if blended_score >= 1.0:
+    if blended_score >= 1.2:
         return "B"
-    if blended_score >= 0.5:
+    if blended_score >= 0.6:
         return "C"
-    if blended_score >= 0.0:
-        return "D"
-    return "F"
+    return "D"
 
 
 # Minimum conviction to enter a position
-MIN_CONVICTION = 2.0
+MIN_CONVICTION = 5.0
 
 # Minimum conviction advantage to replace an open position
 REPLACEMENT_ADVANTAGE = 1.5

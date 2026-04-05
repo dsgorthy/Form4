@@ -663,10 +663,10 @@ def compute_track_records(conn: sqlite3.Connection):
 
         # Primary title/ticker (skip junk titles)
         title_row = conn.execute(f"""
-            SELECT title, COUNT(*) as cnt FROM trades
-            WHERE {id_where_no_alias} AND title != '' AND title IS NOT NULL
-              AND title NOT IN ('See Remarks', 'Other', 'Unknown', 'See Remark')
-            GROUP BY title ORDER BY cnt DESC LIMIT 1
+            SELECT COALESCE(normalized_title, title) AS t, COUNT(*) as cnt FROM trades
+            WHERE {id_where_no_alias} AND COALESCE(normalized_title, title) != '' AND COALESCE(normalized_title, title) IS NOT NULL
+              AND COALESCE(normalized_title, title) NOT IN ('See Remarks', 'Other', 'Unknown', 'See Remark')
+            GROUP BY t ORDER BY cnt DESC LIMIT 1
         """, (insider_id,)).fetchone()
         primary_title = title_row[0] if title_row else None
 

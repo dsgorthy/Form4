@@ -72,5 +72,15 @@ data/db-backups/
 data/content-archive/
 api/*.db-*
 strategies/insider_catalog/prices.db.corrupt*
+strategies/insider_catalog/*.db.corrupt
+strategies/insider_catalog/*.lock
 com.openclaw.intraday-backfill.plist
 strategies/cw_strategies/com.openclaw.*.plist
+strategies/cw_strategies/data/
+
+# Runtime artifacts
+*.db.lock
+/data.db
+
+# Scripts with credentials (keys should be in .env)
+scripts/seed_positions.py

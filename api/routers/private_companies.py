@@ -48,6 +48,7 @@ def list_private_companies(
                 SELECT 1 FROM trades
                 WHERE ticker = 'NONE'
                   AND (is_duplicate = 0 OR is_duplicate IS NULL)
+                  AND superseded_by IS NULL
                   AND trans_code IN ('P', 'S')
                 GROUP BY company
             )
@@ -65,6 +66,7 @@ def list_private_companies(
             FROM trades
             WHERE ticker = 'NONE'
               AND (is_duplicate = 0 OR is_duplicate IS NULL)
+              AND superseded_by IS NULL
               AND trans_code IN ('P', 'S')
             GROUP BY company
             ORDER BY COUNT(*) DESC
@@ -113,6 +115,7 @@ def get_private_company(slug: str, user: UserContext = Depends(get_current_user)
             WHERE ticker = 'NONE'
               AND company = ?
               AND (is_duplicate = 0 OR is_duplicate IS NULL)
+              AND superseded_by IS NULL
               AND trans_code IN ('P', 'S')
             GROUP BY company
             """,
@@ -147,6 +150,7 @@ def get_private_company(slug: str, user: UserContext = Depends(get_current_user)
             WHERE t.ticker = 'NONE'
               AND t.company = ?
               AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
+              AND t.superseded_by IS NULL
               AND t.trans_code IN ('P', 'S')
             GROUP BY t.insider_id
             ORDER BY itr.score DESC
@@ -209,6 +213,7 @@ def get_private_company_trades(
         "t.ticker = 'NONE'",
         "t.company = ?",
         "(t.is_duplicate = 0 OR t.is_duplicate IS NULL)",
+        "t.superseded_by IS NULL",
         "t.trans_code IN ('P', 'S')",
     ]
     params: list = [company_name]
@@ -247,6 +252,7 @@ def get_private_company_trades(
                 agg.trade_type, agg.trade_date, agg.filing_date,
                 agg.price, agg.qty, agg.value, agg.lot_count,
                 agg.is_csuite,
+                agg.pit_grade, agg.pit_blended_score,
                 COALESCE(i.display_name, i.name) AS insider_name, i.cik,
                 itr.score, itr.score_tier
             FROM (
@@ -259,7 +265,9 @@ def get_private_company_trades(
                     SUM(t.qty) AS qty,
                     SUM(t.value) AS value,
                     COUNT(*) AS lot_count,
-                    t.is_csuite
+                    t.is_csuite,
+                    MAX(t.pit_grade) AS pit_grade,
+                    MAX(t.pit_blended_score) AS pit_blended_score
                 FROM trades t
                 WHERE {where_clause}
                 GROUP BY t.insider_id, t.trade_type, t.trade_date

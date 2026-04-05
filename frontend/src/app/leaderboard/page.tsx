@@ -1,5 +1,11 @@
 export const dynamic = "force-dynamic";
 
+export const metadata = {
+  title: "Top Insider Traders — Leaderboard",
+  description:
+    "Ranked insiders by track record. See who consistently beats the market. Sortable by grade, win rate, and alpha.",
+};
+
 import Link from "next/link";
 import { LeaderboardTable } from "@/components/leaderboard-table";
 

@@ -159,7 +159,7 @@ export function FilingDetailPanel({ filing, onClose }: FilingDetailPanelProps) {
                 <InfoRow label="Title">{filing.title}</InfoRow>
                 <div className="flex items-center justify-between py-1.5">
                   <span className="text-[#8888A0] text-sm">Tier</span>
-                  <TierBadge tier={filing.tier} />
+                  <TierBadge tier={filing.tier} pitGrade={filing.pit_grade} />
                 </div>
                 <InfoRow label="Score">{filing.score?.toFixed(2) ?? "\u2014"}</InfoRow>
               </div>

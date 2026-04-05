@@ -11,6 +11,7 @@ from api.db import get_db
 from api.filters import add_trans_code_filter, deduplicate_filers, filing_group_by
 from api.gating import get_free_cutoff_date, null_items_track_records, redact_gated_items
 from api.id_encoding import encode_response_ids
+from api.pit_helpers import get_ticker_pit_grade
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,7 @@ def get_company(ticker: str, user: UserContext = Depends(get_current_user)) -> d
             FROM trades
             WHERE ticker = ?
               AND (is_duplicate = 0 OR is_duplicate IS NULL)
+              AND superseded_by IS NULL
               AND trans_code IN ('P', 'S')
             GROUP BY ticker
             """,
@@ -89,6 +91,10 @@ def get_company(ticker: str, user: UserContext = Depends(get_current_user)) -> d
         except Exception:
             pass
 
+        # Enrich each insider with their PIT grade for THIS ticker
+        for ins in roster_list:
+            ins["pit_grade"] = get_ticker_pit_grade(conn, ins["insider_id"], ticker)
+
     result = dict(company_row)
     if not user.is_pro:
         roster_list = null_items_track_records(roster_list)
@@ -110,7 +116,7 @@ def get_company_trades(
     ticker = ticker.upper()
     free_cutoff = get_free_cutoff_date() if not user.has_full_feed else None
 
-    conditions = ["t.ticker = ?", "(t.is_duplicate = 0 OR t.is_duplicate IS NULL)"]
+    conditions = ["t.ticker = ?", "(t.is_duplicate = 0 OR t.is_duplicate IS NULL)", "t.superseded_by IS NULL"]
     params: list = [ticker]
 
     add_trans_code_filter(conditions, params, trans_codes)
@@ -149,6 +155,7 @@ def get_company_trades(
                 agg.price, agg.qty, agg.value, agg.lot_count,
                 agg.is_csuite,
                 agg.is_10b5_1, agg.is_routine, agg.cohen_routine, agg.shares_owned_after, agg.is_rare_reversal, agg.week52_proximity,
+                agg.pit_grade, agg.pit_blended_score,
                 COALESCE(i.display_name, i.name) AS insider_name, i.cik,
                 itr.score, itr.score_tier, itr.sell_win_rate_7d,
                 tr.return_7d, tr.return_30d, tr.return_90d, tr.return_180d, tr.return_365d,
@@ -173,7 +180,9 @@ def get_company_trades(
                     MAX(t.cohen_routine) AS cohen_routine,
                     MAX(t.shares_owned_after) AS shares_owned_after,
                     MAX(t.is_rare_reversal) AS is_rare_reversal,
-                    MAX(t.week52_proximity) AS week52_proximity
+                    MAX(t.week52_proximity) AS week52_proximity,
+                    MAX(t.pit_grade) AS pit_grade,
+                    MAX(t.pit_blended_score) AS pit_blended_score
                 FROM trades t
                 WHERE {where_clause}
                 GROUP BY t.insider_id, t.trade_type, {filing_group_by()}
@@ -196,10 +205,9 @@ def get_company_trades(
         identity_keys=("insider_id", "insider_name", "cik", "score", "score_tier", "title"),
     )
 
-    # Enrich with signal quality
-    with get_db() as q_conn:
-        from api.signal_quality import enrich_items_with_quality
-        enrich_items_with_quality(q_conn, items)
+    # Enrich with trade grade
+    from api.trade_grade import enrich_items_with_trade_grade
+    enrich_items_with_trade_grade(None, items)
 
     if free_cutoff:
         items = null_items_track_records(items)
@@ -222,7 +230,7 @@ def get_company_price_history(ticker: str, user: UserContext = Depends(get_curre
     """Insider trade markers over time for the price chart scatter plot."""
     ticker = ticker.upper()
 
-    conditions = ["t.ticker = ?"]
+    conditions = ["t.ticker = ?", "t.superseded_by IS NULL"]
     params_list = [ticker]
 
     add_trans_code_filter(conditions, params_list, "P,S")
@@ -313,7 +321,7 @@ def get_chart_data(
     free_cutoff = get_free_cutoff_date() if not user.has_full_feed else None
 
     # Build dynamic WHERE clause for trade filters
-    conditions = ["t.ticker = ?", "t.trade_date >= ?", "t.trade_date <= ?", "(t.is_duplicate = 0 OR t.is_duplicate IS NULL)"]
+    conditions = ["t.ticker = ?", "t.trade_date >= ?", "t.trade_date <= ?", "(t.is_duplicate = 0 OR t.is_duplicate IS NULL)", "t.superseded_by IS NULL"]
     params: list = [ticker, trade_start, trade_end]
 
     add_trans_code_filter(conditions, params, trans_codes)

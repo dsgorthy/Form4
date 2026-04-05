@@ -542,6 +542,11 @@ def _prepare_events(
         cluster_key = (e["ticker"], e["filing_date"][:7])
         cluster_sz = cluster_cache.get(cluster_key, 1)
 
+        # Is this the first-ever buy at this ticker by this insider?
+        is_first = e.get("_is_first_buy", False)
+        if not is_first and e.get("consecutive_sells_before") and e["consecutive_sells_before"] >= 5:
+            is_first = True  # reversal = effectively first meaningful buy
+
         e["_conviction"] = compute_conviction(
             thesis=e["_thesis"],
             signal_grade=pit_grade,
@@ -556,6 +561,9 @@ def _prepare_events(
             holdings_pct_change=holdings_pct,
             streak_break_days=streak_days,
             cluster_size=cluster_sz,
+            is_first_buy=is_first,
+            is_opportunistic=e.get("cohen_routine") == 0,
+            trade_value=e.get("value"),
         )
 
     log.info(f"  {strategy_type}: {len(all_events)} events after dedupe, "

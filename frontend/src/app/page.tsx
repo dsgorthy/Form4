@@ -1,5 +1,11 @@
 export const dynamic = "force-dynamic";
 
+export const metadata = {
+  title: "Form4 — Real-Time Insider Trading Intelligence",
+  description:
+    "Track SEC Form 4 insider buys and sells in real time. AI-powered insider grades, trade scores, and 3 validated portfolio strategies. Analyze 196K+ insider trades.",
+};
+
 import { Suspense } from "react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,18 +24,18 @@ import { ProGate } from "@/components/pro-gate";
 import type { DashboardStats, Filing, SentimentPoint, HeatmapDay, FilingDelayData } from "@/lib/types";
 
 const QUICK_FILTERS = [
-  { label: "C-Suite Buys $100K+", href: "/feed?trade_type=buy&min_value=100000&min_tier=2" },
-  { label: "Tier 3 Signals", href: "/feed?min_tier=3" },
+  { label: "C-Suite Buys $100K+", href: "/feed?trade_type=buy&min_value=100000&min_grade=B" },
+  { label: "A/A+ Insiders", href: "/feed?min_grade=A" },
   { label: "Large Sells $1M+", href: "/feed?trade_type=sell&min_value=1000000" },
   { label: "Active Clusters", href: "/clusters?days=7" },
-  { label: "High-Value Screener", href: "/screener?min_value=500000&min_tier=2" },
+  { label: "Notable Events", href: "/signals?signal_type=quality_momentum_buy" },
 ] as const;
 
 async function getDashboardData() {
   try {
     const [stats, filingsResp, sentiment, heatmap, filingDelays] = await Promise.all([
       fetchAPIAuth<DashboardStats>("/dashboard/stats"),
-      fetchAPIAuth<{ items: Filing[]; total: number }>("/filings", { limit: "10" }),
+      fetchAPIAuth<{ items: Filing[]; total: number }>("/filings", { limit: "10", min_grade: "B" }),
       fetchAPIAuth<SentimentPoint[]>("/dashboard/sentiment", { days: "30" }),
       fetchAPIAuth<HeatmapDay[]>("/dashboard/heatmap", { days: "365" }),
       fetchAPIAuth<FilingDelayData>("/dashboard/filing-delays"),
@@ -42,7 +48,7 @@ async function getDashboardData() {
       sentiment: [],
       heatmap: [],
       filingDelays: null,
-      error: "Unable to connect to API. Make sure the backend is running on localhost:8000.",
+      error: "Something went wrong loading the dashboard. Please try refreshing the page.",
     };
   }
 }
@@ -175,7 +181,7 @@ export default async function DashboardPage() {
         <Card className="bg-[#12121A] border-[#2A2A3A] lg:col-span-3">
           <CardHeader>
             <CardTitle className="text-sm font-medium text-[#8888A0]">
-              Recent High-Confidence Signals
+              Recent Notable Trades
             </CardTitle>
           </CardHeader>
           <CardContent>

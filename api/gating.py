@@ -24,6 +24,7 @@ TRACK_RECORD_FIELDS = [
     "abnormal_90d",
     "score_recency_weighted",
     "tier_recency",
+    "pit_blended_score",
 ]
 
 # 90-day free window

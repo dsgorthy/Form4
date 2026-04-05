@@ -36,6 +36,9 @@ export interface Filing {
   is_10b5_1?: number;
   is_routine?: number;
   price_data_end?: string;
+  pit_grade?: string;
+  pit_blended_score?: number;
+  trade_grade_stars?: number;
   gated?: boolean;
 }
 
@@ -172,6 +175,9 @@ export interface LeaderboardEntry {
   n_tickers: number;
   score_recency_weighted: number;
   tier_recency: string;
+  best_pit_grade: string | null;
+  best_pit_ticker: string | null;
+  n_scored_tickers: number | null;
 }
 
 export interface FilingDelayBin {
@@ -232,6 +238,11 @@ export interface SellCessationItem {
   tickers: string;
   score: number | null;
   score_tier: number | null;
+  pit_grade?: string;
+  pit_blended_score?: number;
+  best_pit_grade?: string;
+  best_pit_ticker?: string;
+  n_scored_tickers?: number;
 }
 
 export type NotificationEventType =

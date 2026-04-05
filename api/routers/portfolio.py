@@ -54,12 +54,12 @@ def _build_trade_row(r: dict, scale: float, gated: bool = False) -> dict:
     return row
 
 
-ALLOWED_STRATEGIES = {"form4_insider", "cw_reversal"}
+ALLOWED_STRATEGIES = {"cw_reversal", "cw_composite", "quality_momentum", "reversal_dip", "tenb51_surprise"}
 
 
 @router.get("")
 def get_portfolio(
-    strategy: str = Query(default="form4_insider"),
+    strategy: str = Query(default="cw_reversal"),
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=25, ge=10, le=100),
     user: UserContext = Depends(get_current_user),
@@ -298,7 +298,7 @@ BASE_ASSETS = ["SPY", "QQQ", "IWM", "TLT", "GLD", "CASH"]
 
 @router.get("/overlay")
 def get_portfolio_overlay(
-    strategy: str = Query(default="form4_insider"),
+    strategy: str = Query(default="cw_reversal"),
 ) -> dict:
     """Daily equity curves for insider-only vs blended (idle cash in base ETF).
 

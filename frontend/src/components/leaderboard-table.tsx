@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@clerk/nextjs";
 import Link from "next/link";
 import { formatPercent } from "@/lib/format";
+import { formatTitle } from "@/lib/title-format";
 import { TierBadge } from "@/components/ui/tier-badge";
 import Sparkline from "@/components/sparkline";
 import { Pagination } from "@/components/pagination";
@@ -107,8 +108,7 @@ export function LeaderboardTable({ filters, sort, order }: LeaderboardTableProps
               <th className="px-3 md:px-4 py-3 text-left text-[#55556A] font-medium w-10">#</th>
               <th className="px-3 md:px-4 py-3 text-left text-[#55556A] font-medium">Insider</th>
               <th className="hidden md:table-cell px-4 py-3 text-left text-[#55556A] font-medium">Title</th>
-              <th className="px-3 md:px-4 py-3 text-center text-[#55556A] font-medium">Tier</th>
-              <th className="hidden md:table-cell px-4 py-3 text-right text-[#55556A] font-medium">Score</th>
+              <th className="px-3 md:px-4 py-3 text-center text-[#55556A] font-medium w-16">Grade</th>
               <th className="px-3 md:px-4 py-3 text-right text-[#55556A] font-medium">Buys</th>
               <th className="hidden md:table-cell px-4 py-3 text-right text-[#55556A] font-medium">Win Rate</th>
               <th className="hidden md:table-cell px-4 py-3 text-right text-[#55556A] font-medium">Avg Alpha</th>
@@ -139,13 +139,10 @@ export function LeaderboardTable({ filters, sort, order }: LeaderboardTableProps
                   )}
                 </td>
                 <td className={`hidden md:table-cell px-4 py-3 text-[#8888A0] text-xs truncate max-w-[200px] ${isGated ? "blur-[3px]" : ""}`}>
-                  {entry.primary_title || "\u2014"}
+                  {formatTitle(entry.primary_title) || "\u2014"}
                 </td>
                 <td className="px-3 md:px-4 py-3 text-center">
-                  <TierBadge tier={entry.score_tier} />
-                </td>
-                <td className={`hidden md:table-cell px-4 py-3 text-right font-mono text-[#E8E8ED] ${isGated ? "blur-[3px]" : ""}`}>
-                  {entry.score?.toFixed(2) ?? "\u2014"}
+                  <TierBadge pitGrade={entry.best_pit_grade} tier={entry.score_tier} compact />
                 </td>
                 <td className="px-3 md:px-4 py-3 text-right font-mono text-[#E8E8ED]">
                   {entry.buy_count}

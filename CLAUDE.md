@@ -4,7 +4,7 @@ Event-driven backtesting engine + strategy research platform + Form4.app product
 
 ## BEFORE BUILDING ANYTHING
 
-**ALWAYS check Claude memory for `reference_product_audit.md` and `reference_project_structure.md` before implementing any feature.** These contain the complete inventory of every page, component, API endpoint, and shared utility. Reuse or extend existing code instead of creating new files. Specifically:
+**ALWAYS check Claude memory for `reference_product_audit.md`, `reference_project_structure.md`, and `reference_signal_registry.md` before implementing any feature.** These contain the complete inventory of every page, component, API endpoint, shared utility, and scoring signal. Reuse or extend existing code instead of creating new files. Specifically:
 
 1. **Check if a component already exists** — 70+ components in `frontend/src/components/`. Don't create a new table when `trades-table.tsx` or `signals-table.tsx` already exists.
 2. **Check if an API endpoint already exists** — 13 routers with 40+ endpoints. The portfolio API already supports `?strategy=` param.
@@ -171,6 +171,42 @@ Historical options EOD pricing for insider event backtesting. **Check `pipeline_
 - **Pull script**: `pipelines/insider_study/options_pull.py --from-db` — reads events from DB, writes structured data to `option_prices` table
 - **Monitor**: `pipelines/insider_study/pull_monitor.sh` — Telegram alerts every 5 min, auto-restart on crash
 - **Cache**: `pipelines/insider_study/data/theta_cache.db` — pull-layer cache + checkpointing (not a data source)
+
+## PIT (Point-in-Time) Validation — MANDATORY
+
+**This section is non-negotiable.** Every session that touches scoring, signals, backtesting, or portfolio simulation code MUST follow this checklist. This exists because PIT violations have been repeatedly missed across sessions, wasting significant dev cycles.
+
+### Before Modifying Any Scoring/Signal/Backtest Code
+
+1. **Read `reference_signal_registry.md` in Claude memory.** It catalogs every signal, its PIT status, and known issues. Do not proceed without reading it.
+2. **Trace every data input.** For every column read from the database in the code you're modifying, answer: "Was this data available at the trade's filing_date?" If you can't answer YES with certainty, investigate.
+3. **Never use `insider_track_records`** for anything PIT-sensitive. This table is global/static (computed across all time). Use `insider_ticker_scores` with `as_of_date <= filing_date` instead.
+4. **Never use `signal_quality.py` for backtesting.** It has a known PIT violation (sell_win_rate_7d uses full track record). Use `trade_grade.py` or `conviction_score.py` instead.
+
+### PIT Validation Checklist (Run Before Declaring Anything "Clean")
+
+- [ ] Every DB column read: is the data available at filing_date? (Not trade_date — filing_date is when we KNOW about the trade)
+- [ ] Every aggregate (avg, count, win_rate): does it only include trades filed BEFORE the current trade?
+- [ ] Every score lookup: does it use `as_of_date <= filing_date`, not just the latest score?
+- [ ] Every price lookup: does it use prices at or before the relevant date, never after?
+- [ ] No use of `insider_track_records.score`, `score_tier`, or `percentile` in any backtest or scoring path
+- [ ] No statistics computed over the full dataset then applied to individual trades (e.g., percentile cutoffs, optimal thresholds)
+- [ ] Walk-forward: scores computed in chronological order, each score uses only data available at that point
+- [ ] Observable return lag: if using forward returns (7d/30d/90d), ensure the lag between trade_date and when the return is used in scoring is sufficient (>=10d for 7d returns, >=40d for 30d, >=100d for 90d)
+
+### After Modifying Scoring Code
+
+1. **Run PIT validation tests** (in `tests/unit/test_pit_validation.py` once built).
+2. **Sanity check results.** If backtest Sharpe > 1.5 or CAGR > 20% for insider strategies, ASSUME there's a bug. Audit harder.
+3. **Update `reference_signal_registry.md`** in Claude memory if you added, removed, or changed any signal.
+
+### Red Flags That Indicate PIT Violation
+
+- Backtest results that are dramatically better than prior validated runs
+- A score that references any table without an `as_of_date` or `filing_date` filter
+- Any use of `insider_track_records` (score, percentile, score_tier, win_rates) in scoring or backtesting
+- Aggregates over "all trades" without a date cutoff
+- Score thresholds that were tuned on the same data used for backtesting
 
 ## Gotchas
 

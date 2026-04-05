@@ -16,28 +16,12 @@ import { Pagination } from "@/components/pagination";
 
 const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
 
-function SignalQualityPill({ quality }: { quality: number }) {
-  let color: string;
-  let bg: string;
-  let label: string;
-
-  if (quality >= 8) {
-    color = "text-[#22C55E]";
-    bg = "bg-[#22C55E]/15";
-    label = quality.toFixed(1);
-  } else if (quality >= 7) {
-    color = "text-[#3B82F6]";
-    bg = "bg-[#3B82F6]/15";
-    label = quality.toFixed(1);
-  } else {
-    color = "text-[#8888A0]";
-    bg = "bg-[#8888A0]/10";
-    label = quality.toFixed(1);
-  }
-
+function StarsPill({ stars }: { stars: number }) {
+  const color = stars >= 4 ? "text-[#22C55E]" : stars >= 3 ? "text-[#3B82F6]" : "text-[#8888A0]";
+  const bg = stars >= 4 ? "bg-[#22C55E]/15" : stars >= 3 ? "bg-[#3B82F6]/15" : "bg-[#8888A0]/10";
   return (
     <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold ${color} ${bg}`}>
-      {label}
+      {"★".repeat(stars)}{"☆".repeat(5 - stars)}
     </span>
   );
 }
@@ -128,8 +112,9 @@ function StatCard({ label, value, sub, color }: { label: string; value: string; 
 }
 
 const STRATEGIES = [
-  { value: "form4_insider", label: "V4 Insider Cluster", brief: "Multi-insider cluster buys with PIT quality scoring" },
-  { value: "cw_reversal", label: "CW Reversal", brief: "Insiders buying for the first time after years of selling" },
+  { value: "quality_momentum", label: "Quality + Momentum", brief: "A+/A insiders buying in uptrends. Sharpe 1.18, ~50 trades/yr, 30d hold." },
+  { value: "reversal_dip", label: "Deep Reversal", brief: "Persistent sellers reversing into depressed stocks. Sharpe 1.08, ~20 trades/yr, 21d hold." },
+  { value: "tenb51_surprise", label: "10b5-1 Surprise", brief: "Scheduled sellers breaking pattern to buy. Experimental, ~40 trades/yr, 60d hold." },
 ];
 
 function StrategySelector({ value, onChange }: { value: string; onChange: (v: string) => void }) {
@@ -194,7 +179,7 @@ export function PortfolioView() {
   const { user } = useUser();
   const userIsPro = isPro(user);
 
-  const [strategy, setStrategy] = useState("form4_insider");
+  const [strategy, setStrategy] = useState("quality_momentum");
   const [summary, setSummary] = useState<Summary | null>(null);
   const [equityCurve, setEquityCurve] = useState<CurvePoint[]>([]);
   const [spyBenchmark, setSpyBenchmark] = useState<{ date: string; equity: number }[]>([]);
@@ -601,8 +586,8 @@ export function PortfolioView() {
                       ) : null}
                     </td>
                     <td className="hidden lg:table-cell px-3 py-2 text-center">
-                      {!gated && t.signal_quality != null ? (
-                        <SignalQualityPill quality={t.signal_quality} />
+                      {!gated && (t as any).trade_grade_stars != null ? (
+                        <StarsPill stars={(t as any).trade_grade_stars} />
                       ) : gated ? (
                         <span className="text-[#55556A]/40 blur-[3px]">—</span>
                       ) : null}

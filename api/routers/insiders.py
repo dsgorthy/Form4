@@ -7,6 +7,7 @@ from api.db import get_db
 from api.filters import add_trans_code_filter, filing_group_by
 from api.gating import require_pro
 from api.id_encoding import decode_insider_id, encode_insider_id, encode_response_ids
+from api.pit_helpers import get_best_pit_grade, get_ticker_grades
 from api.signals_enrichment import enrich_items_with_signals
 from api.context_enrichment import enrich_items_with_context
 from api.price_dates import enrich_items_with_price_end
@@ -84,6 +85,7 @@ def get_insider(identifier: str, user: UserContext = Depends(require_pro)) -> di
                 SELECT trans_code, trade_type, SUM(value) AS total_value
                 FROM trades
                 WHERE insider_id = ? AND trans_code IS NOT NULL
+                  AND superseded_by IS NULL
                 GROUP BY trans_code, filing_key
             )
             GROUP BY trans_code
@@ -103,6 +105,7 @@ def get_insider(identifier: str, user: UserContext = Depends(require_pro)) -> di
                 FROM trades t
                 JOIN trade_returns tr ON t.trade_id = tr.trade_id
                 WHERE t.insider_id = ? AND t.trans_code IN ('P', 'S')
+                  AND t.superseded_by IS NULL
                   AND tr.return_7d IS NOT NULL
                 GROUP BY t.trade_type, {filing_group_by()}
             )
@@ -118,6 +121,7 @@ def get_insider(identifier: str, user: UserContext = Depends(require_pro)) -> di
                 SELECT trans_code
                 FROM trades
                 WHERE insider_id = ? AND trans_code IN ('P', 'S')
+                  AND superseded_by IS NULL
                 GROUP BY filing_key, trans_code
             )
         """, (insider_id,)).fetchone()
@@ -132,9 +136,14 @@ def get_insider(identifier: str, user: UserContext = Depends(require_pro)) -> di
                 SELECT MAX(is_10b5_1) AS planned, MAX(is_routine) AS routine
                 FROM trades
                 WHERE insider_id = ? AND trans_code = 'S'
+                  AND superseded_by IS NULL
                 GROUP BY filing_key
             )
         """, (insider_id,)).fetchone()
+
+        # PIT grade data (per-ticker)
+        best_pit = get_best_pit_grade(conn, insider_id)
+        ticker_grades = get_ticker_grades(conn, insider_id)
 
     TRANS_CODE_LABELS = {
         "P": "Open-Market Purchase",
@@ -197,7 +206,61 @@ def get_insider(identifier: str, user: UserContext = Depends(require_pro)) -> di
             "planned_sells": sell_pattern["planned_sells"],
             "routine_sells": sell_pattern["routine_sells"],
         }
+    result.update(best_pit)
+    result["ticker_grades"] = ticker_grades
     return result
+
+
+@router.get("/{identifier}/score-history")
+def get_insider_score_history(
+    identifier: str,
+    user: UserContext = Depends(require_pro),
+) -> dict:
+    """PIT score progression over time for an insider across all tickers."""
+    with get_db() as conn:
+        decoded_id = decode_insider_id(identifier)
+        if decoded_id is None:
+            row = conn.execute("SELECT insider_id FROM insiders WHERE cik = ?", (identifier,)).fetchone()
+            decoded_id = row["insider_id"] if row else None
+        if decoded_id is None:
+            raise HTTPException(status_code=404, detail="Insider not found")
+
+        rows = conn.execute("""
+            SELECT sh.as_of_date, sh.ticker, sh.blended_score, sh.global_score,
+                   sh.ticker_score, sh.trade_count
+            FROM score_history sh
+            WHERE sh.insider_id = ?
+            ORDER BY sh.as_of_date
+        """, (decoded_id,)).fetchall()
+
+        # Build per-ticker series and a global (all-ticker) series
+        by_ticker: dict[str, list] = {}
+        global_series: list[dict] = []
+        for r in rows:
+            point = {
+                "date": r["as_of_date"],
+                "blended_score": round(r["blended_score"], 3) if r["blended_score"] is not None else None,
+                "global_score": round(r["global_score"], 3) if r["global_score"] is not None else None,
+                "ticker_score": round(r["ticker_score"], 3) if r["ticker_score"] is not None else None,
+                "trade_count": r["trade_count"],
+            }
+            ticker = r["ticker"]
+            by_ticker.setdefault(ticker, []).append(point)
+            global_series.append({"date": r["as_of_date"], "score": point["blended_score"], "ticker": ticker})
+
+        # Grade thresholds for chart reference lines
+        grade_thresholds = [
+            {"grade": "A", "score": 2.0},
+            {"grade": "B", "score": 1.0},
+            {"grade": "C", "score": 0.5},
+        ]
+
+        return {
+            "by_ticker": by_ticker,
+            "global_series": global_series,
+            "grade_thresholds": grade_thresholds,
+            "total_snapshots": len(rows),
+        }
 
 
 @router.get("/{identifier}/trades")
@@ -226,7 +289,7 @@ def get_insider_trades(
 
         insider_id = insider["insider_id"]
 
-        tc_conditions: list = ["insider_id = ?"]
+        tc_conditions: list = ["insider_id = ?", "superseded_by IS NULL"]
         tc_params: list = [insider_id]
         add_trans_code_filter(tc_conditions, tc_params, trans_codes, alias="trades")
         tc_where = " AND ".join(tc_conditions)
@@ -242,7 +305,7 @@ def get_insider_trades(
             tc_params,
         ).fetchone()["cnt"]
 
-        inner_conditions: list = ["t.insider_id = ?"]
+        inner_conditions: list = ["t.insider_id = ?", "t.superseded_by IS NULL"]
         inner_params: list = [insider_id]
         add_trans_code_filter(inner_conditions, inner_params, trans_codes)
         inner_where = " AND ".join(inner_conditions)
@@ -255,6 +318,7 @@ def get_insider_trades(
                 agg.price, agg.qty, agg.value, agg.lot_count,
                 agg.is_csuite, agg.trans_code,
                 agg.is_10b5_1, agg.is_routine,
+                agg.pit_grade, agg.pit_blended_score,
                 tr.return_7d, tr.return_30d, tr.return_90d,
                 tr.abnormal_7d, tr.abnormal_30d, tr.abnormal_90d
             FROM (
@@ -272,7 +336,9 @@ def get_insider_trades(
                     t.is_csuite,
                     GROUP_CONCAT(DISTINCT t.trans_code) AS trans_code,
                     MAX(t.is_10b5_1) AS is_10b5_1,
-                    MAX(t.is_routine) AS is_routine
+                    MAX(t.is_routine) AS is_routine,
+                    MAX(t.pit_grade) AS pit_grade,
+                    MAX(t.pit_blended_score) AS pit_blended_score
                 FROM trades t
                 WHERE {inner_where}
                 GROUP BY t.ticker, t.trade_type, {filing_group_by()}
@@ -418,6 +484,7 @@ def get_return_distribution(
             FROM trades t
             JOIN trade_returns tr ON t.trade_id = tr.trade_id
             WHERE t.insider_id = ?
+              AND t.superseded_by IS NULL
               AND tr.{col} IS NOT NULL
             GROUP BY t.ticker, t.trade_type, {filing_group_by()}
             """,
@@ -428,6 +495,7 @@ def get_return_distribution(
         type_counts = conn.execute(
             """SELECT trade_type, COUNT(*) AS n FROM trades
                WHERE insider_id = ? AND trans_code IN ('P','S')
+                 AND superseded_by IS NULL
                GROUP BY trade_type ORDER BY n DESC""",
             (insider_id,),
         ).fetchall()
@@ -441,6 +509,7 @@ def get_return_distribution(
             JOIN trade_returns tr ON t.trade_id = tr.trade_id
             WHERE t.insider_id = ?
               AND t.trans_code IN ('P','S')
+              AND t.superseded_by IS NULL
               AND tr.{col} IS NOT NULL
             GROUP BY t.ticker, t.trade_type, {filing_group_by()}
             ORDER BY MIN(t.trade_date)

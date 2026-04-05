@@ -12,7 +12,7 @@ from api.id_encoding import decode_trade_id, encode_trade_id, encode_insider_id,
 from api.signals_enrichment import enrich_items_with_signals
 from api.context_enrichment import enrich_items_with_context
 from api.price_dates import enrich_items_with_price_end
-from api.signal_quality import enrich_items_with_quality
+from api.trade_grade import enrich_items_with_trade_grade
 
 router = APIRouter(prefix="/api/v1/filings", tags=["filings"])
 
@@ -29,12 +29,15 @@ def list_filings(
     trans_codes: str = Query(default="P,S"),
     hide_routine: bool = Query(default=False),
     hide_planned: bool = Query(default=False),
+    include_private: bool = Query(default=False),
     min_grade: Optional[str] = Query(default=None, pattern="^[A-F]$"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> dict:
     """Paginated, filterable filings list with insider tier/score and returns."""
-    conditions = []
+    conditions = ["t.superseded_by IS NULL"]
+    if not include_private:
+        conditions.append("t.ticker != 'NONE' AND t.ticker IS NOT NULL AND t.ticker != ''")
     params = []
 
     free_cutoff = get_free_cutoff_date() if not user.has_full_feed else None
@@ -49,8 +52,12 @@ def list_filings(
         conditions.append("t.value >= ?")
         params.append(min_value)
     if min_tier is not None:
-        conditions.append("itr.score_tier >= ?")
-        params.append(min_tier)
+        if min_tier >= 3:
+            conditions.append("t.pit_grade = 'A'")
+        elif min_tier >= 2:
+            conditions.append("t.pit_grade IN ('A', 'B')")
+        else:
+            conditions.append("t.pit_grade IS NOT NULL")
     if ticker is not None:
         conditions.append("t.ticker = ?")
         params.append(ticker.upper())
@@ -74,17 +81,18 @@ def list_filings(
     # Grade filter: uses pre-computed signal_grade column on trades table
     grade_filter_active = min_grade is not None
     if grade_filter_active:
-        grade_order = {"A": 0, "B": 1, "C": 2, "D": 3, "F": 4}
-        allowed = [g for g, idx in grade_order.items() if idx <= grade_order.get(min_grade, 4)]
-        placeholders = ",".join("?" * len(allowed))
-        conditions.append(f"t.signal_grade IN ({placeholders})")
-        params.extend(allowed)
+        grade_order = {"A+": 0, "A": 1, "B": 2, "C": 3, "D": 4, "F": 5}
+        min_idx = grade_order.get(min_grade, grade_order.get(min_grade.upper(), 5))
+        allowed = [g for g, idx in grade_order.items() if idx <= min_idx and g != "F"]
+        if allowed:
+            placeholders = ",".join("?" * len(allowed))
+            conditions.append(f"t.pit_grade IN ({placeholders})")
+            params.extend(allowed)
 
     where_clause = " AND ".join(conditions) if conditions else "1=1"
 
-    needs_itr_join = min_tier is not None
-    count_join = "LEFT JOIN insider_track_records itr ON t.insider_id = itr.insider_id" if needs_itr_join else ""
-    data_itr_join = "LEFT JOIN insider_track_records itr ON t.insider_id = itr.insider_id" if needs_itr_join else ""
+    count_join = ""
+    data_itr_join = ""
 
     _fgb = filing_group_by()
 
@@ -140,7 +148,8 @@ def list_filings(
                 agg.is_csuite, agg.accession, agg.trans_code,
                 agg.is_10b5_1, agg.is_routine,
                 agg.cohen_routine, agg.shares_owned_after, agg.is_rare_reversal, agg.week52_proximity,
-                agg.n_filers, agg.n_filings,
+                agg.pit_grade, agg.pit_blended_score,
+                agg.n_filers, agg.n_filings, agg.is_amendment, agg.document_type,
                 COALESCE(i.display_name, i.name) AS insider_name, i.cik,
                 itr.score, itr.score_tier, itr.percentile, itr.sell_win_rate_7d,
                 itr.buy_win_rate_7d, itr.buy_avg_return_7d, itr.buy_avg_abnormal_7d,
@@ -177,8 +186,12 @@ def list_filings(
                         MAX(t.shares_owned_after) AS shares_owned_after,
                         MAX(t.is_rare_reversal) AS is_rare_reversal,
                         MAX(t.week52_proximity) AS week52_proximity,
+                        MAX(t.pit_grade) AS pit_grade,
+                        MAX(t.pit_blended_score) AS pit_blended_score,
                         COUNT(DISTINCT t.insider_id) AS n_filers,
                         COUNT(DISTINCT t.accession) AS n_filings,
+                        MAX(t.is_amendment) AS is_amendment,
+                        MAX(t.document_type) AS document_type,
                         t.txn_group_id
                     FROM trades t
                     {data_itr_join}
@@ -203,8 +216,7 @@ def list_filings(
         enrich_items_with_signals(sig_conn, items)
         enrich_items_with_context(sig_conn, items)
     enrich_items_with_price_end(items)
-    with get_db() as q_conn:
-        enrich_items_with_quality(q_conn, items)
+    enrich_items_with_trade_grade(None, items)
 
     if free_cutoff:
         items = null_items_track_records(items)
@@ -268,6 +280,7 @@ def get_related_trades(trade_id: str, limit: int = Query(default=5, ge=1, le=20)
                 agg.is_csuite, agg.accession, agg.trans_code,
                 agg.is_10b5_1, agg.is_routine,
                 agg.cohen_routine, agg.shares_owned_after, agg.is_rare_reversal, agg.week52_proximity,
+                agg.pit_grade, agg.pit_blended_score,
                 COALESCE(i.display_name, i.name) AS insider_name, i.cik,
                 itr.score, itr.score_tier, itr.percentile, itr.sell_win_rate_7d,
                 itr.buy_win_rate_7d, itr.buy_avg_return_7d, itr.buy_avg_abnormal_7d,
@@ -292,11 +305,14 @@ def get_related_trades(trade_id: str, limit: int = Query(default=5, ge=1, le=20)
                     MAX(t.cohen_routine) AS cohen_routine,
                     MAX(t.shares_owned_after) AS shares_owned_after,
                     MAX(t.is_rare_reversal) AS is_rare_reversal,
-                    MAX(t.week52_proximity) AS week52_proximity
+                    MAX(t.week52_proximity) AS week52_proximity,
+                    MAX(t.pit_grade) AS pit_grade,
+                    MAX(t.pit_blended_score) AS pit_blended_score
                 FROM trades t
                 WHERE t.insider_id = ?
                   {exclude_clause}
                   AND t.trans_code IN ('P', 'S')
+                  AND t.superseded_by IS NULL
                 GROUP BY t.insider_id, t.ticker, t.trade_type, {_fgb}
             ) agg
             LEFT JOIN insiders i ON agg.insider_id = i.insider_id
@@ -336,6 +352,8 @@ def get_filing(trade_id: str, user: UserContext = Depends(get_current_user)) -> 
                 t.price, t.qty, t.value, t.is_csuite, t.title_weight,
                 t.source, t.accession, t.trans_code,
                 t.is_10b5_1, t.is_routine, t.cohen_routine, t.shares_owned_after, t.is_rare_reversal, t.week52_proximity,
+                t.pit_grade, t.pit_blended_score,
+                t.is_amendment, t.document_type, t.date_of_orig_sub,
                 COALESCE(i.is_entity, 0) as is_entity,
                 COALESCE(i.display_name, i.name) AS insider_name, i.cik,
                 itr.score, itr.score_tier, itr.percentile,
@@ -431,8 +449,7 @@ def get_filing(trade_id: str, user: UserContext = Depends(get_current_user)) -> 
         enrich_items_with_signals(sig_conn, [result])
         enrich_items_with_context(sig_conn, [result])
     enrich_items_with_price_end([result])
-    with get_db() as q_conn:
-        enrich_items_with_quality(q_conn, [result])
+    enrich_items_with_trade_grade(None, [result])
 
     if not user.is_pro:
         from api.gating import null_track_record_fields

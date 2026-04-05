@@ -6,6 +6,7 @@ from api.auth import UserContext, get_current_user
 from api.db import get_db
 from api.gating import null_items_track_records
 from api.id_encoding import encode_response_ids
+from api.pit_helpers import enrich_with_best_pit_grade
 from api.rate_limit import limiter
 
 router = APIRouter(prefix="/api/v1/search", tags=["search"])
@@ -55,7 +56,9 @@ def search(q: str = Query(..., min_length=1, max_length=100), request: Request =
             (query_like, query_like, query_like),
         ).fetchall()
 
-    insider_items = [dict(r) for r in insiders]
+        insider_items = [dict(r) for r in insiders]
+        enrich_with_best_pit_grade(conn, insider_items)
+
     if not user.is_pro:
         insider_items = null_items_track_records(insider_items)
     encode_response_ids(insider_items, trade=False, insider=True)

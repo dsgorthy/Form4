@@ -4,12 +4,13 @@ import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@clerk/nextjs";
 import Link from "next/link";
 import { formatCurrency, formatPercent, isReturnUnavailable, unavailableReason } from "@/lib/format";
+import { formatTitle } from "@/lib/title-format";
 import { RelativeTime } from "@/components/relative-time";
 import { TierBadge } from "@/components/ui/tier-badge";
 import { Badge } from "@/components/ui/badge";
 import { TickerDisplay } from "@/components/ui/ticker-display";
 import { SignalBadges } from "@/components/signal-badge";
-import { SignalQualityBadge } from "@/components/signal-quality-badge";
+import { TradeGradeBadge } from "@/components/trade-grade-badge";
 import { ContextFacts } from "@/components/context-facts";
 import { Pagination } from "@/components/pagination";
 import type { Filing, PaginatedResponse } from "@/lib/types";
@@ -234,10 +235,10 @@ export function FeedList({ initialTicker = "" }: FeedListProps) {
                     {f.insider_name}
                   </span>
                   {(f.score_tier ?? f.tier) != null && (
-                    <TierBadge tier={f.score_tier ?? f.tier} />
+                    <TierBadge tier={f.score_tier ?? f.tier} pitGrade={f.pit_grade} />
                   )}
-                  {(f as any).signal_quality && (
-                    <SignalQualityBadge quality={(f as any).signal_quality} />
+                  {(f as any).trade_grade && (
+                    <TradeGradeBadge grade={(f as any).trade_grade} />
                   )}
                 </div>
                 <div
@@ -247,7 +248,7 @@ export function FeedList({ initialTicker = "" }: FeedListProps) {
                       : "text-[#55556A]"
                   }`}
                 >
-                  {(f.normalized_title || f.title)?.replace(/;/g, ", ")} at{" "}
+                  {formatTitle(f.normalized_title || f.title)} at{" "}
                   {f.company}
                 </div>
                 {!gated && (
@@ -260,6 +261,11 @@ export function FeedList({ initialTicker = "" }: FeedListProps) {
                     {(f as any).week52_proximity != null && (f as any).week52_proximity >= 0.8 && f.trade_type === "buy" && (
                       <span className="rounded px-1.5 py-0.5 text-[9px] font-medium bg-[#22C55E]/10 text-[#22C55E] border border-[#22C55E]/20">
                         Near 52w High
+                      </span>
+                    )}
+                    {(f as any).is_amendment === 1 && (
+                      <span className="rounded px-1.5 py-0.5 text-[9px] font-medium bg-[#F59E0B]/10 text-[#F59E0B] border border-[#F59E0B]/20">
+                        Amended
                       </span>
                     )}
                     {f.signals && f.signals.length > 0 && <SignalBadges signals={f.signals} />}

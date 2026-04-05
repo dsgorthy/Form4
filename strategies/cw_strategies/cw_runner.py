@@ -239,6 +239,26 @@ def _build_thesis_query(thesis: dict, lookback_days: int) -> tuple[str, list]:
         clauses.append(f"t.signal_grade IN ({placeholders})")
         params.extend(allowed)
 
+    # PIT grade filter (e.g., ["A+", "A"])
+    if "pit_grade" in filters:
+        grades = filters["pit_grade"]
+        if isinstance(grades, list):
+            placeholders = ",".join("?" for _ in grades)
+            clauses.append(f"t.pit_grade IN ({placeholders})")
+            params.extend(grades)
+        else:
+            clauses.append("t.pit_grade = ?")
+            params.append(str(grades))
+
+    # 3-month dip threshold (e.g., -0.25)
+    if "min_dip_3mo" in filters:
+        clauses.append("t.dip_3mo <= ?")
+        params.append(float(filters["min_dip_3mo"]))
+
+    # Exclude 10b5-1 trades
+    if filters.get("exclude_10b5_1"):
+        clauses.append("COALESCE(t.is_10b5_1, 0) = 0")
+
     if filters.get("exclude_recurring"):
         clauses.append("COALESCE(t.is_recurring, 0) = 0")
 
@@ -292,6 +312,7 @@ def scan_signals(conn: sqlite3.Connection, config: dict) -> list[dict]:
                 t.trade_id,
                 t.ticker,
                 t.filing_date,
+                t.filed_at,
                 t.price,
                 COALESCE(i.display_name, i.name) AS insider_name,
                 t.company,
@@ -301,6 +322,11 @@ def scan_signals(conn: sqlite3.Connection, config: dict) -> list[dict]:
                 t.is_rare_reversal,
                 t.consecutive_sells_before,
                 t.dip_1mo,
+                t.dip_3mo,
+                t.above_sma50,
+                t.above_sma200,
+                t.is_csuite,
+                t.is_largest_ever,
                 t.pit_n_trades,
                 t.pit_win_rate_7d
             FROM trades t
@@ -336,17 +362,35 @@ def scan_signals(conn: sqlite3.Connection, config: dict) -> list[dict]:
             )
             pit_grade = pit_score_to_grade(pit_row[0] if pit_row else None) or "C"
 
+            # PIT filter: min_prior_10b5_1_sells (count 10b5-1 sells filed before this buy)
+            min_10b5_1 = thesis.get("filters", {}).get("min_prior_10b5_1_sells")
+            if min_10b5_1:
+                insider_id_row = conn.execute(
+                    "SELECT insider_id FROM trades WHERE trade_id = ?", (tid,)
+                ).fetchone()
+                if insider_id_row:
+                    cnt_row = conn.execute("""
+                        SELECT COUNT(*) FROM trades
+                        WHERE insider_id = ? AND ticker = ?
+                          AND trans_code = 'S' AND is_10b5_1 = 1
+                          AND filing_date < ?
+                    """, (insider_id_row[0], ticker, r["filing_date"])).fetchone()
+                    if (cnt_row[0] or 0) < int(min_10b5_1):
+                        continue
+                else:
+                    continue
+
             # Compute conviction with PIT grade + new features
             conv = compute_conviction(
                 thesis=thesis_name,
                 signal_grade=pit_grade,
                 consecutive_sells=r["consecutive_sells_before"],
                 dip_1mo=r["dip_1mo"],
-                is_largest_ever=False,  # not loaded in this query
-                above_sma50=False,
-                above_sma200=False,
+                is_largest_ever=bool(r["is_largest_ever"]),
+                above_sma50=bool(r["above_sma50"]),
+                above_sma200=bool(r["above_sma200"]),
                 insider_title=r["title"],
-                is_csuite=False,
+                is_csuite=bool(r["is_csuite"]),
             )
 
             # Skip below minimum conviction
@@ -358,6 +402,7 @@ def scan_signals(conn: sqlite3.Connection, config: dict) -> list[dict]:
                 "trade_id": tid,
                 "ticker": ticker,
                 "filing_date": r["filing_date"],
+                "filed_at": r["filed_at"],
                 "price": r["price"],
                 "insider_name": r["insider_name"],
                 "company": r["company"],
@@ -476,12 +521,30 @@ def execute_entries(
         replacement_adv = config.get("replacement_advantage", 1.5)
 
         if current_open >= max_concurrent:
-            # At hard cap — try to replace weakest if signal is elite
-            if conv < min_conv_at_hard:
-                continue  # not good enough to replace
-
             at_capacity_rule = config.get("at_capacity", "skip")
-            if at_capacity_rule == "replace_weakest" and not dry_run:
+            if at_capacity_rule == "skip":
+                continue
+
+            # For replace_weakest: require higher conviction than existing
+            if at_capacity_rule == "replace_weakest" and conv < min_conv_at_hard:
+                continue
+
+            if at_capacity_rule == "replace_oldest" and not dry_run:
+                # Find oldest open position by entry_date
+                open_rows = conn.execute('''
+                    SELECT id, ticker, entry_date, entry_reasoning
+                    FROM strategy_portfolio
+                    WHERE strategy = ? AND status = 'open'
+                    ORDER BY entry_date ASC
+                    LIMIT 1
+                ''', (strategy_name,)).fetchall()
+
+                if not open_rows:
+                    continue
+                oldest_id = open_rows[0]["id"]
+                oldest_ticker = open_rows[0]["ticker"]
+
+            elif at_capacity_rule == "replace_weakest" and not dry_run:
                 # Find weakest open position by conviction
                 open_rows = conn.execute('''
                     SELECT id, ticker, entry_reasoning
@@ -505,7 +568,43 @@ def execute_entries(
                         weakest_id = row["id"]
                         weakest_ticker = row["ticker"]
 
-                if weakest_id and conv >= weakest_conv + replacement_adv:
+                if at_capacity_rule == "replace_oldest":
+                    # Close the oldest position at current price
+                    try:
+                        snap = alpaca._request("GET", f"/v2/stocks/{oldest_ticker}/snapshot")
+                        close_price = snap.get("latestTrade", {}).get("p", 0)
+                    except Exception:
+                        close_price = 0
+
+                    if close_price > 0:
+                        old_row = conn.execute(
+                            "SELECT entry_price, dollar_amount FROM strategy_portfolio WHERE id = ?",
+                            (oldest_id,)).fetchone()
+                        if old_row:
+                            op = old_row["entry_price"]
+                            pnl_pct = (close_price - op) / op if op > 0 else 0
+                            pnl_dollar = (old_row["dollar_amount"] or 0) * pnl_pct
+                            conn.execute('''
+                                UPDATE strategy_portfolio
+                                SET status = 'closed', exit_date = date('now'),
+                                    exit_price = ?, pnl_pct = ?, pnl_dollar = ?,
+                                    exit_reason = 'replaced_oldest'
+                                WHERE id = ?
+                            ''', (close_price, pnl_pct, pnl_dollar, oldest_id))
+                            conn.commit()
+                            alpaca.submit_order(oldest_ticker,
+                                abs(int(old_row["dollar_amount"] / op)), "sell")
+                            held_tickers.discard(oldest_ticker)
+                            logger.info("REPLACED oldest %s → %s (conv=%.1f)",
+                                        oldest_ticker, ticker, conv)
+                            send_telegram(
+                                f"Replaced oldest {oldest_ticker} → {ticker} (conv={conv:.1f})", prefix)
+                        else:
+                            continue
+                    else:
+                        continue
+
+                elif weakest_id and conv >= weakest_conv + replacement_adv:
                     # Close the weakest position at current price
                     try:
                         snap = alpaca._request("GET", f"/v2/stocks/{weakest_ticker}/snapshot")
@@ -514,7 +613,6 @@ def execute_entries(
                         close_price = 0
 
                     if close_price > 0:
-                        # Sell the weakest position
                         weak_row = conn.execute(
                             "SELECT entry_price, dollar_amount FROM strategy_portfolio WHERE id = ?",
                             (weakest_id,)).fetchone()
@@ -530,8 +628,6 @@ def execute_entries(
                                 WHERE id = ?
                             ''', (close_price, pnl_pct, pnl_dollar, weakest_id))
                             conn.commit()
-
-                            # Submit sell order
                             alpaca.submit_order(weakest_ticker,
                                 abs(int(weak_row["dollar_amount"] / wp)), "sell")
                             held_tickers.discard(weakest_ticker)
@@ -540,13 +636,12 @@ def execute_entries(
                             send_telegram(
                                 f"Replaced {weakest_ticker} (conv={weakest_conv:.1f}) → "
                                 f"{ticker} (conv={conv:.1f})", prefix)
-                            # Don't decrement slots — we freed one and will use it
                         else:
                             continue
                     else:
                         continue
                 else:
-                    continue  # not enough advantage to replace
+                    continue
             else:
                 continue  # skip or dry run
         elif current_open >= soft_cap and conv < min_conv_above_soft:
@@ -556,9 +651,11 @@ def execute_entries(
         dollar_amount = equity * size_pct
         exit_cfg = c["exit_config"]
 
+        filed_at = c.get("filed_at", "")
+        entry_type = "INTRADAY" if (_is_market_hours() and filed_at and filed_at[:10] == _now_et().strftime("%Y-%m-%d")) else "OPEN"
         logger.info(
-            "ENTRY %s: thesis=%s quality=%.1f insider=%s filing=%s",
-            ticker, c["thesis_name"], c.get("signal_quality", 0), c["insider_name"], c["filing_date"],
+            "ENTRY [%s] %s: thesis=%s conv=%.1f insider=%s filed=%s",
+            entry_type, ticker, c["thesis_name"], c.get("conviction", 0), c["insider_name"], filed_at or c["filing_date"],
         )
 
         if dry_run:
@@ -613,8 +710,11 @@ def execute_entries(
             "exit_config": exit_cfg,
             "insider_name": c["insider_name"],
             "filing_date": c["filing_date"],
+            "filed_at": c.get("filed_at"),
+            "entry_type": entry_type,
             "signal_quality": c.get("signal_quality"),
             "signal_grade": c.get("signal_grade"),
+            "conviction": c.get("conviction"),
             "is_rare_reversal": c.get("is_rare_reversal"),
             "consecutive_sells_before": c.get("consecutive_sells_before"),
             "dip_1mo": c.get("dip_1mo"),

@@ -24,7 +24,10 @@ const isSandbox = process.env.NEXT_PUBLIC_API_URL?.includes("sandbox");
 
 export const metadata: Metadata = {
   metadataBase: new URL(isSandbox ? "https://sandbox.form4.app" : "https://form4.app"),
-  title: isSandbox ? "Form4 Sandbox" : "Form4 — Insider Intelligence, Decoded",
+  title: {
+    default: isSandbox ? "Form4 Sandbox" : "Form4 — Insider Intelligence, Decoded",
+    template: isSandbox ? "%s — Form4 Sandbox" : "%s — Form4",
+  },
   description: "Real-time SEC Form 4 insider trade alerts with AI-powered signal grading. Track what insiders are buying and selling before the market reacts.",
   icons: {
     icon: [

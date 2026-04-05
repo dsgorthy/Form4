@@ -1,5 +1,6 @@
 export const dynamic = "force-dynamic";
 
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { fetchAPI } from "@/lib/api";
@@ -10,7 +11,7 @@ import { TickerDisplay, companyToSlug } from "@/components/ui/ticker-display";
 import { SignalBadges } from "@/components/signal-badge";
 import { ContextFacts } from "@/components/context-facts";
 import { WhatIfSimulator } from "@/components/what-if-simulator";
-import { SignalQualityDetail } from "@/components/signal-quality-badge";
+import { TradeGradeDetail } from "@/components/trade-grade-badge";
 import type { Filing } from "@/lib/types";
 
 interface Lot {
@@ -39,6 +40,28 @@ interface FilingDetail extends Filing {
   lots?: Lot[];
   total_qty?: number;
   total_value?: number;
+}
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params;
+  try {
+    const filing = await fetchAPI<FilingDetail>(`/filings/${id}`);
+    const title = `${filing.ticker} ${filing.trade_type.toUpperCase()} by ${filing.insider_name}`;
+    const parts: string[] = [];
+    if (filing.value) parts.push(`Value: ${formatCurrency(filing.value)}`);
+    if (filing.price) parts.push(`at $${filing.price.toFixed(2)}/share`);
+    if (filing.filing_date) parts.push(`filed ${filing.filing_date}`);
+    const grade = (filing as any).trade_grade?.grade;
+    if (grade) parts.push(`Grade: ${grade}`);
+    const description = `${filing.insider_name} ${filing.trade_type} ${filing.ticker} (${filing.company}). ${parts.join(". ")}. SEC Form 4 analysis on Form4.app.`;
+    return {
+      title,
+      description,
+      openGraph: { title, description },
+    };
+  } catch {
+    return { title: "SEC Form 4 Filing" };
+  }
 }
 
 function secEdgarUrl(accession: string): string {
@@ -150,11 +173,30 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
         </div>
       )}
 
+      {/* Amendment notice */}
+      {(filing as any).is_amendment === 1 && (
+        <div className="mb-6 rounded-lg border border-[#F59E0B]/20 bg-[#F59E0B]/5 px-5 py-3">
+          <div className="flex items-center gap-2">
+            <span className="text-[#F59E0B] text-sm font-medium">Amended Filing</span>
+            <span className="text-[#8888A0] text-xs">
+              (Form {(filing as any).document_type ?? "4/A"})
+            </span>
+          </div>
+          <div className="text-xs text-[#55556A] mt-1">
+            This filing is an amendment that corrects an earlier submission
+            {(filing as any).date_of_orig_sub && (
+              <> originally filed on {(filing as any).date_of_orig_sub}</>
+            )}
+            . The data shown reflects the corrected values.
+          </div>
+        </div>
+      )}
+
       {/* Signal Quality + Signal badges */}
       <div className="flex flex-col md:flex-row gap-4 mb-6">
-        {(filing as any).signal_quality && (
+        {(filing as any).trade_grade && (
           <div className="md:w-64 shrink-0">
-            <SignalQualityDetail quality={(filing as any).signal_quality} />
+            <TradeGradeDetail grade={(filing as any).trade_grade} />
           </div>
         )}
         {filing.signals && filing.signals.length > 0 && (
@@ -208,8 +250,8 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
           </InfoRow>
           <InfoRow label="Title">{(filing.normalized_title || filing.title)?.replace(/;/g, ", ")}</InfoRow>
           <div className="flex items-center justify-between py-2 border-b border-[#2A2A3A]/50">
-            <span className="text-[#8888A0] text-sm">Tier</span>
-            <TierBadge tier={filing.tier} />
+            <span className="text-[#8888A0] text-sm">PIT Grade</span>
+            <TierBadge tier={filing.tier} pitGrade={filing.pit_grade} />
           </div>
           <InfoRow label="Score">{filing.score?.toFixed(2) ?? "\u2014"}</InfoRow>
           {filing.percentile != null && (

@@ -11,6 +11,29 @@ from api.db import get_db
 from api.filters import deduplicate_filers
 from api.gating import get_free_cutoff_date, null_items_track_records, redact_gated_items
 from api.id_encoding import encode_response_ids
+from api.pit_helpers import enrich_with_best_pit_grade
+
+# Signal type metadata — thesis, display info, composite flag
+SIGNAL_META: dict[str, dict] = {
+    "quality_momentum_buy": {
+        "label": "Quality + Momentum",
+        "description": "Proven insider (A+/A grade) buying in a confirmed uptrend",
+        "composite": True,
+        "strategy": "quality_momentum",
+    },
+    "tenb51_surprise_buy": {
+        "label": "10b5-1 Surprise Buy",
+        "description": "Scheduled seller breaks SEC-filed 10b5-1 plan to buy",
+        "composite": True,
+        "strategy": "tenb51_surprise",
+    },
+    "deep_reversal_dip_buy": {
+        "label": "Deep Reversal + Dip",
+        "description": "Persistent seller reverses into a stock down 25%+",
+        "composite": True,
+        "strategy": "reversal_dip",
+    },
+}
 
 router = APIRouter(prefix="/api/v1/signals", tags=["signals"])
 
@@ -46,18 +69,22 @@ def sell_cessation(
                 MAX(t.trade_date) AS last_sell_date,
                 itr.score,
                 itr.score_tier,
+                MAX(t.pit_grade) AS pit_grade,
+                MAX(t.pit_blended_score) AS pit_blended_score,
                 GROUP_CONCAT(DISTINCT t.ticker) AS tickers
             FROM trades t
             JOIN insiders i ON t.insider_id = i.insider_id
             LEFT JOIN insider_track_records itr ON t.insider_id = itr.insider_id
             WHERE t.trade_type = 'sell'
               AND t.trans_code = 'S'
+              AND t.superseded_by IS NULL
               AND t.trade_date BETWEEN date(?, '-14 months') AND date(?, '-60 days')
               AND t.insider_id NOT IN (
                   SELECT DISTINCT insider_id
                   FROM trades
                   WHERE trade_type = 'sell'
                     AND trans_code = 'S'
+                    AND superseded_by IS NULL
                     AND trade_date > date(?, '-60 days')
               )
             GROUP BY t.insider_id
@@ -66,10 +93,14 @@ def sell_cessation(
         params: list = [latest, latest, latest]
 
         if min_tier is not None:
-            query += " AND itr.score_tier >= ?"
-            params.append(min_tier)
+            if min_tier >= 3:
+                query += " AND MAX(t.pit_grade) = 'A'"
+            elif min_tier >= 2:
+                query += " AND MAX(t.pit_grade) IN ('A', 'B')"
+            else:
+                query += " AND MAX(t.pit_grade) IS NOT NULL"
 
-        query += " ORDER BY itr.score DESC NULLS LAST LIMIT ?"
+        query += " ORDER BY MAX(t.pit_blended_score) DESC NULLS LAST LIMIT ?"
         params.append(limit)
 
         rows = conn.execute(query, params).fetchall()
@@ -85,21 +116,23 @@ def sell_cessation(
             item["days_silent"] = days_row["days"] if days_row else None
             items.append(item)
 
-    # Deduplicate entities reporting the same economic event
-    items = deduplicate_filers(
-        items,
-        value_key="sell_value_12m",
-        date_key="last_sell_date",
-        identity_keys=("insider_id", "name", "cik", "score", "score_tier"),
-    )
+        # Deduplicate entities reporting the same economic event
+        items = deduplicate_filers(
+            items,
+            value_key="sell_value_12m",
+            date_key="last_sell_date",
+            identity_keys=("insider_id", "name", "cik", "score", "score_tier"),
+        )
 
-    if not user.is_pro:
-        items = null_items_track_records(items)
-    if not user.has_full_feed:
-        for item in items:
-            item["gated"] = True
-        items = redact_gated_items(items)
-    encode_response_ids(items, trade=False, insider=True)
+        enrich_with_best_pit_grade(conn, items)
+
+        if not user.is_pro:
+            items = null_items_track_records(items)
+        if not user.has_full_feed:
+            for item in items:
+                item["gated"] = True
+            items = redact_gated_items(items)
+        encode_response_ids(items, trade=False, insider=True)
 
     return {"items": items, "total": len(items), "gated": not user.has_full_feed}
 
@@ -172,6 +205,7 @@ def tagged_signals(
                 t.trade_id, t.insider_id, t.ticker, t.company, t.title,
                 t.trade_type, t.trade_date, t.filing_date, t.trans_code,
                 t.price, t.qty, t.value, t.is_csuite,
+                t.pit_grade, t.pit_blended_score,
                 COALESCE(i.display_name, i.name) AS insider_name, i.cik,
                 itr.score, itr.score_tier, itr.percentile,
                 tr.return_7d, tr.return_30d, tr.return_90d,
@@ -232,4 +266,13 @@ def signal_types(user: UserContext = Depends(get_current_user)) -> dict:
             ORDER BY count DESC
         """).fetchall()
 
-    return {"types": [dict(r) for r in rows]}
+    types = []
+    for r in rows:
+        item = dict(r)
+        meta = SIGNAL_META.get(item["signal_type"], {})
+        item["composite"] = meta.get("composite", False)
+        item["description"] = meta.get("description")
+        item["strategy"] = meta.get("strategy")
+        types.append(item)
+
+    return {"types": types}

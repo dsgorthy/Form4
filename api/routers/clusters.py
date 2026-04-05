@@ -78,6 +78,7 @@ def list_clusters(
                 WHERE t.filing_date >= {window_start}
                   AND t.filing_date <= ?
                   AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
+                  AND t.superseded_by IS NULL
                   {extra_where}
                 GROUP BY t.txn_group_id
             )
@@ -119,6 +120,8 @@ def list_clusters(
                 SELECT
                     t.insider_id, COALESCE(i.display_name, i.name) AS name, i.cik,
                     itr.score, itr.score_tier,
+                    MAX(t.pit_grade) AS pit_grade,
+                    MAX(t.pit_blended_score) AS pit_blended_score,
                     SUM(t.value) AS trade_value,
                     MAX(t.title) AS title,
                     MAX(t.is_csuite) AS is_csuite,
@@ -131,6 +134,7 @@ def list_clusters(
                   AND t.filing_date >= {window_start}
                   AND t.filing_date <= ?
                   AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
+                  AND t.superseded_by IS NULL
                   {extra_where}
                 GROUP BY t.insider_id
                 ORDER BY SUM(t.value) DESC
@@ -204,6 +208,7 @@ def get_cluster_detail(
               AND t.filing_date >= {window_start}
               AND t.filing_date <= ?
               AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
+              AND t.superseded_by IS NULL
               {_PS}
             GROUP BY t.ticker, t.trade_type
             """,
@@ -222,6 +227,8 @@ def get_cluster_detail(
                 t.insider_id, COALESCE(i.display_name, i.name) AS name, i.cik,
                 itr.score, itr.score_tier, itr.percentile,
                 itr.buy_count, itr.buy_win_rate_7d, itr.buy_avg_return_7d,
+                MAX(t.pit_grade) AS pit_grade,
+                MAX(t.pit_blended_score) AS pit_blended_score,
                 SUM(t.value) AS trade_value, MAX(t.title) AS title,
                 MAX(t.is_csuite) AS is_csuite,
                 MAX(t.trade_date) AS last_trade_date, COUNT(*) AS n_trades, 1 AS n_filers
@@ -232,6 +239,7 @@ def get_cluster_detail(
               AND t.filing_date >= {window_start}
               AND t.filing_date <= ?
               AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
+              AND t.superseded_by IS NULL
               {_PS}
             GROUP BY t.insider_id
             ORDER BY SUM(t.value) DESC
@@ -263,6 +271,7 @@ def get_cluster_detail(
                 agg.trade_type, agg.trade_date, agg.filing_date,
                 agg.price, agg.qty, agg.value,
                 agg.is_csuite,
+                agg.pit_grade, agg.pit_blended_score,
                 COALESCE(i.display_name, i.name) AS insider_name, i.cik,
                 itr.score, itr.score_tier,
                 tr.return_7d, tr.return_30d, tr.return_90d,
@@ -275,12 +284,15 @@ def get_cluster_detail(
                     ROUND(SUM(t.value) / SUM(t.qty), 2) AS price,
                     SUM(t.qty) AS qty,
                     SUM(t.value) AS value,
-                    t.is_csuite
+                    t.is_csuite,
+                    MAX(t.pit_grade) AS pit_grade,
+                    MAX(t.pit_blended_score) AS pit_blended_score
                 FROM trades t
                 WHERE t.ticker = ? AND t.trade_type = ?
                   AND t.filing_date >= {window_start}
                   AND t.filing_date <= ?
                   AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
+                  AND t.superseded_by IS NULL
                   {_PS}
                 GROUP BY t.insider_id, t.trade_type, CASE WHEN t.accession IS NOT NULL THEN t.accession ELSE t.trade_date END
             ) agg

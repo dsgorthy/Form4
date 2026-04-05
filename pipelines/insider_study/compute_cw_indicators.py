@@ -2,7 +2,7 @@
 """
 Compute CEO Watcher-inspired indicator columns on the trades table.
 
-Adds: dip_1mo, dip_3mo, dip_1yr, sma20_rel, sma50_rel, sma200_rel,
+Adds: dip_1mo, dip_3mo, dip_1yr, sma50_rel, sma200_rel,
 above_sma50, above_sma200, purchase_size_ratio, is_largest_ever,
 is_tax_sale, is_recurring, recurring_period, consecutive_sells_before.
 
@@ -19,6 +19,11 @@ Usage:
 """
 
 from __future__ import annotations
+
+import sys
+from pathlib import Path as _Path
+sys.path.insert(0, str(_Path(__file__).resolve().parents[2]))
+from pipelines.insider_study.db_lock import db_write_lock
 
 import argparse
 import csv
@@ -74,7 +79,6 @@ COLUMNS = {
     "dip_1mo": "REAL",
     "dip_3mo": "REAL",
     "dip_1yr": "REAL",
-    "sma20_rel": "REAL",
     "sma50_rel": "REAL",
     "sma200_rel": "REAL",
     "above_sma50": "INTEGER",
@@ -102,11 +106,20 @@ def flush_updates(conn, table, col_names, updates):
     if not updates:
         return
     set_clause = ", ".join(f"{c} = ?" for c in col_names)
-    conn.executemany(
-        f"UPDATE {table} SET {set_clause} WHERE trade_id = ?",
-        updates,
-    )
-    conn.commit()
+    for attempt in range(5):
+        try:
+            conn.executemany(
+                f"UPDATE {table} SET {set_clause} WHERE trade_id = ?",
+                updates,
+            )
+            conn.commit()
+            return
+        except sqlite3.OperationalError as e:
+            if "locked" in str(e) and attempt < 4:
+                import time
+                time.sleep(2 ** attempt)
+                continue
+            raise
 
 
 # ---------------------------------------------------------------------------
@@ -160,7 +173,7 @@ def compute_dip_indicators(conn: sqlite3.Connection) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Indicator 2: SMA context (sma20_rel, sma50_rel, sma200_rel, above_sma*)
+# Indicator 2: SMA context (sma50_rel, sma200_rel, above_sma*)
 # ---------------------------------------------------------------------------
 
 def _compute_sma_series(prices: dict[str, float], window: int) -> dict[str, float]:
@@ -202,7 +215,6 @@ def compute_sma_context(conn: sqlite3.Connection) -> int:
             continue
 
         prices = _load_prices_fresh(ticker)
-        sma20 = _compute_sma_series(prices, 20)
         sma50 = _compute_sma_series(prices, 50)
         sma200 = _compute_sma_series(prices, 200)
 
@@ -212,22 +224,20 @@ def compute_sma_context(conn: sqlite3.Connection) -> int:
             if not price or price <= 0:
                 price = _find_nearest(prices, datetime.strptime(trade_date, "%Y-%m-%d"), range(4)) if trade_date else None
             if not price or price <= 0:
-                updates.append((None, None, None, None, None, trade_id))
+                updates.append((None, None, None, None, trade_id))
                 continue
 
-            s20 = _find_sma_at_date(sma20, trade_date)
             s50 = _find_sma_at_date(sma50, trade_date)
             s200 = _find_sma_at_date(sma200, trade_date)
 
-            sma20_rel = (price - s20) / s20 if s20 and s20 > 0 else None
             sma50_rel = (price - s50) / s50 if s50 and s50 > 0 else None
             sma200_rel = (price - s200) / s200 if s200 and s200 > 0 else None
             a50 = 1 if s50 and price > s50 else (0 if s50 else None)
             a200 = 1 if s200 and price > s200 else (0 if s200 else None)
-            updates.append((sma20_rel, sma50_rel, sma200_rel, a50, a200, trade_id))
+            updates.append((sma50_rel, sma200_rel, a50, a200, trade_id))
 
         flush_updates(conn, "trades",
-                      ["sma20_rel", "sma50_rel", "sma200_rel", "above_sma50", "above_sma200"],
+                      ["sma50_rel", "sma200_rel", "above_sma50", "above_sma200"],
                       updates)
         total += len(updates)
 
@@ -499,33 +509,35 @@ def main():
                         help="Compute only this indicator (default: all)")
     args = parser.parse_args()
 
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA cache_size=-200000")
+    with db_write_lock(timeout_msg="compute_cw_indicators"):
+        conn = sqlite3.connect(str(DB_PATH))
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=30000")
+        conn.execute("PRAGMA cache_size=-200000")
 
-    print(f"Database: {DB_PATH}")
-    ensure_columns(conn)
+        print(f"Database: {DB_PATH}")
+        ensure_columns(conn)
 
-    if args.indicator:
-        INDICATOR_MAP[args.indicator](conn)
-    else:
-        for name, fn in INDICATOR_MAP.items():
-            fn(conn)
+        if args.indicator:
+            INDICATOR_MAP[args.indicator](conn)
+        else:
+            for name, fn in INDICATOR_MAP.items():
+                fn(conn)
 
-    # Summary
-    print("\n=== Summary ===")
-    for col in ["dip_1mo", "dip_3mo", "dip_1yr", "sma50_rel", "above_sma50",
-                "purchase_size_ratio", "is_largest_ever", "is_tax_sale",
-                "is_recurring", "consecutive_sells_before"]:
-        count = conn.execute(
-            f"SELECT COUNT(*) FROM trades WHERE {col} IS NOT NULL AND trade_date >= ?",
-            (MIN_DATE,)
-        ).fetchone()[0]
-        print(f"  {col}: {count:,} populated")
+        # Summary
+        print("\n=== Summary ===")
+        for col in ["dip_1mo", "dip_3mo", "dip_1yr", "sma50_rel", "above_sma50",
+                    "purchase_size_ratio", "is_largest_ever", "is_tax_sale",
+                    "is_recurring", "consecutive_sells_before"]:
+            count = conn.execute(
+                f"SELECT COUNT(*) FROM trades WHERE {col} IS NOT NULL AND trade_date >= ?",
+                (MIN_DATE,)
+            ).fetchone()[0]
+            print(f"  {col}: {count:,} populated")
 
-    conn.close()
-    print("\nDone.")
+        conn.close()
+        print("\nDone.")
 
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@ interface InsiderResult {
   cik: string | null;
   score: number | null;
   score_tier: number | null;
+  best_pit_grade?: string | null;
   primary_title: string | null;
   primary_ticker: string | null;
 }
@@ -181,7 +182,7 @@ export function SearchBar() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-sm text-[#E8E8ED] truncate">{ins.name}</span>
-                      {ins.score_tier != null && <TierBadge tier={ins.score_tier} />}
+                      {(ins.best_pit_grade || ins.score_tier != null) && <TierBadge pitGrade={ins.best_pit_grade} tier={ins.score_tier} />}
                     </div>
                     {ins.primary_title && (
                       <div className="text-[10px] text-[#55556A] truncate">

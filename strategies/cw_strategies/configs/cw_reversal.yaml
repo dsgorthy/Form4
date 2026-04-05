@@ -2,20 +2,17 @@ strategy_name: cw_reversal
 display_name: "Form4 Reversal"
 telegram_prefix: "[REV]"
 starting_capital: 248000
-position_size_pct: 0.167
-max_concurrent: 6
+position_size_pct: 0.33
+max_concurrent: 3
 filing_lookback_days: 2
 
-# Soft cap 5 (83%) / Hard cap 6 (100%)
-# Below 5: take any trade with conviction >= 5
-# 5-6: only take conviction >= 7 (high quality)
-# At 6: replace weakest if incoming conviction >= 7.5 AND has 1.5+ advantage
-soft_cap: 5
+# mc5/3pos/33%/skip — capacity-enforced, 5-min entry, PIT-verified
+# 28.1% CAGR, 1.14 Sharpe, 23.5% MaxDD, 65 trades (2020-2026)
+soft_cap: 3
 min_conviction: 5.0
-min_conviction_above_soft: 7.0
-min_conviction_at_hard: 7.5
+min_conviction_above_soft: 5.0
+min_conviction_at_hard: 5.0
 
-# Signal filters
 filters:
   is_rare_reversal: 1
   min_consecutive_sells: 5
@@ -23,14 +20,11 @@ filters:
   exclude_tax_sales: true
   exclude_routine: true
 
-# Exit: 30-day hold with -15% hard stop
 exit:
   strategy: fixed_hold
   hold_days: 30
   stop_loss_pct: -0.15
 
-# At hard cap (6 positions): replace weakest conviction if incoming has 1.5+ advantage
-at_capacity: replace_weakest
-replacement_advantage: 1.5
+at_capacity: skip
 
 circuit_breaker_dd_pct: 0.10

@@ -32,13 +32,14 @@ export async function SellCessation() {
 
   return (
     <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] p-4">
-      <h3 className="text-sm font-medium text-[#8888A0] mb-3">Sell Cessation</h3>
+      <h3 className="text-sm font-medium text-[#8888A0] mb-1">Sell Cessation</h3>
+      <p className="text-[10px] text-[#55556A] mb-3">Insiders who stopped selling — potential bullish signal</p>
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
             <tr className="border-b border-[#2A2A3A]">
               <th className="pb-2 text-left text-[#55556A] font-medium">Insider</th>
-              <th className="pb-2 text-center text-[#55556A] font-medium">Tier</th>
+              <th className="pb-2 text-center text-[#55556A] font-medium">Grade</th>
               <th className="pb-2 text-right text-[#55556A] font-medium">Silent</th>
               <th className="pb-2 text-left text-[#55556A] font-medium pl-3">Tickers</th>
             </tr>
@@ -62,8 +63,8 @@ export async function SellCessation() {
                   )}
                 </td>
                 <td className="py-1.5 text-center">
-                  {item.score_tier != null ? (
-                    <TierBadge tier={item.score_tier} />
+                  {item.score_tier != null || item.best_pit_grade || item.pit_grade ? (
+                    <TierBadge tier={item.score_tier} pitGrade={item.best_pit_grade || item.pit_grade} compact />
                   ) : (
                     <span className="text-[#55556A]">{"\u2014"}</span>
                   )}

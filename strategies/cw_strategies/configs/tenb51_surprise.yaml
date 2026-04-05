@@ -1,0 +1,47 @@
+strategy_name: tenb51_surprise
+display_name: "Form4 10b5-1 Surprise"
+telegram_prefix: "[10b5]"
+starting_capital: 100000
+position_size_pct: 0.20
+max_concurrent: 5
+filing_lookback_days: 2
+
+# EXPERIMENTAL — only ~2 years of reliable 10b5-1 data (post-Dec 2022 reform)
+#
+# Validated thesis: insider with prior 10b5-1 plan sells breaks pattern and buys
+# Breaking a legal commitment (SEC-filed plan) to buy is costly and deliberate
+# Signal COMPOUNDS over time — genuine rerating, not mean reversion
+# Monotonic: more prior 10b5-1 sells = stronger signal
+#
+# Grid search results (2023-2026 only):
+#   33%/3pos/skip/60d/trail15%: Sharpe 0.68, CAGR 10.2%, 25 trades, 72% WR
+#   20%/5pos/skip/60d/sl-20%/trail15%: Sharpe 0.66, CAGR 7.9%, 48 trades
+#
+# LIMITATIONS:
+#   - Cannot approximate 10b5-1 pre-2022 (regularity proxy: 27% precision, 9% recall)
+#   - Only 154 qualifying events total — too few for high-confidence grid search
+#   - Run with smaller allocation; grow as data accumulates
+#
+# Entry pricing: 5-min bar for market-hours filings, T+1 open for after-hours
+# Overlap: ZERO with quality_momentum. ~9 trades with reversal_dip.
+# Universe: ~25-40 trades/yr (growing as more data accumulates)
+
+soft_cap: 5
+min_conviction: 5.0
+min_conviction_above_soft: 7.0
+min_conviction_at_hard: 7.0
+
+filters:
+  min_prior_10b5_1_sells: 5  # PIT: count only 10b5-1 sells filed before this buy
+  exclude_recurring: true
+  exclude_tax_sales: true
+
+exit:
+  strategy: trailing_stop
+  hold_days: 60       # signal compounds — hold longer than reversal
+  stop_loss_pct: -0.20  # wider stop — don't get shaken out of a compounding signal
+  trailing_stop_pct: 0.15
+
+at_capacity: skip
+
+circuit_breaker_dd_pct: 0.15

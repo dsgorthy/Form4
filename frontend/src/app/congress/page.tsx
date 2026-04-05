@@ -1,5 +1,11 @@
 export const dynamic = "force-dynamic";
 
+export const metadata = {
+  title: "Congressional Trading Tracker",
+  description:
+    "Track stock trades by members of Congress. Compare congressional trading activity with corporate insider signals.",
+};
+
 import Link from "next/link";
 import { fetchAPI } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";

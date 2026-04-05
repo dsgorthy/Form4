@@ -318,36 +318,29 @@ def _update_recent_signals():
     except Exception as exc:
         logger.warning("Cohen PIT error: %s", exc)
 
-    # Signal grade
+    # Signal grade — now computed via trade_grade (PIT-safe)
     try:
         conn = sqlite3.connect(str(DB_PATH))
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=wal")
 
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-        from api.signal_quality import compute_signal_quality
-
-        tier_map = {r[0]: r[1] for r in conn.execute(
-            "SELECT insider_id, score_tier FROM insider_track_records"
-        ).fetchall()}
-        sell_wr = {r[0]: r[1] for r in conn.execute(
-            "SELECT insider_id, sell_win_rate_7d FROM insider_track_records WHERE sell_win_rate_7d IS NOT NULL"
-        ).fetchall()}
+        from api.trade_grade import compute_trade_grade
 
         rows = conn.execute(
-            "SELECT trade_id, insider_id, trade_type, cohen_routine, shares_owned_after, "
-            "qty, title, is_csuite, is_10b5_1, is_routine, ticker "
+            "SELECT trade_id, trade_type, cohen_routine, shares_owned_after, "
+            "qty, title, is_csuite, is_10b5_1, is_routine, ticker, pit_grade, "
+            "value, price, is_rare_reversal, dip_1mo, dip_3mo, "
+            "week52_proximity, is_largest_ever, pit_cluster_size "
             "FROM trades WHERE filing_date >= ?", (since_7d,)
         ).fetchall()
 
         updates = []
         for r in rows:
             item = dict(r)
-            item["score_tier"] = tier_map.get(r["insider_id"])
-            if item["trade_type"] == "sell":
-                item["_sell_accuracy"] = sell_wr.get(r["insider_id"])
-            q = compute_signal_quality(item)
-            updates.append((q["grade"] if q else None, r["trade_id"]))
+            tg = compute_trade_grade(item)
+            grade_letter = tg.get("label", "Average")[0] if tg else None  # E/S/A/W/P → first letter
+            updates.append((grade_letter, r["trade_id"]))
 
         conn.executemany("UPDATE trades SET signal_grade = ? WHERE trade_id = ?", updates)
         conn.commit()

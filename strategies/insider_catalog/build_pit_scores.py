@@ -23,7 +23,6 @@ import argparse
 import logging
 import math
 import sqlite3
-import statistics
 import sys
 import time
 from collections import defaultdict
@@ -31,7 +30,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from backfill import DB_PATH, migrate_schema
-from pit_scoring import _score_window, upsert_score
+from pit_scoring import upsert_score
 
 logging.basicConfig(
     level=logging.INFO,
@@ -48,15 +47,14 @@ class RunningAggregates:
     """
     Maintains per-insider and per-insider-per-ticker running stats in memory.
 
-    Avoids re-querying the DB for the full trade history on every score computation.
-    Tracks returns that are "observable" — i.e., enough time has passed for the
-    7d forward return to have materialized.
+    v2: stores both 7d and 30d returns, returns (trade_date, value) tuples
+    for recency weighting in BayesianScorerV2.
     """
 
     def __init__(self):
-        # Per insider: list of (trade_date, ticker, abnormal_7d_or_None)
+        # Per insider: list of (trade_date, ticker, abnormal_7d, abnormal_30d, abnormal_90d)
         self.insider_trades: dict[int, list[tuple]] = defaultdict(list)
-        # Per insider+ticker: list of (trade_date, abnormal_7d_or_None)
+        # Per insider+ticker: list of (trade_date, abnormal_7d, abnormal_30d, abnormal_90d)
         self.insider_ticker_trades: dict[tuple[int, str], list[tuple]] = defaultdict(list)
         # Role lookup: (insider_id, ticker) → title
         self.roles: dict[tuple[int, str], str] = {}
@@ -65,127 +63,71 @@ class RunningAggregates:
         self.ticker_counts: dict[int, dict[str, int]] = defaultdict(lambda: defaultdict(int))
 
     def add_trade(self, insider_id: int, ticker: str, trade_date: str,
-                  abnormal_7d: float | None, title: str | None):
-        """Record a new trade."""
-        self.insider_trades[insider_id].append((trade_date, ticker, abnormal_7d))
-        self.insider_ticker_trades[(insider_id, ticker)].append((trade_date, abnormal_7d))
+                  abnormal_7d: float | None, abnormal_30d: float | None,
+                  abnormal_90d: float | None, title: str | None):
+        """Record a new trade with 7d, 30d, and 90d returns."""
+        self.insider_trades[insider_id].append((trade_date, ticker, abnormal_7d, abnormal_30d, abnormal_90d))
+        self.insider_ticker_trades[(insider_id, ticker)].append((trade_date, abnormal_7d, abnormal_30d, abnormal_90d))
 
         if title:
             self.roles[(insider_id, ticker)] = title
 
         self.ticker_counts[insider_id][ticker] += 1
-        # Update primary ticker
         counts = self.ticker_counts[insider_id]
         self.primary_ticker[insider_id] = max(counts, key=counts.get)
 
     def get_observable_returns(self, insider_id: int, ticker: str | None,
-                               as_of_date: str) -> list[float]:
+                               as_of_date: str, window: str = "7d"
+                               ) -> list[tuple[str, float]]:
         """
-        Get abnormal returns observable as of as_of_date.
+        Get observable returns as (trade_date, abnormal_return) tuples.
 
-        A return is observable if the trade happened at least RETURN_OBSERVABLE_LAG
-        days before as_of_date.
+        Returns tuples for recency weighting in BayesianScorerV2.
+        window: "7d" (lag=10 days) or "30d" (lag=40 days)
         """
         from datetime import datetime, timedelta
-        cutoff_dt = datetime.strptime(as_of_date, "%Y-%m-%d") - timedelta(days=RETURN_OBSERVABLE_LAG)
+        lag = {"7d": RETURN_OBSERVABLE_LAG, "30d": 40, "90d": 100}.get(window, RETURN_OBSERVABLE_LAG)
+        cutoff_dt = datetime.strptime(as_of_date, "%Y-%m-%d") - timedelta(days=lag)
         cutoff = cutoff_dt.strftime("%Y-%m-%d")
 
+        # Index into the tuple: (trade_date, [ticker,] abnormal_7d, abnormal_30d, abnormal_90d)
+        field_idx = {"7d": 2, "30d": 3, "90d": 4}[window]
+
         if ticker is None:
-            # Global
             trades = self.insider_trades.get(insider_id, [])
-            return [abn for td, _, abn in trades if td <= cutoff and abn is not None]
+            return [(td, t[field_idx]) for t in trades
+                    if (td := t[0]) <= cutoff and t[field_idx] is not None]
         else:
-            # Ticker-specific
             trades = self.insider_ticker_trades.get((insider_id, ticker), [])
-            return [abn for td, abn in trades if td <= cutoff and abn is not None]
+            # ticker_trades don't have the ticker field, so index is field_idx - 1
+            return [(td, t[field_idx - 1]) for t in trades
+                    if (td := t[0]) <= cutoff and t[field_idx - 1] is not None]
 
-    def compute_score(self, insider_id: int, ticker: str, as_of_date: str,
-                      min_ticker_trades: int = 2, min_global_trades: int = 3) -> dict:
-        """
-        Compute PIT score from in-memory running aggregates.
-        """
-        # Ticker-specific
-        ticker_returns = self.get_observable_returns(insider_id, ticker, as_of_date)
-        ticker_n = len(ticker_returns)
-        if ticker_returns:
-            ticker_wr = sum(1 for r in ticker_returns if r > 0) / ticker_n
-            ticker_avg = statistics.mean(ticker_returns)
-        else:
-            ticker_wr = None
-            ticker_avg = None
-        ticker_score_raw = _score_window(ticker_wr, ticker_avg, ticker_n) * 3.0
+    # Legacy compatibility: return flat list of floats
+    def get_observable_returns_flat(self, insider_id: int, ticker: str | None,
+                                    as_of_date: str) -> list[float]:
+        """Legacy: flat list of 7d abnormal returns (no dates)."""
+        return [r for _, r in self.get_observable_returns(insider_id, ticker, as_of_date, "7d")]
 
-        # Global
-        global_returns = self.get_observable_returns(insider_id, None, as_of_date)
-        global_n = len(global_returns)
-        if global_returns:
-            global_wr = sum(1 for r in global_returns if r > 0) / global_n
-            global_avg = statistics.mean(global_returns)
-        else:
-            global_wr = None
-            global_avg = None
-        global_score_raw = _score_window(global_wr, global_avg, global_n) * 3.0
+    def compute_score_v2(self, insider_id: int, ticker: str, as_of_date: str) -> "ScoringResult":
+        """Compute PIT score using BayesianScorerV2."""
+        from pit_scoring import BayesianScorerV2, ScoringContext
 
-        sufficient_data = 1 if global_n >= min_global_trades else 0
+        ctx = ScoringContext(
+            insider_id=insider_id,
+            ticker=ticker,
+            as_of_date=as_of_date,
+            ticker_returns_7d=self.get_observable_returns(insider_id, ticker, as_of_date, "7d"),
+            ticker_returns_30d=self.get_observable_returns(insider_id, ticker, as_of_date, "30d"),
+            ticker_returns_90d=self.get_observable_returns(insider_id, ticker, as_of_date, "90d"),
+            global_returns_7d=self.get_observable_returns(insider_id, None, as_of_date, "7d"),
+            global_returns_30d=self.get_observable_returns(insider_id, None, as_of_date, "30d"),
+            global_returns_90d=self.get_observable_returns(insider_id, None, as_of_date, "90d"),
+            role_at_ticker=self.roles.get((insider_id, ticker)),
+            is_primary_company=(self.primary_ticker.get(insider_id) == ticker),
+        )
+        return BayesianScorerV2().score(ctx)
 
-        # Trade counts (all trades, not just those with returns)
-        ticker_trade_count = len(self.insider_ticker_trades.get((insider_id, ticker), []))
-        global_trade_count = len(self.insider_trades.get(insider_id, []))
-
-        # Blending
-        if ticker_n < min_ticker_trades:
-            gw, tw = 1.0, 0.0
-        elif ticker_n < 5:
-            gw, tw = 0.70, 0.30
-        elif ticker_n < 10:
-            gw, tw = 0.50, 0.50
-        else:
-            gw, tw = 0.30, 0.70
-
-        # Ticker outperformance adjustment
-        if (ticker_wr is not None and global_wr is not None
-                and ticker_wr - global_wr > 0.10
-                and ticker_n >= min_ticker_trades):
-            shift = min(0.10, gw)
-            gw -= shift
-            tw += shift
-
-        blended = global_score_raw * gw + ticker_score_raw * tw
-
-        # Role adjustment
-        role = self.roles.get((insider_id, ticker))
-        is_primary = 1 if self.primary_ticker.get(insider_id) == ticker else 0
-        role_weight = 1.0
-
-        if role and is_primary:
-            rl = role.lower()
-            if any(kw in rl for kw in ("ceo", "chief exec", "chairman")):
-                role_weight = 1.15
-            elif any(kw in rl for kw in ("cfo", "president")):
-                role_weight = 1.10
-            elif any(kw in rl for kw in ("coo", "evp", "svp")):
-                role_weight = 1.05
-
-        blended = min(3.0, max(0.0, blended * role_weight))
-
-        return {
-            "insider_id": insider_id,
-            "ticker": ticker,
-            "as_of_date": as_of_date,
-            "ticker_trade_count": ticker_trade_count,
-            "ticker_win_rate_7d": round(ticker_wr, 4) if ticker_wr is not None else None,
-            "ticker_avg_abnormal_7d": round(ticker_avg, 6) if ticker_avg is not None else None,
-            "ticker_score": round(ticker_score_raw, 4),
-            "global_trade_count": global_trade_count,
-            "global_win_rate_7d": round(global_wr, 4) if global_wr is not None else None,
-            "global_avg_abnormal_7d": round(global_avg, 6) if global_avg is not None else None,
-            "global_score": round(global_score_raw, 4),
-            "blended_score": round(blended, 4),
-            "role_at_ticker": role,
-            "role_weight": round(role_weight, 4),
-            "is_primary_company": is_primary,
-            "sufficient_data": sufficient_data,
-        }
 
 
 def build_walkforward_scores(
@@ -210,7 +152,7 @@ def build_walkforward_scores(
     trades = conn.execute(f"""
         SELECT t.trade_id, t.insider_id, t.ticker, t.trade_date, t.filing_date,
                t.title, t.trade_type,
-               tr.abnormal_7d
+               tr.abnormal_7d, tr.abnormal_30d, tr.abnormal_90d
         FROM trades t
         LEFT JOIN trade_returns tr ON t.trade_id = tr.trade_id
         WHERE t.filing_date >= ? AND t.filing_date <= ?
@@ -225,13 +167,13 @@ def build_walkforward_scores(
     start_time = time.monotonic()
 
     for i, row in enumerate(trades):
-        trade_id, insider_id, ticker, trade_date, filing_date, title, trade_type, abnormal_7d = row
+        trade_id, insider_id, ticker, trade_date, filing_date, title, trade_type, abnormal_7d, abnormal_30d, abnormal_90d = row
 
-        # Add trade to running aggregates
-        agg.add_trade(insider_id, ticker, trade_date, abnormal_7d, title)
+        # Add trade to running aggregates (v2: includes 30d and 90d returns)
+        agg.add_trade(insider_id, ticker, trade_date, abnormal_7d, abnormal_30d, abnormal_90d, title)
 
-        # Compute PIT score at the filing date
-        score = agg.compute_score(insider_id, ticker, filing_date)
+        # Compute PIT score using Bayesian v2 scorer
+        score = agg.compute_score_v2(insider_id, ticker, filing_date)
         upsert_score(conn, score, trigger_trade_id=trade_id)
         scored += 1
 

@@ -8,14 +8,14 @@ import { TierBadge } from "@/components/ui/tier-badge";
 import { Badge } from "@/components/ui/badge";
 import { ProGate } from "@/components/pro-gate";
 import { Pagination } from "@/components/pagination";
-import { SignalQualityBadge } from "@/components/signal-quality-badge";
+import { TradeGradeBadge } from "@/components/trade-grade-badge";
 import type { Filing, PaginatedResponse } from "@/lib/types";
 
 function TradeTags({ item }: { item: Filing }) {
   const tags: React.ReactNode[] = [];
-  const sq = (item as any).signal_quality;
-  if (sq?.grade) {
-    tags.push(<SignalQualityBadge key="sq" quality={sq} />);
+  const tg = (item as any).trade_grade;
+  if (tg?.stars) {
+    tags.push(<TradeGradeBadge key="tg" grade={tg} />);
   }
   if ((item as any).is_10b5_1 === 1) {
     tags.push(
@@ -56,6 +56,13 @@ function TradeTags({ item }: { item: Filing }) {
     tags.push(
       <span key="52l" className="rounded px-1.5 py-0.5 text-[9px] font-medium bg-[#EF4444]/10 text-[#EF4444] border border-[#EF4444]/20">
         Near 52w Low
+      </span>
+    );
+  }
+  if ((item as any).is_amendment === 1) {
+    tags.push(
+      <span key="amend" className="rounded px-1.5 py-0.5 text-[9px] font-medium bg-[#F59E0B]/10 text-[#F59E0B] border border-[#F59E0B]/20">
+        Amended
       </span>
     );
   }
@@ -141,7 +148,7 @@ export function TradesTable({ ticker, initialData }: TradesTableProps) {
                     {t.insider_name}
                   </span>
                   {(t.score_tier ?? t.tier) != null && (
-                    <TierBadge tier={t.score_tier ?? t.tier} />
+                    <TierBadge tier={t.score_tier ?? t.tier} pitGrade={t.pit_grade} />
                   )}
                 </div>
                 <Badge
@@ -229,7 +236,7 @@ export function TradesTable({ ticker, initialData }: TradesTableProps) {
                 </td>
                 <td className="hidden lg:table-cell px-3 py-3 text-center">
                   {(t.score_tier ?? t.tier) != null ? (
-                    <TierBadge tier={t.score_tier ?? t.tier} />
+                    <TierBadge tier={t.score_tier ?? t.tier} pitGrade={t.pit_grade} />
                   ) : (
                     <span className="text-[#55556A]">{"\u2014"}</span>
                   )}

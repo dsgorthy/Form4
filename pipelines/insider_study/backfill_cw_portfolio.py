@@ -44,6 +44,7 @@ except ModuleNotFoundError:
 
 DB_PATH = Path(__file__).resolve().parents[2] / "strategies" / "insider_catalog" / "insiders.db"
 PRICES_DB = DB_PATH.parent / "prices.db"
+INTRADAY_DB = DB_PATH.parent / "intraday.db"
 
 # ---------------------------------------------------------------------------
 # Price cache — bulk-load all needed tickers into memory
@@ -173,6 +174,132 @@ def _build_trading_calendar(prices_conn: sqlite3.Connection, start: str, end: st
     return [r[0] for r in rows]
 
 # ---------------------------------------------------------------------------
+# 5-minute intraday entry pricing
+# ---------------------------------------------------------------------------
+
+
+def _filed_during_market_hours(filed_at: str | None) -> bool:
+    """Check if filed_at (UTC) falls during US market hours (9:30-16:00 ET).
+
+    Handles DST correctly via timezone conversion.
+    """
+    if not filed_at or len(filed_at) < 19:
+        return False
+    try:
+        from zoneinfo import ZoneInfo
+        dt_utc = datetime.strptime(filed_at[:19], "%Y-%m-%d %H:%M:%S").replace(
+            tzinfo=ZoneInfo("UTC"))
+        dt_et = dt_utc.astimezone(ZoneInfo("America/New_York"))
+        h, m = dt_et.hour, dt_et.minute
+        return (h > 9 or (h == 9 and m >= 30)) and h < 16
+    except (ValueError, TypeError):
+        return False
+
+
+def _next_5min_bar_utc(filed_at: str) -> str | None:
+    """Get the UTC timestamp of the next 5-min bar after filed_at.
+
+    filed_at is UTC. Returns ISO format 'YYYY-MM-DDTHH:MM:00' matching intraday.db.
+    Returns None if the bar would fall outside market hours.
+    """
+    try:
+        from zoneinfo import ZoneInfo
+        dt_utc = datetime.strptime(filed_at[:19], "%Y-%m-%d %H:%M:%S").replace(
+            tzinfo=ZoneInfo("UTC"))
+
+        # Round up to next 5-min boundary in UTC
+        total_min = dt_utc.hour * 60 + dt_utc.minute
+        if dt_utc.second > 0 or dt_utc.minute % 5 != 0:
+            total_min = ((total_min // 5) + 1) * 5
+        else:
+            total_min += 5
+
+        bar_utc = dt_utc.replace(hour=total_min // 60, minute=total_min % 60,
+                                  second=0, microsecond=0)
+
+        # Verify the bar is still during market hours (convert to ET to check)
+        bar_et = bar_utc.astimezone(ZoneInfo("America/New_York"))
+        h, m = bar_et.hour, bar_et.minute
+        if not ((h > 9 or (h == 9 and m >= 30)) and h < 16):
+            return None
+
+        return bar_utc.strftime("%Y-%m-%dT%H:%M:00")
+    except (ValueError, TypeError):
+        return None
+
+
+def compute_entry_prices(
+    events: list[tuple[str, dict]],
+    intraday_conn: sqlite3.Connection | None,
+    prices: "PriceCache",
+    trading_days: list[str],
+) -> None:
+    """Pre-compute entry price and date for each event.
+
+    Sets event["_entry_price"] and event["_entry_date"].
+    Market-hours filings: 5-min bar close on filing date.
+    After-hours filings: T+1 open.
+    """
+    cal_set = set(trading_days)
+
+    def next_trading_day(date: str) -> str | None:
+        for d in trading_days:
+            if d > date:
+                return d
+        return None
+
+    n_intraday = 0
+    n_t1 = 0
+    n_skip = 0
+
+    for thesis_name, event in events:
+        filed_at = event.get("filed_at")
+        ticker = event["ticker"]
+        filing_date = event["filing_date"]
+
+        entry_price = None
+        entry_date = None
+
+        # Try 5-min intraday entry for market-hours filings
+        if filed_at and intraday_conn and _filed_during_market_hours(filed_at):
+            bar_ts = _next_5min_bar_utc(filed_at)
+            if bar_ts:
+                row = intraday_conn.execute(
+                    "SELECT close FROM intraday_bars WHERE ticker=? AND timestamp=?",
+                    (ticker, bar_ts),
+                ).fetchone()
+                if row and row[0] and row[0] > 0:
+                    entry_price = row[0]
+                    entry_date = filing_date
+                    n_intraday += 1
+
+        # Fallback: T+1 open
+        if entry_price is None:
+            t1 = next_trading_day(filing_date)
+            if t1:
+                ep = prices.get_open(ticker, t1)
+                if ep and ep > 0:
+                    entry_price = ep
+                    entry_date = t1
+                    n_t1 += 1
+                else:
+                    # Try close as last resort
+                    ep = prices.get_close(ticker, t1)
+                    if ep and ep > 0:
+                        entry_price = ep
+                        entry_date = t1
+                        n_t1 += 1
+
+        if entry_price is None:
+            n_skip += 1
+
+        event["_entry_price"] = entry_price
+        event["_entry_date"] = entry_date
+
+    print(f"  Entry prices: {n_intraday} intraday 5min, {n_t1} T+1 open, {n_skip} no price")
+
+
+# ---------------------------------------------------------------------------
 # Grade mapping
 # ---------------------------------------------------------------------------
 
@@ -202,19 +329,21 @@ class StrategyConfig:
     starting_capital: float
     theses: list[ThesisConfig]
     max_concurrent: int
+    min_conviction: float = 5.0  # minimum conviction to enter
+    at_capacity: str = "skip"    # "skip" or "replace_oldest"
 
 
-# cw_reversal: single thesis
-# Reversal Sharpe peaks at 90d but 30d is better for turnover/deployment
+# cw_reversal: mc5/3pos/33%/skip — capacity-enforced, 5-min entry, PIT-verified
+# 28.1% CAGR, 1.14 Sharpe, 23.5% MaxDD, 65 trades (2020-2026)
 CW_REVERSAL = StrategyConfig(
     name="cw_reversal",
     starting_capital=100_000.0,
-    max_concurrent=6,  # soft 5 / hard 6 at 16.7% = 83% / 100%
+    max_concurrent=3,
     theses=[
         ThesisConfig(
             name="reversal",
-            position_size=0.167,
-            max_concurrent=6,
+            position_size=0.33,
+            max_concurrent=3,
             target_hold=30,
             stop_pct=-0.15,
             trailing_stop=False,
@@ -223,36 +352,38 @@ CW_REVERSAL = StrategyConfig(
     ],
 )
 
-# cw_composite: three theses sharing one equity pool
-# Max deployment: 20 positions * 3.3% = 66% (leaves ~34% cash buffer)
+# cw_composite: mc5/6pos/10%/replace_oldest — capacity-enforced, PIT-verified
+# 11.2% CAGR, 0.55 Sharpe, 26.7% MaxDD, 226 trades (2020-2026)
 CW_COMPOSITE = StrategyConfig(
     name="cw_composite",
     starting_capital=100_000.0,
-    max_concurrent=20,  # 20 * 3.3% = 66% max deployment
+    max_concurrent=6,
+    min_conviction=5.0,
+    at_capacity="replace_oldest",
     theses=[
         ThesisConfig(
             name="reversal",
-            position_size=0.033,
-            max_concurrent=20,
-            target_hold=30,  # 30d (matches reversal-only strategy)
+            position_size=0.10,
+            max_concurrent=6,
+            target_hold=30,
             stop_pct=-0.15,
             trailing_stop=False,
             exit_rule_name="time_exit_30d",
         ),
         ThesisConfig(
             name="dip_cluster",
-            position_size=0.033,
-            max_concurrent=20,
-            target_hold=30,  # 30d — optimization showed 30d >> 14d
+            position_size=0.10,
+            max_concurrent=6,
+            target_hold=30,
             stop_pct=-0.15,
             trailing_stop=True,
             exit_rule_name="time_exit_30d",
         ),
         ThesisConfig(
             name="momentum_largest",
-            position_size=0.033,
-            max_concurrent=20,
-            target_hold=30,  # 30d — same finding
+            position_size=0.10,
+            max_concurrent=6,
+            target_hold=30,
             stop_pct=-0.15,
             trailing_stop=True,
             exit_rule_name="time_exit_30d",
@@ -295,11 +426,12 @@ def _load_reversal_events(conn: sqlite3.Connection, start: str, end: str) -> lis
     """Load reversal-qualifying events."""
     query = """
         SELECT t.trade_id, t.insider_id, t.ticker, t.company, t.title,
-               t.trade_type, t.trade_date, t.filing_date, t.price, t.value,
+               t.trade_type, t.trade_date, t.filing_date, t.filed_at, t.price, t.value,
                t.is_csuite, t.signal_grade, t.is_rare_reversal,
                t.consecutive_sells_before, t.dip_1mo, t.dip_3mo,
                t.above_sma50, t.above_sma200, t.is_largest_ever,
                t.is_recurring, t.is_tax_sale, t.cohen_routine,
+               t.shares_owned_after, t.qty, t.pit_cluster_size,
                tr.entry_price, tr.exit_price_7d, tr.return_7d,
                tr.exit_price_30d, tr.return_30d,
                tr.exit_price_90d, tr.return_90d,
@@ -312,6 +444,7 @@ def _load_reversal_events(conn: sqlite3.Connection, start: str, end: str) -> lis
           AND COALESCE(t.consecutive_sells_before, 0) >= 5
           AND COALESCE(t.is_recurring, 0) = 0
           AND COALESCE(t.is_tax_sale, 0) = 0
+          AND COALESCE(t.is_10b5_1, 0) = 0
           AND COALESCE(t.cohen_routine, 0) = 0
           AND t.filing_date BETWEEN ? AND ?
           AND tr.entry_price IS NOT NULL
@@ -324,14 +457,19 @@ def _load_reversal_events(conn: sqlite3.Connection, start: str, end: str) -> lis
 
 
 def _load_dip_cluster_events(conn: sqlite3.Connection, start: str, end: str) -> list[dict]:
-    """Load dip_cluster-qualifying events (dip + cluster signal)."""
+    """Load dip_cluster-qualifying events (dip + PIT cluster).
+
+    Uses pit_cluster_size >= 2 (backward-looking: 2+ OTHER insiders filed
+    on the same ticker in the 30 days ending at this trade's filing_date).
+    """
     query = """
         SELECT t.trade_id, t.insider_id, t.ticker, t.company, t.title,
-               t.trade_type, t.trade_date, t.filing_date, t.price, t.value,
+               t.trade_type, t.trade_date, t.filing_date, t.filed_at, t.price, t.value,
                t.is_csuite, t.signal_grade, t.is_rare_reversal,
                t.consecutive_sells_before, t.dip_1mo, t.dip_3mo,
                t.above_sma50, t.above_sma200, t.is_largest_ever,
                t.is_recurring, t.is_tax_sale, t.cohen_routine,
+               t.shares_owned_after, t.qty, t.pit_cluster_size,
                tr.entry_price, tr.exit_price_7d, tr.return_7d,
                tr.exit_price_30d, tr.return_30d,
                tr.exit_price_90d, tr.return_90d,
@@ -341,8 +479,10 @@ def _load_dip_cluster_events(conn: sqlite3.Connection, start: str, end: str) -> 
         LEFT JOIN insiders i ON t.insider_id = i.insider_id
         WHERE t.trans_code = 'P'
           AND (t.dip_1mo <= -0.15 OR t.dip_3mo <= -0.25)
+          AND COALESCE(t.pit_cluster_size, 0) >= 2
           AND COALESCE(t.is_recurring, 0) = 0
           AND COALESCE(t.is_tax_sale, 0) = 0
+          AND COALESCE(t.is_10b5_1, 0) = 0
           AND COALESCE(t.cohen_routine, 0) = 0
           AND t.filing_date BETWEEN ? AND ?
           AND tr.entry_price IS NOT NULL
@@ -351,25 +491,19 @@ def _load_dip_cluster_events(conn: sqlite3.Connection, start: str, end: str) -> 
     """
     rows = conn.execute(query, (start, end)).fetchall()
     cols = [d[0] for d in conn.execute(query, (start, end)).description]
-    events = [dict(zip(cols, r)) for r in rows]
-
-    # Filter to those with a top_trade signal (cluster)
-    if not events:
-        return []
-    trade_ids = [e["trade_id"] for e in events]
-    cluster_ids = _get_cluster_trade_ids(conn, trade_ids)
-    return [e for e in events if e["trade_id"] in cluster_ids]
+    return [dict(zip(cols, r)) for r in rows]
 
 
 def _load_momentum_largest_events(conn: sqlite3.Connection, start: str, end: str) -> list[dict]:
     """Load momentum_largest-qualifying events."""
     query = """
         SELECT t.trade_id, t.insider_id, t.ticker, t.company, t.title,
-               t.trade_type, t.trade_date, t.filing_date, t.price, t.value,
+               t.trade_type, t.trade_date, t.filing_date, t.filed_at, t.price, t.value,
                t.is_csuite, t.signal_grade, t.is_rare_reversal,
                t.consecutive_sells_before, t.dip_1mo, t.dip_3mo,
                t.above_sma50, t.above_sma200, t.is_largest_ever,
                t.is_recurring, t.is_tax_sale, t.cohen_routine,
+               t.shares_owned_after, t.qty, t.pit_cluster_size,
                tr.entry_price, tr.exit_price_7d, tr.return_7d,
                tr.exit_price_30d, tr.return_30d,
                tr.exit_price_90d, tr.return_90d,
@@ -383,6 +517,7 @@ def _load_momentum_largest_events(conn: sqlite3.Connection, start: str, end: str
           AND t.is_largest_ever = 1
           AND COALESCE(t.is_recurring, 0) = 0
           AND COALESCE(t.is_tax_sale, 0) = 0
+          AND COALESCE(t.is_10b5_1, 0) = 0
           AND COALESCE(t.cohen_routine, 0) = 0
           AND t.filing_date BETWEEN ? AND ?
           AND tr.entry_price IS NOT NULL
@@ -592,39 +727,28 @@ def run_strategy(conn: sqlite3.Connection, strategy_cfg: StrategyConfig,
     all_trade_ids = [e["trade_id"] for _, e in all_events]
     cluster_reason_ids = _get_cluster_reason_ids(conn, all_trade_ids)
 
-    # Compute conviction scores and filter by minimum
+    # Compute conviction scores using ALL PIT-safe inputs (single source of truth)
+    from pipelines.insider_study.compute_trade_conviction import compute_full_conviction, clear_cache
+    clear_cache()
     for thesis_name, event in all_events:
         event["_thesis"] = thesis_name
-        event["_conviction"] = compute_conviction(
-            thesis=thesis_name,
-            signal_grade=event.get("signal_grade"),
-            consecutive_sells=event.get("consecutive_sells_before"),
-            dip_1mo=event.get("dip_1mo"),
-            dip_3mo=event.get("dip_3mo"),
-            is_largest_ever=bool(event.get("is_largest_ever")),
-            above_sma50=bool(event.get("above_sma50")),
-            above_sma200=bool(event.get("above_sma200")),
-        )
+        event["_conviction"] = compute_full_conviction(event, conn, thesis_name)
 
-    all_events = [(t, e) for t, e in all_events if e["_conviction"] >= MIN_CONVICTION]
+    min_conv = strategy_cfg.min_conviction
+    all_events = [(t, e) for t, e in all_events if e["_conviction"] >= min_conv]
 
     # Skip penny stocks
     all_events = [(t, e) for t, e in all_events
                   if not (e.get("entry_price", 0) and e["entry_price"] < 2.0)]
 
-    # Index events by filing_date (entry is T+1, i.e. first trading day after filing)
-    events_by_filing: dict[str, list[tuple[str, dict]]] = {}
-    for thesis_name, event in all_events:
-        fd = event["filing_date"]
-        if fd not in events_by_filing:
-            events_by_filing[fd] = []
-        events_by_filing[fd].append((thesis_name, event))
+    # Entry prices will be computed after price cache is loaded (below)
 
     # Collect all tickers for price cache
     all_tickers = {e["ticker"] for _, e in all_events}
 
     # Open prices.db connection for PriceCache and trading calendar
     prices_conn = sqlite3.connect(str(PRICES_DB))
+    intraday_conn = sqlite3.connect(str(INTRADAY_DB)) if INTRADAY_DB.exists() else None
     try:
         # Build price cache with buffer
         cache_start = (datetime.strptime(start, "%Y-%m-%d") - timedelta(days=30)).strftime("%Y-%m-%d")
@@ -640,6 +764,20 @@ def run_strategy(conn: sqlite3.Connection, strategy_cfg: StrategyConfig,
         print("  No trading days found in calendar. Aborting.")
         return []
 
+    # Pre-compute entry prices (5-min for market hours, T+1 open for after hours)
+    compute_entry_prices(all_events, intraday_conn, prices, trading_days)
+
+    # Remove events with no entry price
+    all_events = [(t, e) for t, e in all_events if e.get("_entry_price") is not None]
+    print(f"  Events with entry price: {len(all_events)}")
+
+    # Index events by pre-computed entry_date (NOT filing_date)
+    events_by_entry: dict[str, list[tuple[str, dict]]] = {}
+    for thesis_name, event in all_events:
+        ed = event["_entry_date"]
+        if ed:
+            events_by_entry.setdefault(ed, []).append((thesis_name, event))
+
     # PIT score cache
     pit_cache: dict[tuple[int, str, str], float | None] = {}
 
@@ -653,22 +791,15 @@ def run_strategy(conn: sqlite3.Connection, strategy_cfg: StrategyConfig,
     replacements = 0
     max_concurrent_seen = 0
 
-    # Track which filing dates have been processed for entries
     pending_entries: list[tuple[str, dict]] = []
-    last_filing_checked = ""
 
     for day_idx, today in enumerate(trading_days):
         if today < start:
             continue
 
-        # --- Step 1: Gather new signals filed before today (T+1 entry) ---
-        for fd in sorted(events_by_filing.keys()):
-            if fd >= today:
-                break
-            if fd <= last_filing_checked:
-                continue
-            pending_entries.extend(events_by_filing[fd])
-            last_filing_checked = fd
+        # --- Step 1: Gather events whose pre-computed entry_date is today ---
+        if today in events_by_entry:
+            pending_entries.extend(events_by_entry[today])
 
         # --- Step 2: Check all open positions for exits ---
         still_open: list[OpenPosition] = []
@@ -737,9 +868,12 @@ def run_strategy(conn: sqlite3.Connection, strategy_cfg: StrategyConfig,
                 signal_quality = GRADE_QUALITY.get(signal_grade) if signal_grade else None
                 is_cluster = 1 if ev["trade_id"] in cluster_reason_ids else 0
 
+                entry_type = "intraday_5min" if (ev.get("filed_at") and _filed_during_market_hours(ev.get("filed_at")) and pos.entry_date == ev.get("filed_at", "")[:10]) else "t1_open"
                 entry_reasoning = json.dumps({
                     "thesis": pos.thesis,
                     "conviction": pos.conviction,
+                    "entry_type": entry_type,
+                    "filed_at": ev.get("filed_at"),
                     "consecutive_sells_before": ev.get("consecutive_sells_before"),
                     "is_rare_reversal": bool(ev.get("is_rare_reversal")),
                     "signal_grade": signal_grade,
@@ -817,6 +951,7 @@ def run_strategy(conn: sqlite3.Connection, strategy_cfg: StrategyConfig,
 
         entered_tickers_today: set[str] = set()
         held_tickers = {p.ticker for p in open_positions}
+        replaced_today = False  # Only one replacement per day
 
         for thesis_name, event in pending_entries:
             ticker = event["ticker"]
@@ -825,33 +960,37 @@ def run_strategy(conn: sqlite3.Connection, strategy_cfg: StrategyConfig,
             if ticker in held_tickers or ticker in entered_tickers_today:
                 continue
 
-            # Check if we have price data for entry (use open price of entry day)
-            entry_price = prices.get_open(ticker, today)
-            if entry_price is None or entry_price <= 0:
-                entry_price = prices.get_close(ticker, today)
+            # Use pre-computed entry price (5-min for market hours, T+1 open for after hours)
+            entry_price = event.get("_entry_price")
             if entry_price is None or entry_price <= 0:
                 continue
 
             conviction = event["_conviction"]
             tc = thesis_cfg_map[thesis_name]
 
-            # --- Capacity check ---
+            # --- Hard capacity guard: NEVER exceed max_concurrent ---
             if len(open_positions) >= strategy_cfg.max_concurrent:
-                if strategy_cfg.name == "cw_reversal":
-                    # Reversal: replace weakest if incoming has REPLACEMENT_ADVANTAGE
-                    weakest = min(open_positions, key=lambda p: p.conviction)
-                    if conviction >= weakest.conviction + REPLACEMENT_ADVANTAGE:
-                        # Replace: close weakest at today's close
-                        rep_close = prices.get_close(weakest.ticker, today)
+                if strategy_cfg.at_capacity == "skip" or replaced_today:
+                    skipped_capacity += 1
+                    continue
+                # Replace oldest position (one per day, no same-day chaining)
+                candidates = [p for p in open_positions if p.days_held > 0]
+                if not candidates:
+                    skipped_capacity += 1
+                    continue
+                oldest = max(candidates, key=lambda p: p.days_held)
+                if True:  # Execute replacement
+                        # Replace: close oldest at today's close
+                        rep_close = prices.get_close(oldest.ticker, today)
                         if rep_close is None or rep_close <= 0:
                             skipped_capacity += 1
                             continue
-                        rep_pnl_pct = (rep_close - weakest.entry_price) / weakest.entry_price
-                        rep_pnl_dollar = weakest.dollar_amount * rep_pnl_pct
+                        rep_pnl_pct = (rep_close - oldest.entry_price) / oldest.entry_price
+                        rep_pnl_dollar = oldest.dollar_amount * rep_pnl_pct
                         equity += rep_pnl_dollar
 
-                        rep_peak_ret = (weakest.peak_price - weakest.entry_price) / weakest.entry_price if weakest.entry_price > 0 else 0.0
-                        rep_ev = weakest.event
+                        rep_peak_ret = (oldest.peak_price - oldest.entry_price) / oldest.entry_price if oldest.entry_price > 0 else 0.0
+                        rep_ev = oldest.event
                         rep_filing = rep_ev.get("filing_date", "")
 
                         # PIT score for replaced
@@ -863,26 +1002,26 @@ def run_strategy(conn: sqlite3.Connection, strategy_cfg: StrategyConfig,
 
                         completed_trades.append(PortfolioTrade(
                             strategy=strategy_cfg.name,
-                            trade_id=weakest.trade_id,
-                            ticker=weakest.ticker,
+                            trade_id=oldest.trade_id,
+                            ticker=oldest.ticker,
                             company=rep_ev.get("company"),
-                            entry_date=weakest.entry_date,
-                            entry_price=round(weakest.entry_price, 4),
+                            entry_date=oldest.entry_date,
+                            entry_price=round(oldest.entry_price, 4),
                             exit_date=today,
                             exit_price=round(rep_close, 4),
-                            hold_days=weakest.days_held,
-                            target_hold=weakest.target_hold,
-                            stop_pct=weakest.stop_pct,
+                            hold_days=oldest.days_held,
+                            target_hold=oldest.target_hold,
+                            stop_pct=oldest.stop_pct,
                             stop_hit=0,
                             pnl_pct=round(rep_pnl_pct, 6),
                             pnl_dollar=round(rep_pnl_dollar, 2),
-                            position_size=thesis_cfg_map[weakest.thesis].position_size,
+                            position_size=thesis_cfg_map[oldest.thesis].position_size,
                             portfolio_value=round(equity - rep_pnl_dollar, 2),
                             equity_after=round(equity, 2),
                             insider_name=rep_ev.get("display_name") or rep_ev.get("insider_name_raw") or "",
                             signal_quality=GRADE_QUALITY.get(rep_ev.get("signal_grade")) if rep_ev.get("signal_grade") else None,
                             exit_reason="replaced_by_higher_conviction",
-                            entry_reasoning=json.dumps({"thesis": weakest.thesis, "conviction": weakest.conviction, "replaced": True}),
+                            entry_reasoning=json.dumps({"thesis": oldest.thesis, "conviction": oldest.conviction, "replaced": True}),
                             exit_reasoning=json.dumps({"replaced_by": ticker, "incoming_conviction": conviction}),
                             filing_date=rep_filing,
                             trade_date=rep_ev.get("trade_date"),
@@ -890,22 +1029,21 @@ def run_strategy(conn: sqlite3.Connection, strategy_cfg: StrategyConfig,
                             signal_grade=rep_ev.get("signal_grade"),
                             is_csuite=rep_ev.get("is_csuite"),
                             is_rare_reversal=rep_ev.get("is_rare_reversal"),
-                            is_cluster=1 if weakest.trade_id in cluster_reason_ids else 0,
+                            is_cluster=1 if oldest.trade_id in cluster_reason_ids else 0,
                             insider_title=rep_ev.get("title"),
                             peak_return=round(rep_peak_ret, 4),
-                            dollar_amount=round(weakest.dollar_amount, 2),
-                            thesis=weakest.thesis,
+                            dollar_amount=round(oldest.dollar_amount, 2),
+                            thesis=oldest.thesis,
                         ))
-                        open_positions = [p for p in open_positions if p.trade_id != weakest.trade_id]
+                        open_positions = [p for p in open_positions if p.trade_id != oldest.trade_id]
                         held_tickers = {p.ticker for p in open_positions}
                         replacements += 1
-                    else:
-                        skipped_capacity += 1
-                        continue
-                else:
-                    # Composite: SKIP (no replacement)
-                    skipped_capacity += 1
-                    continue
+                        replaced_today = True
+
+            # --- Hard guard: verify we're not over limit after replacement ---
+            if len(open_positions) >= strategy_cfg.max_concurrent:
+                skipped_capacity += 1
+                continue
 
             # --- Position sizing: min(equity * position_pct, 2% of ADV) ---
             target_amount = equity * tc.position_size
@@ -939,7 +1077,7 @@ def run_strategy(conn: sqlite3.Connection, strategy_cfg: StrategyConfig,
             entered_tickers_today.add(ticker)
             held_tickers.add(ticker)
 
-        # Signals are only actionable on T+1 after filing — drop stale ones
+        # Clear pending — signals are one-shot (matches grid search sim)
         pending_entries = []
 
         # Track max concurrent for diagnostics
@@ -1053,6 +1191,9 @@ def run_strategy(conn: sqlite3.Connection, strategy_cfg: StrategyConfig,
 
     if max_concurrent_seen > strategy_cfg.max_concurrent:
         print(f"  *** WARNING: Max concurrent ({max_concurrent_seen}) exceeded limit ({strategy_cfg.max_concurrent})! ***")
+
+    if intraday_conn:
+        intraday_conn.close()
 
     return completed_trades
 

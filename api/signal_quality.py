@@ -102,15 +102,15 @@ def compute_signal_quality(item: dict) -> dict | None:
         score += 0.5
         factors.append("C-suite executive")
 
-    # 5. Insider tier
-    score_tier = item.get("score_tier")
-    if is_buy and score_tier:
-        if score_tier >= 3:
+    # 5. Insider PIT grade (point-in-time, not full-history)
+    pit_grade = item.get("pit_grade")
+    if is_buy and pit_grade:
+        if pit_grade == "A":
             score += 1.5
-            factors.append("Tier 3 insider (top 7%)")
-        elif score_tier >= 2:
+            factors.append("PIT A-grade insider")
+        elif pit_grade == "B":
             score += 0.75
-            factors.append("Tier 2 insider (top 20%)")
+            factors.append("PIT B-grade insider")
 
     # 6. Market cap
     mcaps = _load_mcaps()

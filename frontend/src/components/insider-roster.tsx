@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { formatCurrency } from "@/lib/format";
+import { formatTitle } from "@/lib/title-format";
 import { TierBadge } from "@/components/ui/tier-badge";
 import { ProGate } from "@/components/pro-gate";
 import { Pagination } from "@/components/pagination";
@@ -24,6 +25,7 @@ interface Insider {
   score: number | null;
   score_tier: number | null;
   percentile: number | null;
+  pit_grade?: string | null;
 }
 
 interface InsiderRosterProps {
@@ -48,7 +50,7 @@ export function InsiderRoster({ insiders, gated = false }: InsiderRosterProps) {
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 min-w-0">
                 <span className="font-medium text-blue-400 truncate">{ins.name}</span>
-                {ins.score_tier != null && <TierBadge tier={ins.score_tier} />}
+                {(ins.pit_grade || ins.score_tier != null) && <TierBadge tier={ins.score_tier} pitGrade={ins.pit_grade} />}
               </div>
               <span className="font-mono text-sm text-[#E8E8ED] shrink-0">
                 {formatCurrency(ins.total_value)}
@@ -56,9 +58,7 @@ export function InsiderRoster({ insiders, gated = false }: InsiderRosterProps) {
             </div>
             <div className="flex items-center justify-between mt-1.5">
               <div className="text-xs text-[#55556A] truncate">
-                {ins.normalized_title
-                  ? ins.normalized_title.split(";").join(" / ")
-                  : ins.title || "\u2014"}
+                {formatTitle(ins.normalized_title || ins.title) || "\u2014"}
               </div>
               <span className="text-xs text-[#55556A] shrink-0 ml-2">
                 {ins.trade_count} trades
@@ -113,24 +113,27 @@ export function InsiderRoster({ insiders, gated = false }: InsiderRosterProps) {
                   )}
                 </td>
                 <td className="px-4 py-3 text-xs max-w-[240px]">
-                  {ins.normalized_title ? (
-                    <div className="flex flex-wrap gap-1">
-                      {ins.normalized_title.split(";").map((tag) => (
-                        <span
-                          key={tag}
-                          className="inline-block rounded px-1.5 py-0.5 text-[10px] font-medium border border-[#2A2A3A] bg-[#1A1A26] text-[#8888A0]"
-                        >
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
-                    <span className="text-[#55556A]">{ins.title || "\u2014"}</span>
-                  )}
+                  {(() => {
+                    const ft = formatTitle(ins.normalized_title || ins.title);
+                    return ft ? (
+                      <div className="flex flex-wrap gap-1">
+                        {ft.split(", ").map((tag) => (
+                          <span
+                            key={tag}
+                            className="inline-block rounded px-1.5 py-0.5 text-[10px] font-medium border border-[#2A2A3A] bg-[#1A1A26] text-[#8888A0]"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="text-[#55556A]">{"\u2014"}</span>
+                    );
+                  })()}
                 </td>
                 <td className="px-4 py-3 text-center">
-                  {ins.score_tier != null ? (
-                    <TierBadge tier={ins.score_tier} />
+                  {ins.pit_grade || ins.score_tier != null ? (
+                    <TierBadge tier={ins.score_tier} pitGrade={ins.pit_grade} />
                   ) : (
                     <span className="text-[#55556A]">{"\u2014"}</span>
                   )}

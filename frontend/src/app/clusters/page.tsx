@@ -1,5 +1,11 @@
 export const dynamic = "force-dynamic";
 
+export const metadata = {
+  title: "Insider Cluster Detection",
+  description:
+    "Find stocks where multiple insiders are buying or selling together. Real-time cluster detection across all SEC Form 4 filings.",
+};
+
 import Link from "next/link";
 import { fetchAPIAuth } from "@/lib/auth";
 import { formatCurrency, formatPercent } from "@/lib/format";
@@ -91,7 +97,7 @@ export default async function ClustersPage({ searchParams }: Props) {
         <div>
           <h1 className="text-2xl font-bold text-[#E8E8ED]">Clusters</h1>
           <p className="text-sm text-[#55556A] mt-1">
-            {data.total} active clusters ({days}d window)
+            {data.total} active clusters ({days}d window) &middot; Multiple insiders trading the same stock
           </p>
         </div>
 
@@ -231,7 +237,7 @@ export default async function ClustersPage({ searchParams }: Props) {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <span className={`text-sm truncate ${isGated ? "text-blue-400/40 blur-[3px]" : "text-blue-400"}`}>{ins.name}</span>
-                          {ins.score_tier != null && <TierBadge tier={ins.score_tier} />}
+                          {(ins as any).pit_grade != null || ins.score_tier != null ? <TierBadge pitGrade={(ins as any).pit_grade} tier={ins.score_tier} /> : null}
                         </div>
                         <div className={`text-xs truncate mt-0.5 ${isGated ? "text-[#55556A]/40 blur-[3px]" : "text-[#55556A]"}`}>
                           {ins.title}

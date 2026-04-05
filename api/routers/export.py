@@ -51,6 +51,7 @@ def export_filings(
         conditions.append("t.value >= ?")
         params.append(min_value)
 
+    conditions.append("t.superseded_by IS NULL")
     where = " AND ".join(conditions) if conditions else "1=1"
 
     with get_db() as conn:
@@ -59,6 +60,7 @@ def export_filings(
             SELECT
                 t.ticker, t.company, t.trade_type, t.trans_code, t.trade_date, t.filing_date,
                 t.price, t.qty, t.value,
+                t.pit_grade, t.pit_blended_score,
                 COALESCE(i.display_name, i.name) AS insider_name, i.cik,
                 itr.score, itr.score_tier, itr.percentile,
                 tr.return_7d, tr.return_30d, tr.return_90d,
@@ -79,7 +81,8 @@ def export_filings(
         writer = csv.writer(buf)
         headers = [
             "ticker", "company", "trade_type", "trans_code", "trade_date", "filing_date",
-            "price", "qty", "value", "insider_name", "cik",
+            "price", "qty", "value", "pit_grade", "pit_blended_score",
+            "insider_name", "cik",
             "score", "score_tier", "percentile",
             "return_7d", "return_30d", "return_90d",
             "abnormal_7d", "abnormal_30d", "abnormal_90d",

@@ -3,7 +3,7 @@
 # Claude MUST read this file at the start of every session and update it after completing work.
 
 ## Status: ALL PHASES COMPLETE
-## Last Updated: 2026-03-24 12:09 (auto)
+## Last Updated: 2026-03-30 00:48 (auto)
 ## Last Session Summary: All 6 research phases complete. Options backfill was stalled since Mar 11 (worktree path bug crashed after buy pull finished — sells were already done). Phase 5 script built and run. PROGRESS.md updated to reflect actual state.
 
 ---
@@ -30,13 +30,13 @@
 ## Phase 0c: Theta Data Full Options Pull
 - **Status**: COMPLETED (2026-03-16 confirmed)
 <!-- AUTO-UPDATE START -->
-- **Auto-Updated**: 2026-03-24 12:09
-- **Current Run**: `full-sells` — IN PROGRESS (1%)
-- **Events**: 1,768/310,715 (0.6%)
-- **Contracts**: 13,492/13,864 with data, 19,596 skipped/no-vol
-- **Rate**: 0.73 events/sec (43.9 events/min)
-- **ETA**: 7044 min
-- **Cache**: 2,271,232 total entries | 99,061 buy + 133,959 sell event_done
+- **Auto-Updated**: 2026-03-30 00:48
+- **Current Run**: `full-buys` — COMPLETED
+- **Events**: 1,580/1,580 (100.0%)
+- **Contracts**: 16,862/17,138 with data, 32,202 skipped/no-vol
+- **Rate**: 0.59 events/sec (35.3 events/min)
+- **ETA**: 0 min
+- **Cache**: 2,288,129 total entries | 100,641 buy + 134,011 sell event_done
 <!-- AUTO-UPDATE END -->
 - **Cluster Pull**: COMPLETED (2026-03-09)
   - Buys: 5,219 cluster events → 55,759/56,796 contracts with data (98.2%)

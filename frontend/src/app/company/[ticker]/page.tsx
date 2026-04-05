@@ -1,7 +1,9 @@
 export const dynamic = "force-dynamic";
 
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { fetchAPI } from "@/lib/api";
 import { fetchAPIAuth } from "@/lib/auth";
 import { ProGate } from "@/components/pro-gate";
 import { formatCurrency } from "@/lib/format";
@@ -35,6 +37,23 @@ interface CompanyOverview {
     score_tier: number | null;
     percentile: number | null;
   }[];
+}
+
+export async function generateMetadata({ params }: { params: Promise<{ ticker: string }> }): Promise<Metadata> {
+  const { ticker } = await params;
+  try {
+    const overview = await fetchAPI<CompanyOverview>(`/companies/${ticker}`);
+    const insiderCount = overview.insiders.length;
+    const title = `${overview.ticker} Insider Trading — ${overview.company}`;
+    const description = `Track insider trades at ${overview.company} (${overview.ticker}). ${overview.total_trades} trades by ${insiderCount} insiders. Real-time SEC Form 4 analysis on Form4.app.`;
+    return {
+      title,
+      description,
+      openGraph: { title, description },
+    };
+  } catch {
+    return { title: `${ticker} — Insider Trades` };
+  }
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {

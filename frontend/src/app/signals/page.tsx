@@ -1,5 +1,11 @@
 export const dynamic = "force-dynamic";
 
+export const metadata = {
+  title: "Trade Signals — Notable Insider Events",
+  description:
+    "Tagged insider trade signals: quality momentum buys, 10b5-1 surprises, deep reversals, dip buys. Filtered and graded by confidence.",
+};
+
 import Link from "next/link";
 import { fetchAPIAuth } from "@/lib/auth";
 import { formatCurrency, formatPercent } from "@/lib/format";
@@ -16,12 +22,17 @@ interface SignalItem extends Filing {
   signal_class: "bullish" | "bearish" | "noise" | "neutral";
   confidence: number;
   metadata?: Record<string, unknown>;
+  pit_grade?: string;
+  pit_blended_score?: number;
 }
 
 interface SignalTypeInfo {
   signal_type: string;
   signal_class: string;
   count: number;
+  composite?: boolean;
+  description?: string;
+  strategy?: string;
 }
 
 interface Props {
@@ -41,6 +52,8 @@ const CLASS_STYLES: Record<string, string> = {
   noise: "border-[#6B7280]/50 bg-[#6B7280]/10 text-[#6B7280]",
   neutral: "border-[#3B82F6]/50 bg-[#3B82F6]/10 text-[#3B82F6]",
 };
+
+const COMPOSITE_CHIP = "border-[#F59E0B]/50 bg-[#F59E0B]/10 text-[#F59E0B]";
 
 export default async function SignalsPage({ searchParams }: Props) {
   const sp = await searchParams;
@@ -118,26 +131,64 @@ export default async function SignalsPage({ searchParams }: Props) {
         </div>
       </div>
 
+      {/* Notable Events (composite signals) */}
+      {signalTypes.some((st) => st.composite) && (
+        <div className="mb-6">
+          <h2 className="text-xs font-semibold text-[#F59E0B] uppercase tracking-wider mb-3">Notable Events</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {signalTypes
+              .filter((st) => st.composite)
+              .map((st) => (
+                <Link
+                  key={st.signal_type}
+                  href={buildUrl({
+                    signal_type: signalType === st.signal_type ? "" : st.signal_type,
+                    signal_class: "",
+                    page: "1",
+                  })}
+                  className={`rounded-lg border p-3 transition-colors ${
+                    signalType === st.signal_type
+                      ? "border-[#F59E0B]/50 bg-[#F59E0B]/10"
+                      : "border-[#2A2A3A] hover:border-[#F59E0B]/30 bg-[#12121A]"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-sm font-medium text-[#F59E0B]">
+                      {st.signal_type.replace(/_/g, " ").replace("tenb51", "10b5-1")}
+                    </span>
+                    <span className="text-xs font-mono text-[#8888A0]">{st.count}</span>
+                  </div>
+                  {st.description && (
+                    <p className="text-[11px] text-[#8888A0] leading-snug">{st.description}</p>
+                  )}
+                </Link>
+              ))}
+          </div>
+        </div>
+      )}
+
       {/* Signal type chips */}
       {signalTypes.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-6">
-          {signalTypes.map((st) => (
-            <Link
-              key={`${st.signal_type}-${st.signal_class}`}
-              href={buildUrl({
-                signal_type: signalType === st.signal_type ? "" : st.signal_type,
-                page: "1",
-              })}
-              className={`rounded-full border px-3 py-1 text-xs transition-colors ${
-                signalType === st.signal_type
-                  ? CLASS_STYLES[st.signal_class] || CLASS_STYLES.neutral
-                  : "border-[#2A2A3A] text-[#8888A0] hover:text-[#E8E8ED] hover:border-[#3A3A4A]"
-              }`}
-            >
-              {st.signal_type.replace(/_/g, " ")}
-              <span className="ml-1.5 opacity-60">{st.count}</span>
-            </Link>
-          ))}
+          {signalTypes
+            .filter((st) => !st.composite)
+            .map((st) => (
+              <Link
+                key={`${st.signal_type}-${st.signal_class}`}
+                href={buildUrl({
+                  signal_type: signalType === st.signal_type ? "" : st.signal_type,
+                  page: "1",
+                })}
+                className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+                  signalType === st.signal_type
+                    ? CLASS_STYLES[st.signal_class] || CLASS_STYLES.neutral
+                    : "border-[#2A2A3A] text-[#8888A0] hover:text-[#E8E8ED] hover:border-[#3A3A4A]"
+                }`}
+              >
+                {st.signal_type.replace(/_/g, " ")}
+                <span className="ml-1.5 opacity-60">{st.count}</span>
+              </Link>
+            ))}
         </div>
       )}
 
@@ -178,12 +229,15 @@ export default async function SignalsPage({ searchParams }: Props) {
                 <div className="flex items-center gap-2 flex-wrap">
                   <span
                     className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${
-                      CLASS_STYLES[s.signal_class] || CLASS_STYLES.neutral
+                      (s as any).composite || ["quality_momentum_buy", "tenb51_surprise_buy", "deep_reversal_dip_buy"].includes(s.signal_type)
+                        ? COMPOSITE_CHIP
+                        : CLASS_STYLES[s.signal_class] || CLASS_STYLES.neutral
                     }`}
                   >
                     {s.signal_label}
                   </span>
-                  {s.score_tier != null && <TierBadge tier={s.score_tier} />}
+                  {s.pit_grade && <TierBadge pitGrade={s.pit_grade} />}
+                  {!s.pit_grade && s.score_tier != null && <TierBadge tier={s.score_tier} />}
                 </div>
                 <div className={`text-xs mt-1 ${gated ? "text-[#55556A]/40 blur-[3px]" : "text-[#55556A]"}`}>
                   {s.insider_name} · {s.title}

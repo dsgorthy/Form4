@@ -1,0 +1,46 @@
+strategy_name: reversal_dip
+display_name: "Form4 Deep Reversal"
+telegram_prefix: "[RDip]"
+starting_capital: 100000
+position_size_pct: 0.10
+max_concurrent: 10
+filing_lookback_days: 2
+
+# Validated thesis: persistent seller (10+ consecutive sells) reverses into a deep dip
+# Mean-reversion play — stock is depressed, insider who was selling suddenly buys
+#
+# CRITICAL: Do NOT add momentum/SMA filters. This is a contrarian strategy.
+#   Momentum filter flips sign across regimes (helped 2020, hurt 2023+).
+#   The dip requirement IS the edge stabilizer.
+#
+# Refined grid search results (2020-2026):
+#   10%/10pos/skip/21d/csb10/dip-0.25: Sharpe 1.08, CAGR 11.3%, MaxDD 14.3%, 132 trades
+#   Sub-period: H1 Sharpe 0.62, H2 Sharpe 1.64 (positive in all periods)
+#   Positive in 2020 (1.13), 2022 (0.44), 2023 (2.55), 2025 (0.94)
+#
+# Entry pricing: 5-min bar for market-hours filings, T+1 open for after-hours
+# Overlap: ZERO with quality_momentum. 3.3% with 10b5_1_surprise.
+# Universe: ~20 trades/yr
+
+soft_cap: 10
+min_conviction: 5.0
+min_conviction_above_soft: 7.0
+min_conviction_at_hard: 7.0
+
+filters:
+  is_rare_reversal: 1
+  min_consecutive_sells: 10
+  min_dip_3mo: -0.25  # 3-month price decline of 25%+
+  exclude_recurring: true
+  exclude_tax_sales: true
+  exclude_routine: true  # cohen_routine = 0
+  exclude_10b5_1: true   # separate 10b5-1 strategy handles those
+
+exit:
+  strategy: fixed_hold
+  hold_days: 21  # mean reversion — take profit quickly, edge vanishes at 90d
+  stop_loss_pct: null  # Grid search validated: stops degrade Sharpe by 18% (1.27 → 1.04). Short hold limits downside.
+
+at_capacity: skip
+
+circuit_breaker_dd_pct: 0.15

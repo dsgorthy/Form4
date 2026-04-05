@@ -73,7 +73,7 @@ export function SignalsTable({ filings }: SignalsTableProps) {
                 </Badge>
               </TableCell>
               <TableCell className="hidden md:table-cell">
-                <TierBadge tier={f.score_tier ?? f.tier} />
+                <TierBadge tier={f.score_tier ?? f.tier} pitGrade={f.pit_grade} compact />
               </TableCell>
               <TableCell className="text-right font-mono text-[#E8E8ED]">
                 {formatCurrency(f.value)}

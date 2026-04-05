@@ -9,6 +9,7 @@ from api.auth import UserContext, get_current_user
 from api.db import get_db
 from api.gating import null_items_track_records, redact_gated_items
 from api.id_encoding import decode_insider_id, encode_response_ids
+from api.pit_helpers import enrich_with_best_pit_grade
 
 router = APIRouter(prefix="/api/v1/leaderboard", tags=["leaderboard"])
 
@@ -57,6 +58,7 @@ def leaderboard(
         conditions.append("""i.insider_id IN (
             SELECT DISTINCT insider_id FROM trades
             WHERE trans_code IN ('P', 'S') AND filing_date >= ?
+              AND superseded_by IS NULL
         )""")
         params.append(active_since)
 
@@ -96,7 +98,8 @@ def leaderboard(
             params + [limit, offset],
         ).fetchall()
 
-    items = [dict(r) for r in rows]
+        items = [dict(r) for r in rows]
+        enrich_with_best_pit_grade(conn, items)
     if not user.is_pro:
         items = null_items_track_records(items)
     if not user.has_full_feed:
