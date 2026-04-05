@@ -1,0 +1,39 @@
+strategy_name: reversal_quality
+display_name: "Form4 Reversal + Quality"
+telegram_prefix: "[RQ]"
+starting_capital: 100000
+position_size_pct: 0.10
+max_concurrent: 10
+filing_lookback_days: 2
+
+# Validated thesis: rare reversal (80%+ sell history) by a proven insider (PIT grade A+/A/B)
+# Strongest single signal in post-2021 validation:
+#   +4.0% abnormal at 30d, 61.3% WR (N=354 for A+/A/B)
+#   +2.8% at 30d after excluding top 10 most frequent insiders (p=0.0096)
+#   Positive in 4/5 full years (2021-2025)
+#
+# Distinct from deep_reversal_dip: no dip requirement, quality gate instead
+# Overlaps partially with reversal_dip (rare reversal is superset of deep reversal)
+#
+# Entry pricing: 5-min bar for market-hours filings, T+1 open for after-hours
+# Universe: ~70 trades/yr
+
+soft_cap: 10
+min_conviction: 5.0
+min_conviction_above_soft: 7.0
+min_conviction_at_hard: 7.0
+
+filters:
+  is_rare_reversal: 1
+  pit_grade: ["A+", "A", "B"]
+  exclude_recurring: true
+  exclude_tax_sales: true
+
+exit:
+  strategy: fixed_hold
+  hold_days: 30  # signal compounds through 30d, decays at 90d
+  stop_loss_pct: null
+
+at_capacity: skip
+
+circuit_breaker_dd_pct: 0.15

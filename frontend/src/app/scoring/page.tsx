@@ -42,7 +42,7 @@ const tradeFactors = [
   { name: "Rare Reversal", description: "Insider who typically sells is now buying — unusual conviction" },
   { name: "Holdings Increase", description: "The purchase meaningfully increases the insider's position size" },
   { name: "Trade Value", description: "Larger dollar amounts signal stronger conviction" },
-  { name: "52-Week Proximity", description: "Proximity to 52-week low suggests buying into weakness" },
+  { name: "52-Week Proximity", description: "Buying near 52-week highs signals confidence — validated by Lasfer 2024 (12.8% annual alpha)" },
   { name: "Largest Ever", description: "This is the insider's largest-ever purchase in this stock" },
 ];
 
@@ -316,7 +316,7 @@ export default async function ScoringPage() {
       <GatedSection visible={isPro} label="Portfolio strategies are Pro-only" isAuthed={isAuthed}>
         <section className="mb-14">
           <h2 className="text-xl font-bold text-[#E8E8ED] mb-1">Portfolio Strategies</h2>
-          <p className="text-sm text-[#55556A] font-mono mb-4">3 validated strategies</p>
+          <p className="text-sm text-[#55556A] font-mono mb-4">4 validated strategies</p>
           <p className="text-sm text-[#8888A0] mb-6 leading-relaxed">
             Form4 runs three independent portfolio strategies, each built from
             signals that passed rigorous out-of-sample validation on 196K+ trades.
@@ -328,6 +328,7 @@ export default async function ScoringPage() {
               { name: "Quality + Momentum", hold: "30 days", thesis: "A+/A-graded insiders buying stocks in confirmed uptrends (above SMA50 and SMA200). The signal compounds — proven insiders with strong track records buying into momentum." },
               { name: "Deep Reversal", hold: "21 days", thesis: "Insiders who sold 10+ consecutive times then suddenly buy, while the stock is down 25%+ over 3 months. A behavioral reversal combined with a margin of safety." },
               { name: "10b5-1 Surprise", hold: "60 days (trailing stop 15%)", thesis: "Insiders who had SEC-filed 10b5-1 selling plans break pattern and buy. Breaking a legal commitment to buy is costly and deliberate." },
+              { name: "Reversal + Quality", hold: "30 days", thesis: "Proven insiders (A-B grade) who persistently sold suddenly buy. The strongest single signal: +4.0% abnormal at 30d, 61% win rate. Robust across years, not driven by repeat insiders." },
             ].map((s) => (
               <div key={s.name} className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/40 p-4">
                 <div className="flex items-center justify-between mb-2">

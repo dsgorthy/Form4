@@ -33,6 +33,12 @@ SIGNAL_META: dict[str, dict] = {
         "composite": True,
         "strategy": "reversal_dip",
     },
+    "reversal_quality_buy": {
+        "label": "Rare Reversal + Quality",
+        "description": "Proven insider (A-B grade) breaks persistent sell pattern to buy",
+        "composite": True,
+        "strategy": "reversal_quality",
+    },
 }
 
 router = APIRouter(prefix="/api/v1/signals", tags=["signals"])

@@ -39,6 +39,9 @@ export interface Filing {
   pit_grade?: string;
   pit_blended_score?: number;
   trade_grade_stars?: number;
+  insider_switch_rate?: number;
+  is_rare_reversal?: number;
+  week52_proximity?: number;
   gated?: boolean;
 }
 

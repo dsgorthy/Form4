@@ -175,6 +175,30 @@ export function FilingDetailPanel({ filing, onClose }: FilingDetailPanelProps) {
               </div>
             </div>
 
+            {/* Context Signals */}
+            {(filing.is_rare_reversal || filing.week52_proximity != null || filing.insider_switch_rate != null) && (
+              <div className="mb-6">
+                <SectionLabel>Context</SectionLabel>
+                <div className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/50 px-4 py-2">
+                  {filing.is_rare_reversal === 1 && (
+                    <InfoRow label="Rare Reversal">
+                      <span className="text-[#F59E0B] font-semibold">Yes</span>
+                    </InfoRow>
+                  )}
+                  {filing.insider_switch_rate != null && (
+                    <InfoRow label="Sell History">
+                      {`${(filing.insider_switch_rate * 100).toFixed(0)}% sells`}
+                    </InfoRow>
+                  )}
+                  {filing.week52_proximity != null && (
+                    <InfoRow label="52-Week Position">
+                      {`${(filing.week52_proximity * 100).toFixed(0)}% of range`}
+                    </InfoRow>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Outcomes */}
             {(filing.return_7d != null || filing.return_30d != null || filing.return_90d != null) && (
               <div className="mb-6">

@@ -229,7 +229,7 @@ export default async function SignalsPage({ searchParams }: Props) {
                 <div className="flex items-center gap-2 flex-wrap">
                   <span
                     className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${
-                      (s as any).composite || ["quality_momentum_buy", "tenb51_surprise_buy", "deep_reversal_dip_buy"].includes(s.signal_type)
+                      (s as any).composite || ["quality_momentum_buy", "tenb51_surprise_buy", "deep_reversal_dip_buy", "reversal_quality_buy"].includes(s.signal_type)
                         ? COMPOSITE_CHIP
                         : CLASS_STYLES[s.signal_class] || CLASS_STYLES.neutral
                     }`}

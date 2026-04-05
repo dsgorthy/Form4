@@ -1210,6 +1210,53 @@ def deep_reversal_dip_buy(conn: sqlite3.Connection, since: str | None = None) ->
     return results
 
 
+# ─── Composite: reversal_quality_buy ──────────────────────────────────────────
+
+@register_signal
+def reversal_quality_buy(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+    """COMPOSITE: Rare reversal (80%+ sell history) by A+/A/B PIT-grade insider.
+    Validated post-2021: +4.0% abnormal at 30d, 61.3% WR (N=354). Strongest single
+    signal found. Robust across years, not driven by repeat insiders.
+    ~70 events/year. Overlaps partially with deep_reversal_dip but distinct thesis."""
+    where_since = f"AND t.trade_date >= '{since}'" if since else ""
+    rows = conn.execute(f"""
+        SELECT t.trade_id, t.ticker, t.trade_date,
+               t.pit_grade, t.insider_switch_rate,
+               t.consecutive_sells_before,
+               COALESCE(i.display_name, i.name) AS insider_name
+        FROM trades t
+        JOIN insiders i ON t.insider_id = i.insider_id
+        WHERE t.trans_code = 'P'
+          AND t.is_rare_reversal = 1
+          AND t.pit_grade IN ('A+', 'A', 'B')
+          AND (t.is_recurring = 0 OR t.is_recurring IS NULL)
+          AND (t.is_tax_sale = 0 OR t.is_tax_sale IS NULL)
+          {where_since}
+    """).fetchall()
+
+    results = []
+    for r in rows:
+        grade = r["pit_grade"]
+        conf = 0.95 if grade in ("A+", "A") else 0.80
+        results.append((
+            r["trade_id"],
+            "reversal_quality_buy",
+            "Rare Reversal + Quality",
+            "bullish",
+            conf,
+            json.dumps({
+                "pit_grade": grade,
+                "consecutive_sells": r["consecutive_sells_before"],
+                "switch_rate": round(r["insider_switch_rate"] or 0, 3),
+                "insider": r["insider_name"],
+                "thesis": "Proven insider breaks persistent sell pattern to buy",
+            }),
+        ))
+
+    logger.info("reversal_quality_buy: %d signals", len(results))
+    return results
+
+
 # ─── Orchestrator ────────────────────────────────────────────────────────────
 
 def run_detector(conn: sqlite3.Connection, name: str, fn, since: str | None) -> int:

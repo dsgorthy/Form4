@@ -54,7 +54,7 @@ def _build_trade_row(r: dict, scale: float, gated: bool = False) -> dict:
     return row
 
 
-ALLOWED_STRATEGIES = {"cw_reversal", "cw_composite", "quality_momentum", "reversal_dip", "tenb51_surprise"}
+ALLOWED_STRATEGIES = {"cw_reversal", "cw_composite", "quality_momentum", "reversal_dip", "tenb51_surprise", "reversal_quality"}
 
 
 @router.get("")

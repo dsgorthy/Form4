@@ -115,6 +115,7 @@ const STRATEGIES = [
   { value: "quality_momentum", label: "Quality + Momentum", brief: "A+/A insiders buying in uptrends. Sharpe 1.18, ~50 trades/yr, 30d hold." },
   { value: "reversal_dip", label: "Deep Reversal", brief: "Persistent sellers reversing into depressed stocks. Sharpe 1.08, ~20 trades/yr, 21d hold." },
   { value: "tenb51_surprise", label: "10b5-1 Surprise", brief: "Scheduled sellers breaking pattern to buy. Experimental, ~40 trades/yr, 60d hold." },
+  { value: "reversal_quality", label: "Reversal + Quality", brief: "Proven insiders (A-B grade) breaking sell patterns. +4.0% at 30d, 61% WR, ~70 trades/yr." },
 ];
 
 function StrategySelector({ value, onChange }: { value: string; onChange: (v: string) => void }) {
