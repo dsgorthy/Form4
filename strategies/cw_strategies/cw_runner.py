@@ -861,7 +861,7 @@ def check_exits(
     prefix = config.get("telegram_prefix", "")
 
     open_rows = conn.execute(
-        "SELECT * FROM strategy_portfolio WHERE strategy = ? AND status = 'open' ORDER BY entry_date",
+        "SELECT * FROM strategy_portfolio WHERE strategy = ? AND status = 'open' AND execution_source != 'backtest' ORDER BY entry_date",
         (strategy_name,),
     ).fetchall()
 
