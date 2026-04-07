@@ -253,6 +253,7 @@ def _sync_daily_prices():
 
     conn = sqlite3.connect(str(DB_PATH))
     conn.execute("PRAGMA journal_mode=wal")
+    conn.execute("PRAGMA wal_autocheckpoint=0")
     if PRICES_DB.exists():
         conn.execute(f"ATTACH DATABASE '{PRICES_DB}' AS prices")
 
@@ -323,6 +324,7 @@ def _update_recent_signals():
         conn = sqlite3.connect(str(DB_PATH))
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=wal")
+    conn.execute("PRAGMA wal_autocheckpoint=0")
 
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
         from api.trade_grade import compute_trade_grade

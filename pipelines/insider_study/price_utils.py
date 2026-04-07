@@ -34,6 +34,7 @@ def _get_db() -> sqlite3.Connection | None:
     if PRICES_DB.exists():
         _db_conn = sqlite3.connect(f"file:{PRICES_DB}?mode=ro", uri=True)
         _db_conn.execute("PRAGMA query_only=ON")
+        _db_conn.execute("PRAGMA wal_autocheckpoint=0")
         return _db_conn
     return None
 

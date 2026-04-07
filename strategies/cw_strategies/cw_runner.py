@@ -148,6 +148,7 @@ def get_db(readonly: bool = False) -> sqlite3.Connection:
     conn = sqlite3.connect(f"file:{DB_PATH}?mode={mode}", uri=True)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=wal")
+    conn.execute("PRAGMA wal_autocheckpoint=0")
     if readonly:
         conn.execute("PRAGMA query_only=ON")
     return conn

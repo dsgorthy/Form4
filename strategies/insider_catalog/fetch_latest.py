@@ -180,6 +180,7 @@ def run_fetch(days: int = 2, dry_run: bool = False) -> dict:
 def _run_fetch_inner(start_date: str, end_date: str, dry_run: bool) -> dict:
     conn = sqlite3.connect(str(DB_PATH), timeout=300)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA wal_autocheckpoint=0")  # prevent WAL truncation race with subprocesses
     conn.execute("PRAGMA busy_timeout=300000")
     conn.execute("PRAGMA synchronous=NORMAL")
 
@@ -288,6 +289,7 @@ def _run_fetch_inner(start_date: str, end_date: str, dry_run: bool) -> dict:
     )
 
     update_last_fetch_time(conn)
+    conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
     conn.close()
     return stats
 

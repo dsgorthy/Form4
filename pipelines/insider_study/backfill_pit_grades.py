@@ -33,6 +33,7 @@ def main():
     db = sqlite3.connect(str(DB_PATH))
     db.execute("PRAGMA busy_timeout=30000")
     db.execute("PRAGMA journal_mode=WAL")
+    db.execute("PRAGMA wal_autocheckpoint=0")
 
     # Build PIT score lookup: (insider_id, ticker) -> sorted list of (as_of_date, blended_score)
     print("Loading insider_ticker_scores...", flush=True)
@@ -132,6 +133,7 @@ def main():
     for grade, count in dist:
         print(f"  {grade or 'NULL':5s}: {count:>10,}", flush=True)
 
+    db.execute("PRAGMA wal_checkpoint(PASSIVE)")
     db.close()
 
 

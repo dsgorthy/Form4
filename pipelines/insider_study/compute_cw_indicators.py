@@ -513,6 +513,7 @@ def main():
         conn = sqlite3.connect(str(DB_PATH))
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA wal_autocheckpoint=0")
         conn.execute("PRAGMA busy_timeout=30000")
         conn.execute("PRAGMA cache_size=-200000")
 
@@ -536,6 +537,7 @@ def main():
             ).fetchone()[0]
             print(f"  {col}: {count:,} populated")
 
+        conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
         conn.close()
         print("\nDone.")
 
