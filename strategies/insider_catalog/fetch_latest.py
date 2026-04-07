@@ -120,7 +120,9 @@ def _run_indicators():
     """
     t0 = time.monotonic()
     script_dir = Path(__file__).resolve().parents[2] / "pipelines" / "insider_study"
-    python = sys.executable
+    # Use Homebrew Python for subprocesses — Apple Python 3.9 has stale
+    # page cache entries after DB file swaps that cause SIGBUS crashes.
+    python = "/opt/homebrew/bin/python3" if Path("/opt/homebrew/bin/python3").exists() else sys.executable
 
     # 1. CW indicators (SMA, dip, consecutive, size)
     try:
