@@ -29,16 +29,16 @@ PRICES_DB = ROOT / "strategies" / "insider_catalog" / "prices.db"
 
 ACCOUNTS = {
     "quality_momentum": {
-        "key": "PKMBLEJVRXC6Q6HUAOIPOZYWIG",
-        "secret": "34Z19Z9HGa9oeZYuiZXhgeLGdjXJfHQ7av6QjWmyc5qG",
+        "key": "PKZGPFGOQOZSSBGJWCZRJU66C3",
+        "secret": "FTPEDLDxG1hWAhnrN2rCcreUT3DRnrSsjT4phPXanBdt",
     },
     "reversal_dip": {
-        "key": "PKUHEOVC6U53AWPPKMMJYNENVZ",
-        "secret": "Cniiiz3AHqYRqnsKYXSdJopEC9UbPpqBKwsdZinJUoxR",
+        "key": "PKO3JMAFDGV7CXBW5XD4EALVS7",
+        "secret": "7grzpikhzPhGgAMsEUT7u9GpsixNSuj6ZckXGcecXoVb",
     },
     "tenb51_surprise": {
-        "key": "PKRSN7GPVFC2REMWMAVVVWCGWP",
-        "secret": "ApMTd6QjFVZMSGCJsGE3Y3dp1K1VUbLZiJnM1W8i6ynG",
+        "key": "PK74VNQ7FC5HCZP6YKP2DDUROJ",
+        "secret": "8XBrr45exYvbFUiGi5hzwygdAGSXD413b8oGgf2fN5Mh",
     },
 }
 
