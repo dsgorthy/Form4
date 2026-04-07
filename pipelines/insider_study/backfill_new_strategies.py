@@ -35,10 +35,11 @@ from pipelines.insider_study.grid_search_strategies import (
     load_quality_momentum_events,
     load_10b5_1_surprise_events,
     load_reversal_dip_events,
+    load_reversal_quality_events,
 )
 
 START = "2020-01-01"
-END = "2026-04-03"
+END = "2026-04-05"
 
 STRATEGIES = [
     {
@@ -83,6 +84,19 @@ STRATEGIES = [
             filters={"min_10b5_1_sells": 5, "require_momentum": False},
         ),
         "loader": load_10b5_1_surprise_events,
+    },
+    {
+        "name": "reversal_quality",
+        "display_name": "Form4 Reversal + Quality",
+        "description": "Proven insiders (A-B grade) breaking sell patterns. +4.0% at 30d, 61% WR, ~70 trades/yr.",
+        "config": GridConfig(
+            strategy="reversal_quality", position_size=0.10, max_concurrent=10,
+            at_capacity="skip", hold_days=30, stop_loss=None,
+            exit_type="fixed_hold", trailing_stop_pct=0.0,
+            circuit_breaker_dd=0.15,
+            filters={"grade_filter": "A+/A/B"},
+        ),
+        "loader": load_reversal_quality_events,
     },
 ]
 

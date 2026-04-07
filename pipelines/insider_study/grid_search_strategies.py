@@ -317,6 +317,41 @@ def load_reversal_dip_events(
     return events
 
 
+def load_reversal_quality_events(
+    conn: sqlite3.Connection, start: str, end: str
+) -> list[dict]:
+    """Load rare reversal buys by quality insiders (PIT grade A+/A/B).
+
+    Returns widest set (is_rare_reversal + grade A-B).
+    """
+    query = f"""
+        SELECT {_BASE_COLS}
+        {_BASE_JOIN}
+          AND t.is_rare_reversal = 1
+          AND t.pit_grade IN ('A+', 'A', 'B')
+          AND COALESCE(t.is_recurring, 0) = 0
+          AND COALESCE(t.is_tax_sale, 0) = 0
+        ORDER BY t.filing_date, t.trade_id
+    """
+    rows = conn.execute(query, (start, end)).fetchall()
+    cols = [d[0] for d in conn.execute(query, (start, end)).description]
+    events = [dict(zip(cols, r)) for r in rows]
+
+    for e in events:
+        grade = e.get("pit_grade", "C")
+        base = 6.0 if grade in ("A+", "A") else 4.5
+        csb = e.get("consecutive_sells_before") or 0
+        if csb >= 10:
+            base += 2.0
+        elif csb >= 5:
+            base += 1.0
+        if e.get("is_largest_ever"):
+            base += 0.5
+        e["_conviction"] = min(base, 10.0)
+
+    return events
+
+
 # ---------------------------------------------------------------------------
 # Event filtering for grid configs
 # ---------------------------------------------------------------------------
@@ -365,6 +400,14 @@ def filter_events_for_config(
             if cfg.filters.get("exclude_10b5_1", True):
                 if e.get("is_10b5_1"):
                     continue
+
+        elif cfg.strategy == "reversal_quality":
+            # Grade filter
+            allowed = cfg.filters.get("grade_filter", {"A+", "A", "B"})
+            if isinstance(allowed, str):
+                allowed = set(allowed.split("/"))
+            if e.get("pit_grade") not in allowed:
+                continue
 
         filtered.append(e)
     return filtered

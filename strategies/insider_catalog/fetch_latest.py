@@ -30,6 +30,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+import subprocess
+
 from pipelines.insider_study.db_lock import db_write_lock
 from backfill_live import (
     fetch_all_form4_filings,
@@ -109,6 +111,51 @@ def mark_processed(conn: sqlite3.Connection, accession: str, filing_date: str, t
     )
 
 
+def _run_indicators():
+    """Run CW indicators + PIT grades as subprocesses after fetch.
+
+    Uses separate processes to avoid SIGBUS from stale memory-mapped files
+    in the parent process. Each subprocess gets fresh file handles.
+    Called OUTSIDE db_write_lock() so subprocesses can acquire their own locks.
+    """
+    t0 = time.monotonic()
+    script_dir = Path(__file__).resolve().parents[2] / "pipelines" / "insider_study"
+    python = sys.executable
+
+    # 1. CW indicators (SMA, dip, consecutive, size)
+    try:
+        result = subprocess.run(
+            [python, str(script_dir / "compute_cw_indicators.py")],
+            capture_output=True, text=True, timeout=300,
+            cwd=str(Path(__file__).resolve().parents[2]),
+        )
+        if result.returncode == 0:
+            logger.info("CW indicators computed (%.1fs)", time.monotonic() - t0)
+        else:
+            logger.warning("CW indicators failed (exit %d): %s", result.returncode, result.stderr[-300:] if result.stderr else "")
+    except subprocess.TimeoutExpired:
+        logger.warning("CW indicators timed out after 300s")
+    except Exception as e:
+        logger.warning("CW indicator error: %s", e)
+
+    # 2. PIT grades (incremental)
+    try:
+        t1 = time.monotonic()
+        result = subprocess.run(
+            [python, str(script_dir / "backfill_pit_grades.py")],
+            capture_output=True, text=True, timeout=120,
+            cwd=str(Path(__file__).resolve().parents[2]),
+        )
+        if result.returncode == 0:
+            logger.info("PIT grades computed (%.1fs)", time.monotonic() - t1)
+        else:
+            logger.warning("PIT grades failed (exit %d): %s", result.returncode, result.stderr[-300:] if result.stderr else "")
+    except subprocess.TimeoutExpired:
+        logger.warning("PIT grades timed out after 120s")
+    except Exception as e:
+        logger.warning("PIT grade error: %s", e)
+
+
 def run_fetch(days: int = 2, dry_run: bool = False) -> dict:
     """
     Fetch new Form 4 filings since `days` ago.
@@ -119,7 +166,13 @@ def run_fetch(days: int = 2, dry_run: bool = False) -> dict:
     end_date = today.isoformat()
 
     with db_write_lock():
-        return _run_fetch_inner(start_date, end_date, dry_run)
+        stats = _run_fetch_inner(start_date, end_date, dry_run)
+
+    # Run indicators OUTSIDE the lock so subprocesses can acquire their own
+    if not dry_run and stats.get("inserted", 0) > 0:
+        _run_indicators()
+
+    return stats
 
 
 def _run_fetch_inner(start_date: str, end_date: str, dry_run: bool) -> dict:
