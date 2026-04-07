@@ -8,7 +8,7 @@ services:
       - INSIDERS_DB_PATH=/data/insiders/insiders.db
       - NOTIFICATIONS_DB_PATH=/data/notifications/notifications.db
     volumes:
-      - ${INSIDERS_DB_DIR:-./strategies/insider_catalog}:/data/insiders
+      - ${INSIDERS_DB_DIR:-./strategies/insider_catalog}:/data/insiders:ro
       - ${NOTIFICATIONS_DB_DIR:-./api}:/data/notifications
       - ./data:/data/app_data:ro
       - ./pipelines/data:/data/runner:ro
