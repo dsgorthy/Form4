@@ -76,6 +76,10 @@ _RE_INSERT_OR_REPLACE = re.compile(
 _RE_PRAGMA = re.compile(r'^\s*PRAGMA\s+', re.IGNORECASE)
 _RE_ATTACH = re.compile(r'^\s*ATTACH\s+DATABASE\s+', re.IGNORECASE)
 _RE_DATETIME_NOW = re.compile(r"datetime\('now'\)", re.IGNORECASE)
+# strftime('%X', col) → EXTRACT(X FROM col::date) or to_char
+_RE_STRFTIME_MONTH = re.compile(r"strftime\('%m',\s*(\w+)\)", re.IGNORECASE)
+_RE_STRFTIME_YEAR = re.compile(r"strftime\('%Y',\s*(\w+)\)", re.IGNORECASE)
+_RE_STRFTIME_DAY = re.compile(r"strftime\('%d',\s*(\w+)\)", re.IGNORECASE)
 _RE_DATE_NOW = re.compile(r"date\('now'\)", re.IGNORECASE)
 _RE_DATE_NOW_OFFSET = re.compile(
     r"date\('now',\s*'(-?\d+)\s+(day|days|month|months)'\)", re.IGNORECASE
@@ -155,6 +159,11 @@ def translate_sql(sql: str) -> tuple[str, bool]:
             )
         else:
             result = result.rstrip().rstrip(';') + ' ON CONFLICT DO NOTHING'
+
+    # strftime('%m'/''%Y'/'%d', col) → EXTRACT(MONTH/YEAR/DAY FROM col::date)
+    result = _RE_STRFTIME_MONTH.sub(r"EXTRACT(MONTH FROM \1::date)", result)
+    result = _RE_STRFTIME_YEAR.sub(r"EXTRACT(YEAR FROM \1::date)", result)
+    result = _RE_STRFTIME_DAY.sub(r"EXTRACT(DAY FROM \1::date)", result)
 
     # julianday(a) - julianday(b) → EXTRACT(EPOCH FROM (a::timestamp - b::timestamp)) / 86400
     result = _RE_JULIANDAY_DIFF.sub(

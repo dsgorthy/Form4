@@ -16,13 +16,13 @@ from __future__ import annotations
 
 import argparse
 import logging
-from config.database import get_connection
 import sys
 import time
 from collections import defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from config.database import get_connection
 
 logging.basicConfig(
     level=logging.INFO,
