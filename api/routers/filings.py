@@ -199,7 +199,7 @@ def list_filings(
                     WHERE {where_clause}
                     {date_window}
                     GROUP BY t.txn_group_id, t.ticker, t.trade_type
-                    ORDER BY COALESCE(t.filed_at, t.filing_date) DESC, SUM(t.value) DESC
+                    ORDER BY MAX(COALESCE(t.filed_at, t.filing_date)) DESC, SUM(t.value) DESC
                     LIMIT ? OFFSET ?
             ) agg
             LEFT JOIN insiders i ON agg.best_insider_id = i.insider_id

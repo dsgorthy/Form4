@@ -462,6 +462,15 @@ def get_db(readonly: bool = True) -> Generator[ConnectionWrapper, None, None]:
     pool = get_pool()
     raw_conn = pool.getconn()
     try:
+        # Validate connection is alive (handles stale pool connections)
+        try:
+            raw_conn.cursor().execute("SELECT 1")
+            raw_conn.commit()
+        except Exception:
+            # Connection is dead — close it, get a fresh one
+            pool.putconn(raw_conn, close=True)
+            raw_conn = pool.getconn()
+
         if readonly:
             raw_conn.set_session(readonly=True)
         raw_conn.cursor().execute("SET search_path TO public, prices, research, notifications")
@@ -469,7 +478,13 @@ def get_db(readonly: bool = True) -> Generator[ConnectionWrapper, None, None]:
         wrapper = ConnectionWrapper(raw_conn, from_pool=True)
         yield wrapper
     except Exception:
-        raw_conn.rollback()
+        try:
+            raw_conn.rollback()
+        except Exception:
+            pass
         raise
     finally:
-        pool.putconn(raw_conn)
+        try:
+            pool.putconn(raw_conn)
+        except Exception:
+            pass
