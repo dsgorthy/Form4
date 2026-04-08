@@ -22,14 +22,14 @@ from __future__ import annotations
 import argparse
 import logging
 import math
-import sqlite3
+from config.database import get_connection
 import sys
 import time
 from collections import defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from backfill import DB_PATH, migrate_schema
+from backfill import migrate_schema
 from pit_scoring import upsert_score
 
 logging.basicConfig(
@@ -131,7 +131,7 @@ class RunningAggregates:
 
 
 def build_walkforward_scores(
-    conn: sqlite3.Connection,
+    conn: object,
     start_date: str = "2016-01-01",
     end_date: str = "2026-12-31",
     buy_only: bool = True,
@@ -196,7 +196,7 @@ def build_walkforward_scores(
     )
 
 
-def verify_no_leakage(conn: sqlite3.Connection):
+def verify_no_leakage(conn: object):
     """Verify that no score uses future data."""
     # For every score, the as_of_date should be <= the filing_date of the trade it scores
     leaky = conn.execute("""
@@ -214,7 +214,7 @@ def verify_no_leakage(conn: sqlite3.Connection):
     return leaky == 0
 
 
-def print_summary(conn: sqlite3.Connection):
+def print_summary(conn: object):
     """Print scoring summary statistics."""
     total = conn.execute("SELECT COUNT(*) FROM insider_ticker_scores").fetchone()[0]
     with_data = conn.execute(
@@ -262,9 +262,7 @@ def main():
                         help="Clear existing scores before building")
     args = parser.parse_args()
 
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")
+    conn = get_connection()
 
     migrate_schema(conn)
 

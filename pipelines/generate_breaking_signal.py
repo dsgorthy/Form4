@@ -19,12 +19,13 @@ import argparse
 import json
 import logging
 import os
-import sqlite3
 import sys
 from datetime import datetime, date, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from config.database import get_connection
 
 try:
     from pipelines.portfolio_simulator import compute_signal_quality
@@ -82,7 +83,7 @@ def is_csuite(title: str) -> bool:
 # Detection
 # ---------------------------------------------------------------------------
 
-def detect_breaking_signals(conn: sqlite3.Connection, target_date: str) -> list[dict]:
+def detect_breaking_signals(conn, target_date: str) -> list[dict]:
     """Find trades from target_date that qualify as breaking signals.
 
     Criteria (any ONE triggers):
@@ -461,10 +462,7 @@ def render_breaking_assets(signal: dict, date_str: str, storyboard: str = "") ->
     assets_dir.mkdir(parents=True, exist_ok=True)
 
     # Enrich with stock perf and track record
-    conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
-    conn.row_factory = sqlite3.Row
-    if PRICES_DB.exists():
-        conn.execute(f"ATTACH DATABASE 'file:{PRICES_DB}?mode=ro' AS prices")
+    conn = get_connection(readonly=True)
     signal["_stock_perf"] = get_stock_performance(conn, ticker)
     signal["_track_record"] = get_insider_track_record(
         conn, signal["insider_id"], ticker, signal["trade_type"]
@@ -625,8 +623,7 @@ def main():
     parser.add_argument("--limit", type=int, default=3, help="Max signals to generate content for")
     args = parser.parse_args()
 
-    conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
-    conn.row_factory = sqlite3.Row
+    conn = get_connection(readonly=True)
 
     signals = detect_breaking_signals(conn, args.date)
     conn.close()

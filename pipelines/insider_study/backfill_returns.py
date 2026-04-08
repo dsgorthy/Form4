@@ -22,11 +22,13 @@ import csv
 import json
 import logging
 import re
-import sqlite3
 import subprocess
 import sys
 from datetime import date
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from config.database import get_connection
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
 _FRAMEWORK_ROOT = _SCRIPT_DIR.parents[1]
@@ -71,7 +73,7 @@ def is_valid_ticker(ticker: str) -> bool:
     return True
 
 
-def find_missing_tickers(conn: sqlite3.Connection) -> list[str]:
+def find_missing_tickers(conn) -> list[str]:
     """Find tickers with P/S trades that have no trade_returns row and no price CSV."""
     rows = conn.execute("""
         SELECT DISTINCT t.ticker, COUNT(*) AS n
@@ -205,8 +207,7 @@ def main():
     parser.add_argument("--db", default=str(DB_PATH), help="Path to insiders.db")
     args = parser.parse_args()
 
-    conn = sqlite3.connect(args.db)
-    conn.row_factory = sqlite3.Row
+    conn = get_connection()
 
     # Step 1: Find tickers needing price data
     missing = find_missing_tickers(conn)
@@ -251,11 +252,7 @@ def _sync_daily_prices():
     """Load any new price CSV data into the daily_prices table."""
     import csv as _csv
 
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.execute("PRAGMA journal_mode=wal")
-    conn.execute("PRAGMA wal_autocheckpoint=0")
-    if PRICES_DB.exists():
-        conn.execute(f"ATTACH DATABASE '{PRICES_DB}' AS prices")
+    conn = get_connection()
 
     # Get latest date per ticker in DB
     latest_map: dict[str, str] = {}
@@ -321,10 +318,7 @@ def _update_recent_signals():
 
     # Signal grade — now computed via trade_grade (PIT-safe)
     try:
-        conn = sqlite3.connect(str(DB_PATH))
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=wal")
-    conn.execute("PRAGMA wal_autocheckpoint=0")
+        conn = get_connection()
 
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
         from api.trade_grade import compute_trade_grade

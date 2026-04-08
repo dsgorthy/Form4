@@ -23,12 +23,11 @@ from __future__ import annotations
 
 import argparse
 import logging
-import sqlite3
 from datetime import date, datetime, timedelta
-from pathlib import Path
 from typing import Optional
 
-import numpy as np
+from config.database import get_connection
+
 import pandas as pd
 
 logging.basicConfig(
@@ -37,11 +36,6 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 logger = logging.getLogger(__name__)
-
-CATALOG_DIR = Path(__file__).resolve().parent
-DB_PATH = CATALOG_DIR / "insiders.db"
-PRICES_DIR = Path(__file__).resolve().parent.parent.parent / "pipelines" / "insider_study" / "data" / "prices"
-PRICES_DB = Path(__file__).resolve().parent / "prices.db"
 
 # Minimum calendar days that must have elapsed since trade_date before
 # we consider a return window valid.  Keyed by window label.
@@ -60,18 +54,16 @@ TICKER_ALIASES = {
 # Price lookups — pure SQL, no DataFrames, no memory accumulation
 # ---------------------------------------------------------------------------
 
-_prices_conn: Optional[sqlite3.Connection] = None
+_prices_conn = None
 
 
-def _get_prices_conn() -> Optional[sqlite3.Connection]:
-    """Lazy singleton connection to prices.db."""
+def _get_prices_conn():
+    """Lazy singleton read-only connection to PostgreSQL (prices schema)."""
     global _prices_conn
     if _prices_conn is not None:
         return _prices_conn
-    if PRICES_DB.exists():
-        _prices_conn = sqlite3.connect(f"file:{PRICES_DB}?mode=ro", uri=True)
-        return _prices_conn
-    return None
+    _prices_conn = get_connection(readonly=True)
+    return _prices_conn
 
 
 def _resolve_ticker(ticker: str) -> str:
@@ -148,7 +140,7 @@ def compute_return(entry_price: float, exit_price: float) -> float:
     return (exit_price - entry_price) / entry_price
 
 
-def process_trades(conn: sqlite3.Connection, windows: list[str], dry_run: bool = False, trade_type: str = "buy"):
+def process_trades(conn, windows: list[str], dry_run: bool = False, trade_type: str = "buy"):
     """
     Compute forward returns for trades.
 
@@ -315,7 +307,7 @@ def process_trades(conn: sqlite3.Connection, windows: list[str], dry_run: bool =
         )
 
 
-def _flush_returns(conn: sqlite3.Connection, batch: list):
+def _flush_returns(conn, batch: list):
     """Upsert trade_returns rows."""
     for row in batch:
         trade_id = row["trade_id"]
@@ -362,7 +354,7 @@ def _flush_returns(conn: sqlite3.Connection, batch: list):
             ))
 
 
-def cleanup_premature_returns(conn: sqlite3.Connection):
+def cleanup_premature_returns(conn):
     """NULL out return values for trades that are too recent for their window.
 
     This fixes already-stored bad data where returns were computed before
@@ -420,7 +412,7 @@ def cleanup_premature_returns(conn: sqlite3.Connection):
         logger.info("Cleanup: no premature return data found")
 
 
-def print_summary(conn: sqlite3.Connection):
+def print_summary(conn):
     """Print coverage stats."""
     total = conn.execute("SELECT COUNT(*) FROM trades WHERE trade_type = 'buy'").fetchone()[0]
 
@@ -458,20 +450,10 @@ def main():
                         help="Show what would be computed without writing")
     args = parser.parse_args()
 
-    if not DB_PATH.exists():
-        logger.error("DB not found at %s — run backfill.py first", DB_PATH)
-        return
-
-    if not PRICES_DB.exists():
-        logger.error("prices.db not found at %s", PRICES_DB)
-        return
-
     windows = [args.window] if args.window else ["7d", "14d", "30d", "60d", "90d", "180d", "365d"]
     trade_types = ["buy", "sell"] if args.trade_type == "both" else [args.trade_type]
 
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")
+    conn = get_connection()
 
     for tt in trade_types:
         process_trades(conn, windows, dry_run=args.dry_run, trade_type=tt)

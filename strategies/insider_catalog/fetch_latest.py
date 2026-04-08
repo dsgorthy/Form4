@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import argparse
 import logging
-import sqlite3
+import subprocess
 import sys
 import time
 from datetime import date, timedelta
@@ -30,9 +30,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import subprocess
-
-from pipelines.insider_study.db_lock import db_write_lock
+from config.database import get_connection
 from backfill_live import (
     fetch_all_form4_filings,
     fetch_form4_xml,
@@ -49,7 +47,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def ensure_processed_table(conn: sqlite3.Connection):
+def ensure_processed_table(conn):
     """Create processed_filings table if it doesn't exist."""
     conn.execute("""
         CREATE TABLE IF NOT EXISTS processed_filings (
@@ -68,7 +66,7 @@ def ensure_processed_table(conn: sqlite3.Connection):
     conn.commit()
 
 
-def update_last_fetch_time(conn: sqlite3.Connection):
+def update_last_fetch_time(conn):
     """Record the current time as the last successful fetch run."""
     conn.execute(
         "INSERT OR REPLACE INTO sync_meta (key, value) VALUES ('last_fetch_at', datetime('now'))"
@@ -76,7 +74,7 @@ def update_last_fetch_time(conn: sqlite3.Connection):
     conn.commit()
 
 
-def backfill_processed_from_trades(conn: sqlite3.Connection):
+def backfill_processed_from_trades(conn):
     """One-time: populate processed_filings from existing trades table."""
     existing = conn.execute("SELECT COUNT(*) FROM processed_filings").fetchone()[0]
     if existing > 0:
@@ -95,7 +93,7 @@ def backfill_processed_from_trades(conn: sqlite3.Connection):
     logger.info("Backfilled %d accessions into processed_filings", cnt)
 
 
-def get_known_accessions(conn: sqlite3.Connection) -> set:
+def get_known_accessions(conn) -> set:
     """Get all accession numbers we've already processed."""
     rows = conn.execute(
         "SELECT accession FROM processed_filings"
@@ -103,7 +101,7 @@ def get_known_accessions(conn: sqlite3.Connection) -> set:
     return {r[0] for r in rows}
 
 
-def mark_processed(conn: sqlite3.Connection, accession: str, filing_date: str, trade_count: int):
+def mark_processed(conn, accession: str, filing_date: str, trade_count: int):
     """Mark a filing as processed (even if it had 0 trades)."""
     conn.execute(
         "INSERT OR IGNORE INTO processed_filings (accession, filing_date, trade_count) VALUES (?, ?, ?)",
@@ -167,10 +165,8 @@ def run_fetch(days: int = 2, dry_run: bool = False) -> dict:
     start_date = (today - timedelta(days=days)).isoformat()
     end_date = today.isoformat()
 
-    with db_write_lock():
-        stats = _run_fetch_inner(start_date, end_date, dry_run)
+    stats = _run_fetch_inner(start_date, end_date, dry_run)
 
-    # Run indicators OUTSIDE the lock so subprocesses can acquire their own
     if not dry_run and stats.get("inserted", 0) > 0:
         _run_indicators()
 
@@ -178,11 +174,7 @@ def run_fetch(days: int = 2, dry_run: bool = False) -> dict:
 
 
 def _run_fetch_inner(start_date: str, end_date: str, dry_run: bool) -> dict:
-    conn = sqlite3.connect(str(DB_PATH), timeout=300)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA wal_autocheckpoint=0")  # prevent WAL truncation race with subprocesses
-    conn.execute("PRAGMA busy_timeout=300000")
-    conn.execute("PRAGMA synchronous=NORMAL")
+    conn = get_connection()
 
     ensure_processed_table(conn)
     backfill_processed_from_trades(conn)
@@ -289,7 +281,6 @@ def _run_fetch_inner(start_date: str, end_date: str, dry_run: bool) -> dict:
     )
 
     update_last_fetch_time(conn)
-    conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
     conn.close()
     return stats
 

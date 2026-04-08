@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import argparse
 import logging
-import sqlite3
+from config.database import get_connection
 import sys
 import time
 from collections import defaultdict
@@ -31,12 +31,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-DB_PATH = Path(__file__).resolve().parent.parent.parent / "strategies" / "insider_catalog" / "insiders.db"
 N_CONSECUTIVE_YEARS = 3
 BATCH_SIZE = 50_000
 
 
-def compute_cohen_pit(conn: sqlite3.Connection, since: str | None = None) -> int:
+def compute_cohen_pit(conn: object, since: str | None = None) -> int:
     """Compute cohen_routine for all trades, point-in-time.
 
     Algorithm:
@@ -150,7 +149,7 @@ def compute_cohen_pit(conn: sqlite3.Connection, since: str | None = None) -> int
     return len(updates)
 
 
-def show_stats(conn: sqlite3.Connection) -> None:
+def show_stats(conn: object) -> None:
     """Show current cohen_routine distribution."""
     row = conn.execute("""
         SELECT
@@ -189,9 +188,7 @@ def main() -> None:
     parser.add_argument("--stats", action="store_true", help="Show current stats and exit")
     args = parser.parse_args()
 
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=wal")
+    conn = get_connection()
 
     try:
         if args.stats:

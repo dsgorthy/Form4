@@ -21,12 +21,13 @@ import argparse
 import json
 import logging
 import os
-import sqlite3
 import sys
 from datetime import datetime, date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from config.database import get_connection
 
 try:
     from pipelines.portfolio_simulator import compute_signal_quality
@@ -45,7 +46,7 @@ OUTPUT_DIR = Path(__file__).resolve().parent / "data" / "content"
 # Data loading
 # ---------------------------------------------------------------------------
 
-def get_top_trades(conn: sqlite3.Connection, target_date: str, limit: int = 8) -> list[dict]:
+def get_top_trades(conn: object, target_date: str, limit: int = 8) -> list[dict]:
     """Get today's most interesting trades for content."""
     rows = conn.execute("""
         SELECT
@@ -194,7 +195,7 @@ def get_top_trades(conn: sqlite3.Connection, target_date: str, limit: int = 8) -
     return top
 
 
-def get_insider_track_record(conn: sqlite3.Connection, insider_id: int, ticker: str, trade_type: str) -> list[dict]:
+def get_insider_track_record(conn: object, insider_id: int, ticker: str, trade_type: str) -> list[dict]:
     """Get the insider's past trades on this ticker with returns."""
     rows = conn.execute("""
         SELECT t.trade_date, t.trade_type, SUM(t.value) AS value,
@@ -211,7 +212,7 @@ def get_insider_track_record(conn: sqlite3.Connection, insider_id: int, ticker: 
     return [dict(r) for r in rows]
 
 
-def get_stock_performance(conn: sqlite3.Connection, ticker: str, days: int = 90) -> dict | None:
+def get_stock_performance(conn: object, ticker: str, days: int = 90) -> dict | None:
     """Get recent stock performance for context."""
     rows = conn.execute("""
         SELECT date, close FROM daily_prices
@@ -231,7 +232,7 @@ def get_stock_performance(conn: sqlite3.Connection, ticker: str, days: int = 90)
     }
 
 
-def get_daily_stats(conn: sqlite3.Connection, target_date: str) -> dict:
+def get_daily_stats(conn: object, target_date: str) -> dict:
     """Get aggregate stats for the day."""
     row = conn.execute("""
         SELECT
@@ -1032,10 +1033,7 @@ def main() -> None:
                         help="Output as JSON instead of text")
     args = parser.parse_args()
 
-    conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
-    conn.row_factory = sqlite3.Row
-    if PRICES_DB.exists():
-        conn.execute(f"ATTACH DATABASE 'file:{PRICES_DB}?mode=ro' AS prices")
+    conn = get_connection(readonly=True)
 
     trades = get_top_trades(conn, args.date)
     stats = get_daily_stats(conn, args.date)

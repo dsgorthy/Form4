@@ -23,11 +23,9 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import sqlite3
+from config.database import get_connection
 import time
-from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parents[2] / "strategies" / "insider_catalog" / "insiders.db"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -144,7 +142,7 @@ def _value(trade: dict, has_cluster: bool) -> tuple[str, float, dict] | None:
 # Core logic
 # ---------------------------------------------------------------------------
 
-def classify_trades(conn: sqlite3.Connection, since: str | None = None) -> int:
+def classify_trades(conn: object, since: str | None = None) -> int:
     """Classify all P-code trades and write thesis signals."""
     # Clear existing thesis signals
     if since:
@@ -260,15 +258,9 @@ def classify_trades(conn: sqlite3.Connection, since: str | None = None) -> int:
 def main():
     parser = argparse.ArgumentParser(description="Classify P-code trades by thesis type")
     parser.add_argument("--since", help="Only process trades since this date (YYYY-MM-DD)")
-    parser.add_argument("--db", default=str(DB_PATH), help="Path to insiders.db")
     args = parser.parse_args()
 
-    conn = sqlite3.connect(args.db)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA cache_size=-200000")
-
-    logger.info("Database: %s", args.db)
+    conn = get_connection()
 
     n = classify_trades(conn, args.since)
     logger.info("Done: %d thesis labels assigned", n)

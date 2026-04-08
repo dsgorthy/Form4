@@ -1,42 +1,38 @@
 from __future__ import annotations
 
-import os
-import sqlite3
 from contextlib import contextmanager
-from pathlib import Path
 from typing import Generator
 
-DB_PATH = Path(os.getenv(
-    "NOTIFICATIONS_DB_PATH",
-    str(Path(__file__).resolve().parent / "notifications.db"),
-))
+from config.database import ConnectionWrapper, get_connection as _get_connection
+
 
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS notification_preferences (
+CREATE TABLE IF NOT EXISTS notifications.notification_preferences (
     user_id TEXT PRIMARY KEY,
     email_enabled INTEGER NOT NULL DEFAULT 1,
     in_app_enabled INTEGER NOT NULL DEFAULT 1,
-    email_frequency TEXT NOT NULL DEFAULT 'daily',  -- 'realtime' | 'daily'
+    email_frequency TEXT NOT NULL DEFAULT 'daily',
     high_value_filing INTEGER NOT NULL DEFAULT 1,
     cluster_formation INTEGER NOT NULL DEFAULT 1,
-    activity_spike INTEGER NOT NULL DEFAULT 0,  -- opt-in: noisy category
+    activity_spike INTEGER NOT NULL DEFAULT 0,
     congress_convergence INTEGER NOT NULL DEFAULT 1,
     watchlist_activity INTEGER NOT NULL DEFAULT 1,
-    min_trade_value REAL NOT NULL DEFAULT 100000,
+    min_trade_value DOUBLE PRECISION NOT NULL DEFAULT 100000,
     min_insider_tier INTEGER NOT NULL DEFAULT 2,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    portfolio_alert INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT NOW(),
+    updated_at TEXT NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS watchlist (
+CREATE TABLE IF NOT EXISTS notifications.watchlist (
     user_id TEXT NOT NULL,
     ticker TEXT NOT NULL,
-    added_at TEXT NOT NULL DEFAULT (datetime('now')),
+    added_at TEXT NOT NULL DEFAULT NOW(),
     PRIMARY KEY (user_id, ticker)
 );
 
-CREATE TABLE IF NOT EXISTS notifications (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+CREATE TABLE IF NOT EXISTS notifications.notifications (
+    id SERIAL PRIMARY KEY,
     user_id TEXT NOT NULL,
     event_type TEXT NOT NULL,
     title TEXT NOT NULL,
@@ -45,73 +41,71 @@ CREATE TABLE IF NOT EXISTS notifications (
     dedup_key TEXT NOT NULL,
     is_read INTEGER NOT NULL DEFAULT 0,
     emailed INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    created_at TEXT NOT NULL DEFAULT NOW(),
     UNIQUE (user_id, dedup_key)
 );
 CREATE INDEX IF NOT EXISTS idx_notifications_user_read
-    ON notifications (user_id, is_read, created_at DESC);
+    ON notifications.notifications (user_id, is_read, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_notifications_user_created
-    ON notifications (user_id, created_at DESC);
+    ON notifications.notifications (user_id, created_at DESC);
 
-CREATE TABLE IF NOT EXISTS scan_watermarks (
+CREATE TABLE IF NOT EXISTS notifications.scan_watermarks (
     event_type TEXT PRIMARY KEY,
     last_processed_date TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS user_profiles (
+CREATE TABLE IF NOT EXISTS notifications.user_profiles (
     user_id TEXT PRIMARY KEY,
     user_type TEXT,
     primary_use_case TEXT,
     experience_level TEXT,
     referral_source TEXT,
     onboarding_skipped INTEGER DEFAULT 0,
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now'))
+    created_at TEXT DEFAULT NOW(),
+    updated_at TEXT DEFAULT NOW()
 );
 """
 
 
 def init_db() -> None:
-    """Create notifications database and tables if they don't exist."""
-    conn = sqlite3.connect(str(DB_PATH))
+    """Ensure notifications tables exist (idempotent)."""
+    conn = _get_connection(readonly=False)
     try:
-        conn.executescript(SCHEMA)
-        # Additive migrations — safe to re-run
-        _add_column_if_missing(conn, "notification_preferences", "portfolio_alert", "INTEGER NOT NULL DEFAULT 1")
-        # Ensure user_profiles table exists on DBs created before this schema addition
-        conn.execute("""CREATE TABLE IF NOT EXISTS user_profiles (
-            user_id TEXT PRIMARY KEY,
-            user_type TEXT,
-            primary_use_case TEXT,
-            experience_level TEXT,
-            referral_source TEXT,
-            onboarding_skipped INTEGER DEFAULT 0,
-            created_at TEXT DEFAULT (datetime('now')),
-            updated_at TEXT DEFAULT (datetime('now'))
-        )""")
+        cur = conn._conn.cursor()
+        for stmt in SCHEMA.split(';'):
+            stmt = stmt.strip()
+            if stmt:
+                cur.execute(stmt)
+        conn.commit()
     finally:
         conn.close()
 
 
-def _add_column_if_missing(conn: sqlite3.Connection, table: str, column: str, typedef: str) -> None:
+def _add_column_if_missing(conn, table: str, column: str, typedef: str) -> None:
     """Add a column to a table if it doesn't already exist."""
-    cols = {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
-    if column not in cols:
-        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {typedef}")
+    cur = conn._conn.cursor()
+    # Parse schema.table if present
+    parts = table.split('.')
+    schema = parts[0] if len(parts) > 1 else 'notifications'
+    tbl = parts[-1]
+
+    cur.execute("""
+        SELECT column_name FROM information_schema.columns
+        WHERE table_schema = %s AND table_name = %s AND column_name = %s
+    """, (schema, tbl, column))
+    if not cur.fetchone():
+        cur.execute(f'ALTER TABLE {table} ADD COLUMN {column} {typedef}')
         conn.commit()
 
 
-def get_connection() -> sqlite3.Connection:
-    """Return a new read-write SQLite connection for notifications."""
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=wal")
-    conn.execute("PRAGMA foreign_keys=ON")
+def get_connection() -> ConnectionWrapper:
+    """Return a new read-write connection for notifications."""
+    conn = _get_connection(readonly=False)
     return conn
 
 
 @contextmanager
-def get_notifications_db() -> Generator[sqlite3.Connection, None, None]:
+def get_notifications_db() -> Generator[ConnectionWrapper, None, None]:
     """Context manager that yields a read-write connection and closes it on exit."""
     conn = get_connection()
     try:

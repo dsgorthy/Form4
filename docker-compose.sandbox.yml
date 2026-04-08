@@ -10,13 +10,11 @@ services:
       dockerfile: deploy/Dockerfile.api
     env_file: .env.sandbox
     environment:
-      - INSIDERS_DB_PATH=/data/insiders/insiders.db
-      - NOTIFICATIONS_DB_PATH=/data/notifications/notifications.db
+      - DATABASE_URL=postgresql://host.docker.internal/form4_sandbox
       - CORS_ORIGINS=https://sandbox.form4.app
       - FORM4_ENV=sandbox
-    volumes:
-      - ${INSIDERS_DB_DIR:-./strategies/insider_catalog/sandbox}:/data/insiders:ro
-      - ${NOTIFICATIONS_DB_DIR:-./strategies/insider_catalog/sandbox}:/data/notifications
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - internal
     expose:

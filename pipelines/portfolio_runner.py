@@ -26,7 +26,6 @@ import json
 import logging
 import math
 import os
-import sqlite3
 import sys
 import time
 from datetime import datetime, timedelta
@@ -36,6 +35,7 @@ from typing import Optional
 # Ensure project root on path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from config.database import get_connection
 from framework.execution.paper import PaperBackend
 
 logging.basicConfig(
@@ -115,17 +115,8 @@ def get_alpaca() -> PaperBackend:
 
 PRICES_DB = DB_PATH.parent / "prices.db"
 
-def get_db(readonly: bool = False) -> sqlite3.Connection:
-    mode = "ro" if readonly else "rw"
-    conn = sqlite3.connect(f"file:{DB_PATH}?mode={mode}", uri=True)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=wal")
-    if readonly:
-        conn.execute("PRAGMA query_only=ON")
-    # Attach prices DB for daily_prices queries (ADV cap check)
-    if PRICES_DB.exists():
-        conn.execute(f"ATTACH DATABASE 'file:{PRICES_DB}?mode=ro' AS prices")
-    return conn
+def get_db(readonly: bool = False):
+    return get_connection(readonly=readonly)
 
 
 # Pending orders file — tracks orders submitted but not yet filled
@@ -254,7 +245,7 @@ def reconcile_alpaca_positions(conn, alpaca):
         logger.debug("Alpaca position reconciliation error: %s", exc)
 
 
-def get_open_positions(conn: sqlite3.Connection) -> list[dict]:
+def get_open_positions(conn: object) -> list[dict]:
     """Get all open positions from strategy_portfolio."""
     rows = conn.execute("""
         SELECT * FROM strategy_portfolio
@@ -264,14 +255,14 @@ def get_open_positions(conn: sqlite3.Connection) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def count_open_positions(conn: sqlite3.Connection) -> int:
+def count_open_positions(conn: object) -> int:
     return conn.execute("""
         SELECT COUNT(*) FROM strategy_portfolio
         WHERE strategy = ? AND status = 'open'
     """, (STRATEGY,)).fetchone()[0]
 
 
-def get_theoretical_equity(conn: sqlite3.Connection) -> float:
+def get_theoretical_equity(conn: object) -> float:
     """Compute current portfolio equity from all closed trades.
 
     Rebuilds equity from starting capital + cumulative scaled P&L,
@@ -385,7 +376,7 @@ def is_10pct_owner(title: str | None) -> bool:
     return "10%" in t or "10 percent" in t or "ten percent" in t
 
 
-def scan_new_filings(conn: sqlite3.Connection, since_date: str) -> list[dict]:
+def scan_new_filings(conn: object, since_date: str) -> list[dict]:
     """Find qualifying buy filings since given date.
 
     Replicates backfill entry criteria:
@@ -525,7 +516,7 @@ def scan_new_filings(conn: sqlite3.Connection, since_date: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def check_exits(
-    conn: sqlite3.Connection,
+    conn: object,
     alpaca: PaperBackend,
     dry_run: bool = False,
 ) -> list[dict]:
@@ -769,7 +760,7 @@ def _clear_peak_return(pos_id: int) -> None:
 # ---------------------------------------------------------------------------
 
 def execute_entries(
-    conn: sqlite3.Connection,
+    conn: object,
     alpaca: PaperBackend,
     candidates: list[dict],
     dry_run: bool = False,

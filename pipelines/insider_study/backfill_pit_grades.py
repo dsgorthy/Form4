@@ -12,16 +12,14 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import sqlite3
 import sys
 import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from pipelines.insider_study.db_lock import db_write_lock
+from config.database import get_connection
 from pipelines.insider_study.conviction_score import pit_score_to_grade
 
-DB_PATH = Path(__file__).resolve().parents[2] / "strategies" / "insider_catalog" / "insiders.db"
 BATCH_SIZE = 5000
 
 
@@ -30,10 +28,7 @@ def main():
     parser.add_argument("--since", help="Only backfill trades with filing_date >= this date")
     args = parser.parse_args()
 
-    db = sqlite3.connect(str(DB_PATH))
-    db.execute("PRAGMA busy_timeout=30000")
-    db.execute("PRAGMA journal_mode=WAL")
-    db.execute("PRAGMA wal_autocheckpoint=0")
+    db = get_connection()
 
     # Build PIT score lookup: (insider_id, ticker) -> sorted list of (as_of_date, blended_score)
     print("Loading insider_ticker_scores...", flush=True)
@@ -102,24 +97,22 @@ def main():
         processed += 1
 
         if len(updates) >= BATCH_SIZE:
-            with db_write_lock():
-                db.executemany(
-                    "UPDATE trades SET pit_grade = ?, pit_blended_score = ? WHERE trade_id = ?",
-                    updates,
-                )
-                db.commit()
+            db.executemany(
+                "UPDATE trades SET pit_grade = ?, pit_blended_score = ? WHERE trade_id = ?",
+                updates,
+            )
+            db.commit()
             updates = []
             if processed % 50000 == 0:
                 print(f"  {processed:,}/{total:,} processed, {matched:,} matched ({100*matched/processed:.1f}%)", flush=True)
 
     # Final batch
     if updates:
-        with db_write_lock():
-            db.executemany(
-                "UPDATE trades SET pit_grade = ?, pit_blended_score = ? WHERE trade_id = ?",
-                updates,
-            )
-            db.commit()
+        db.executemany(
+            "UPDATE trades SET pit_grade = ?, pit_blended_score = ? WHERE trade_id = ?",
+            updates,
+        )
+        db.commit()
 
     elapsed = time.time() - t0
     print(f"\nDone in {elapsed:.1f}s", flush=True)
@@ -133,7 +126,6 @@ def main():
     for grade, count in dist:
         print(f"  {grade or 'NULL':5s}: {count:>10,}", flush=True)
 
-    db.execute("PRAGMA wal_checkpoint(PASSIVE)")
     db.close()
 
 

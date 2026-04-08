@@ -26,13 +26,14 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import sqlite3
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from config.database import get_connection
 
 logging.basicConfig(
     level=logging.INFO,
@@ -154,16 +155,11 @@ def compute_signal_quality(
 # Database helpers
 # ---------------------------------------------------------------------------
 
-def get_db() -> sqlite3.Connection:
-    conn = sqlite3.connect(f"file:{DB_PATH}?mode=rw", uri=True)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=wal")
-    if PRICES_DB.exists():
-        conn.execute(f"ATTACH DATABASE 'file:{PRICES_DB}?mode=ro' AS prices")
-    return conn
+def get_db():
+    return get_connection(readonly=False)
 
 
-def get_portfolio_config(conn: sqlite3.Connection, name: str) -> dict:
+def get_portfolio_config(conn: object, name: str) -> dict:
     row = conn.execute("SELECT * FROM portfolios WHERE name = ?", (name,)).fetchone()
     if not row:
         raise ValueError(f"Portfolio '{name}' not found in portfolios table")
@@ -172,7 +168,7 @@ def get_portfolio_config(conn: sqlite3.Connection, name: str) -> dict:
     return cfg
 
 
-def get_price(conn: sqlite3.Connection, ticker: str, date: str) -> dict | None:
+def get_price(conn: object, ticker: str, date: str) -> dict | None:
     """Get daily OHLCV for a ticker on a specific date."""
     row = conn.execute("""
         SELECT open, high, low, close, volume
@@ -182,7 +178,7 @@ def get_price(conn: sqlite3.Connection, ticker: str, date: str) -> dict | None:
     return dict(row) if row else None
 
 
-def get_next_trading_day(conn: sqlite3.Connection, ticker: str, after_date: str) -> str | None:
+def get_next_trading_day(conn: object, ticker: str, after_date: str) -> str | None:
     """Find the next date with price data for this ticker after the given date."""
     row = conn.execute("""
         SELECT date FROM daily_prices
@@ -192,7 +188,7 @@ def get_next_trading_day(conn: sqlite3.Connection, ticker: str, after_date: str)
     return row["date"] if row else None
 
 
-def get_trading_dates(conn: sqlite3.Connection, start: str, end: str) -> list[str]:
+def get_trading_dates(conn: object, start: str, end: str) -> list[str]:
     """Get all distinct trading dates (from SPY) in range."""
     rows = conn.execute("""
         SELECT DISTINCT date FROM daily_prices
@@ -206,7 +202,7 @@ def get_trading_dates(conn: sqlite3.Connection, start: str, end: str) -> list[st
 # Filing scanner — same logic as portfolio_runner
 # ---------------------------------------------------------------------------
 
-def scan_filings_for_date(conn: sqlite3.Connection, filing_date: str) -> list[dict]:
+def scan_filings_for_date(conn: object, filing_date: str) -> list[dict]:
     """Find qualifying buy filings on a specific date."""
     rows = conn.execute("""
         SELECT
@@ -442,7 +438,7 @@ def build_exit_reasoning(
 class PortfolioSimulator:
     """Day-by-day portfolio simulator using historical daily prices."""
 
-    def __init__(self, conn: sqlite3.Connection, portfolio_name: str, dry_run: bool = False):
+    def __init__(self, conn: object, portfolio_name: str, dry_run: bool = False):
         self.conn = conn
         self.dry_run = dry_run
         self.portfolio_cfg = get_portfolio_config(conn, portfolio_name)
@@ -984,7 +980,7 @@ class PortfolioSimulator:
 # Backfill reasoning for existing trades
 # ---------------------------------------------------------------------------
 
-def backfill_reasoning(conn: sqlite3.Connection, portfolio_name: str):
+def backfill_reasoning(conn: object, portfolio_name: str):
     """Add entry_reasoning and exit_reasoning JSON to existing trades that lack it."""
     portfolio = get_portfolio_config(conn, portfolio_name)
     params = portfolio["params"]

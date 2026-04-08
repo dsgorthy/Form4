@@ -17,9 +17,8 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import sqlite3
+from config.database import get_connection
 import sys
-from pathlib import Path
 
 try:
     from pipelines.insider_study.price_utils import (
@@ -38,7 +37,6 @@ except ModuleNotFoundError:
         PRICES_DIR,
     )
 
-DB_PATH = Path(__file__).resolve().parents[2] / "strategies" / "insider_catalog" / "insiders.db"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -56,7 +54,7 @@ def register_signal(fn):
 # ─── Detector: first_time_buyer ──────────────────────────────────────────────
 
 @register_signal
-def first_time_buyer(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+def first_time_buyer(conn: object, since: str | None = None) -> list[tuple]:
     """Insider's first-ever P-code buy in a given ticker."""
     where_since = f"AND t.trade_date >= '{since}'" if since else ""
     rows = conn.execute(f"""
@@ -92,7 +90,7 @@ def first_time_buyer(conn: sqlite3.Connection, since: str | None = None) -> list
 # ─── Detector: insider_returns ───────────────────────────────────────────────
 
 @register_signal
-def insider_returns(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+def insider_returns(conn: object, since: str | None = None) -> list[tuple]:
     """PIT blended_score >= 2.0 (A-grade insider at time of filing)."""
     where_since = f"AND t.trade_date >= '{since}'" if since else ""
     rows = conn.execute(f"""
@@ -124,7 +122,7 @@ def insider_returns(conn: sqlite3.Connection, since: str | None = None) -> list[
 # ─── Detector: size_anomaly ──────────────────────────────────────────────────
 
 @register_signal
-def size_anomaly(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+def size_anomaly(conn: object, since: str | None = None) -> list[tuple]:
     """Trade value > 2x insider's PIT average at this ticker.
     PIT fix: only compares against trades with trade_date BEFORE the current trade."""
     where_since = f"AND t.trade_date >= '{since}'" if since else ""
@@ -168,7 +166,7 @@ def size_anomaly(conn: sqlite3.Connection, since: str | None = None) -> list[tup
 # ─── Detector: high_signal ───────────────────────────────────────────────────
 
 @register_signal
-def high_signal(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+def high_signal(conn: object, since: str | None = None) -> list[tuple]:
     """C-suite trades with PIT grade A or A+. Uses pit_grade (PIT-safe) instead of signal_quality."""
     where_since = f"AND t.trade_date >= '{since}'" if since else ""
     rows = conn.execute(f"""
@@ -202,7 +200,7 @@ def high_signal(conn: sqlite3.Connection, since: str | None = None) -> list[tupl
 # ─── Detector: top_trade ─────────────────────────────────────────────────────
 
 @register_signal
-def top_trade(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+def top_trade(conn: object, since: str | None = None) -> list[tuple]:
     """Top 1% by value, OR top 5% PIT score, OR 3+ insider cluster.
     PIT fix: value and score thresholds use a 3-year rolling window, not full history.
     This prevents 2020 mega-buys from suppressing all post-2020 signals and accounts
@@ -350,7 +348,7 @@ def top_trade(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]
 # ─── Detector: post_vest_dump ────────────────────────────────────────────────
 
 @register_signal
-def post_vest_dump(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+def post_vest_dump(conn: object, since: str | None = None) -> list[tuple]:
     """S-code sell within 30 days of A-code grant, same insider+ticker."""
     where_since = f"AND s.trade_date >= '{since}'" if since else ""
     rows = conn.execute(f"""
@@ -387,7 +385,7 @@ def post_vest_dump(conn: sqlite3.Connection, since: str | None = None) -> list[t
 # ─── Detector: exercise_and_sell ─────────────────────────────────────────────
 
 @register_signal
-def exercise_and_sell(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+def exercise_and_sell(conn: object, since: str | None = None) -> list[tuple]:
     """M-code exercise + S-code sale within 3 days, same insider+ticker."""
     where_since = f"AND s.trade_date >= '{since}'" if since else ""
     rows = conn.execute(f"""
@@ -424,7 +422,7 @@ def exercise_and_sell(conn: sqlite3.Connection, since: str | None = None) -> lis
 # ─── Detector: trend_reversal ────────────────────────────────────────────────
 
 @register_signal
-def trend_reversal(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+def trend_reversal(conn: object, since: str | None = None) -> list[tuple]:
     """Insider who sold for 12+ months switches to buying (or vice versa)."""
     where_since = f"AND t.trade_date >= '{since}'" if since else ""
     # Find buys where the insider only sold in the prior 12 months
@@ -503,7 +501,7 @@ def trend_reversal(conn: sqlite3.Connection, since: str | None = None) -> list[t
 # ─── Detector: buying_the_dip ───────────────────────────────────────────────
 
 @register_signal
-def buying_the_dip(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+def buying_the_dip(conn: object, since: str | None = None) -> list[tuple]:
     """P-code buy where stock is down >10% in prior 30 days."""
     where_since = f"AND t.trade_date >= '{since}'" if since else ""
     # Only fetch tickers that have price files
@@ -543,7 +541,7 @@ def buying_the_dip(conn: sqlite3.Connection, since: str | None = None) -> list[t
 # ─── Detector: selling_the_rip ───────────────────────────────────────────────
 
 @register_signal
-def selling_the_rip(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+def selling_the_rip(conn: object, since: str | None = None) -> list[tuple]:
     """S-code non-10b5-1 sell where stock is up >15% in prior 30 days."""
     where_since = f"AND t.trade_date >= '{since}'" if since else ""
     avail_tickers = _available_tickers()
@@ -584,7 +582,7 @@ def selling_the_rip(conn: sqlite3.Connection, since: str | None = None) -> list[
 # ─── Detector: contrarian ────────────────────────────────────────────────────
 
 @register_signal
-def contrarian(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+def contrarian(conn: object, since: str | None = None) -> list[tuple]:
     """P-code buy while SPY (broad market) down >5% in 30 days."""
     spy_prices = _load_prices("SPY")
     if not spy_prices:
@@ -646,7 +644,7 @@ def contrarian(conn: sqlite3.Connection, since: str | None = None) -> list[tuple
 # ─── Detector: large_holdings_increase ──────────────────────────────────────
 
 @register_signal
-def large_holdings_increase(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+def large_holdings_increase(conn: object, since: str | None = None) -> list[tuple]:
     """P-code buy that increases the insider's holdings by >=10%.
     Requires minimum $10K trade value and DIRECT ownership only.
     Indirect holdings (I) are excluded because shares_owned_after only
@@ -707,7 +705,7 @@ def large_holdings_increase(conn: sqlite3.Connection, since: str | None = None) 
 # ─── Detector: small_holdings_increase (noise) ─────────────────────────────
 
 @register_signal
-def small_holdings_increase(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+def small_holdings_increase(conn: object, since: str | None = None) -> list[tuple]:
     """P-code buy that increases holdings by <1%. Research shows significantly worse returns."""
     where_since = f"AND t.trade_date >= '{since}'" if since else ""
     rows = conn.execute(f"""
@@ -743,7 +741,7 @@ def small_holdings_increase(conn: sqlite3.Connection, since: str | None = None) 
 # ─── Detector: ten_pct_owner_buy ────────────────────────────────────────────
 
 @register_signal
-def ten_pct_owner_buy(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+def ten_pct_owner_buy(conn: object, since: str | None = None) -> list[tuple]:
     """Flag 10% Owner purchases. Pooled 10% Owner buys have no alpha (noise).
     Exception: activists with proven PIT track records (>=10 prior trades, avg abnormal > 2%).
     PIT fix: activist classification uses only returns from trades BEFORE the current trade."""
@@ -816,7 +814,7 @@ def ten_pct_owner_buy(conn: sqlite3.Connection, since: str | None = None) -> lis
 # ─── Detector: opportunistic_trade ──────────────────────────────────────────
 
 @register_signal
-def opportunistic_trade(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+def opportunistic_trade(conn: object, since: str | None = None) -> list[tuple]:
     """Flag opportunistic trades using Cohen 3-year calendar-month classification.
     Opportunistic buys outperform routine by +1.8% at 30d (validated on our data)."""
     where_since = f"AND t.trade_date >= '{since}'" if since else ""
@@ -858,7 +856,7 @@ def opportunistic_trade(conn: sqlite3.Connection, since: str | None = None) -> l
 # ─── Detector: deep_dip_buy ──────────────────────────────────────────────────
 
 @register_signal
-def deep_dip_buy(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+def deep_dip_buy(conn: object, since: str | None = None) -> list[tuple]:
     """P-code buy where stock is down >20% in 3 months or >30% in 1 year.
     CW's highest-conviction pattern. Tiered confidence by dip depth."""
     where_since = f"AND t.trade_date >= '{since}'" if since else ""
@@ -895,7 +893,7 @@ def deep_dip_buy(conn: sqlite3.Connection, since: str | None = None) -> list[tup
 # ─── Detector: reversal_buy ──────────────────────────────────────────────────
 
 @register_signal
-def reversal_buy(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+def reversal_buy(conn: object, since: str | None = None) -> list[tuple]:
     """Insider with 5+ consecutive sells now buying. CW's highest signal type.
     'He sold 21 times in 13 years and now he's buying for the first time.'"""
     where_since = f"AND t.trade_date >= '{since}'" if since else ""
@@ -932,7 +930,7 @@ def reversal_buy(conn: sqlite3.Connection, since: str | None = None) -> list[tup
 # ─── Detector: momentum_buy ──────────────────────────────────────────────────
 
 @register_signal
-def momentum_buy(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+def momentum_buy(conn: object, since: str | None = None) -> list[tuple]:
     """P-code buy while stock is above both SMA50 and SMA200 — momentum context."""
     where_since = f"AND t.trade_date >= '{since}'" if since else ""
     rows = conn.execute(f"""
@@ -962,7 +960,7 @@ def momentum_buy(conn: sqlite3.Connection, since: str | None = None) -> list[tup
 # ─── Detector: largest_purchase_ever ──────────────────────────────────────────
 
 @register_signal
-def largest_purchase_ever(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+def largest_purchase_ever(conn: object, since: str | None = None) -> list[tuple]:
     """Insider's largest purchase ever at this ticker. CW highlights this heavily."""
     where_since = f"AND t.trade_date >= '{since}'" if since else ""
     rows = conn.execute(f"""
@@ -997,7 +995,7 @@ def largest_purchase_ever(conn: sqlite3.Connection, since: str | None = None) ->
 # ─── Detector: recurring_buyer_noise ──────────────────────────────────────────
 
 @register_signal
-def recurring_buyer_noise(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+def recurring_buyer_noise(conn: object, since: str | None = None) -> list[tuple]:
     """Insider buys on a detected schedule — low signal (noise).
     CW filters these out even without a 10b5-1 flag."""
     where_since = f"AND t.trade_date >= '{since}'" if since else ""
@@ -1023,7 +1021,7 @@ def recurring_buyer_noise(conn: sqlite3.Connection, since: str | None = None) ->
 # ─── Detector: tax_sale_noise ──────────────────────────────────────────────
 
 @register_signal
-def tax_sale_noise(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+def tax_sale_noise(conn: object, since: str | None = None) -> list[tuple]:
     """Tax-motivated sale (Nov/Dec, at a loss). CW's key differentiator:
     'Those seven sales were all tax sales. They have no signal at all.'"""
     where_since = f"AND t.trade_date >= '{since}'" if since else ""
@@ -1049,7 +1047,7 @@ def tax_sale_noise(conn: sqlite3.Connection, since: str | None = None) -> list[t
 # ─── Composite: quality_momentum_buy ─────────────────────────────────────────
 
 @register_signal
-def quality_momentum_buy(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+def quality_momentum_buy(conn: object, since: str | None = None) -> list[tuple]:
     """COMPOSITE: A+/A PIT grade insider buying in confirmed uptrend (above SMA50+SMA200).
     Validated post-2021: 57-74% WR, +2.4-5.5% abnormal at 30d. Signal compounds.
     ~50 events/year. ZERO overlap with reversal or 10b5-1 strategies."""
@@ -1093,7 +1091,7 @@ def quality_momentum_buy(conn: sqlite3.Connection, since: str | None = None) -> 
 # ─── Composite: tenb51_surprise_buy ──────────────────────────────────────────
 
 @register_signal
-def tenb51_surprise_buy(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+def tenb51_surprise_buy(conn: object, since: str | None = None) -> list[tuple]:
     """COMPOSITE: Insider with 5+ prior 10b5-1 plan sells on same ticker breaks pattern and buys.
     Validated post-2021: +2.89% at 30d, +4.48% at 90d. Signal COMPOUNDS — genuine rerating.
     ~40 events/year. Breaking a legal SEC commitment to buy is costly and deliberate.
@@ -1165,7 +1163,7 @@ def tenb51_surprise_buy(conn: sqlite3.Connection, since: str | None = None) -> l
 # ─── Composite: deep_reversal_dip_buy ────────────────────────────────────────
 
 @register_signal
-def deep_reversal_dip_buy(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+def deep_reversal_dip_buy(conn: object, since: str | None = None) -> list[tuple]:
     """COMPOSITE: 10+ consecutive sells then buy + 3-month dip ≤ -25%.
     Validated post-2021: Sharpe 1.08, +2.62% abnormal at 30d. Mean reversion — 30d hold ONLY.
     ~20 events/year. ZERO overlap with quality_momentum.
@@ -1213,7 +1211,7 @@ def deep_reversal_dip_buy(conn: sqlite3.Connection, since: str | None = None) ->
 # ─── Composite: reversal_quality_buy ──────────────────────────────────────────
 
 @register_signal
-def reversal_quality_buy(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+def reversal_quality_buy(conn: object, since: str | None = None) -> list[tuple]:
     """COMPOSITE: Rare reversal (80%+ sell history) by A+/A/B PIT-grade insider.
     Validated post-2021: +4.0% abnormal at 30d, 61.3% WR (N=354). Strongest single
     signal found. Robust across years, not driven by repeat insiders.
@@ -1259,7 +1257,7 @@ def reversal_quality_buy(conn: sqlite3.Connection, since: str | None = None) -> 
 
 # ─── Orchestrator ────────────────────────────────────────────────────────────
 
-def run_detector(conn: sqlite3.Connection, name: str, fn, since: str | None) -> int:
+def run_detector(conn: object, name: str, fn, since: str | None) -> int:
     """Run one detector: clear old results, compute new, insert."""
     # Idempotent: delete existing signals of this type
     conn.execute("DELETE FROM trade_signals WHERE signal_type = ?", (name,))
@@ -1280,11 +1278,9 @@ def main():
     parser = argparse.ArgumentParser(description="Compute trade signal tags")
     parser.add_argument("--since", help="Only process trades since this date (YYYY-MM-DD)")
     parser.add_argument("--signal-type", help="Run a single signal detector by name")
-    parser.add_argument("--db", default=str(DB_PATH), help="Path to insiders.db")
     args = parser.parse_args()
 
-    conn = sqlite3.connect(args.db)
-    conn.row_factory = sqlite3.Row
+    conn = get_connection()
 
     # Ensure trade_signals table exists
     conn.execute("""

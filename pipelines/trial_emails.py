@@ -22,7 +22,6 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-import sqlite3
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -47,6 +46,7 @@ from api.email_templates import (
     hard_gate_email,
     win_back_email,
 )
+from config.database import get_connection
 from api.notifications_db import DB_PATH as NOTIFICATIONS_DB_PATH
 
 logging.basicConfig(
@@ -68,15 +68,16 @@ TRIAL_EMAILS_SCHEMA = """\
 CREATE TABLE IF NOT EXISTS sent_trial_emails (
     user_id TEXT NOT NULL,
     email_name TEXT NOT NULL,
-    sent_at TEXT NOT NULL DEFAULT (datetime('now')),
+    sent_at TEXT NOT NULL DEFAULT NOW(),
     PRIMARY KEY (user_id, email_name)
 );
 """
 
 
-def _ensure_schema(conn: sqlite3.Connection) -> None:
+def _ensure_schema(conn) -> None:
     """Create sent_trial_emails table if it doesn't exist."""
-    conn.executescript(TRIAL_EMAILS_SCHEMA)
+    conn.execute(TRIAL_EMAILS_SCHEMA)
+    conn.commit()
 
 
 # ───────────────────────────────────────────────────────────────────
@@ -141,8 +142,7 @@ def _get_top_signals(days_back: int = 7, limit: int = 5) -> list[dict]:
     try:
         from api.db import DB_PATH as INSIDERS_DB_PATH
 
-        conn = sqlite3.connect(f"file:{INSIDERS_DB_PATH}?mode=ro", uri=True)
-        conn.row_factory = sqlite3.Row
+        conn = get_connection(readonly=True)
         cutoff = (datetime.utcnow() - timedelta(days=days_back)).strftime("%Y-%m-%d")
 
         rows = conn.execute(
@@ -210,7 +210,7 @@ def _build_email(email_name: str, user_id: str) -> tuple[str, str] | None:
 
 def process_user(
     user_data: dict,
-    conn: sqlite3.Connection,
+    conn,
     dry_run: bool = False,
 ) -> int:
     """Check which emails to send for a user. Returns count of emails sent."""
@@ -287,9 +287,7 @@ def main() -> None:
     args = parser.parse_args()
 
     # Open notifications DB for tracking
-    conn = sqlite3.connect(str(NOTIFICATIONS_DB_PATH))
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=wal")
+    conn = get_connection(readonly=False)
     _ensure_schema(conn)
 
     users = _fetch_all_clerk_users()

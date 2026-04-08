@@ -6,8 +6,7 @@ services:
     restart: unless-stopped
     environment:
       - CORS_ORIGINS=${CORS_ORIGINS:-https://form4.app}
-      - INSIDERS_DB_PATH=/data/insiders/insiders.db
-      - NOTIFICATIONS_DB_PATH=/data/notifications/notifications.db
+      - DATABASE_URL=postgresql://host.docker.internal/form4
     logging:
       driver: json-file
       options:

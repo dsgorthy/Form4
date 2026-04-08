@@ -18,7 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import sqlite3
+from config.database import get_connection
 import sys
 from pathlib import Path
 
@@ -35,7 +35,6 @@ except ModuleNotFoundError:
         available_tickers,
     )
 
-DB_PATH = Path(__file__).resolve().parents[2] / "strategies" / "insider_catalog" / "insiders.db"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -81,7 +80,7 @@ def _period_label(days: int) -> str:
 # ─── Generator 1: holdings_pct_change ───────────────────────────────────────
 
 @register_context
-def holdings_pct_change(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+def holdings_pct_change(conn: object, since: str | None = None) -> list[tuple]:
     """Compute percentage change in holdings from this trade."""
     where_since = f"AND t.trade_date >= '{since}'" if since else ""
     rows = conn.execute(f"""
@@ -129,7 +128,7 @@ def holdings_pct_change(conn: sqlite3.Connection, since: str | None = None) -> l
 # ─── Generator 2: value_rank ───────────────────────────────────────────────
 
 @register_context
-def value_rank(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+def value_rank(conn: object, since: str | None = None) -> list[tuple]:
     """Rank this filing by aggregated value among all filings by the same insider+ticker+type.
     Groups by accession (or trade_date fallback) to match feed-level aggregation.
     Stored as metadata only (live rendering needed for 'out of N').
@@ -186,7 +185,7 @@ def value_rank(conn: sqlite3.Connection, since: str | None = None) -> list[tuple
 # ─── Generator 3: days_since_last ──────────────────────────────────────────
 
 @register_context
-def days_since_last(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+def days_since_last(conn: object, since: str | None = None) -> list[tuple]:
     """Days since the insider's previous trade of the same type in the same ticker."""
     where_since = f"AND t.trade_date >= '{since}'" if since else ""
     rows = conn.execute(f"""
@@ -232,7 +231,7 @@ def days_since_last(conn: sqlite3.Connection, since: str | None = None) -> list[
 # ─── Generator 4: cluster_count ────────────────────────────────────────────
 
 @register_context
-def cluster_count(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+def cluster_count(conn: object, since: str | None = None) -> list[tuple]:
     """Count of other insiders who traded the same ticker+direction in the last 30 days.
     Stored as metadata only (live rendering needed for fresh count).
     """
@@ -283,7 +282,7 @@ def cluster_count(conn: sqlite3.Connection, since: str | None = None) -> list[tu
 # ─── Generator 5: price_context ────────────────────────────────────────────
 
 @register_context
-def price_context(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+def price_context(conn: object, since: str | None = None) -> list[tuple]:
     """Stock price change in the period before the trade (best of 1m/3m/6m)."""
     where_since = f"AND t.trade_date >= '{since}'" if since else ""
     avail = available_tickers()
@@ -339,7 +338,7 @@ def price_context(conn: sqlite3.Connection, since: str | None = None) -> list[tu
 # ─── Generator 6: routine_flag ─────────────────────────────────────────────
 
 @register_context
-def routine_flag(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+def routine_flag(conn: object, since: str | None = None) -> list[tuple]:
     """Flag trades that are part of a 10b5-1 trading plan."""
     where_since = f"AND t.trade_date >= '{since}'" if since else ""
     rows = conn.execute(f"""
@@ -363,7 +362,7 @@ def routine_flag(conn: sqlite3.Connection, since: str | None = None) -> list[tup
 # ─── Generator 7: reversal_detail ──────────────────────────────────────────
 
 @register_context
-def reversal_detail(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+def reversal_detail(conn: object, since: str | None = None) -> list[tuple]:
     """Count of consecutive opposite-direction trades before this one."""
     where_since = f"AND t.trade_date >= '{since}'" if since else ""
     rows = conn.execute(f"""
@@ -412,7 +411,7 @@ def reversal_detail(conn: sqlite3.Connection, since: str | None = None) -> list[
 # ─── Generator 8: conflicting_activity ─────────────────────────────────────
 
 @register_context
-def conflicting_activity(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+def conflicting_activity(conn: object, since: str | None = None) -> list[tuple]:
     """Flag trades where the opposite direction has significant discretionary activity
     in the same ticker within 30 days. E.g., a buy when proven sellers are dumping."""
     where_since = f"AND t.trade_date >= '{since}'" if since else ""
@@ -477,7 +476,7 @@ def conflicting_activity(conn: sqlite3.Connection, since: str | None = None) -> 
 # ─── Generator 9: week52_context ───────────────────────────────────────────
 
 @register_context
-def week52_context(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+def week52_context(conn: object, since: str | None = None) -> list[tuple]:
     """Flag trades where the stock is near its 52-week high or low.
     Insiders buying at 52-week highs = 12.8% annual alpha (Lasfer 2024).
     Insiders buying at 52-week lows = classic dip buy."""
@@ -567,7 +566,7 @@ def week52_context(conn: sqlite3.Connection, since: str | None = None) -> list[t
 # ─── Generator 10: market_cap_tier ─────────────────────────────────────────
 
 @register_context
-def market_cap_tier(conn: sqlite3.Connection, since: str | None = None) -> list[tuple]:
+def market_cap_tier(conn: object, since: str | None = None) -> list[tuple]:
     """Add market cap context. Small-cap insider buys have significantly more alpha
     than large-cap buys (academic consensus + our validation)."""
     import json as _json
@@ -619,7 +618,7 @@ def market_cap_tier(conn: sqlite3.Connection, since: str | None = None) -> list[
 
 # ─── Orchestrator ────────────────────────────────────────────────────────────
 
-def ensure_table(conn: sqlite3.Connection):
+def ensure_table(conn: object):
     """Create trade_context table if it doesn't exist."""
     conn.execute("""
         CREATE TABLE IF NOT EXISTS trade_context (
@@ -638,7 +637,7 @@ def ensure_table(conn: sqlite3.Connection):
     conn.commit()
 
 
-def run_generator(conn: sqlite3.Connection, name: str, fn, since: str | None) -> int:
+def run_generator(conn: object, name: str, fn, since: str | None) -> int:
     """Run one generator: clear old results, compute new, insert."""
     conn.execute("DELETE FROM trade_context WHERE context_type = ?", (name,))
 
@@ -658,11 +657,9 @@ def main():
     parser = argparse.ArgumentParser(description="Compute trade context facts")
     parser.add_argument("--since", help="Only process trades since this date (YYYY-MM-DD)")
     parser.add_argument("--context-type", help="Run a single context generator by name")
-    parser.add_argument("--db", default=str(DB_PATH), help="Path to insiders.db")
     args = parser.parse_args()
 
-    conn = sqlite3.connect(args.db)
-    conn.row_factory = sqlite3.Row
+    conn = get_connection()
 
     ensure_table(conn)
 

@@ -14,7 +14,6 @@ Usage:
 
 import argparse
 import json
-import sqlite3
 import sys
 import time
 from pathlib import Path
@@ -24,8 +23,7 @@ import requests
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-DB_PATH = ROOT / "strategies" / "insider_catalog" / "insiders.db"
-PRICES_DB = ROOT / "strategies" / "insider_catalog" / "prices.db"
+from config.database import get_connection
 
 ACCOUNTS = {
     "quality_momentum": {
@@ -86,8 +84,8 @@ def main():
 
     dry_run = not args.execute
 
-    conn = sqlite3.connect(str(DB_PATH))
-    prices = sqlite3.connect(str(PRICES_DB))
+    conn = get_connection(readonly=True)
+    prices = get_connection(readonly=True)
 
     if dry_run:
         print("=== DRY RUN (add --execute to place orders) ===\n")

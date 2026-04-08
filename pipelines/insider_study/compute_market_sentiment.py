@@ -16,17 +16,15 @@ from __future__ import annotations
 
 import argparse
 import logging
-import sqlite3
+from config.database import get_connection
 import time
 from datetime import datetime, timedelta
-from pathlib import Path
 
 try:
     from pipelines.insider_study.price_utils import load_prices, PRICES_DIR
 except ModuleNotFoundError:
     from price_utils import load_prices, PRICES_DIR
 
-DB_PATH = Path(__file__).resolve().parents[2] / "strategies" / "insider_catalog" / "insiders.db"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -72,7 +70,7 @@ def get_trading_days(start: str, end: str) -> list[str]:
 # Core computation
 # ---------------------------------------------------------------------------
 
-def compute_sentiment(conn: sqlite3.Connection, start: str, end: str) -> int:
+def compute_sentiment(conn: object, start: str, end: str) -> int:
     """Compute sentiment for each trading day in [start, end]."""
     trading_days = get_trading_days(start, end)
     if not trading_days:
@@ -231,7 +229,7 @@ def compute_sentiment(conn: sqlite3.Connection, start: str, end: str) -> int:
 # Summary
 # ---------------------------------------------------------------------------
 
-def print_summary(conn: sqlite3.Connection):
+def print_summary(conn: object):
     """Print summary statistics."""
     total = conn.execute("SELECT COUNT(*) FROM insider_market_sentiment").fetchone()[0]
     print(f"\n=== Market Sentiment Summary ({total:,} days) ===\n")
@@ -274,15 +272,9 @@ def main():
     parser.add_argument("--start", default="2016-01-01", help="Start date (default: 2016-01-01)")
     parser.add_argument("--end", default=datetime.now().strftime("%Y-%m-%d"),
                         help="End date (default: today)")
-    parser.add_argument("--db", default=str(DB_PATH), help="Path to insiders.db")
     args = parser.parse_args()
 
-    conn = sqlite3.connect(args.db)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA cache_size=-200000")
-
-    logger.info("Database: %s", args.db)
+    conn = get_connection()
 
     # Create table
     conn.execute(CREATE_TABLE_SQL)

@@ -13,7 +13,6 @@ from __future__ import annotations
 import logging
 import math
 import re
-import sqlite3
 from collections import defaultdict
 from datetime import date, timedelta
 from pathlib import Path
@@ -90,7 +89,8 @@ def load_insider_tiers(db_path: Path = DB_PATH) -> dict[str, int]:
         return _insider_tier_cache
 
     try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        from config.database import get_connection
+        conn = get_connection(readonly=True)
         rows = conn.execute("""
             SELECT i.name_normalized, COALESCE(tr.score_tier, 0)
             FROM insiders i
@@ -373,10 +373,8 @@ def check_buy_trigger(ticker: str, buy_window: dict) -> Optional[dict]:
 def _get_insider_sell_accuracy(name_normalized: str) -> float | None:
     """Look up sell accuracy from insider_track_records by normalized name."""
     try:
-        import sqlite3
-        db = Path(__file__).resolve().parent.parent / "insider_catalog" / "insiders.db"
-        conn = sqlite3.connect(str(db))
-        conn.row_factory = sqlite3.Row
+        from config.database import get_connection
+        conn = get_connection(readonly=True)
         row = conn.execute("""
             SELECT itr.sell_win_rate_7d
             FROM insiders i

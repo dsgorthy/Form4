@@ -11,7 +11,7 @@ Event-driven backtesting engine + strategy research platform + Form4.app product
 3. **Follow existing patterns** — dark theme colors, table structure, gating logic, pagination, ID encoding all have established conventions.
 4. **The portfolio overlay already handles idle cash** — `portfolio-overlay.tsx` exists. Extend it, don't replace it.
 5. **Keep documentation current** — When adding, removing, or overhauling a feature, update `reference_product_audit.md` in Claude memory. This is a living document, not a snapshot. If you add a new page, component, or API endpoint, document it. If you remove or rename one, remove or update the entry.
-6. **Price data lives in `prices.db`** — NEVER load prices from CSV files or create new price caches. Use `prices.db` (`strategies/insider_catalog/prices.db`) via `pipelines/insider_study/price_utils.py`. It has 7,500+ tickers with daily OHLCV from 2016-present. If a ticker is missing, pull it from Alpaca and INSERT into `prices.db`. Use `price_utils.get_close(ticker, date)` for single lookups, `price_utils.load_prices(ticker)` for full series. Never accumulate all tickers in memory — load one, use it, move on.
+6. **All data lives in PostgreSQL** — Database `form4` on localhost with schemas: `public` (insiders, trades, scores), `prices` (daily_prices, option_prices), `research` (derivative_trades, footnotes), `notifications`. Use `from config.database import get_connection` for all DB access. Use `price_utils.get_close(ticker, date)` for single price lookups. Never use `sqlite3` directly — the compat layer in `config/database.py` handles SQL translation automatically.
 7. **Backtesting must use day-by-day simulation** — never pre-compute exit dates at entry time. Walk through each trading day, check exits on all open positions, then process new entries. This prevents capacity violations and ensures position counts never exceed limits. Total allocation must NEVER exceed 100% of equity.
 
 ## Architecture
@@ -141,7 +141,12 @@ python3 pipelines/run_paper.py --strategy insider_cluster_buy
 
 ### Insider Catalog Database — SOURCE OF TRUTH
 
-**`strategies/insider_catalog/insiders.db`** is the single source of truth for all insider data. **Never read from CSV exports** — always query the DB directly. CSVs in `pipelines/insider_study/data/` are legacy artifacts from bulk imports and should not be used as data sources.
+**PostgreSQL database `form4`** on localhost is the single source of truth for all insider data. Access via `from config.database import get_connection`. **Never read from CSV exports** or SQLite files — always query PG directly. The old SQLite files (`insiders.db`, `prices.db`, `research.db`) are archived backups.
+
+**Connection:** `from config.database import get_connection, get_db`
+- `get_connection()` for scripts (individual connection)
+- `get_db()` for API (pooled, context manager)
+- SQL compat layer auto-translates `?` → `%s`, `INSERT OR IGNORE` → `ON CONFLICT DO NOTHING`, `datetime('now')` → `NOW()::text`, PRAGMAs → no-op
 
 **Tables:**
 | Table | Rows | Description |

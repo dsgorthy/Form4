@@ -13,11 +13,12 @@ COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir \
     -r /app/api/requirements.txt \
     -r /app/requirements.txt \
-    httpx stripe "PyJWT[crypto]" pydantic
+    httpx stripe "PyJWT[crypto]" pydantic psycopg2-binary
 
 # Copy application code (no secrets, no data)
 COPY api/ /app/api/
 COPY framework/ /app/framework/
+COPY config/ /app/config/
 
 # Verify all modules import cleanly — catches syntax errors before deploy
 RUN python -c "import api.main" 2>&1 || (echo "IMPORT CHECK FAILED" && exit 1)

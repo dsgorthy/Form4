@@ -13,7 +13,6 @@ import argparse
 import hashlib
 import logging
 import os
-import sqlite3
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -21,9 +20,9 @@ from pathlib import Path
 # Ensure project root on path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from api.db import DB_PATH as INSIDERS_DB_PATH
+from config.database import get_connection, ConnectionWrapper
 from api.email import build_digest_email, build_notification_email, send_email
-from api.notifications_db import DB_PATH as NOTIFICATIONS_DB_PATH
+from api.notifications_db import get_connection as get_notif_connection
 from api.notifications_db import init_db
 
 logging.basicConfig(
@@ -70,23 +69,15 @@ def _get_user_email(user_id: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def _open_insiders_db() -> sqlite3.Connection:
-    conn = sqlite3.connect(f"file:{INSIDERS_DB_PATH}?mode=ro", uri=True)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=wal")
-    conn.execute("PRAGMA query_only=ON")
-    return conn
+def _open_insiders_db() -> ConnectionWrapper:
+    return get_connection(readonly=True)
 
 
-def _open_notifications_db() -> sqlite3.Connection:
-    conn = sqlite3.connect(str(NOTIFICATIONS_DB_PATH))
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=wal")
-    conn.execute("PRAGMA foreign_keys=ON")
-    return conn
+def _open_notifications_db() -> ConnectionWrapper:
+    return get_notif_connection()
 
 
-def _get_watermark(nconn: sqlite3.Connection, event_type: str) -> str | None:
+def _get_watermark(nconn: ConnectionWrapper, event_type: str) -> str | None:
     row = nconn.execute(
         "SELECT last_processed_date FROM scan_watermarks WHERE event_type = ?",
         (event_type,),
@@ -94,14 +85,14 @@ def _get_watermark(nconn: sqlite3.Connection, event_type: str) -> str | None:
     return row["last_processed_date"] if row else None
 
 
-def _set_watermark(nconn: sqlite3.Connection, event_type: str, date: str) -> None:
+def _set_watermark(nconn: ConnectionWrapper, event_type: str, date: str) -> None:
     nconn.execute(
         "INSERT OR REPLACE INTO scan_watermarks (event_type, last_processed_date) VALUES (?, ?)",
         (event_type, date),
     )
 
 
-def _get_subscribed_users(nconn: sqlite3.Connection, event_type: str) -> list[dict]:
+def _get_subscribed_users(nconn: ConnectionWrapper, event_type: str) -> list[dict]:
     """Get all users who have this event type enabled."""
     rows = nconn.execute(
         f"""SELECT user_id, email_enabled, email_frequency, min_trade_value, min_insider_tier
@@ -137,7 +128,7 @@ def _reset_cycle_counts() -> None:
     _daily_counts.clear()
 
 
-def _get_daily_count(nconn: sqlite3.Connection, user_id: str) -> int:
+def _get_daily_count(nconn: ConnectionWrapper, user_id: str) -> int:
     """Count notifications created today for a user."""
     if user_id not in _daily_counts:
         row = nconn.execute(
@@ -148,7 +139,7 @@ def _get_daily_count(nconn: sqlite3.Connection, user_id: str) -> int:
     return _daily_counts[user_id]
 
 
-def _check_budget(nconn: sqlite3.Connection, user_id: str, event_type: str) -> bool:
+def _check_budget(nconn: ConnectionWrapper, user_id: str, event_type: str) -> bool:
     """Return True if this user can receive another notification of this type."""
     # Check daily cap
     daily = _get_daily_count(nconn, user_id)
@@ -169,7 +160,7 @@ def _record_sent(user_id: str, event_type: str) -> None:
 
 
 def _insert_notification(
-    nconn: sqlite3.Connection,
+    nconn: ConnectionWrapper,
     user_id: str,
     event_type: str,
     title: str,
@@ -181,17 +172,17 @@ def _insert_notification(
     if not _check_budget(nconn, user_id, event_type):
         return False
     try:
-        nconn.execute(
+        cur = nconn.execute(
             """INSERT OR IGNORE INTO notifications
                (user_id, event_type, title, body, ticker, dedup_key)
                VALUES (?, ?, ?, ?, ?, ?)""",
             (user_id, event_type, title, body, ticker, dedup_key),
         )
-        inserted = nconn.execute("SELECT changes()").fetchone()[0] > 0
+        inserted = cur.rowcount > 0
         if inserted:
             _record_sent(user_id, event_type)
         return inserted
-    except sqlite3.IntegrityError:
+    except Exception:
         return False
 
 
@@ -205,7 +196,7 @@ def _dedup_key(event_type: str, *parts: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def scan_high_value_filings(iconn: sqlite3.Connection, nconn: sqlite3.Connection, latest: str) -> int:
+def scan_high_value_filings(iconn: ConnectionWrapper, nconn: ConnectionWrapper, latest: str) -> int:
     """Detect Tier 2+ insider buys/sells above user's $ threshold."""
     watermark = _get_watermark(nconn, "high_value_filing") or (
         datetime.strptime(latest, "%Y-%m-%d") - timedelta(days=1)
@@ -257,7 +248,7 @@ def scan_high_value_filings(iconn: sqlite3.Connection, nconn: sqlite3.Connection
     return count
 
 
-def scan_cluster_formations(iconn: sqlite3.Connection, nconn: sqlite3.Connection, latest: str) -> int:
+def scan_cluster_formations(iconn: ConnectionWrapper, nconn: ConnectionWrapper, latest: str) -> int:
     """Detect 2+ insiders trading same ticker within 14-day window."""
     watermark = _get_watermark(nconn, "cluster_formation") or (
         datetime.strptime(latest, "%Y-%m-%d") - timedelta(days=1)
@@ -296,7 +287,7 @@ def scan_cluster_formations(iconn: sqlite3.Connection, nconn: sqlite3.Connection
     return count
 
 
-def scan_activity_spikes(iconn: sqlite3.Connection, nconn: sqlite3.Connection, latest: str) -> int:
+def scan_activity_spikes(iconn: ConnectionWrapper, nconn: ConnectionWrapper, latest: str) -> int:
     """Detect tickers with activity 2x+ above 90-day baseline.
     Only considers open-market trades (P/S) and excludes routine/10b5-1 sells."""
     # Recent 7 days — open-market only, exclude routine
@@ -356,11 +347,11 @@ def scan_activity_spikes(iconn: sqlite3.Connection, nconn: sqlite3.Connection, l
     return count
 
 
-def scan_congress_convergence(iconn: sqlite3.Connection, nconn: sqlite3.Connection, latest: str) -> int:
+def scan_congress_convergence(iconn: ConnectionWrapper, nconn: ConnectionWrapper, latest: str) -> int:
     """Detect tickers where insiders and politicians both bought recently."""
     # Check if congress_trades table exists
     table_check = iconn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='congress_trades'"
+        "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'congress_trades'"
     ).fetchone()
     if not table_check:
         return 0
@@ -369,8 +360,8 @@ def scan_congress_convergence(iconn: sqlite3.Connection, nconn: sqlite3.Connecti
         """SELECT ins.ticker, ins.company,
                   ins.insider_buys, ins.insider_total_value,
                   pol.politician_buys, pol.politician_total_value_estimate,
-                  MIN(ins.first_date, pol.first_date) AS first_date,
-                  MAX(ins.last_date, pol.last_date) AS last_date
+                  LEAST(ins.first_date, pol.first_date) AS first_date,
+                  GREATEST(ins.last_date, pol.last_date) AS last_date
            FROM (
                SELECT ticker, MAX(company) AS company,
                       COUNT(*) AS insider_buys,
@@ -419,7 +410,7 @@ def scan_congress_convergence(iconn: sqlite3.Connection, nconn: sqlite3.Connecti
     return count
 
 
-def scan_watchlist_activity(iconn: sqlite3.Connection, nconn: sqlite3.Connection, latest: str) -> int:
+def scan_watchlist_activity(iconn: ConnectionWrapper, nconn: ConnectionWrapper, latest: str) -> int:
     """Notify users about any new filings on their watched tickers."""
     watermark = _get_watermark(nconn, "watchlist_activity") or (
         datetime.strptime(latest, "%Y-%m-%d") - timedelta(days=1)
@@ -460,7 +451,7 @@ def scan_watchlist_activity(iconn: sqlite3.Connection, nconn: sqlite3.Connection
               AND t.ticker IN ({placeholders})
               AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
             GROUP BY t.insider_id, t.ticker, t.trade_type, t.trade_date
-            ORDER BY t.filing_date DESC""",
+            ORDER BY MAX(t.filing_date) DESC""",
         [watermark, latest] + list(all_tickers),
     ).fetchall()
 
@@ -499,7 +490,7 @@ def scan_watchlist_activity(iconn: sqlite3.Connection, nconn: sqlite3.Connection
 _email_cache: dict[str, str | None] = {}
 
 
-def _maybe_send_realtime_email(nconn: sqlite3.Connection, user: dict, title: str, body: str) -> None:
+def _maybe_send_realtime_email(nconn: ConnectionWrapper, user: dict, title: str, body: str) -> None:
     """Send email immediately if user has realtime frequency enabled."""
     if not user.get("email_enabled"):
         return
@@ -518,7 +509,7 @@ def _maybe_send_realtime_email(nconn: sqlite3.Connection, user: dict, title: str
     send_email(email, f"Form4: {title}", html)
 
 
-def scan_portfolio_alerts(iconn: sqlite3.Connection, nconn: sqlite3.Connection, latest: str) -> int:
+def scan_portfolio_alerts(iconn: ConnectionWrapper, nconn: ConnectionWrapper, latest: str) -> int:
     """Detect new entries/exits in the Form4 Insider Portfolio strategy."""
     watermark = _get_watermark(nconn, "portfolio_alert") or (
         datetime.strptime(latest, "%Y-%m-%d") - timedelta(days=1)
@@ -591,7 +582,7 @@ def scan_portfolio_alerts(iconn: sqlite3.Connection, nconn: sqlite3.Connection, 
     return count
 
 
-def send_daily_digests(nconn: sqlite3.Connection) -> int:
+def send_daily_digests(nconn: ConnectionWrapper) -> int:
     """Send daily digest emails for users with unread notifications and daily frequency."""
     users = nconn.execute(
         """SELECT DISTINCT np.user_id

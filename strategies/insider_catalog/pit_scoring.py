@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import logging
 import math
-import sqlite3
+from config.database import get_connection
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -324,7 +324,7 @@ _RETURN_LAGS = {"7d": 10, "30d": 40, "90d": 100}
 
 
 def compute_insider_ticker_score(
-    conn: sqlite3.Connection,
+    conn: object,
     insider_id: int,
     ticker: str,
     as_of_date: str,
@@ -379,7 +379,7 @@ def compute_insider_ticker_score(
     return DEFAULT_SCORER.score(ctx)
 
 
-def upsert_score(conn: sqlite3.Connection, score_data: dict | ScoringResult,
+def upsert_score(conn: object, score_data: dict | ScoringResult,
                  trigger_trade_id: int | None = None):
     """Insert or update a score in insider_ticker_scores and score_history."""
     if isinstance(score_data, ScoringResult):
@@ -433,7 +433,7 @@ def upsert_score(conn: sqlite3.Connection, score_data: dict | ScoringResult,
     ))
 
 
-def sync_to_track_records(conn: sqlite3.Connection):
+def sync_to_track_records(conn: object):
     """Backward compat: sync latest PIT scores to insider_track_records."""
     logger.info("Syncing PIT scores to insider_track_records...")
     rows = conn.execute("""
@@ -468,7 +468,7 @@ def sync_to_track_records(conn: sqlite3.Connection):
     logger.info("Synced %d insiders", updated)
 
 
-def get_pit_score(conn: sqlite3.Connection, insider_id: int, ticker: str,
+def get_pit_score(conn: object, insider_id: int, ticker: str,
                   as_of_date: str) -> Optional[dict]:
     """Look up the most recent PIT score for an insider+ticker as of a date."""
     row = conn.execute("""

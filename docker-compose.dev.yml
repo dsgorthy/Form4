@@ -7,14 +7,14 @@ services:
     volumes:
       - ./api:/app/api
       - ./framework:/app/framework
-      - ./strategies/insider_catalog:/data/insiders:ro
-      - ./api:/data/notifications
+      - ./config:/app/config
     ports:
       - "8000:8000"
     environment:
       - CORS_ORIGINS=http://localhost:3000
-      - INSIDERS_DB_PATH=/data/insiders/insiders.db
-      - NOTIFICATIONS_DB_PATH=/data/notifications/notifications.db
+      - DATABASE_URL=postgresql://host.docker.internal/form4
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   frontend:
     build:

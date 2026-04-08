@@ -458,10 +458,8 @@ class InsiderV2Runner:
         hold_days = 7  # default
         stop_loss = self.buy_stop_loss_7d
         try:
-            import sqlite3
-            db_path = Path(__file__).resolve().parent.parent / "insider_catalog" / "insiders.db"
-            _conn = sqlite3.connect(str(db_path))
-            _conn.row_factory = sqlite3.Row
+            from config.database import get_connection
+            _conn = get_connection(readonly=True)
             # Look up best_window for insiders in this signal
             for insider_name in signal.get("insiders", [])[:3]:
                 row = _conn.execute("""

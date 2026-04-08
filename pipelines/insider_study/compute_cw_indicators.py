@@ -23,15 +23,15 @@ from __future__ import annotations
 import sys
 from pathlib import Path as _Path
 sys.path.insert(0, str(_Path(__file__).resolve().parents[2]))
-from pipelines.insider_study.db_lock import db_write_lock
 
 import argparse
 import csv
-import sqlite3
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
+
+from config.database import get_connection
 
 try:
     from pipelines.insider_study.price_utils import (
@@ -42,7 +42,6 @@ except ModuleNotFoundError:
         load_prices, find_price, compute_period_change, available_tickers, PRICES_DIR,
     )
 
-DB_PATH = Path(__file__).resolve().parents[2] / "strategies" / "insider_catalog" / "insiders.db"
 MIN_DATE = "2016-01-01"
 BATCH_SIZE = 50_000
 
@@ -92,7 +91,7 @@ COLUMNS = {
 }
 
 
-def ensure_columns(conn: sqlite3.Connection):
+def ensure_columns(conn):
     existing = {r[1] for r in conn.execute("PRAGMA table_info(trades)").fetchall()}
     for col, dtype in COLUMNS.items():
         if col not in existing:
@@ -114,7 +113,7 @@ def flush_updates(conn, table, col_names, updates):
             )
             conn.commit()
             return
-        except sqlite3.OperationalError as e:
+        except Exception as e:
             if "locked" in str(e) and attempt < 4:
                 import time
                 time.sleep(2 ** attempt)
@@ -126,7 +125,7 @@ def flush_updates(conn, table, col_names, updates):
 # Indicator 1: Dip indicators (dip_1mo, dip_3mo, dip_1yr)
 # ---------------------------------------------------------------------------
 
-def compute_dip_indicators(conn: sqlite3.Connection) -> int:
+def compute_dip_indicators(conn) -> int:
     """Compute price change 30d/90d/365d before each trade.
     Processes ticker-by-ticker to avoid OOM from price cache."""
     print("\n=== Dip Indicators ===")
@@ -191,7 +190,7 @@ def _compute_sma_series(prices: dict[str, float], window: int) -> dict[str, floa
     return sma
 
 
-def compute_sma_context(conn: sqlite3.Connection) -> int:
+def compute_sma_context(conn) -> int:
     """Compute SMA-relative positioning at time of each trade.
     Processes ticker-by-ticker to avoid OOM."""
     print("\n=== SMA Context ===")
@@ -265,7 +264,7 @@ def _find_sma_at_date(sma: dict[str, float], trade_date: str) -> float | None:
 # Indicator 3: Purchase size metrics
 # ---------------------------------------------------------------------------
 
-def compute_purchase_size_metrics(conn: sqlite3.Connection) -> int:
+def compute_purchase_size_metrics(conn) -> int:
     """Compute purchase_size_ratio and is_largest_ever.
     PIT: only compares against trades with trade_date < current trade_date."""
     print("\n=== Purchase Size Metrics ===")
@@ -316,7 +315,7 @@ def compute_purchase_size_metrics(conn: sqlite3.Connection) -> int:
 # Indicator 4: Tax sale classification
 # ---------------------------------------------------------------------------
 
-def compute_tax_sale_flag(conn: sqlite3.Connection) -> int:
+def compute_tax_sale_flag(conn) -> int:
     """Classify tax-motivated sales.
     Heuristics:
       1. S-code trade in Nov or Dec
@@ -365,7 +364,7 @@ def compute_tax_sale_flag(conn: sqlite3.Connection) -> int:
 # Indicator 5: Recurring purchase detection
 # ---------------------------------------------------------------------------
 
-def compute_recurring_purchase(conn: sqlite3.Connection) -> int:
+def compute_recurring_purchase(conn) -> int:
     """Detect insiders buying on a regular schedule (monthly/quarterly/yearly)
     without a 10b5-1 flag. Requires 3+ instances at regular intervals."""
     print("\n=== Recurring Purchase Detection ===")
@@ -447,7 +446,7 @@ def compute_recurring_purchase(conn: sqlite3.Connection) -> int:
 # Indicator 6: Consecutive sells before buy
 # ---------------------------------------------------------------------------
 
-def compute_consecutive_sells(conn: sqlite3.Connection) -> int:
+def compute_consecutive_sells(conn) -> int:
     """For each P-code buy, count consecutive S-code sells immediately prior
     by the same insider at the same ticker. Enhances reversal detection."""
     print("\n=== Consecutive Sells Before Buy ===")
@@ -509,37 +508,30 @@ def main():
                         help="Compute only this indicator (default: all)")
     args = parser.parse_args()
 
-    with db_write_lock(timeout_msg="compute_cw_indicators"):
-        conn = sqlite3.connect(str(DB_PATH))
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA wal_autocheckpoint=0")
-        conn.execute("PRAGMA busy_timeout=30000")
-        conn.execute("PRAGMA cache_size=-200000")
+    conn = get_connection()
 
-        print(f"Database: {DB_PATH}")
-        ensure_columns(conn)
+    print(f"Database: PostgreSQL")
+    ensure_columns(conn)
 
-        if args.indicator:
-            INDICATOR_MAP[args.indicator](conn)
-        else:
-            for name, fn in INDICATOR_MAP.items():
-                fn(conn)
+    if args.indicator:
+        INDICATOR_MAP[args.indicator](conn)
+    else:
+        for name, fn in INDICATOR_MAP.items():
+            fn(conn)
 
-        # Summary
-        print("\n=== Summary ===")
-        for col in ["dip_1mo", "dip_3mo", "dip_1yr", "sma50_rel", "above_sma50",
-                    "purchase_size_ratio", "is_largest_ever", "is_tax_sale",
-                    "is_recurring", "consecutive_sells_before"]:
-            count = conn.execute(
-                f"SELECT COUNT(*) FROM trades WHERE {col} IS NOT NULL AND trade_date >= ?",
-                (MIN_DATE,)
-            ).fetchone()[0]
-            print(f"  {col}: {count:,} populated")
+    # Summary
+    print("\n=== Summary ===")
+    for col in ["dip_1mo", "dip_3mo", "dip_1yr", "sma50_rel", "above_sma50",
+                "purchase_size_ratio", "is_largest_ever", "is_tax_sale",
+                "is_recurring", "consecutive_sells_before"]:
+        count = conn.execute(
+            f"SELECT COUNT(*) FROM trades WHERE {col} IS NOT NULL AND trade_date >= ?",
+            (MIN_DATE,)
+        ).fetchone()[0]
+        print(f"  {col}: {count:,} populated")
 
-        conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
-        conn.close()
-        print("\nDone.")
+    conn.close()
+    print("\nDone.")
 
 
 if __name__ == "__main__":
