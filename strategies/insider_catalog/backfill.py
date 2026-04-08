@@ -347,18 +347,25 @@ def get_or_create_insider(conn: sqlite3.Connection, name: str, cik: str = None) 
     if row:
         return row[0]
 
-    # Insert new
+    # Insert new — use RETURNING for PG, lastrowid fallback for SQLite
     cur = conn.execute(
-        "INSERT INTO insiders (name, name_normalized, cik) VALUES (?, ?, ?)",
+        "INSERT INTO insiders (name, name_normalized, cik) VALUES (?, ?, ?) RETURNING insider_id",
         (name, name_norm, cik),
     )
     insider_id = cur.lastrowid
+    if insider_id is None:
+        # Fallback: query for the row we just inserted
+        row = conn.execute(
+            "SELECT insider_id FROM insiders WHERE name_normalized = ? AND COALESCE(cik, '') = COALESCE(?, '')",
+            (name_norm, cik),
+        ).fetchone()
+        insider_id = row[0] if row else None
 
     # Flag entity insiders on insert
-    if _is_entity_name(name_norm):
+    if insider_id and _is_entity_name(name_norm):
         try:
             conn.execute("UPDATE insiders SET is_entity = 1 WHERE insider_id = ?", (insider_id,))
-        except sqlite3.OperationalError:
+        except Exception:
             pass  # is_entity column may not exist yet
 
     return insider_id

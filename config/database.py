@@ -265,6 +265,11 @@ class CursorWrapper:
             self._cursor.execute(translated, params)
         except psycopg2.Error:
             logger.debug("SQL translation:\n  Original: %s\n  Translated: %s", sql, translated)
+            # Rollback the failed transaction so the connection is usable again
+            try:
+                self._cursor.connection.rollback()
+            except Exception:
+                pass
             raise
 
         # Capture lastrowid from RETURNING
@@ -294,6 +299,10 @@ class CursorWrapper:
             self._cursor.executemany(translated, converted)
         except psycopg2.Error:
             logger.debug("SQL (executemany):\n  Original: %s\n  Translated: %s", sql, translated)
+            try:
+                self._cursor.connection.rollback()
+            except Exception:
+                pass
             raise
         return self
 
