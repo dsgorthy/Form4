@@ -17,7 +17,6 @@ import json
 import logging
 import math
 import os
-import sqlite3
 import sys
 import time
 from datetime import datetime, timedelta
@@ -31,6 +30,7 @@ import yaml
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from config.database import get_connection
 from framework.execution.paper import PaperBackend
 
 logging.basicConfig(
@@ -38,8 +38,6 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
 logger = logging.getLogger(__name__)
-
-DB_PATH = Path(__file__).resolve().parents[2] / "strategies" / "insider_catalog" / "insiders.db"
 
 # Default data dir for state/heartbeat files
 DATA_DIR = Path(__file__).resolve().parent / "data"
@@ -143,22 +141,15 @@ def get_alpaca() -> PaperBackend:
     return PaperBackend(api_key, api_secret)
 
 
-def get_db(readonly: bool = False) -> sqlite3.Connection:
-    mode = "ro" if readonly else "rw"
-    conn = sqlite3.connect(f"file:{DB_PATH}?mode={mode}", uri=True)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=wal")
-    conn.execute("PRAGMA wal_autocheckpoint=0")
-    if readonly:
-        conn.execute("PRAGMA query_only=ON")
-    return conn
+def get_db(readonly: bool = False):
+    return get_connection(readonly=readonly)
 
 
 # ---------------------------------------------------------------------------
 # Portfolio row bootstrap
 # ---------------------------------------------------------------------------
 
-def ensure_portfolio_row(conn: sqlite3.Connection, config: dict) -> int:
+def ensure_portfolio_row(conn, config: dict) -> int:
     """Insert into portfolios table on first run, return portfolio_id."""
     conn.execute(
         """INSERT OR IGNORE INTO portfolios (name, display_name, description, config, starting_capital)
@@ -182,7 +173,7 @@ def ensure_portfolio_row(conn: sqlite3.Connection, config: dict) -> int:
 # Theoretical equity
 # ---------------------------------------------------------------------------
 
-def get_theoretical_equity(conn: sqlite3.Connection, config: dict) -> float:
+def get_theoretical_equity(conn, config: dict) -> float:
     """Starting capital + cumulative closed P&L for this strategy."""
     row = conn.execute(
         """SELECT COALESCE(SUM(pnl_dollar), 0) AS total_pnl
@@ -272,7 +263,7 @@ def _build_thesis_query(thesis: dict, lookback_days: int) -> tuple[str, list]:
     return " AND ".join(clauses), params
 
 
-def scan_signals(conn: sqlite3.Connection, config: dict) -> list[dict]:
+def scan_signals(conn, config: dict) -> list[dict]:
     """Query trades for qualifying signals across all theses. Return de-duped candidates."""
     strategy_name = config["strategy_name"]
     lookback = config.get("filing_lookback_days", 2)
@@ -458,7 +449,7 @@ def _get_latest_price(alpaca: PaperBackend, ticker: str) -> Optional[float]:
 
 
 def execute_entries(
-    conn: sqlite3.Connection,
+    conn,
     alpaca: PaperBackend,
     candidates: list[dict],
     config: dict,
@@ -731,6 +722,11 @@ def execute_entries(
 
         today = _now_et().strftime("%Y-%m-%d")
 
+        # Pre-compute deterministic exit date (trading days)
+        from framework.data.calendar import MarketCalendar
+        _cal = MarketCalendar()
+        planned_exit = _cal.add_trading_days(today, target_hold).isoformat()
+
         conn.execute(
             """INSERT INTO strategy_portfolio (
                 strategy, portfolio_id, trade_id, ticker, trade_type, direction,
@@ -742,7 +738,7 @@ def execute_entries(
                 entry_reasoning,
                 company, insider_title, filing_date, trade_date,
                 signal_grade, is_rare_reversal,
-                shares, dollar_amount
+                shares, dollar_amount, planned_exit_date
             ) VALUES (?, ?, ?, ?, 'buy_stock', 'long',
                       ?, ?, ?, ?,
                       ?, ?,
@@ -752,7 +748,7 @@ def execute_entries(
                       ?,
                       ?, ?, ?, ?,
                       ?, ?,
-                      ?, ?)""",
+                      ?, ?, ?)""",
             (
                 strategy_name, portfolio_id,
                 c["trade_id"], ticker,
@@ -765,6 +761,7 @@ def execute_entries(
                 c.get("company"), c.get("title"), c.get("filing_date"), c.get("filing_date"),
                 c.get("signal_grade"), 1 if c.get("is_rare_reversal") else 0,
                 qty, round(qty * entry_price, 2),
+                planned_exit,
             ),
         )
         conn.commit()
@@ -772,7 +769,8 @@ def execute_entries(
         send_telegram(
             f"BUY *{ticker}* {qty} shares @ ${entry_price:.2f}\n"
             f"Thesis: {c['thesis_name']} | Insider: {c['insider_name']}\n"
-            f"Size: ${qty * entry_price:,.0f} ({size_pct*100:.0f}% of ${equity:,.0f})",
+            f"Size: ${qty * entry_price:,.0f} ({size_pct*100:.0f}% of ${equity:,.0f})\n"
+            f"Exit: {planned_exit} ({target_hold} trading days)",
             prefix,
         )
 
@@ -851,8 +849,117 @@ def _compute_sma50(alpaca: PaperBackend, ticker: str) -> Optional[float]:
     return sum(closes) / len(closes)
 
 
+def check_scheduled_exits(
+    conn,
+    alpaca: PaperBackend,
+    config: dict,
+    state_path: Path,
+) -> list[dict]:
+    """Close positions whose planned_exit_date is today or overdue.
+
+    This replaces the time-exit path in check_exits. Runs once daily
+    at the configured exit time (default 15:45 ET).
+    """
+    strategy_name = config["strategy_name"]
+    prefix = config.get("telegram_prefix", "")
+    today = _now_et().strftime("%Y-%m-%d")
+
+    due_rows = conn.execute(
+        """SELECT * FROM strategy_portfolio
+           WHERE strategy = ? AND status = 'open'
+             AND execution_source != 'backtest'
+             AND planned_exit_date IS NOT NULL
+             AND planned_exit_date <= ?
+           ORDER BY planned_exit_date""",
+        (strategy_name, today),
+    ).fetchall()
+
+    if not due_rows:
+        return []
+
+    closed: list[dict] = []
+    for pos in due_rows:
+        pos = dict(pos)
+        ticker = pos["ticker"]
+        entry_price = pos["entry_price"]
+        pos_id = pos["id"]
+        shares = pos.get("shares") or 0
+
+        overdue_days = 0
+        if pos["planned_exit_date"] < today:
+            from datetime import date as _date
+            overdue_days = (_date.fromisoformat(today) - _date.fromisoformat(pos["planned_exit_date"])).days
+            logger.warning("OVERDUE %s by %dd (planned %s)", ticker, overdue_days, pos["planned_exit_date"])
+
+        # Get current price and submit sell
+        alpaca_pos = alpaca.get_position(ticker)
+        if alpaca_pos is None:
+            current_price = entry_price
+            logger.warning("No Alpaca position for %s, using entry price", ticker)
+        else:
+            current_price = alpaca_pos["current_price"]
+
+        fill_price = current_price
+        if alpaca_pos is not None and shares > 0:
+            try:
+                order = alpaca.submit_order(
+                    ticker, shares, "sell", order_type="market", time_in_force="day"
+                )
+                if order:
+                    for _ in range(30):
+                        import time as _time
+                        _time.sleep(1)
+                        status = alpaca.get_order(order["id"])
+                        if status and status.get("filled_avg_price"):
+                            fill_price = float(status["filled_avg_price"])
+                            break
+            except Exception as e:
+                logger.error("Sell order failed for %s: %s", ticker, e)
+
+        pnl_pct = (fill_price - entry_price) / entry_price if entry_price > 0 else 0.0
+        pnl_dollar = (fill_price - entry_price) * shares
+        hold_days = 0
+        try:
+            from datetime import datetime as _dt
+            hold_days = (_dt.strptime(today, "%Y-%m-%d") - _dt.strptime(pos["entry_date"][:10], "%Y-%m-%d")).days
+        except Exception:
+            pass
+
+        conn.execute(
+            """UPDATE strategy_portfolio SET
+                status = 'closed', exit_date = ?, exit_price = ?, exit_reason = ?,
+                hold_days = ?, pnl_pct = ?, pnl_dollar = ?, peak_return = ?,
+                actual_fill_price = ?, equity_after = ?
+               WHERE id = ?""",
+            (
+                today, round(fill_price, 4), "time_exit",
+                hold_days, round(pnl_pct, 6), round(pnl_dollar, 2),
+                _peak_returns.get(pos_id, 0.0),
+                round(fill_price, 4),
+                get_theoretical_equity(conn, config),
+                pos_id,
+            ),
+        )
+        conn.commit()
+
+        _peak_returns.pop(pos_id, None)
+        _save_peak_returns(state_path)
+
+        logger.info("EXIT %s: reason=time_exit pnl=%.2f%% hold=%dd price=$%.2f (planned=%s)",
+                     ticker, pnl_pct * 100, hold_days, fill_price, pos["planned_exit_date"])
+        send_telegram(
+            f"SELL *{ticker}* @ ${fill_price:.2f} ({pnl_pct*100:+.1f}%)\n"
+            f"Reason: scheduled exit (hold {hold_days}d)\n"
+            f"P&L: ${pnl_dollar:+,.0f}",
+            prefix,
+        )
+        closed.append(pos)
+
+    return closed
+
+
 def check_exits(
-    conn: sqlite3.Connection,
+    conn,
     alpaca: PaperBackend,
     config: dict,
     state_path: Path,
@@ -912,7 +1019,7 @@ def check_exits(
             if exit_strategy == "fixed_hold":
                 target_hold = exit_cfg.get("hold_days", pos.get("target_hold", 7))
                 stop_loss = exit_cfg.get("stop_loss_pct", pos.get("stop_pct", -0.15))
-                if pnl_pct <= stop_loss:
+                if stop_loss is not None and pnl_pct <= stop_loss:
                     exit_reason = "stop_loss"
                     should_exit = True
                 elif hold_days >= target_hold:
@@ -1145,6 +1252,7 @@ def run_daemon(config: dict) -> None:
     _load_peak_returns(state_path)
 
     ran_daily = False  # Track whether we already ran today's daily cycle
+    ran_scheduled_exits = False  # Track whether scheduled exits ran today
 
     while True:
         now = _now_et()
@@ -1156,6 +1264,7 @@ def run_daemon(config: dict) -> None:
             logger.info("Weekend — sleeping 1h")
             time.sleep(3600)
             ran_daily = False
+            ran_scheduled_exits = False
             continue
 
         # Pre-market (<9:25): sleep until 9:25
@@ -1166,6 +1275,7 @@ def run_daemon(config: dict) -> None:
             logger.info("Pre-market — sleeping %.0fm", sleep_sec / 60)
             time.sleep(min(sleep_sec, 1800))
             ran_daily = False
+            ran_scheduled_exits = False
             continue
 
         # 9:25-9:30: scan (read-only preview)
@@ -1186,7 +1296,7 @@ def run_daemon(config: dict) -> None:
             time.sleep(wait)
             continue
 
-        # 9:31-9:35: run daily cycle (entries + exits)
+        # 9:31-9:35: run daily cycle (entries) + close overdue positions
         if now.hour == 9 and 31 <= now.minute <= 35 and not ran_daily:
             try:
                 result = run_daily(config)
@@ -1195,9 +1305,36 @@ def run_daemon(config: dict) -> None:
             except Exception as exc:
                 logger.error("Daily cycle failed: %s", exc)
                 send_telegram(f"Daily cycle error: {exc}", prefix)
+            # Close any overdue positions immediately at open
+            try:
+                alpaca = get_alpaca()
+                conn = get_db(readonly=False)
+                try:
+                    closed = check_scheduled_exits(conn, alpaca, config, state_path)
+                    if closed:
+                        logger.info("Overdue exits at open: closed %d", len(closed))
+                finally:
+                    conn.close()
+            except Exception as exc:
+                logger.error("Overdue exit check failed: %s", exc)
 
         # Intraday: every 5 min during market hours
         if _is_market_hours():
+            # 15:45: scheduled exits (deterministic time-based exits)
+            if now.hour == 15 and 45 <= now.minute <= 50 and not ran_scheduled_exits:
+                try:
+                    alpaca = get_alpaca()
+                    conn = get_db(readonly=False)
+                    try:
+                        closed = check_scheduled_exits(conn, alpaca, config, state_path)
+                        if closed:
+                            logger.info("Scheduled exits: closed %d positions", len(closed))
+                        ran_scheduled_exits = True
+                    finally:
+                        conn.close()
+                except Exception as exc:
+                    logger.error("Scheduled exit failed: %s", exc)
+
             # Re-scan at :00 and :30
             if now.minute in (0, 30):
                 try:
@@ -1206,8 +1343,9 @@ def run_daemon(config: dict) -> None:
                         logger.info("Intraday entries: %s", result)
                 except Exception as exc:
                     logger.error("Intraday re-scan failed: %s", exc)
-            else:
-                # Just check exits
+
+            # Check stops only (not time exits) every 5 min
+            elif now.minute not in (0, 30):
                 try:
                     alpaca = get_alpaca()
                     conn = get_db(readonly=False)
@@ -1273,6 +1411,7 @@ def run_daemon(config: dict) -> None:
             logger.info("After hours — sleeping until tomorrow 9:25")
             time.sleep(3600)
             ran_daily = False
+            ran_scheduled_exits = False
             continue
 
         # Fallback

@@ -360,6 +360,25 @@ class MarketCalendar:
         """Return the count of trading days in the inclusive range."""
         return len(self.get_trading_days(start, end))
 
+    def add_trading_days(self, dt: DateLike, n: int) -> date:
+        """Return the date that is n trading days after dt.
+
+        If n=0, returns dt if it's a trading day, else next trading day.
+        If n<0, counts backward.
+        """
+        d = _to_date(dt)
+        if n == 0:
+            while not self.is_trading_day(d):
+                d += timedelta(days=1)
+            return d
+        step = 1 if n > 0 else -1
+        remaining = abs(n)
+        while remaining > 0:
+            d += timedelta(days=step)
+            if self.is_trading_day(d):
+                remaining -= 1
+        return d
+
     def market_open_time(self, dt: DateLike) -> Optional[str]:
         """Return market open time for the given date, or None if closed."""
         if not self.is_trading_day(dt):

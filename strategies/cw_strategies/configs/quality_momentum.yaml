@@ -32,7 +32,7 @@ filters:
 
 exit:
   strategy: fixed_hold
-  hold_days: 30
+  hold_days: 60  # Exit timing research (2026-04-08): 60d Sharpe 0.44 vs 30d 0.22, WR 70.7%, mean +13%. Signal compounds.
   stop_loss_pct: null  # Grid search validated: stops degrade Sharpe by 25% (1.44 → 1.08). Quality picks recover from dips.
 
 at_capacity: skip
