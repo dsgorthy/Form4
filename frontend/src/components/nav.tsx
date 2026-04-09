@@ -18,7 +18,7 @@ function SettingsIcon() {
 }
 
 const links = [
-  { href: "/", label: "Dashboard" },
+  { href: "/dashboard", label: "Dashboard" },
   { href: "/feed", label: "Feed" },
   { href: "/portfolio", label: "Portfolio" },
   { href: "/clusters", label: "Clusters" },
