@@ -41,15 +41,14 @@ def list_clusters(
         if latest is None:
             return {"total": 0, "limit": limit, "offset": offset, "items": [], "window_start": None, "window_end": None}
 
-        window_start = f"date('{latest}', '-{days} days')"
+        from datetime import datetime, timedelta
+        latest_dt = datetime.strptime(latest, "%Y-%m-%d")
+        window_start_date = (latest_dt - timedelta(days=days)).strftime("%Y-%m-%d")
+        window_start = f"'{window_start_date}'"
 
-        # Find clusters: ticker+trade_type combos with 2+ distinct insiders in the window
-        # Count distinct insiders per ticker (after deduplicating filers
-        # who report the same economic event via txn_group_id).
-        # Step: for each txn_group, pick one insider_id, then count distinct.
         base_query = f"""
             SELECT
-                ticker, trade_type, company,
+                ticker, trade_type, MAX(company) AS company,
                 COUNT(DISTINCT representative_insider) AS insider_count,
                 SUM(group_value) AS total_value,
                 MIN(first_trade) AS first_trade,
@@ -188,7 +187,10 @@ def get_cluster_detail(
         if latest is None:
             return {"ticker": ticker, "trade_type": trade_type, "insiders": [], "trades": []}
 
-        window_start = f"date('{latest}', '-{days} days')"
+        from datetime import datetime, timedelta
+        latest_dt = datetime.strptime(latest, "%Y-%m-%d")
+        window_start_date = (latest_dt - timedelta(days=days)).strftime("%Y-%m-%d")
+        window_start = f"'{window_start_date}'"
 
         # Summary
         summary = conn.execute(
