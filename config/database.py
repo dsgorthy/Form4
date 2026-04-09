@@ -110,7 +110,19 @@ def translate_sql(sql: str) -> tuple[str, bool]:
     """
     stripped = sql.strip()
 
-    # Skip no-op statements
+    # PRAGMA table_info(table) → query information_schema (needed by ensure_columns patterns)
+    pragma_ti = re.match(r"PRAGMA\s+table_info\((\w+)\)", stripped, re.IGNORECASE)
+    if pragma_ti:
+        table = pragma_ti.group(1)
+        return (
+            f"SELECT ordinal_position AS cid, column_name AS name, data_type AS type, "
+            f"CASE WHEN is_nullable = 'NO' THEN 1 ELSE 0 END AS notnull, "
+            f"column_default AS dflt_value, 0 AS pk "
+            f"FROM information_schema.columns WHERE table_name = '{table}' "
+            f"ORDER BY ordinal_position"
+        ), False
+
+    # Skip other PRAGMAs and ATTACH
     if _RE_PRAGMA.match(stripped):
         return sql, True
     if _RE_ATTACH.match(stripped):
@@ -187,11 +199,18 @@ class Row:
     """Row that supports both row["column"] and row[0] integer index access.
 
     Compatible with sqlite3.Row: supports dict(), keys(), len(), iteration.
+    Automatically converts Decimal to float for SQLite compat.
     """
     __slots__ = ('_data', '_keys')
 
     def __init__(self, data: dict):
-        self._data = data
+        from decimal import Decimal
+        # Coerce Decimal → float (PG returns Decimal for numeric/ROUND results,
+        # but all existing Python code expects float)
+        self._data = {
+            k: float(v) if isinstance(v, Decimal) else v
+            for k, v in data.items()
+        }
         self._keys = list(data.keys())
 
     def __getitem__(self, key):

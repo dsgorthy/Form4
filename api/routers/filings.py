@@ -290,7 +290,7 @@ def get_related_trades(trade_id: str, limit: int = Query(default=5, ge=1, le=20)
             FROM (
                 SELECT
                     MIN(t.trade_id) AS trade_id,
-                    t.insider_id, t.ticker, t.company, t.title, t.normalized_title,
+                    t.insider_id, t.ticker, MAX(t.company) AS company, MAX(t.title) AS title, MAX(t.normalized_title) AS normalized_title,
                     t.trade_type,
                     MIN(t.trade_date) AS trade_date,
                     MAX(t.trade_date) AS last_trade_date,
@@ -299,7 +299,7 @@ def get_related_trades(trade_id: str, limit: int = Query(default=5, ge=1, le=20)
                     SUM(t.qty) AS qty,
                     SUM(t.value) AS value,
                     COUNT(*) AS lot_count,
-                    t.is_csuite, t.accession,
+                    MAX(t.is_csuite) AS is_csuite, MIN(t.accession) AS accession,
                     GROUP_CONCAT(DISTINCT t.trans_code) AS trans_code,
                     MAX(t.is_10b5_1) AS is_10b5_1,
                     MAX(t.is_routine) AS is_routine,
