@@ -68,13 +68,13 @@ def sell_cessation(
         query = """
             SELECT
                 t.insider_id,
-                COALESCE(i.display_name, i.name) AS name,
-                i.cik,
+                MAX(COALESCE(i.display_name, i.name)) AS name,
+                MAX(i.cik) AS cik,
                 COUNT(*) AS sell_count_12m,
                 SUM(t.value) AS sell_value_12m,
                 MAX(t.trade_date) AS last_sell_date,
-                itr.score,
-                itr.score_tier,
+                MAX(itr.score) AS score,
+                MAX(itr.score_tier) AS score_tier,
                 MAX(t.pit_grade) AS pit_grade,
                 MAX(t.pit_blended_score) AS pit_blended_score,
                 GROUP_CONCAT(DISTINCT t.ticker) AS tickers
@@ -187,7 +187,7 @@ def tagged_signals(
     with get_db() as conn:
         # Check if trade_signals table exists
         table_check = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='trade_signals'"
+            "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'trade_signals'"
         ).fetchone()
         if not table_check:
             return {"total": 0, "limit": limit, "offset": offset, "items": []}
@@ -260,7 +260,7 @@ def signal_types(user: UserContext = Depends(get_current_user)) -> dict:
     """List available signal types with counts."""
     with get_db() as conn:
         table_check = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='trade_signals'"
+            "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'trade_signals'"
         ).fetchone()
         if not table_check:
             return {"types": []}

@@ -17,8 +17,8 @@ def _tables_exist(conn: sqlite3.Connection) -> bool:
     row = conn.execute(
         """
         SELECT COUNT(*) AS cnt
-        FROM sqlite_master
-        WHERE type = 'table' AND name IN ('congress_trades', 'politicians')
+        FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name IN ('congress_trades', 'politicians')
         """
     ).fetchone()
     return row["cnt"] == 2
@@ -129,10 +129,10 @@ def list_politicians(user: UserContext = Depends(get_current_user)) -> dict:
                 """
                 SELECT
                     p.politician_id,
-                    p.name,
-                    p.chamber,
-                    p.party,
-                    p.state,
+                    MAX(p.name) AS name,
+                    MAX(p.chamber) AS chamber,
+                    MAX(p.party) AS party,
+                    MAX(p.state) AS state,
                     COUNT(*) AS trade_count,
                     COALESCE(SUM(ct.value_estimate), 0) AS total_value_estimate,
                     MAX(ct.trade_date) AS last_trade_date
@@ -227,9 +227,9 @@ def congress_analytics(days: int = Query(default=90, ge=7, le=365), user: UserCo
             top_politicians = conn.execute(
                 """
                 SELECT
-                    p.name,
-                    p.party,
-                    p.chamber,
+                    MAX(p.name) AS name,
+                    MAX(p.party) AS party,
+                    MAX(p.chamber) AS chamber,
                     COUNT(*) AS trade_count,
                     COALESCE(SUM(ct.value_estimate), 0) AS total_value,
                     SUM(CASE WHEN ct.trade_type = 'buy' THEN 1 ELSE 0 END) AS buys,

@@ -29,7 +29,7 @@ def get_company(ticker: str, user: UserContext = Depends(get_current_user)) -> d
         # Get company name from most recent trade
         company_row = conn.execute(
             """
-            SELECT company, ticker,
+            SELECT MAX(company) AS company, ticker,
                    COUNT(*) AS total_trades,
                    SUM(value) AS total_value,
                    MIN(trade_date) AS first_trade,
@@ -163,8 +163,8 @@ def get_company_trades(
             FROM (
                 SELECT
                     MIN(t.trade_id) AS trade_id,
-                    t.insider_id, t.ticker, t.company, t.title,
-                    t.normalized_title,
+                    t.insider_id, MAX(t.ticker) AS ticker, MAX(t.company) AS company, MAX(t.title) AS title,
+                    MAX(t.normalized_title) AS normalized_title,
                     t.trade_type,
                     MIN(t.trade_date) AS trade_date,
                     MAX(t.trade_date) AS last_trade_date,
@@ -173,7 +173,7 @@ def get_company_trades(
                     SUM(t.qty) AS qty,
                     SUM(t.value) AS value,
                     COUNT(*) AS lot_count,
-                    t.is_csuite,
+                    MAX(t.is_csuite) AS is_csuite,
                     GROUP_CONCAT(DISTINCT t.trans_code) AS trans_code,
                     MAX(t.is_10b5_1) AS is_10b5_1,
                     MAX(t.is_routine) AS is_routine,

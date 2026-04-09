@@ -131,9 +131,9 @@ def get_private_company(slug: str, user: UserContext = Depends(get_current_user)
             """
             SELECT
                 t.insider_id,
-                COALESCE(i.display_name, i.name) AS name,
-                i.cik,
-                COALESCE(i.is_entity, 0) AS is_entity,
+                MAX(COALESCE(i.display_name, i.name)) AS name,
+                MAX(i.cik) AS cik,
+                MAX(COALESCE(i.is_entity, 0)) AS is_entity,
                 (SELECT t2.normalized_title FROM trades t2
                  WHERE t2.insider_id = t.insider_id
                    AND t2.ticker = 'NONE' AND t2.company = ?
@@ -143,7 +143,7 @@ def get_private_company(slug: str, user: UserContext = Depends(get_current_user)
                 SUM(t.value) AS total_value,
                 MIN(t.trade_date) AS first_trade,
                 MAX(t.trade_date) AS last_trade,
-                itr.score, itr.score_tier, itr.percentile
+                MAX(itr.score) AS score, MAX(itr.score_tier) AS score_tier, MAX(itr.percentile) AS percentile
             FROM trades t
             JOIN insiders i ON t.insider_id = i.insider_id
             LEFT JOIN insider_track_records itr ON t.insider_id = itr.insider_id
@@ -258,14 +258,14 @@ def get_private_company_trades(
             FROM (
                 SELECT
                     MIN(t.trade_id) AS trade_id,
-                    t.insider_id, t.ticker, t.company, t.title,
-                    t.normalized_title,
-                    t.trade_type, t.trade_date, t.filing_date,
+                    t.insider_id, MAX(t.ticker) AS ticker, MAX(t.company) AS company, MAX(t.title) AS title,
+                    MAX(t.normalized_title) AS normalized_title,
+                    t.trade_type, t.trade_date, MAX(t.filing_date) AS filing_date,
                     ROUND(SUM(t.value) / SUM(t.qty), 2) AS price,
                     SUM(t.qty) AS qty,
                     SUM(t.value) AS value,
                     COUNT(*) AS lot_count,
-                    t.is_csuite,
+                    MAX(t.is_csuite) AS is_csuite,
                     MAX(t.pit_grade) AS pit_grade,
                     MAX(t.pit_blended_score) AS pit_blended_score
                 FROM trades t

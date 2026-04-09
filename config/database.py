@@ -190,6 +190,41 @@ def translate_sql(sql: str) -> tuple[str, bool]:
     # IFNULL → COALESCE
     result = _RE_IFNULL.sub('COALESCE(', result)
 
+    # SQLite scalar MIN/MAX(a, b) → PG LEAST/GREATEST(a, b)
+    # Match 2-arg MAX/MIN where args can contain nested function calls like COUNT(*)
+    def _max_to_greatest(m):
+        full = m.group(0)
+        inner = full[4:-1]  # strip MAX( and )
+        # Find the comma that splits the two args (not inside nested parens)
+        depth = 0
+        for i, c in enumerate(inner):
+            if c == '(':
+                depth += 1
+            elif c == ')':
+                depth -= 1
+            elif c == ',' and depth == 0:
+                a, b = inner[:i].strip(), inner[i+1:].strip()
+                return f'GREATEST({a}, {b})'
+        return full  # single-arg, don't convert
+
+    def _min_to_least(m):
+        full = m.group(0)
+        inner = full[4:-1]
+        depth = 0
+        for i, c in enumerate(inner):
+            if c == '(':
+                depth += 1
+            elif c == ')':
+                depth -= 1
+            elif c == ',' and depth == 0:
+                a, b = inner[:i].strip(), inner[i+1:].strip()
+                return f'LEAST({a}, {b})'
+        return full
+
+    # Match MAX(...) or MIN(...) — the function handles single vs multi-arg
+    result = re.sub(r'\bMAX\([^)]*(?:\([^)]*\)[^)]*)*\)', _max_to_greatest, result)
+    result = re.sub(r'\bMIN\([^)]*(?:\([^)]*\)[^)]*)*\)', _min_to_least, result)
+
     return result, False
 
 

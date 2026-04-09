@@ -60,7 +60,7 @@ def list_clusters(
                 AVG(avg_score) AS avg_score
             FROM (
                 SELECT
-                    t.ticker, t.trade_type,
+                    MAX(t.ticker) AS ticker, MAX(t.trade_type) AS trade_type,
                     MAX(t.company) AS company,
                     -- Pick one insider per txn_group (prefer C-suite)
                     CASE WHEN MAX(t.is_csuite) = 1
@@ -118,8 +118,8 @@ def list_clusters(
             insider_rows = conn.execute(
                 f"""
                 SELECT
-                    t.insider_id, COALESCE(i.display_name, i.name) AS name, i.cik,
-                    itr.score, itr.score_tier,
+                    t.insider_id, MAX(COALESCE(i.display_name, i.name)) AS name, MAX(i.cik) AS cik,
+                    MAX(itr.score) AS score, MAX(itr.score_tier) AS score_tier,
                     MAX(t.pit_grade) AS pit_grade,
                     MAX(t.pit_blended_score) AS pit_blended_score,
                     SUM(t.value) AS trade_value,
@@ -224,9 +224,9 @@ def get_cluster_detail(
         insider_rows = conn.execute(
             f"""
             SELECT
-                t.insider_id, COALESCE(i.display_name, i.name) AS name, i.cik,
-                itr.score, itr.score_tier, itr.percentile,
-                itr.buy_count, itr.buy_win_rate_7d, itr.buy_avg_return_7d,
+                t.insider_id, MAX(COALESCE(i.display_name, i.name)) AS name, MAX(i.cik) AS cik,
+                MAX(itr.score) AS score, MAX(itr.score_tier) AS score_tier, MAX(itr.percentile) AS percentile,
+                MAX(itr.buy_count) AS buy_count, MAX(itr.buy_win_rate_7d) AS buy_win_rate_7d, MAX(itr.buy_avg_return_7d) AS buy_avg_return_7d,
                 MAX(t.pit_grade) AS pit_grade,
                 MAX(t.pit_blended_score) AS pit_blended_score,
                 SUM(t.value) AS trade_value, MAX(t.title) AS title,
@@ -279,12 +279,12 @@ def get_cluster_detail(
             FROM (
                 SELECT
                     MIN(t.trade_id) AS trade_id,
-                    t.insider_id, t.ticker, t.company, t.title,
-                    t.trade_type, t.trade_date, t.filing_date,
+                    t.insider_id, MAX(t.ticker) AS ticker, MAX(t.company) AS company, MAX(t.title) AS title,
+                    t.trade_type, MIN(t.trade_date) AS trade_date, MIN(t.filing_date) AS filing_date,
                     ROUND(SUM(t.value) / SUM(t.qty), 2) AS price,
                     SUM(t.qty) AS qty,
                     SUM(t.value) AS value,
-                    t.is_csuite,
+                    MAX(t.is_csuite) AS is_csuite,
                     MAX(t.pit_grade) AS pit_grade,
                     MAX(t.pit_blended_score) AS pit_blended_score
                 FROM trades t

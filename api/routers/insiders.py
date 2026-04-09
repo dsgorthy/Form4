@@ -79,10 +79,10 @@ def get_insider(identifier: str, user: UserContext = Depends(require_pro)) -> di
             SELECT trans_code,
                    CASE WHEN trans_code IN ('P') THEN 'buy'
                         WHEN trans_code IN ('S') THEN 'sell'
-                        ELSE trade_type END AS trade_type,
+                        ELSE MAX(trade_type) END AS trade_type,
                    COUNT(*) AS count, SUM(total_value) AS total_value
             FROM (
-                SELECT trans_code, trade_type, SUM(value) AS total_value
+                SELECT trans_code, MAX(trade_type) AS trade_type, SUM(value) AS total_value
                 FROM trades
                 WHERE insider_id = ? AND trans_code IS NOT NULL
                   AND superseded_by IS NULL
@@ -101,7 +101,7 @@ def get_insider(identifier: str, user: UserContext = Depends(require_pro)) -> di
                 AVG(ret) AS avg_return,
                 AVG(abn) AS avg_abnormal
             FROM (
-                SELECT t.trade_type, tr.return_7d AS ret, tr.abnormal_7d AS abn
+                SELECT t.trade_type, MAX(tr.return_7d) AS ret, MAX(tr.abnormal_7d) AS abn
                 FROM trades t
                 JOIN trade_returns tr ON t.trade_id = tr.trade_id
                 WHERE t.insider_id = ? AND t.trans_code IN ('P', 'S')
@@ -324,7 +324,7 @@ def get_insider_trades(
             FROM (
                 SELECT
                     MIN(t.trade_id) AS trade_id,
-                    t.ticker, t.company, t.title,
+                    t.ticker, MAX(t.company) AS company, MAX(t.title) AS title,
                     t.trade_type,
                     MIN(t.trade_date) AS trade_date,
                     MAX(t.trade_date) AS last_trade_date,
@@ -333,7 +333,7 @@ def get_insider_trades(
                     SUM(t.qty) AS qty,
                     SUM(t.value) AS value,
                     COUNT(*) AS lot_count,
-                    t.is_csuite,
+                    MAX(t.is_csuite) AS is_csuite,
                     GROUP_CONCAT(DISTINCT t.trans_code) AS trans_code,
                     MAX(t.is_10b5_1) AS is_10b5_1,
                     MAX(t.is_routine) AS is_routine,
@@ -480,7 +480,7 @@ def get_return_distribution(
 
         rows = conn.execute(
             f"""
-            SELECT tr.{col} AS ret, t.trade_type
+            SELECT MAX(tr.{col}) AS ret, t.trade_type
             FROM trades t
             JOIN trade_returns tr ON t.trade_id = tr.trade_id
             WHERE t.insider_id = ?
@@ -504,7 +504,7 @@ def get_return_distribution(
         trade_rows = conn.execute(
             f"""
             SELECT MIN(t.trade_date) AS trade_date, t.ticker, t.trade_type,
-                   SUM(t.value) AS value, tr.{col} AS ret
+                   SUM(t.value) AS value, MAX(tr.{col}) AS ret
             FROM trades t
             JOIN trade_returns tr ON t.trade_id = tr.trade_id
             WHERE t.insider_id = ?

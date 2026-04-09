@@ -190,13 +190,13 @@ def dashboard_highlights(user: UserContext = Depends(get_current_user)) -> dict:
             FROM (
                 SELECT
                     MIN(t.trade_id) AS trade_id,
-                    t.insider_id, t.ticker, t.company, t.title,
-                    t.trade_type, t.trade_date, t.filing_date,
+                    t.insider_id, t.ticker, MAX(t.company) AS company, MAX(t.title) AS title,
+                    t.trade_type, t.trade_date, MAX(t.filing_date) AS filing_date,
                     ROUND(SUM(t.value) / SUM(t.qty), 2) AS price,
                     SUM(t.qty) AS qty,
                     SUM(t.value) AS value,
                     COUNT(*) AS lot_count,
-                    t.is_csuite, t.accession,
+                    MAX(t.is_csuite) AS is_csuite, MIN(t.accession) AS accession,
                     MAX(t.pit_grade) AS pit_grade,
                     MAX(t.pit_blended_score) AS pit_blended_score
                 FROM trades t
@@ -236,13 +236,13 @@ def dashboard_highlights(user: UserContext = Depends(get_current_user)) -> dict:
             FROM (
                 SELECT
                     MIN(t.trade_id) AS trade_id,
-                    t.insider_id, t.ticker, t.company, t.title,
-                    t.trade_type, t.trade_date, t.filing_date,
+                    t.insider_id, t.ticker, MAX(t.company) AS company, MAX(t.title) AS title,
+                    t.trade_type, t.trade_date, MAX(t.filing_date) AS filing_date,
                     ROUND(SUM(t.value) / SUM(t.qty), 2) AS price,
                     SUM(t.qty) AS qty,
                     SUM(t.value) AS value,
                     COUNT(*) AS lot_count,
-                    t.is_csuite, t.accession,
+                    MAX(t.is_csuite) AS is_csuite, MIN(t.accession) AS accession,
                     MAX(t.pit_grade) AS pit_grade,
                     MAX(t.pit_blended_score) AS pit_blended_score
                 FROM trades t

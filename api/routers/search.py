@@ -24,7 +24,7 @@ def search(q: str = Query(..., min_length=1, max_length=100), request: Request =
         # Ticker matches: search by ticker prefix and company name
         tickers = conn.execute(
             """
-            SELECT ticker, company,
+            SELECT ticker, MAX(company) AS company,
                    COUNT(*) AS trade_count,
                    SUM(value) AS total_value
             FROM trades
