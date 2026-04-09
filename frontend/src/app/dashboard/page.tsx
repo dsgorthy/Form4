@@ -8,6 +8,8 @@ export const metadata = {
 
 import { Suspense } from "react";
 import Link from "next/link";
+import { auth } from "@clerk/nextjs/server";
+import { redirect } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatCard } from "@/components/ui/stat-card";
 import { SignalsTable } from "@/components/signals-table";
@@ -67,6 +69,9 @@ function SectionSkeleton({ title }: { title: string }) {
 }
 
 export default async function DashboardPage() {
+  const { userId } = await auth();
+  if (!userId) redirect("/");
+
   const { stats, filings, sentiment, heatmap, filingDelays, error } = await getDashboardData();
 
   return (
