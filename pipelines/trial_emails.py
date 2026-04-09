@@ -47,7 +47,6 @@ from api.email_templates import (
     win_back_email,
 )
 from config.database import get_connection
-from api.notifications_db import DB_PATH as NOTIFICATIONS_DB_PATH
 
 logging.basicConfig(
     level=logging.INFO,
