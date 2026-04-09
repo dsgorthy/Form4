@@ -22,8 +22,11 @@ import argparse
 import logging
 import os
 import re
-import sqlite3
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from config.database import get_connection
 
 from backfill import DB_PATH, normalize_name
 
@@ -58,7 +61,7 @@ def is_entity_name(name: str) -> bool:
 
 # ── Schema migration ────────────────────────────────────────────────────
 
-def ensure_schema(conn: sqlite3.Connection):
+def ensure_schema(conn):
     """Safely add entity resolution columns to existing tables.
 
     Uses try/except to handle 'duplicate column' errors so this is
@@ -68,8 +71,8 @@ def ensure_schema(conn: sqlite3.Connection):
     try:
         conn.execute("ALTER TABLE insiders ADD COLUMN is_entity INTEGER NOT NULL DEFAULT 0")
         logger.info("Added is_entity column to insiders")
-    except sqlite3.OperationalError as e:
-        if "duplicate column" in str(e).lower():
+    except Exception as e:
+        if "duplicate column" in str(e).lower() or "already exists" in str(e).lower():
             pass  # already exists
         else:
             raise
@@ -81,8 +84,8 @@ def ensure_schema(conn: sqlite3.Connection):
     try:
         conn.execute("ALTER TABLE trades ADD COLUMN effective_insider_id INTEGER")
         logger.info("Added effective_insider_id column to trades")
-    except sqlite3.OperationalError as e:
-        if "duplicate column" in str(e).lower():
+    except Exception as e:
+        if "duplicate column" in str(e).lower() or "already exists" in str(e).lower():
             pass  # already exists
         else:
             raise
@@ -119,7 +122,7 @@ def ensure_schema(conn: sqlite3.Connection):
 
 # ── Flag entity insiders ─────────────────────────────────────────────────
 
-def flag_entity_insiders(conn: sqlite3.Connection) -> int:
+def flag_entity_insiders(conn) -> int:
     """Flag insiders whose names match entity patterns. Returns count flagged."""
     # Reset all to 0 first for a clean pass
     conn.execute("UPDATE insiders SET is_entity = 0")
@@ -140,7 +143,7 @@ def flag_entity_insiders(conn: sqlite3.Connection) -> int:
 
 # ── Pass A: Link by accession ───────────────────────────────────────────
 
-def link_by_accession(conn: sqlite3.Connection) -> int:
+def link_by_accession(conn) -> int:
     """Find entity/individual pairs sharing the same Form 4 accession number.
 
     Co-filings on the same Form 4 indicate the entity is controlled by
@@ -181,6 +184,7 @@ def link_by_accession(conn: sqlite3.Connection) -> int:
         cur = conn.execute("""
             INSERT INTO insider_groups (primary_insider_id, group_name, confidence, method)
             VALUES (?, ?, 0.95, 'accession')
+            RETURNING group_id
         """, (indiv_id, group_name))
         group_id = cur.lastrowid
 
@@ -240,7 +244,7 @@ def _extract_person_name(entity_name: str) -> str | None:
     return None
 
 
-def link_by_name_substring(conn: sqlite3.Connection) -> int:
+def link_by_name_substring(conn) -> int:
     """Link entities to individuals by extracting person names from entity names.
 
     For each entity insider, extract a candidate person name and look for
@@ -299,6 +303,7 @@ def link_by_name_substring(conn: sqlite3.Connection) -> int:
         cur = conn.execute("""
             INSERT INTO insider_groups (primary_insider_id, group_name, confidence, method)
             VALUES (?, ?, 0.8, 'name_substring')
+            RETURNING group_id
         """, (indiv_id, group_name))
         group_id = cur.lastrowid
 
@@ -324,7 +329,7 @@ def link_by_name_substring(conn: sqlite3.Connection) -> int:
 
 # ── Pass C: Link by trade overlap ───────────────────────────────────────
 
-def link_by_trade_overlap(conn: sqlite3.Connection) -> int:
+def link_by_trade_overlap(conn) -> int:
     """Link entities to individuals with exact matching trades.
 
     Uses a single bulk SQL query to find all entity-individual pairs with
@@ -382,6 +387,7 @@ def link_by_trade_overlap(conn: sqlite3.Connection) -> int:
         cur = conn.execute("""
             INSERT INTO insider_groups (primary_insider_id, group_name, confidence, method)
             VALUES (?, ?, 0.7, 'trade_overlap')
+            RETURNING group_id
         """, (indiv_id, group_name))
         group_id = cur.lastrowid
 
@@ -407,7 +413,7 @@ def link_by_trade_overlap(conn: sqlite3.Connection) -> int:
 
 # ── Pass D: Link co-trading entity pairs ────────────────────────────────
 
-def link_entity_cotrades(conn: sqlite3.Connection) -> int:
+def link_entity_cotrades(conn) -> int:
     """Link entity pairs that co-trade the same ticker on many of the same dates.
 
     When two entities (e.g., SLTA IV and SLTA V) trade the same ticker on the
@@ -557,6 +563,7 @@ def link_entity_cotrades(conn: sqlite3.Connection) -> int:
         cur = conn.execute("""
             INSERT INTO insider_groups (primary_insider_id, group_name, confidence, method)
             VALUES (?, ?, 0.65, 'entity_cotrade')
+            RETURNING group_id
         """, (primary_entity, group_name))
         group_id = cur.lastrowid
 
@@ -579,7 +586,7 @@ def link_entity_cotrades(conn: sqlite3.Connection) -> int:
 
 # ── Apply effective IDs ─────────────────────────────────────────────────
 
-def apply_effective_ids(conn: sqlite3.Connection) -> int:
+def apply_effective_ids(conn) -> int:
     """Set effective_insider_id on trades for all grouped insiders.
 
     For each group, UPDATE trades SET effective_insider_id = primary_insider_id
@@ -627,9 +634,7 @@ def run_entity_resolution(db_path: Path | str):
             "until INSIDER_DEDUP=1 is set."
         )
 
-    conn = sqlite3.connect(str(db_path))
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")
+    conn = get_connection()
 
     # 1. Ensure schema columns exist
     ensure_schema(conn)

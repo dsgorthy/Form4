@@ -84,3 +84,4 @@ strategies/cw_strategies/data/
 
 # Scripts with credentials (keys should be in .env)
 scripts/seed_positions.py
+*.db

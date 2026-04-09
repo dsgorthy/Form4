@@ -27,12 +27,13 @@ from __future__ import annotations
 
 import argparse
 import logging
-import sqlite3
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from config.database import get_connection
 from backfill import DB_PATH, migrate_schema
 
 logging.basicConfig(
@@ -114,7 +115,7 @@ def classify_transaction(
 
 
 def detect_routine_pattern(
-    conn: sqlite3.Connection,
+    conn,
     insider_id: int,
     ticker: str,
     as_of_date: str,
@@ -183,7 +184,7 @@ def detect_routine_pattern(
     return {"is_routine": False, "reason": None}
 
 
-def batch_classify(conn: sqlite3.Connection):
+def batch_classify(conn):
     """
     Classify all trades in the database, populating signal_quality,
     signal_category, and is_routine columns.
@@ -244,7 +245,7 @@ def batch_classify(conn: sqlite3.Connection):
     logger.info("Marked %d insider-ticker pairs as routine sellers", routine_count)
 
 
-def print_analysis(conn: sqlite3.Connection):
+def print_analysis(conn):
     """Print signal quality analysis."""
     print("\n" + "=" * 70)
     print("TRANSACTION CLASSIFICATION ANALYSIS")
@@ -312,9 +313,7 @@ def main():
                         help="Print analysis after classification")
     args = parser.parse_args()
 
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")
+    conn = get_connection()
 
     migrate_schema(conn)
     batch_classify(conn)

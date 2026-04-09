@@ -23,8 +23,11 @@ from __future__ import annotations
 import argparse
 import logging
 import re
-import sqlite3
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from config.database import get_connection
 
 logging.basicConfig(
     level=logging.INFO,
@@ -220,7 +223,7 @@ def clean_name(raw_name: str, is_entity: bool) -> str:
     return clean_person_name(raw_name)
 
 
-def ensure_column(conn: sqlite3.Connection):
+def ensure_column(conn):
     """Add display_name column if it doesn't exist."""
     cols = {row[1] for row in conn.execute("PRAGMA table_info(insiders)").fetchall()}
     if "display_name" not in cols:
@@ -229,7 +232,7 @@ def ensure_column(conn: sqlite3.Connection):
         logger.info("Added display_name column to insiders table")
 
 
-def run_cleaning(conn: sqlite3.Connection, dry_run: bool = False):
+def run_cleaning(conn, dry_run: bool = False):
     """Clean all insider names and populate display_name."""
     if not dry_run:
         ensure_column(conn)
@@ -275,7 +278,7 @@ def run_cleaning(conn: sqlite3.Connection, dry_run: bool = False):
     print()
 
 
-def verify_with_edgar(conn: sqlite3.Connection, limit: int = 50):
+def verify_with_edgar(conn, limit: int = 50):
     """
     Cross-reference top insiders with SEC EDGAR CIK lookup.
     Uses the SEC's company/person search to verify names.
@@ -349,7 +352,7 @@ def verify_with_edgar(conn: sqlite3.Connection, limit: int = 50):
     )
 
 
-def print_stats(conn: sqlite3.Connection):
+def print_stats(conn):
     """Print name cleaning statistics."""
     total = conn.execute("SELECT COUNT(*) FROM insiders").fetchone()[0]
 
@@ -390,9 +393,7 @@ def main():
     parser.add_argument("--stats", action="store_true", help="Show cleaning stats")
     args = parser.parse_args()
 
-    conn = sqlite3.connect(str(DB_PATH), timeout=30)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.row_factory = sqlite3.Row
+    conn = get_connection()
 
     if args.stats:
         print_stats(conn)

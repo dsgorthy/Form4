@@ -54,7 +54,10 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROGRESS_MD = os.path.join(SCRIPT_DIR, "PROGRESS.md")
 sys.path.insert(0, SCRIPT_DIR)
 
-import sqlite3 as _sqlite3
+import sqlite3 as _sqlite3  # only used for checkpoint_db (local theta_cache.db)
+
+sys.path.insert(0, os.path.join(SCRIPT_DIR, "..", ".."))
+from config.database import get_connection
 
 from theta_client import ThetaClient, CacheDB, find_nearest_expiration, find_nearest_strike
 
@@ -100,13 +103,7 @@ class OptionPriceWriter:
     """Writes structured option price data to insiders.db as events are pulled."""
 
     def __init__(self):
-        db_path = os.path.normpath(INSIDERS_DB)
-        self._conn = _sqlite3.connect(db_path, timeout=30)
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._conn.execute("PRAGMA synchronous=NORMAL")
-        self._conn.execute("PRAGMA busy_timeout=10000")
-        if os.path.exists(PRICES_DB):
-            self._conn.execute(f"ATTACH DATABASE '{PRICES_DB}' AS prices")
+        self._conn = get_connection()
         self._rows_written = 0
 
     def _execute_with_retry(self, sql, params=None, many=False, max_retries=5):
@@ -120,8 +117,8 @@ class OptionPriceWriter:
                 else:
                     self._conn.execute(sql)
                 return
-            except _sqlite3.OperationalError as e:
-                if "locked" in str(e) and attempt < max_retries - 1:
+            except Exception as e:
+                if ("locked" in str(e) or "could not obtain" in str(e)) and attempt < max_retries - 1:
                     import time as _time
                     _time.sleep(1 + attempt)
                     continue
@@ -283,10 +280,7 @@ def load_events_from_db(trade_type: str = "buy", start_date: str = None,
     Multiple insider trades on the same ticker+date become one event,
     using the volume-weighted average price.
     """
-    import sqlite3
-    db_path = os.path.normpath(INSIDERS_DB)
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    conn = get_connection(readonly=True)
 
     query = """
         SELECT ticker, trade_date,
@@ -682,12 +676,11 @@ async def run_pull(events: list[dict], label: str = "pull", checkpoint_db: Cache
                 sell_ckpts = 0
                 if checkpoint_db:
                     try:
-                        import sqlite3
-                        conn = sqlite3.connect(checkpoint_db.db_path)
-                        cache_count = conn.execute("SELECT COUNT(*) FROM cache").fetchone()[0]
-                        buy_ckpts = conn.execute("SELECT COUNT(*) FROM cache WHERE cache_key LIKE 'event_done|%buy'").fetchone()[0]
-                        sell_ckpts = conn.execute("SELECT COUNT(*) FROM cache WHERE cache_key LIKE 'event_done|%sell'").fetchone()[0]
-                        conn.close()
+                        _conn = _sqlite3.connect(checkpoint_db.db_path)
+                        cache_count = _conn.execute("SELECT COUNT(*) FROM cache").fetchone()[0]
+                        buy_ckpts = _conn.execute("SELECT COUNT(*) FROM cache WHERE cache_key LIKE 'event_done|%buy'").fetchone()[0]
+                        sell_ckpts = _conn.execute("SELECT COUNT(*) FROM cache WHERE cache_key LIKE 'event_done|%sell'").fetchone()[0]
+                        _conn.close()
                     except Exception:
                         pass
                 update_progress_md(
@@ -717,12 +710,11 @@ async def run_pull(events: list[dict], label: str = "pull", checkpoint_db: Cache
         sell_ckpts = 0
         if checkpoint_db:
             try:
-                import sqlite3
-                conn = sqlite3.connect(checkpoint_db.db_path)
-                cache_count = conn.execute("SELECT COUNT(*) FROM cache").fetchone()[0]
-                buy_ckpts = conn.execute("SELECT COUNT(*) FROM cache WHERE cache_key LIKE 'event_done|%buy'").fetchone()[0]
-                sell_ckpts = conn.execute("SELECT COUNT(*) FROM cache WHERE cache_key LIKE 'event_done|%sell'").fetchone()[0]
-                conn.close()
+                _conn = _sqlite3.connect(checkpoint_db.db_path)
+                cache_count = _conn.execute("SELECT COUNT(*) FROM cache").fetchone()[0]
+                buy_ckpts = _conn.execute("SELECT COUNT(*) FROM cache WHERE cache_key LIKE 'event_done|%buy'").fetchone()[0]
+                sell_ckpts = _conn.execute("SELECT COUNT(*) FROM cache WHERE cache_key LIKE 'event_done|%sell'").fetchone()[0]
+                _conn.close()
             except Exception:
                 pass
         update_progress_md(

@@ -30,11 +30,15 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import shutil
-import sqlite3
 import subprocess
 from datetime import datetime
 from pathlib import Path
+
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from config.database import get_connection
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -104,42 +108,27 @@ def snapshot(to_env: str, tables: list[str] | None = None):
     dst_db = ENV_PATHS[to_env]["insiders"]
 
     if tables:
-        # Selective: copy only specified tables
+        # Selective: copy only specified tables via PG
         logger.info(f"Selective snapshot: {', '.join(tables)}")
-        if not dst_db.exists():
-            logger.error(f"Destination DB doesn't exist. Run 'init-sandbox' first.")
-            return
 
-        src_conn = sqlite3.connect(f"file:{src_db}?mode=ro", uri=True)
-        dst_conn = sqlite3.connect(str(dst_db))
-        dst_conn.execute("PRAGMA journal_mode=wal")
+        src_conn = get_connection(readonly=True)
 
         for table in tables:
             logger.info(f"  Copying table: {table}")
-            # Get schema
-            schema = src_conn.execute(
-                f"SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (table,)
+            # Verify table exists
+            check = src_conn.execute(
+                "SELECT table_name FROM information_schema.tables WHERE table_name = ?", (table,)
             ).fetchone()
-            if not schema:
+            if not check:
                 logger.warning(f"  Table {table} not found in source")
                 continue
 
-            # Drop and recreate
-            dst_conn.execute(f"DROP TABLE IF EXISTS {table}")
-            dst_conn.execute(schema[0])
-
-            # Copy data in chunks
-            rows = src_conn.execute(f"SELECT * FROM {table}").fetchall()
-            if rows:
-                cols = [d[0] for d in src_conn.execute(f"SELECT * FROM {table} LIMIT 0").description]
-                placeholders = ",".join("?" * len(cols))
-                dst_conn.executemany(f"INSERT INTO {table} VALUES ({placeholders})", rows)
-                logger.info(f"  → {len(rows):,} rows")
-
-            dst_conn.commit()
+            # Count rows
+            row_count = src_conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            logger.info(f"  → {row_count:,} rows (table exists in PG, no file copy needed)")
 
         src_conn.close()
-        dst_conn.close()
+        logger.info("Note: with PostgreSQL, selective snapshot is a no-op (single DB)")
     else:
         # Full copy
         logger.info(f"Full snapshot: insiders.db ({src_db.stat().st_size / 1e9:.1f} GB)...")
@@ -164,97 +153,75 @@ def transfer(from_env: str, to_env: str, table: str):
         backup_env("prod")
         logger.warning(f"Transferring {table} from {from_env} → PROD")
 
-    src_conn = sqlite3.connect(f"file:{src_db}?mode=ro", uri=True)
-    dst_conn = sqlite3.connect(str(dst_db))
-    dst_conn.execute("PRAGMA journal_mode=wal")
+    conn = get_connection(readonly=True)
 
-    # Get source schema and data
-    schema = src_conn.execute(
-        f"SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (table,)
+    # Verify table exists
+    check = conn.execute(
+        "SELECT table_name FROM information_schema.tables WHERE table_name = ?", (table,)
     ).fetchone()
-    if not schema:
-        logger.error(f"Table {table} not found in {from_env}")
+    if not check:
+        logger.error(f"Table {table} not found")
+        conn.close()
         return
 
-    rows = src_conn.execute(f"SELECT * FROM {table}").fetchall()
-    cols = [d[0] for d in src_conn.execute(f"SELECT * FROM {table} LIMIT 0").description]
+    row_count = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+    conn.close()
 
-    # Replace table in destination
-    dst_conn.execute(f"DROP TABLE IF EXISTS {table}")
-    dst_conn.execute(schema[0])
-    if rows:
-        placeholders = ",".join("?" * len(cols))
-        dst_conn.executemany(f"INSERT INTO {table} VALUES ({placeholders})", rows)
-
-    dst_conn.commit()
-    src_conn.close()
-    dst_conn.close()
-
-    logger.info(f"Transferred {table}: {len(rows):,} rows from {from_env} → {to_env}")
+    logger.info(f"Table {table}: {row_count:,} rows (PG: single database, transfer is a no-op)")
+    logger.info("Note: with PostgreSQL, prod and sandbox share the same database. "
+                "Use schema-based separation or pg_dump for environment isolation.")
 
 
 def backup_env(env: str):
-    """Create a timestamped backup of an environment's databases."""
+    """Create a timestamped backup using pg_dump."""
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_subdir = BACKUP_DIR / f"{env}_{ts}"
-    backup_subdir.mkdir()
+    backup_file = BACKUP_DIR / f"{env}_{ts}.sql.gz"
 
-    for db_name, path in ENV_PATHS[env].items():
-        if path.exists():
-            dst = backup_subdir / f"{db_name}.db"
-            shutil.copy2(path, dst)
-            logger.info(f"  Backed up {db_name}.db ({path.stat().st_size / 1e6:.0f} MB)")
-
-    logger.info(f"Backup: {backup_subdir}")
+    db_url = os.environ.get("DATABASE_URL", "postgresql:///form4")
+    cmd = f"pg_dump '{db_url}' | gzip > '{backup_file}'"
+    logger.info(f"Running pg_dump backup...")
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    if result.returncode == 0:
+        size_mb = backup_file.stat().st_size / 1e6
+        logger.info(f"  Backed up to {backup_file} ({size_mb:.0f} MB)")
+    else:
+        logger.error(f"  pg_dump failed: {result.stderr}")
+        return
 
     # Prune old backups (keep last 5 per environment)
-    all_backups = sorted(BACKUP_DIR.glob(f"{env}_*"))
+    all_backups = sorted(BACKUP_DIR.glob(f"{env}_*.sql.gz"))
     for old in all_backups[:-5]:
-        shutil.rmtree(old)
+        old.unlink()
         logger.info(f"  Pruned old backup: {old.name}")
 
 
 def compare_schemas():
-    """Compare table schemas between prod and sandbox."""
-    prod_db = get_db_path("prod")
-    sandbox_db = get_db_path("sandbox")
+    """List all tables and their column counts in the PostgreSQL database."""
+    conn = get_connection(readonly=True)
 
-    if not sandbox_db.exists():
-        logger.error("Sandbox DB doesn't exist. Run 'init-sandbox' first.")
-        return
+    tables = conn.execute("""
+        SELECT table_name
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+        ORDER BY table_name
+    """).fetchall()
 
-    prod_conn = sqlite3.connect(f"file:{prod_db}?mode=ro", uri=True)
-    sandbox_conn = sqlite3.connect(f"file:{sandbox_db}?mode=ro", uri=True)
+    print(f"{'Table':>30} | {'Columns':>7} | {'Rows':>10}")
+    print("-" * 55)
+    for row in tables:
+        table_name = row[0]
+        col_count = conn.execute(
+            "SELECT COUNT(*) FROM information_schema.columns WHERE table_name = ?",
+            (table_name,)
+        ).fetchone()[0]
+        try:
+            row_count = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+        except Exception:
+            row_count = -1
+        print(f"{table_name:>30} | {col_count:>7} | {row_count:>10,}")
 
-    prod_tables = {r[0]: r[1] for r in prod_conn.execute(
-        "SELECT name, sql FROM sqlite_master WHERE type='table' ORDER BY name"
-    ).fetchall()}
-
-    sandbox_tables = {r[0]: r[1] for r in sandbox_conn.execute(
-        "SELECT name, sql FROM sqlite_master WHERE type='table' ORDER BY name"
-    ).fetchall()}
-
-    all_tables = sorted(set(prod_tables) | set(sandbox_tables))
-
-    print(f"{'Table':>30} | {'Prod':>5} | {'Sandbox':>7} | Status")
-    print("-" * 65)
-    for t in all_tables:
-        in_prod = t in prod_tables
-        in_sandbox = t in sandbox_tables
-        if in_prod and in_sandbox:
-            if prod_tables[t] == sandbox_tables[t]:
-                status = "OK"
-            else:
-                status = "SCHEMA DIFF"
-        elif in_prod:
-            status = "MISSING in sandbox"
-        else:
-            status = "EXTRA in sandbox"
-        print(f"{t:>30} | {'YES' if in_prod else '':>5} | {'YES' if in_sandbox else '':>7} | {status}")
-
-    prod_conn.close()
-    sandbox_conn.close()
+    conn.close()
 
 
 def init_sandbox():

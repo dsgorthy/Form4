@@ -34,7 +34,6 @@ from __future__ import annotations
 import argparse
 import logging
 import re
-import sqlite3
 import sys
 import time
 import xml.etree.ElementTree as ET
@@ -46,6 +45,8 @@ import requests
 
 # Import shared functions from backfill.py
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from config.database import get_connection
 from backfill import (
     DB_PATH,
     get_or_create_insider,
@@ -672,7 +673,7 @@ def parse_form4_xml_full(
 # ── DB Insertion ─────────────────────────────────────────────────────────
 
 
-def insert_trades(conn: sqlite3.Connection, trades: List[dict], accession: str, filed_at: Optional[str] = None) -> int:
+def insert_trades(conn, trades: List[dict], accession: str, filed_at: Optional[str] = None) -> int:
     """Insert parsed trades into insiders.db. Returns count of new rows."""
     inserted = 0
     for t in trades:
@@ -725,12 +726,12 @@ def insert_trades(conn: sqlite3.Connection, trades: List[dict], accession: str, 
                 t.get("rptowner_cik") or None,
             ))
             inserted += 1
-        except sqlite3.IntegrityError:
+        except Exception:
             pass  # duplicate
     return inserted
 
 
-def insert_derivative_trades(conn: sqlite3.Connection, deriv_trades: List[dict], accession: str) -> int:
+def insert_derivative_trades(conn, deriv_trades: List[dict], accession: str) -> int:
     """Insert derivative transactions into derivative_trades table."""
     inserted = 0
     for t in deriv_trades:
@@ -773,7 +774,7 @@ def insert_derivative_trades(conn: sqlite3.Connection, deriv_trades: List[dict],
                 accession,
             ))
             inserted += 1
-        except sqlite3.IntegrityError:
+        except Exception:
             pass
     return inserted
 
@@ -782,7 +783,7 @@ def insert_derivative_trades(conn: sqlite3.Connection, deriv_trades: List[dict],
 
 
 def validate_against_existing(
-    conn: sqlite3.Connection, start_date: str, end_date: str
+    conn, start_date: str, end_date: str
 ) -> None:
     """
     Compare EFTS-parsed trades against existing bulk-imported trades for a
@@ -917,12 +918,7 @@ def main():
                         help="Minimum trade value to insert (default: 0 = all)")
     args = parser.parse_args()
 
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")
-    if RESEARCH_DB.exists():
-        conn.execute(f"ATTACH DATABASE '{RESEARCH_DB}' AS research")
+    conn = get_connection()
 
     # Ensure schema has new columns/tables
     migrate_schema(conn)
@@ -1082,7 +1078,6 @@ def main():
 
     if args.refresh_scores and not args.dry_run:
         logger.info("Recomputing track records...")
-        conn.row_factory = None  # compute_track_records expects tuple rows
         compute_track_records(conn)
         print_summary(conn)
 
