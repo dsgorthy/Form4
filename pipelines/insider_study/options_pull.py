@@ -158,7 +158,7 @@ class OptionPriceWriter:
         if batch:
             self._execute_with_retry(
                 """INSERT OR IGNORE INTO option_prices
-                   (ticker, expiration, strike, right, trade_date,
+                   (ticker, expiration, strike, "right", trade_date,
                     open, high, low, close, volume, bid, ask,
                     bid_size, ask_size, source)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
