@@ -134,6 +134,7 @@ def main() -> None:
 
     total_orders = 0
     total_filled = 0
+    total_skipped = 0
 
     for strat in STRATEGIES:
         name = strat["name"]
@@ -141,12 +142,27 @@ def main() -> None:
         print(f"STRATEGY: {name}")
         print(f"{'='*60}")
 
+        # Idempotency check: if the account already holds ALL the target
+        # positions (by ticker), skip this strategy. Safe to re-run any time.
+        existing_tickers: set = set()
         if not args.dry_run:
             acct = requests.get(f"{BASE_URL}/account", headers=headers(strat), timeout=10).json()
             print(f"  before: equity=${float(acct['equity']):,.2f}  cash=${float(acct['cash']):,.2f}")
+            pos_list = requests.get(f"{BASE_URL}/positions", headers=headers(strat), timeout=10).json()
+            existing_tickers = {p["symbol"] for p in pos_list}
+
+            target_tickers = {p["ticker"] for p in strat["positions"]}
+            if target_tickers.issubset(existing_tickers):
+                print(f"  SKIP: all target positions already present ({sorted(target_tickers)})")
+                total_skipped += len(strat["positions"])
+                continue
 
         orders = []
         for pos in strat["positions"]:
+            if pos["ticker"] in existing_tickers:
+                print(f"    SKIP {pos['ticker']}: already held")
+                total_skipped += 1
+                continue
             o = submit_order(strat, pos["ticker"], pos["shares"], args.dry_run)
             if o:
                 orders.append(o)
@@ -165,7 +181,7 @@ def main() -> None:
             acct = requests.get(f"{BASE_URL}/account", headers=headers(strat), timeout=10).json()
             print(f"\n  after: equity=${float(acct['equity']):,.2f}  cash=${float(acct['cash']):,.2f}")
 
-    print(f"\n{total_orders} orders submitted, {total_filled} filled")
+    print(f"\n{total_orders} orders submitted, {total_filled} filled, {total_skipped} skipped")
 
 
 if __name__ == "__main__":
