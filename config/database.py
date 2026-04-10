@@ -87,6 +87,10 @@ _RE_DATE_NOW_OFFSET = re.compile(
 _RE_DATE_PARAM_OFFSET = re.compile(
     r"date\(\?,\s*'(-?\d+)\s+(day|days|month|months)'\)", re.IGNORECASE
 )
+# Dynamic offset via concatenation: date(?, '-' || ? || ' days') or date(?, '+' || ? || ' days')
+_RE_DATE_PARAM_DYNAMIC_OFFSET = re.compile(
+    r"date\(\?,\s*'([+-])'\s*\|\|\s*\?\s*\|\|\s*'\s*(day|days)'\)", re.IGNORECASE
+)
 _RE_GROUP_CONCAT = re.compile(
     r"GROUP_CONCAT\(([^,)]+),\s*'([^']*)'\)", re.IGNORECASE
 )
@@ -139,6 +143,11 @@ def translate_sql(sql: str) -> tuple[str, bool]:
     )
     result = _RE_DATE_PARAM_OFFSET.sub(
         lambda m: f"(?::date + INTERVAL '{m.group(1)} {m.group(2)}')::text",
+        result,
+    )
+    # Dynamic offset: date(?, '-' || ? || ' days') → (?::date - ? * interval '1 day')::text
+    result = _RE_DATE_PARAM_DYNAMIC_OFFSET.sub(
+        lambda m: f"(?::date {m.group(1)} ? * interval '1 day')::text",
         result,
     )
     result = _RE_DATE_NOW.sub('CURRENT_DATE::text', result)

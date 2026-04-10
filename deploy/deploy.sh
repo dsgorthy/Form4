@@ -163,10 +163,20 @@ else
     log "Building all $LABEL services..."
     if [ "$ENV" = "sandbox" ]; then
         docker compose $COMPOSE_FILES build sandbox-api sandbox-frontend 2>&1 | tee -a "$LOG_FILE"
-        docker compose $COMPOSE_FILES up -d sandbox-api sandbox-frontend 2>&1 | tee -a "$LOG_FILE"
+        # Rolling restart: one service at a time to avoid simultaneous downtime
+        log "Rolling restart: sandbox-api..."
+        docker compose $COMPOSE_FILES up -d --no-deps sandbox-api 2>&1 | tee -a "$LOG_FILE"
+        sleep 3
+        log "Rolling restart: sandbox-frontend..."
+        docker compose $COMPOSE_FILES up -d --no-deps sandbox-frontend 2>&1 | tee -a "$LOG_FILE"
     else
         docker compose $COMPOSE_FILES build 2>&1 | tee -a "$LOG_FILE"
-        docker compose $COMPOSE_FILES up -d 2>&1 | tee -a "$LOG_FILE"
+        # Rolling restart: one service at a time to avoid simultaneous downtime
+        log "Rolling restart: api..."
+        docker compose $COMPOSE_FILES up -d --no-deps api 2>&1 | tee -a "$LOG_FILE"
+        sleep 3
+        log "Rolling restart: frontend..."
+        docker compose $COMPOSE_FILES up -d --no-deps frontend 2>&1 | tee -a "$LOG_FILE"
     fi
 fi
 

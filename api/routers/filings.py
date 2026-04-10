@@ -565,8 +565,8 @@ def what_if_simulation(trade_id: str, user: UserContext = Depends(get_current_us
                     exit_opt = conn.execute("""
                         SELECT bid, close FROM option_prices
                         WHERE ticker = ? AND right = ? AND expiration = ? AND strike = ?
-                          AND trade_date BETWEEN date(?, '+' || ? || ' days') AND date(?, '+' || ? || ' days')
-                        ORDER BY ABS(julianday(trade_date) - julianday(date(?, '+' || ? || ' days')))
+                          AND trade_date BETWEEN (?::date + ? * interval '1 day')::text AND (?::date + ? * interval '1 day')::text
+                        ORDER BY ABS(EXTRACT(EPOCH FROM (trade_date::timestamp - ((?::date + ? * interval '1 day')::timestamp))) / 86400.0)
                         LIMIT 1
                     """, (ticker, opt_type, opt["expiration"], opt["strike"],
                           opt_entry_str, hold_days - 2, opt_entry_str, hold_days + 3,

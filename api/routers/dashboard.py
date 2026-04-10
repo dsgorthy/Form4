@@ -346,7 +346,7 @@ def dashboard_sentiment(
                 COALESCE(SUM(CASE WHEN trade_type = 'buy' THEN value ELSE 0 END), 0) AS buy_value,
                 COALESCE(SUM(CASE WHEN trade_type = 'sell' THEN value ELSE 0 END), 0) AS sell_value
             FROM trades
-            WHERE filing_date BETWEEN date(?, '-' || ? || ' days') AND ?
+            WHERE filing_date BETWEEN (?::date - ? * interval '1 day')::text AND ?
               AND superseded_by IS NULL
               AND {_PS_FILTER_BARE}
               {routine_filter}
@@ -389,7 +389,7 @@ def dashboard_heatmap(days: int = Query(default=90, ge=1, le=365)) -> List[dict]
                 COUNT(*) AS count,
                 SUM(value) AS total_value
             FROM trades
-            WHERE filing_date BETWEEN date(?, '-' || ? || ' days') AND ?
+            WHERE filing_date BETWEEN (?::date - ? * interval '1 day')::text AND ?
               AND superseded_by IS NULL
               AND """ + _PS_FILTER_BARE + """
             GROUP BY filing_date
@@ -403,7 +403,7 @@ def dashboard_heatmap(days: int = Query(default=90, ge=1, le=365)) -> List[dict]
             """
             SELECT filing_date AS date, ticker, SUM(value) AS tv
             FROM trades
-            WHERE filing_date BETWEEN date(?, '-' || ? || ' days') AND ?
+            WHERE filing_date BETWEEN (?::date - ? * interval '1 day')::text AND ?
               AND superseded_by IS NULL
               AND """ + _PS_FILTER_BARE + """
             GROUP BY filing_date, ticker
