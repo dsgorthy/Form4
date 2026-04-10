@@ -1,24 +1,24 @@
 """Paper trading dashboard — admin-only view of the 3 live Alpaca paper accounts.
 
-$100K NORMALIZATION CONVENTION (source of truth for how strategies are reported)
+$100K CONVENTION (source of truth for how strategies are reported)
 ================================================================================
-Every strategy is treated as if it started with exactly $100,000 at its strategy
-start date (2026-04-07) and compounded through actual returns since. This keeps:
-  1. All 3 strategies directly comparable (same baseline)
-  2. YAML `starting_capital`, `portfolios` table, `/api/v1/portfolio`,
-     `/api/v1/paper-trading/dashboard`, and the frontend all in agreement
-  3. Dashboard numbers consistent with backtest framing (backtests also ran
-     at $100K)
+Every strategy is treated as if it started with $100,000 at its strategy start
+date (the first trade in strategy_portfolio). The real Alpaca accounts have
+been funded to match the "$100K compounded through actual strategy P&L" value,
+so the Alpaca equity IS the theoretical current value. No normalization needed.
 
-The real Alpaca accounts were funded with different amounts ($301,680 /
-$191,766 / $148,855 on 2026-04-02). We don't touch those — they're real data.
-We just compute the real % return and scale it onto the $100K baseline:
+Starting capital (label):  $100,000
+Current equity:            float(account.equity)  — real Alpaca
+Total P&L:                 current_equity - $100,000
+Total P&L %:               total_pnl / $100,000
 
-    actual_return_pct = (alpaca_equity - alpaca_initial) / alpaca_initial * 100
-    normalized_equity = $100,000 * (1 + actual_return_pct / 100)
+Backtest expectation:      $100,000 * (1 + CAGR) ^ years_since_start_date
+Delta vs expected:         (current_equity - expected) / expected
 
-The runners (cw_runner.py) use YAML `starting_capital` for position sizing.
-All 3 YAMLs should be set to 100000 so runner behavior matches the dashboard.
+Accounts were (re-)funded to the theoretical value on 2026-04-06 and again on
+2026-04-10 after the backtest was re-run with updated exit logic. If the
+backtest ever changes materially again, the Alpaca accounts will drift from
+the new theoretical and need re-funding.
 
 Cached server-side for 60s to avoid hammering Alpaca on every page load.
 """
@@ -28,7 +28,6 @@ from __future__ import annotations
 import logging
 import os
 import time
-from collections import defaultdict
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -40,18 +39,19 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/paper-trading", tags=["paper-trading"])
 
-# Every strategy is displayed as if it started with this amount, with actual
-# returns compounded on top. Keeps all 3 strategies directly comparable.
-NORMALIZED_STARTING_CAPITAL = 100_000
+# Conceptual starting capital label. Real Alpaca accounts are pegged to
+# $100K + theoretical strategy P&L since each strategy's first trade date.
+STARTING_CAPITAL = 100_000
 
-# Strategy registry. No `starting_capital` field — all normalized to the
-# constant above. `started_at` matches when each Alpaca paper account was
-# actually created (verified against /v2/account.created_at).
+# Strategy registry. `started_at` is the FIRST TRADE DATE from the backtest
+# (matches strategy_portfolio.entry_date) — not when the Alpaca account was
+# funded. The Alpaca equity represents "continuation from that date as if we
+# had started with $100K."
 STRATEGIES = [
     {
         "name": "quality_momentum",
         "label": "Quality + Momentum",
-        "started_at": "2026-04-07",
+        "started_at": "2020-03-06",
         "key_env": "ALPACA_API_KEY_QUALITY_MOMENTUM",
         "secret_env": "ALPACA_API_SECRET_QUALITY_MOMENTUM",
         "backtest": {
@@ -65,7 +65,7 @@ STRATEGIES = [
     {
         "name": "reversal_dip",
         "label": "Deep Reversal + Dip",
-        "started_at": "2026-04-07",
+        "started_at": "2020-03-04",
         "key_env": "ALPACA_API_KEY_REVERSAL_DIP",
         "secret_env": "ALPACA_API_SECRET_REVERSAL_DIP",
         "backtest": {
@@ -79,7 +79,7 @@ STRATEGIES = [
     {
         "name": "tenb51_surprise",
         "label": "10b5-1 Surprise",
-        "started_at": "2026-04-07",
+        "started_at": "2023-08-15",
         "key_env": "ALPACA_API_KEY_TENB51_SURPRISE",
         "secret_env": "ALPACA_API_SECRET_TENB51_SURPRISE",
         "backtest": {
@@ -99,11 +99,9 @@ _CACHE_TTL = 60  # seconds
 
 
 def _expected_equity(starting_capital: float, cagr_pct: float, started_at: str) -> float:
-    """Compute expected equity given a CAGR and elapsed days since start.
-
-    Uses 252 trading days per year. Returns starting_capital if no time has
-    elapsed yet.
-    """
+    """Compute expected equity compounding $100K at CAGR since the strategy
+    start date. Uses calendar years (365.25 days) because the strategy's
+    "age" is measured in real time, not trading days."""
     try:
         start_dt = datetime.strptime(started_at, "%Y-%m-%d")
     except ValueError:
@@ -111,8 +109,8 @@ def _expected_equity(starting_capital: float, cagr_pct: float, started_at: str) 
     days_elapsed = (datetime.utcnow() - start_dt).days
     if days_elapsed <= 0:
         return starting_capital
-    cagr = cagr_pct / 100.0
-    return starting_capital * ((1 + cagr) ** (days_elapsed / 252))
+    years = days_elapsed / 365.25
+    return starting_capital * ((1 + cagr_pct / 100.0) ** years)
 
 
 def _deviation_status(delta_pct: float) -> str:
@@ -124,69 +122,16 @@ def _deviation_status(delta_pct: float) -> str:
     return "well_below"
 
 
-def _compute_initial_funding(account: dict, positions: list, activities: list) -> tuple[float, float, float, float]:
-    """Back out initial funding from current state + activity history.
-
-    initial = equity - (realized_pnl + unrealized_pnl + fees)
-
-    Realized P&L is computed via FIFO lot matching — buy orders open lots,
-    sell orders close them against the oldest open lot at that price.
-
-    Returns: (initial_funding, realized_pnl, unrealized_pnl, fees)
-    """
-    equity = float(account.get("equity", 0) or 0)
-    unrealized = sum(float(p.get("unrealized_pl", 0) or 0) for p in positions)
-
-    book: dict = defaultdict(list)  # symbol -> [[qty, price], ...]
-    realized = 0.0
-    fees = 0.0
-
-    # Activities come back from Alpaca in reverse chronological order; reverse
-    # again so we process fills oldest → newest and FIFO is correct.
-    for a in reversed(activities):
-        t = a.get("activity_type")
-        if t == "FEE":
-            try:
-                fees += float(a.get("net_amount", 0) or 0)
-            except (TypeError, ValueError):
-                pass
-        elif t == "FILL":
-            try:
-                sym = a.get("symbol")
-                side = a.get("side")
-                qty = float(a.get("qty", 0) or 0)
-                price = float(a.get("price", 0) or 0)
-            except (TypeError, ValueError):
-                continue
-            if not sym or qty <= 0:
-                continue
-            if side == "buy":
-                book[sym].append([qty, price])
-            elif side == "sell":
-                remaining = qty
-                while remaining > 0 and book[sym]:
-                    lot = book[sym][0]
-                    take = min(remaining, lot[0])
-                    realized += take * (price - lot[1])
-                    remaining -= take
-                    lot[0] -= take
-                    if lot[0] <= 0:
-                        book[sym].pop(0)
-
-    total_pnl = realized + unrealized + fees
-    initial = equity - total_pnl
-    return initial, realized, unrealized, fees
-
-
 def _fetch_strategy_snapshot(strategy_def: dict) -> dict:
-    """Fetch live Alpaca state for one strategy, normalize to $100K baseline."""
+    """Fetch live Alpaca state. The Alpaca equity IS the current value — no
+    scaling. Starting capital is labeled as $100K (conceptual)."""
     api_key = os.environ.get(strategy_def["key_env"], "")
     api_secret = os.environ.get(strategy_def["secret_env"], "")
 
     base = {
         "name": strategy_def["name"],
         "label": strategy_def["label"],
-        "starting_capital": NORMALIZED_STARTING_CAPITAL,
+        "starting_capital": STARTING_CAPITAL,
         "started_at": strategy_def["started_at"],
         "backtest": strategy_def["backtest"],
     }
@@ -198,108 +143,61 @@ def _fetch_strategy_snapshot(strategy_def: dict) -> dict:
         acc_wrapper = AlpacaAccount(api_key=api_key, api_secret=api_secret, paper=True)
         account = acc_wrapper.get_account()
         positions_raw = acc_wrapper.get_positions()
-        activities = acc_wrapper.get_activities()
     except Exception as e:
         logger.warning("Alpaca fetch failed for %s: %s", strategy_def["name"], e)
         return {**base, "error": f"{type(e).__name__}: {e}"}
 
-    actual_initial, realized, unrealized, fees = _compute_initial_funding(
-        account, positions_raw, activities
-    )
-    actual_equity = float(account.get("equity", 0) or 0)
-    actual_last_equity = float(account.get("last_equity", 0) or 0)
+    current_equity = float(account.get("equity", 0) or 0)
+    last_equity = float(account.get("last_equity", 0) or 0)
+    cash = float(account.get("cash", 0) or 0)
+    buying_power = float(account.get("buying_power", 0) or 0)
 
-    if actual_initial <= 0:
-        # Brand-new account with no trades — just mirror the $100K baseline.
-        return {
-            **base,
-            "current_equity": float(NORMALIZED_STARTING_CAPITAL),
-            "cash": float(NORMALIZED_STARTING_CAPITAL),
-            "buying_power": float(NORMALIZED_STARTING_CAPITAL * 2),
-            "status": account.get("status", "unknown"),
-            "day_change": 0.0,
-            "day_change_pct": 0.0,
-            "total_pnl": 0.0,
-            "total_pnl_pct": 0.0,
-            "expected_equity": float(NORMALIZED_STARTING_CAPITAL),
-            "delta_from_expected_pct": 0.0,
-            "deviation_status": "on_track",
-            "position_count": 0,
-            "open_positions": [],
-            "_alpaca_actual_funding": round(actual_initial, 2),
-            "_alpaca_actual_equity": round(actual_equity, 2),
-        }
-
-    # The real return % — this is what the strategy actually earned.
-    actual_return_pct = (actual_equity - actual_initial) / actual_initial * 100
-
-    # Scale factor maps real Alpaca dollars into the $100K baseline world.
-    scale = NORMALIZED_STARTING_CAPITAL / actual_initial
-
-    normalized_current = NORMALIZED_STARTING_CAPITAL * (1 + actual_return_pct / 100)
-    normalized_pnl = normalized_current - NORMALIZED_STARTING_CAPITAL
+    total_pnl = current_equity - STARTING_CAPITAL
+    total_pnl_pct = total_pnl / STARTING_CAPITAL * 100
 
     expected = _expected_equity(
-        NORMALIZED_STARTING_CAPITAL,
+        STARTING_CAPITAL,
         strategy_def["backtest"]["cagr"],
         strategy_def["started_at"],
     )
     delta_from_expected_pct = (
-        (normalized_current - expected) / expected * 100 if expected > 0 else 0
+        (current_equity - expected) / expected * 100 if expected > 0 else 0
     )
 
-    # Scale positions into the $100K world. Ticker / qty / entry price / current
-    # price stay as-is (they're real market data), but market value and
-    # unrealized P&L dollars are scaled. The unrealized P&L % is unchanged.
-    normalized_positions = []
+    day_change = current_equity - last_equity
+    day_change_pct = (day_change / last_equity * 100) if last_equity > 0 else 0
+
+    open_positions = []
     for p in positions_raw:
         try:
             qty = float(p.get("qty", 0) or 0)
-            avg_entry = float(p.get("avg_entry_price", 0) or 0)
-            current = float(p.get("current_price", 0) or 0)
-            mv = float(p.get("market_value", 0) or 0)
-            upl = float(p.get("unrealized_pl", 0) or 0)
-            uplpc = float(p.get("unrealized_plpc", 0) or 0) * 100
+            open_positions.append({
+                "symbol": p.get("symbol"),
+                "qty": qty,
+                "avg_entry_price": float(p.get("avg_entry_price", 0) or 0),
+                "current_price": float(p.get("current_price", 0) or 0),
+                "market_value": float(p.get("market_value", 0) or 0),
+                "unrealized_pl": float(p.get("unrealized_pl", 0) or 0),
+                "unrealized_plpc": float(p.get("unrealized_plpc", 0) or 0) * 100,
+            })
         except (TypeError, ValueError):
             continue
-        normalized_positions.append({
-            "symbol": p.get("symbol"),
-            "qty": qty,
-            "avg_entry_price": avg_entry,
-            "current_price": current,
-            "market_value": mv * scale,
-            "unrealized_pl": upl * scale,
-            "unrealized_plpc": uplpc,
-        })
-
-    normalized_positions_value = sum(p["market_value"] for p in normalized_positions)
-    normalized_cash = normalized_current - normalized_positions_value
-
-    day_change_actual = actual_equity - actual_last_equity
-    day_change_pct = (
-        (day_change_actual / actual_last_equity * 100) if actual_last_equity > 0 else 0
-    )
 
     return {
         **base,
-        "current_equity": round(normalized_current, 2),
-        "cash": round(normalized_cash, 2),
-        "buying_power": round(normalized_current * 2, 2),  # approximates 2x margin
+        "current_equity": round(current_equity, 2),
+        "cash": round(cash, 2),
+        "buying_power": round(buying_power, 2),
         "status": account.get("status", "unknown"),
-        "day_change": round(day_change_actual * scale, 2),
+        "day_change": round(day_change, 2),
         "day_change_pct": round(day_change_pct, 2),
-        "total_pnl": round(normalized_pnl, 2),
-        "total_pnl_pct": round(actual_return_pct, 2),
+        "total_pnl": round(total_pnl, 2),
+        "total_pnl_pct": round(total_pnl_pct, 2),
         "expected_equity": round(expected, 2),
         "delta_from_expected_pct": round(delta_from_expected_pct, 2),
         "deviation_status": _deviation_status(delta_from_expected_pct),
-        "position_count": len(normalized_positions),
-        "open_positions": normalized_positions,
-        # Debug fields — useful for verifying the normalization math
-        "_alpaca_actual_funding": round(actual_initial, 2),
-        "_alpaca_actual_equity": round(actual_equity, 2),
-        "_alpaca_realized_pnl": round(realized, 2),
-        "_alpaca_unrealized_pnl": round(unrealized, 2),
+        "position_count": len(open_positions),
+        "open_positions": open_positions,
     }
 
 
@@ -321,7 +219,7 @@ def paper_trading_dashboard(user: UserContext = Depends(get_current_user)) -> di
     strategies = [_fetch_strategy_snapshot(s) for s in STRATEGIES]
     payload = {
         "as_of": datetime.now(timezone.utc).isoformat(),
-        "normalized_starting_capital": NORMALIZED_STARTING_CAPITAL,
+        "starting_capital": STARTING_CAPITAL,
         "strategies": strategies,
         "summary": {
             "total_strategies": len(strategies),
