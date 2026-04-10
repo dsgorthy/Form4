@@ -160,8 +160,10 @@ def translate_sql(sql: str) -> tuple[str, bool]:
             result = result.rstrip().rstrip(';') + ' ON CONFLICT DO NOTHING'
 
     # INSERT OR REPLACE → INSERT ... ON CONFLICT DO NOTHING
-    # (conservative: skip duplicates rather than risk cascading deletes)
+    # WARNING: This drops updates! Use explicit ON CONFLICT DO UPDATE for upserts.
     if _RE_INSERT_OR_REPLACE.search(result):
+        logger.warning("INSERT OR REPLACE translated to DO NOTHING — data may not update. "
+                        "Use explicit ON CONFLICT DO UPDATE instead. SQL: %s", sql[:120])
         result = _RE_INSERT_OR_REPLACE.sub('INSERT INTO', result)
         if 'RETURNING' in result.upper():
             result = re.sub(

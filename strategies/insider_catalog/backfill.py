@@ -507,10 +507,16 @@ def import_returns(conn: sqlite3.Connection):
 
                 for (trade_id,) in trades:
                     conn.execute("""
-                        INSERT OR REPLACE INTO trade_returns
+                        INSERT INTO trade_returns
                             (trade_id, entry_price, exit_price_7d, return_7d,
                              spy_return_7d, abnormal_7d)
                         VALUES (?, ?, ?, ?, ?, ?)
+                        ON CONFLICT (trade_id) DO UPDATE SET
+                            entry_price = excluded.entry_price,
+                            exit_price_7d = excluded.exit_price_7d,
+                            return_7d = excluded.return_7d,
+                            spy_return_7d = excluded.spy_return_7d,
+                            abnormal_7d = excluded.abnormal_7d
                     """, (
                         trade_id, entry_price, exit_price,
                         trade_return / 100.0 if abs(trade_return) > 1 else trade_return,

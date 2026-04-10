@@ -87,7 +87,8 @@ def _get_watermark(nconn: ConnectionWrapper, event_type: str) -> str | None:
 
 def _set_watermark(nconn: ConnectionWrapper, event_type: str, date: str) -> None:
     nconn.execute(
-        "INSERT OR REPLACE INTO scan_watermarks (event_type, last_processed_date) VALUES (?, ?)",
+        "INSERT INTO scan_watermarks (event_type, last_processed_date) VALUES (?, ?) "
+        "ON CONFLICT (event_type) DO UPDATE SET last_processed_date = excluded.last_processed_date",
         (event_type, date),
     )
 

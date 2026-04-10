@@ -269,7 +269,7 @@ def attempt_correction(trade: dict) -> dict | None:
 def quarantine_trade(conn: sqlite3.Connection, trade: dict):
     """Move a trade to the bad_trades table and delete from trades."""
     conn.execute("""
-        INSERT OR REPLACE INTO bad_trades
+        INSERT INTO bad_trades
             (trade_id, insider_id, ticker, company, title, trade_type, trade_date,
              filing_date, original_price, original_qty, original_value,
              suspect_reason, median_price, deviation_factor, source, accession)
@@ -278,6 +278,10 @@ def quarantine_trade(conn: sqlite3.Connection, trade: dict):
             filing_date, price, qty, value,
             ?, ?, ?, source, accession
         FROM trades WHERE trade_id = ?
+        ON CONFLICT (trade_id) DO UPDATE SET
+            suspect_reason = excluded.suspect_reason,
+            median_price = excluded.median_price,
+            deviation_factor = excluded.deviation_factor
     """, (trade["reason"], trade.get("median_price"), trade.get("deviation"), trade["trade_id"]))
 
     conn.execute("DELETE FROM trades WHERE trade_id = ?", (trade["trade_id"],))

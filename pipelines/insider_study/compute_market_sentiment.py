@@ -213,11 +213,21 @@ def compute_sentiment(conn: object, start: str, end: str) -> int:
     for i in range(0, len(inserts), BATCH_SIZE):
         batch = inserts[i:i + BATCH_SIZE]
         conn.executemany("""
-            INSERT OR REPLACE INTO insider_market_sentiment
+            INSERT INTO insider_market_sentiment
             (date, buy_count_30d, sell_count_30d, buy_sell_ratio,
              buy_value_30d, sell_value_30d, value_ratio,
              cluster_count_30d, percentile, sentiment_label)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (date) DO UPDATE SET
+                buy_count_30d = excluded.buy_count_30d,
+                sell_count_30d = excluded.sell_count_30d,
+                buy_sell_ratio = excluded.buy_sell_ratio,
+                buy_value_30d = excluded.buy_value_30d,
+                sell_value_30d = excluded.sell_value_30d,
+                value_ratio = excluded.value_ratio,
+                cluster_count_30d = excluded.cluster_count_30d,
+                percentile = excluded.percentile,
+                sentiment_label = excluded.sentiment_label
         """, batch)
     conn.commit()
 

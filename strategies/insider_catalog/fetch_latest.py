@@ -68,9 +68,12 @@ def ensure_processed_table(conn):
 
 def update_last_fetch_time(conn):
     """Record the current time as the last successful fetch run."""
+    from datetime import datetime
+    now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     conn.execute(
-        "INSERT INTO sync_meta (key, value) VALUES ('last_fetch_at', datetime('now')) "
-        "ON CONFLICT (key) DO UPDATE SET value = excluded.value"
+        "INSERT INTO sync_meta (key, value) VALUES ('last_fetch_at', ?) "
+        "ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+        (now_str,),
     )
     conn.commit()
 

@@ -403,13 +403,27 @@ def upsert_score(conn: object, score_data: dict | ScoringResult,
         d = score_data
 
     conn.execute("""
-        INSERT OR REPLACE INTO insider_ticker_scores
+        INSERT INTO insider_ticker_scores
             (insider_id, ticker, as_of_date,
              ticker_trade_count, ticker_win_rate_7d, ticker_avg_abnormal_7d, ticker_score,
              global_trade_count, global_win_rate_7d, global_avg_abnormal_7d, global_score,
              blended_score, role_at_ticker, role_weight,
              is_primary_company, sufficient_data)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (insider_id, ticker, as_of_date) DO UPDATE SET
+            ticker_trade_count = excluded.ticker_trade_count,
+            ticker_win_rate_7d = excluded.ticker_win_rate_7d,
+            ticker_avg_abnormal_7d = excluded.ticker_avg_abnormal_7d,
+            ticker_score = excluded.ticker_score,
+            global_trade_count = excluded.global_trade_count,
+            global_win_rate_7d = excluded.global_win_rate_7d,
+            global_avg_abnormal_7d = excluded.global_avg_abnormal_7d,
+            global_score = excluded.global_score,
+            blended_score = excluded.blended_score,
+            role_at_ticker = excluded.role_at_ticker,
+            role_weight = excluded.role_weight,
+            is_primary_company = excluded.is_primary_company,
+            sufficient_data = excluded.sufficient_data
     """, (
         d["insider_id"], d["ticker"], d["as_of_date"],
         d["ticker_trade_count"], d["ticker_win_rate_7d"],

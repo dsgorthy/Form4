@@ -169,9 +169,12 @@ class OptionPriceWriter:
     def write_pull_status(self, ticker, trade_date, trade_type, contracts_found, contracts_empty):
         """Record that an event's options have been pulled."""
         self._execute_with_retry(
-            """INSERT OR REPLACE INTO option_pull_status
+            """INSERT INTO option_pull_status
                (ticker, trade_date, trade_type, contracts_found, contracts_empty)
-               VALUES (?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT (ticker, trade_date, trade_type) DO UPDATE SET
+                   contracts_found = excluded.contracts_found,
+                   contracts_empty = excluded.contracts_empty""",
             (ticker, str(trade_date), trade_type, contracts_found, contracts_empty),
         )
         self._conn.commit()
