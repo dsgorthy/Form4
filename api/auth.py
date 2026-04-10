@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 from dataclasses import dataclass
 from typing import Optional
 
@@ -10,6 +11,11 @@ from jwt import PyJWKClient
 from fastapi import Header, Request
 
 from api.config import CLERK_JWKS_URL
+
+# Comma-separated Clerk user IDs that can access /admin/* endpoints
+_ADMIN_USER_IDS = set(
+    uid.strip() for uid in os.environ.get("ADMIN_USER_IDS", "").split(",") if uid.strip()
+)
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +53,11 @@ class UserContext:
     def has_full_feed(self) -> bool:
         """Pro, trial, and grace users see the full feed (no 90-day cutoff, no gated items)."""
         return self.tier in ("pro", "trial", "grace")
+
+    @property
+    def is_admin(self) -> bool:
+        """True if this user's Clerk ID is in the ADMIN_USER_IDS env var."""
+        return self.user_id is not None and self.user_id in _ADMIN_USER_IDS
 
 
 ANONYMOUS = UserContext()

@@ -21,6 +21,7 @@ from api.routers import (
     congress,
     dashboard,
     data_quality,
+    paper_trading,
     portfolio,
     export,
     filings,
@@ -195,6 +196,7 @@ app.include_router(api_keys.router)
 app.include_router(export.router)
 app.include_router(notifications.router)
 app.include_router(onboarding.router)
+app.include_router(paper_trading.router)
 app.include_router(portfolio.router)
 app.include_router(private_companies.router)
 app.include_router(sitemap.router)
