@@ -40,7 +40,7 @@ const PRESETS: Preset[] = [
   { key: "sells", label: "Notable Sells", filters: { trade_type: "sell", hide_routine: "true" } },
   { key: "big", label: "$1M+ Trades", filters: { min_value: "1000000" } },
   { key: "top", label: "Top Insiders", filters: { min_tier: "2" } },
-  { key: "a_grade", label: "A-Grade Only", filters: { min_grade: "A" } },
+  { key: "a_grade", label: "A-Grade Insiders", filters: { min_grade: "A" } },
 ];
 
 // ---------------------------------------------------------------------------
@@ -74,10 +74,10 @@ const FILTER_OPTIONS: FilterOption[] = [
   },
   {
     key: "min_grade",
-    label: "Signal Grade",
+    label: "Insider Grade",
     options: [
-      { value: "A", label: "A Grade", color: "border-[#22C55E]/50 bg-[#22C55E]/10 text-[#22C55E]" },
-      { value: "B", label: "B+ Grade", color: "border-[#3B82F6]/50 bg-[#3B82F6]/10 text-[#3B82F6]" },
+      { value: "A", label: "A+ / A Insiders", color: "border-[#22C55E]/50 bg-[#22C55E]/10 text-[#22C55E]" },
+      { value: "B", label: "B+ Insiders", color: "border-[#3B82F6]/50 bg-[#3B82F6]/10 text-[#3B82F6]" },
     ],
   },
   {

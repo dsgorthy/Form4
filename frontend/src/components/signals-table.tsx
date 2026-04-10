@@ -33,7 +33,7 @@ export function SignalsTable({ filings }: SignalsTableProps) {
   }
 
   return (
-    <div className="overflow-x-auto">
+    <>
       <Table>
         <TableHeader>
           <TableRow className="border-[#2A2A3A] hover:bg-transparent">
@@ -97,6 +97,6 @@ export function SignalsTable({ filings }: SignalsTableProps) {
         </TableBody>
       </Table>
       <FilingDetailPanel filing={selected} onClose={() => setSelected(null)} />
-    </div>
+    </>
   );
 }

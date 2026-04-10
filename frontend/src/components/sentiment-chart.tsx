@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { registerForm4Theme, baseGrid, timeSeriesDataZoom, COLORS } from "@/lib/echarts-theme";
+import { registerForm4Theme, baseGrid, COLORS } from "@/lib/echarts-theme";
 import { formatCurrency } from "@/lib/format";
 import type { SentimentPoint } from "@/lib/types";
 
@@ -29,7 +29,7 @@ export function SentimentChart({ data }: SentimentChartProps) {
   }
 
   const option = {
-    grid: { ...baseGrid(), bottom: 50, right: 12 },
+    grid: { ...baseGrid(), bottom: 40, right: 12 },
     xAxis: {
       type: "category" as const,
       data: data.map((p) => p.date),
@@ -85,7 +85,6 @@ export function SentimentChart({ data }: SentimentChartProps) {
       bottom: 28,
       textStyle: { color: COLORS.text, fontSize: 11 },
     },
-    dataZoom: timeSeriesDataZoom(),
     tooltip: {
       trigger: "axis" as const,
       formatter: (params: any) => {
