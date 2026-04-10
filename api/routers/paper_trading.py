@@ -1,10 +1,24 @@
 """Paper trading dashboard — admin-only view of the 3 live Alpaca paper accounts.
 
-All dollar amounts are NORMALIZED to a $100K starting baseline. The actual
-Alpaca accounts were funded with different amounts ($301,680 / $191,766 /
-$148,855), which would make side-by-side comparison meaningless. Instead, we
-compute the real return % from each account and scale it onto a $100K baseline
-so all 3 strategies can be compared apples-to-apples.
+$100K NORMALIZATION CONVENTION (source of truth for how strategies are reported)
+================================================================================
+Every strategy is treated as if it started with exactly $100,000 at its strategy
+start date (2026-04-07) and compounded through actual returns since. This keeps:
+  1. All 3 strategies directly comparable (same baseline)
+  2. YAML `starting_capital`, `portfolios` table, `/api/v1/portfolio`,
+     `/api/v1/paper-trading/dashboard`, and the frontend all in agreement
+  3. Dashboard numbers consistent with backtest framing (backtests also ran
+     at $100K)
+
+The real Alpaca accounts were funded with different amounts ($301,680 /
+$191,766 / $148,855 on 2026-04-02). We don't touch those — they're real data.
+We just compute the real % return and scale it onto the $100K baseline:
+
+    actual_return_pct = (alpaca_equity - alpaca_initial) / alpaca_initial * 100
+    normalized_equity = $100,000 * (1 + actual_return_pct / 100)
+
+The runners (cw_runner.py) use YAML `starting_capital` for position sizing.
+All 3 YAMLs should be set to 100000 so runner behavior matches the dashboard.
 
 Cached server-side for 60s to avoid hammering Alpaca on every page load.
 """
@@ -49,17 +63,17 @@ STRATEGIES = [
         },
     },
     {
-        "name": "cw_reversal",
-        "label": "Reversal + Quality",
+        "name": "reversal_dip",
+        "label": "Deep Reversal + Dip",
         "started_at": "2026-04-07",
-        "key_env": "ALPACA_API_KEY_CW_REVERSAL",
-        "secret_env": "ALPACA_API_SECRET_CW_REVERSAL",
+        "key_env": "ALPACA_API_KEY_REVERSAL_DIP",
+        "secret_env": "ALPACA_API_SECRET_REVERSAL_DIP",
         "backtest": {
-            "cagr": 28.1,
-            "sharpe": 1.14,
-            "win_rate": 61.3,
-            "max_dd": 23.5,
-            "trades": 65,
+            "cagr": 11.3,
+            "sharpe": 1.08,
+            "win_rate": 55.0,
+            "max_dd": 14.3,
+            "trades": 132,
         },
     },
     {

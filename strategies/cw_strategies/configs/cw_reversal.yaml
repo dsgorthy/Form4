@@ -1,7 +1,7 @@
 strategy_name: cw_reversal
 display_name: "Form4 Reversal"
 telegram_prefix: "[REV]"
-starting_capital: 248000
+starting_capital: 100000
 position_size_pct: 0.33
 max_concurrent: 3
 filing_lookback_days: 2
