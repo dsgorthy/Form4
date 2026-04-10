@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Script from "next/script";
 import { ClerkProvider } from "@clerk/nextjs";
 import { dark } from "@clerk/themes";
 import { Inter, JetBrains_Mono } from "next/font/google";
@@ -7,6 +6,7 @@ import { Nav } from "@/components/nav";
 import { TrialBanner } from "@/components/trial-banner";
 import { Footer } from "@/components/footer";
 import { OnboardingGuard } from "@/components/onboarding-guard";
+import { AnalyticsProvider } from "@/components/analytics-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
 
@@ -158,30 +158,18 @@ export default function RootLayout({
       }}
     >
       <html lang="en">
-        <head>
-          <Script
-            src="https://www.googletagmanager.com/gtag/js?id=G-N0CVNME0X8"
-            strategy="afterInteractive"
-          />
-          <Script id="gtag-init" strategy="afterInteractive">
-            {`
-              window.dataLayer = window.dataLayer || [];
-              function gtag(){dataLayer.push(arguments);}
-              gtag('js', new Date());
-              gtag('config', 'G-N0CVNME0X8');
-            `}
-          </Script>
-        </head>
         <body
           className={`${inter.variable} ${jetbrainsMono.variable} antialiased font-sans`}
         >
-          <TooltipProvider>
-            <OnboardingGuard />
-            <Nav />
-            <TrialBanner />
-            <main className="mx-auto max-w-7xl px-4 py-4 md:px-6 md:py-6">{children}</main>
-            <Footer />
-          </TooltipProvider>
+          <AnalyticsProvider>
+            <TooltipProvider>
+              <OnboardingGuard />
+              <Nav />
+              <TrialBanner />
+              <main className="mx-auto max-w-7xl px-4 py-4 md:px-6 md:py-6">{children}</main>
+              <Footer />
+            </TooltipProvider>
+          </AnalyticsProvider>
         </body>
       </html>
     </ClerkProvider>
