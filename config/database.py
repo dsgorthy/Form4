@@ -51,6 +51,12 @@ def get_pool() -> psycopg2.pool.ThreadedConnectionPool:
                     minconn=2,
                     maxconn=20,
                     dsn=DATABASE_URL,
+                    # TCP keepalives prevent Postgres/kernel from silently
+                    # closing idle connections that the pool then hands out dead.
+                    keepalives=1,
+                    keepalives_idle=30,
+                    keepalives_interval=10,
+                    keepalives_count=5,
                 )
     return _pool
 
@@ -523,19 +529,39 @@ def get_db(readonly: bool = True) -> Generator[ConnectionWrapper, None, None]:
     """Context manager for pooled API connections.
 
     Replaces api/db.py's get_db(). Returns connection to pool on exit.
+    Validates connection is alive before returning — retries up to 5 times
+    to handle the case where multiple connections in the pool are stale.
     """
     pool = get_pool()
-    raw_conn = pool.getconn()
-    try:
-        # Validate connection is alive (handles stale pool connections)
-        try:
-            raw_conn.cursor().execute("SELECT 1")
-            raw_conn.commit()
-        except Exception:
-            # Connection is dead — close it, get a fresh one
-            pool.putconn(raw_conn, close=True)
-            raw_conn = pool.getconn()
+    raw_conn = None
+    last_err: Optional[Exception] = None
 
+    # Loop until we get a working connection. The pool may have multiple
+    # dead connections after a Postgres restart or long idle period.
+    for attempt in range(5):
+        candidate = pool.getconn()
+        try:
+            cur = candidate.cursor()
+            cur.execute("SELECT 1")
+            cur.fetchone()
+            cur.close()
+            candidate.commit()
+            raw_conn = candidate
+            break
+        except Exception as e:
+            last_err = e
+            # Dead connection — close and discard, then try another
+            try:
+                pool.putconn(candidate, close=True)
+            except Exception:
+                pass
+
+    if raw_conn is None:
+        raise RuntimeError(
+            f"Could not get a working DB connection after 5 attempts: {last_err}"
+        )
+
+    try:
         if readonly:
             raw_conn.set_session(readonly=True)
         raw_conn.cursor().execute("SET search_path TO public, prices, research, notifications")
