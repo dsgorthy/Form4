@@ -11,6 +11,7 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from api.auth import UserContext, get_current_user
 from api.rate_limit import limiter
+from config.database import get_db
 
 from api.notifications_db import init_db as init_notifications_db
 from api.routers import (
@@ -207,7 +208,51 @@ def startup() -> None:
 @app.get("/api/v1/health")
 @limiter.exempt
 def health() -> dict:
-    return {"status": "ok"}
+    """Shallow health check — proves the API process is alive and can hit the DB.
+
+    Returns 200 only if a SELECT 1 against PG succeeds. This is what uptime
+    monitors and load balancers should hit.
+    """
+    from time import perf_counter
+    from fastapi import HTTPException
+    t0 = perf_counter()
+    try:
+        with get_db(readonly=True) as conn:
+            row = conn.execute("SELECT 1 AS ok").fetchone()
+            if not row or row["ok"] != 1:
+                raise HTTPException(status_code=503, detail="DB returned unexpected result")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"DB unreachable: {type(e).__name__}: {e}")
+    return {
+        "status": "ok",
+        "db_roundtrip_ms": round((perf_counter() - t0) * 1000, 1),
+    }
+
+
+@app.get("/api/v1/health/deep")
+@limiter.exempt
+def health_deep() -> dict:
+    """Deep health check — proves we can read real data from the trades table.
+
+    Slower than /health (real query) but catches issues that SELECT 1 misses,
+    like search_path problems, table corruption, or schema drift.
+    """
+    from time import perf_counter
+    from fastapi import HTTPException
+    t0 = perf_counter()
+    try:
+        with get_db(readonly=True) as conn:
+            row = conn.execute("SELECT MAX(filing_date) AS latest FROM trades").fetchone()
+            latest = row["latest"] if row else None
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"DB query failed: {type(e).__name__}: {e}")
+    return {
+        "status": "ok",
+        "latest_filing": latest,
+        "query_ms": round((perf_counter() - t0) * 1000, 1),
+    }
 
 
 @app.get("/api/v1/portfolio/runner-status")

@@ -207,5 +207,27 @@ else
     docker compose $COMPOSE_FILES logs --tail=10 2>&1 | tee -a "$LOG_FILE"
 fi
 
+# Smoke test — exercise critical endpoints to catch regressions before users do
+SMOKE_BASE="https://${DOMAIN}"
+SMOKE_SCRIPT="$REPO_DIR/scripts/smoke_test.sh"
+if [ -x "$SMOKE_SCRIPT" ]; then
+    log "Running smoke test against $SMOKE_BASE..."
+    if "$SMOKE_SCRIPT" "$SMOKE_BASE" 2>&1 | tee -a "$LOG_FILE"; then
+        log "Smoke test: PASS"
+    else
+        log "Smoke test: FAIL — see endpoints above"
+        # Send Telegram alert (uses same bot/chat as other monitors)
+        TG_BOT="8676824600:AAHcTkRFmRL25HwW1OC-l1jPyoDmYiu69u0"
+        TG_CHAT="${TELEGRAM_CHAT_ID:-}"
+        if [ -n "$TG_CHAT" ]; then
+            curl -s -X POST "https://api.telegram.org/bot${TG_BOT}/sendMessage" \
+                -d chat_id="${TG_CHAT}" \
+                -d text="🚨 *[${LABEL}]* Smoke test FAILED after deploy on ${DOMAIN}. Check ${LOG_FILE}." \
+                -d parse_mode="Markdown" > /dev/null 2>&1 || true
+        fi
+        exit 1
+    fi
+fi
+
 # Keep only last 10 deploy logs per environment
 ls -t "$LOG_DIR"/deploy-${ENV}-*.log 2>/dev/null | tail -n +11 | xargs rm -f 2>/dev/null || true

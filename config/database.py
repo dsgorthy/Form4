@@ -110,6 +110,11 @@ _RE_JULIANDAY_DIFF = re.compile(
 _RE_AUTOINCREMENT = re.compile(
     r'INTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT', re.IGNORECASE
 )
+# SELECT name FROM sqlite_master WHERE type='table' AND name='X' → information_schema lookup
+_RE_SQLITE_MASTER_TABLE = re.compile(
+    r"SELECT\s+name\s+FROM\s+sqlite_master\s+WHERE\s+type\s*=\s*'table'\s+AND\s+name\s*=\s*'([^']+)'",
+    re.IGNORECASE,
+)
 
 
 def translate_sql(sql: str) -> tuple[str, bool]:
@@ -137,6 +142,15 @@ def translate_sql(sql: str) -> tuple[str, bool]:
         return sql, True
     if _RE_ATTACH.match(stripped):
         return sql, True
+
+    # SELECT name FROM sqlite_master WHERE type='table' AND name='X' → information_schema
+    sm = _RE_SQLITE_MASTER_TABLE.match(stripped)
+    if sm:
+        table = sm.group(1)
+        return (
+            f"SELECT table_name AS name FROM information_schema.tables "
+            f"WHERE table_name = '{table}'"
+        ), False
 
     result = sql
 
