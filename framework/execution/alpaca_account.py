@@ -44,6 +44,11 @@ class AlpacaAccount:
         """Returns list of open positions with symbol, qty, prices, P&L."""
         return self._get("/positions")
 
+    def get_activities(self, types: str = "FILL,FEE") -> list:
+        """Returns account activities (fills, fees, journals). Used to
+        compute realized P&L and infer initial funding."""
+        return self._get(f"/account/activities?activity_types={types}")
+
     def get_snapshot(self) -> dict:
         """Combined snapshot: account + positions + day_change_pct.
 
