@@ -166,7 +166,7 @@ export default async function LandingPage() {
             <div className="px-4 py-3 text-center border-t border-[#2A2A3A]">
               <SignUpButton mode="modal">
                 <button className="text-sm text-[#3B82F6] hover:text-[#60A5FA] font-medium">
-                  Sign up to see all filings in real time \u2192
+                  Sign up to see all filings in real time →
                 </button>
               </SignUpButton>
             </div>
@@ -208,7 +208,7 @@ export default async function LandingPage() {
           {[
             { value: "3", label: "Live strategies" },
             { value: "1.6M+", label: "Trades analyzed" },
-            { value: "2016\u2013now", label: "Data coverage" },
+            { value: "2016–now", label: "Data coverage" },
             { value: "< 5 min", label: "Filing delay" },
           ].map((s) => (
             <div key={s.label}>
@@ -269,7 +269,7 @@ export default async function LandingPage() {
           href="/pricing"
           className="inline-block mt-6 text-sm text-[#8888A0] hover:text-[#E8E8ED] transition-colors"
         >
-          View full pricing details \u2192
+          View full pricing details →
         </Link>
       </section>
     </div>
