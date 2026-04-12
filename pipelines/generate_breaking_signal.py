@@ -230,18 +230,56 @@ def detect_breaking_signals(conn, target_date: str) -> list[dict]:
                 ]
                 signals.append(rep)
 
-    # Deduplicate and prioritize
-    # Sort: rare_reversal > mega_cap_csuite_buy > cluster > large values
-    priority = {
-        "rare_reversal": 0,
-        "mega_cap_csuite_buy": 1,
-        "cluster": 2,
-        "large_csuite_buy": 3,
-        "massive_buy": 4,
-        "mega_cap_csuite_sell": 5,
-        "massive_sell": 6,
+    # 6. Strategy entry — one of the live strategies just opened a position
+    strategy_entries = conn.execute("""
+        SELECT strategy, ticker, company, insider_name, entry_date
+        FROM strategy_portfolio
+        WHERE execution_source = 'paper'
+          AND entry_date = ?
+          AND status = 'open'
+    """, (target_date,)).fetchall()
+
+    STRATEGY_LABELS = {
+        "quality_momentum": "Quality + Momentum",
+        "reversal_dip": "Deep Reversal",
+        "tenb51_surprise": "10b5-1 Surprise",
     }
-    signals.sort(key=lambda x: (priority.get(x["_break_reason"], 99), -(x["total_value"] or 0)))
+
+    for entry in strategy_entries:
+        entry = dict(entry)
+        ticker = entry["ticker"]
+        dedup_key = f"strat:{entry['strategy']}:{ticker}"
+        if dedup_key not in seen_tickers:
+            seen_tickers.add(dedup_key)
+            signals.append({
+                "ticker": ticker,
+                "company": entry.get("company") or ticker,
+                "insider_name": entry.get("insider_name") or "An insider",
+                "title": "",
+                "trade_type": "buy",
+                "total_value": 0,
+                "signal_grade": None,
+                "is_rare_reversal": False,
+                "is_csuite": False,
+                "_break_reason": "strategy_entry",
+                "_is_mega": ticker in MEGA_CAP_TICKERS,
+                "_strategy": entry["strategy"],
+                "_strategy_label": STRATEGY_LABELS.get(entry["strategy"], entry["strategy"]),
+                "_quality": 8.0,
+            })
+
+    # Deduplicate and prioritize
+    priority = {
+        "strategy_entry": 0,
+        "rare_reversal": 1,
+        "mega_cap_csuite_buy": 2,
+        "cluster": 3,
+        "large_csuite_buy": 4,
+        "massive_buy": 5,
+        "mega_cap_csuite_sell": 6,
+        "massive_sell": 7,
+    }
+    signals.sort(key=lambda x: (priority.get(x["_break_reason"], 99), -(x.get("total_value") or 0)))
 
     return signals
 

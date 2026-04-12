@@ -25,10 +25,10 @@ const isSandbox = process.env.NEXT_PUBLIC_API_URL?.includes("sandbox");
 export const metadata: Metadata = {
   metadataBase: new URL(isSandbox ? "https://sandbox.form4.app" : "https://form4.app"),
   title: {
-    default: isSandbox ? "Form4 Sandbox" : "Form4 — Insider Intelligence, Decoded",
+    default: isSandbox ? "Form4 Sandbox" : "Form4 — Live Insider Trading Strategies",
     template: isSandbox ? "%s — Form4 Sandbox" : "%s — Form4",
   },
-  description: "Real-time SEC Form 4 insider trade alerts with AI-powered signal grading. Track what insiders are buying and selling before the market reacts.",
+  description: "Three live insider-trading strategies on real paper accounts. Every trade is public, research-backed, and fully transparent. 1.6M+ trades analyzed.",
   icons: {
     icon: [
       { url: isSandbox ? "/favicon-sandbox-32x32.png" : "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
@@ -37,15 +37,15 @@ export const metadata: Metadata = {
     apple: isSandbox ? "/icon-sandbox-192x192.png" : "/icon-192x192.png",
   },
   openGraph: {
-    title: "Form4 — Insider Intelligence, Decoded",
-    description: "Real-time SEC Form 4 insider trade alerts with AI-powered signal grading.",
+    title: "Form4 — Live Insider Trading Strategies",
+    description: "Three live insider-trading strategies, publicly transparent. Every trade, every exit, every equity curve.",
     images: [{ url: "/og-image.png", width: 1200, height: 630 }],
     siteName: "Form4",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Form4 — Insider Intelligence, Decoded",
-    description: "Real-time SEC Form 4 insider trade alerts with AI-powered signal grading.",
+    title: "Form4 — Live Insider Trading Strategies",
+    description: "Three live insider-trading strategies, publicly transparent. Every trade, every exit, every equity curve.",
     images: ["/og-image.png"],
   },
 };

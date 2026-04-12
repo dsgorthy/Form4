@@ -43,6 +43,50 @@ OUTPUT_DIR = Path(__file__).resolve().parent / "data" / "content"
 
 
 # ---------------------------------------------------------------------------
+# Strategy fill detection
+# ---------------------------------------------------------------------------
+
+STRATEGY_LABELS = {
+    "quality_momentum": "Quality + Momentum",
+    "reversal_dip": "Deep Reversal",
+    "tenb51_surprise": "10b5-1 Surprise",
+}
+
+
+def get_strategy_fills(conn: object, target_date: str) -> list[dict]:
+    """Check if any live strategy entered or exited a position on target_date."""
+    rows = conn.execute("""
+        SELECT strategy, ticker, company, insider_name, entry_date, exit_date,
+               exit_reason, pnl_pct, status, execution_source
+        FROM strategy_portfolio
+        WHERE execution_source = 'paper'
+          AND (entry_date = ? OR exit_date = ?)
+        ORDER BY strategy, entry_date DESC
+    """, (target_date, target_date)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def format_strategy_fill_line(fill: dict) -> str:
+    """Generate a content-ready line about a strategy fill."""
+    strat_label = STRATEGY_LABELS.get(fill["strategy"], fill["strategy"])
+    ticker = fill["ticker"]
+    company = fill.get("company") or ticker
+
+    if fill["entry_date"] == fill.get("exit_date"):
+        pnl = fill.get("pnl_pct")
+        if pnl is not None:
+            result = f"+{pnl*100:.1f}%" if pnl >= 0 else f"{pnl*100:.1f}%"
+            return f"{strat_label} exited {company} ({ticker}) at {result}"
+        return f"{strat_label} exited {company} ({ticker})"
+
+    if fill.get("status") == "open" or fill.get("exit_date") is None:
+        insider = fill.get("insider_name") or "An insider"
+        return f"{strat_label} entered {company} ({ticker}) — triggered by {insider}"
+
+    return f"{strat_label} traded {company} ({ticker})"
+
+
+# ---------------------------------------------------------------------------
 # Data loading
 # ---------------------------------------------------------------------------
 
@@ -508,11 +552,18 @@ def _asset_ref(rank: int, ticker: str, filename: str, is_reveal: bool = False) -
 # Content generators
 # ---------------------------------------------------------------------------
 
-def generate_x_post(trades: list[dict], stats: dict, target_date: str) -> str:
+def generate_x_post(trades: list[dict], stats: dict, target_date: str,
+                    strategy_fills: list[dict] | None = None) -> str:
     """Generate a X/Twitter post."""
     date_fmt = datetime.strptime(target_date, "%Y-%m-%d").strftime("%b %d")
 
     lines = [f"Form4 Daily Signal — {date_fmt}\n"]
+
+    if strategy_fills:
+        lines.append("Strategy Activity:")
+        for fill in strategy_fills:
+            lines.append(f"• {format_strategy_fill_line(fill)}")
+        lines.append("")
 
     buys = [t for t in trades if t["trade_type"] == "buy"]
     sells = [t for t in trades if t["trade_type"] == "sell"]
@@ -1039,22 +1090,32 @@ def main() -> None:
 
     trades = get_top_trades(conn, args.date)
     stats = get_daily_stats(conn, args.date)
+    strategy_fills = get_strategy_fills(conn, args.date)
     conn.close()
 
-    if not trades:
-        print(f"No notable trades for {args.date}")
+    if strategy_fills:
+        logger.info("Strategy fills detected: %d entries/exits", len(strategy_fills))
+        for fill in strategy_fills:
+            logger.info("  %s", format_strategy_fill_line(fill))
+
+    if not trades and not strategy_fills:
+        print(f"No notable trades or strategy fills for {args.date}")
         return
 
+    if not trades:
+        trades = []
+
     # Scrape web context for each trade
-    from pipelines.scrape_trade_context import scrape_all_trades
-    logger.info("Scraping web context for %d trades...", len(trades))
-    web_contexts = scrape_all_trades(trades)
-    for t, ctx in zip(trades, web_contexts):
-        t["_web_context"] = ctx.get("spoken_context", "")
-        t["_web_sources"] = ctx.get("sources", [])
+    if trades:
+        from pipelines.scrape_trade_context import scrape_all_trades
+        logger.info("Scraping web context for %d trades...", len(trades))
+        web_contexts = scrape_all_trades(trades)
+        for t, ctx in zip(trades, web_contexts):
+            t["_web_context"] = ctx.get("spoken_context", "")
+            t["_web_sources"] = ctx.get("sources", [])
 
     # Generate text content
-    x_post = generate_x_post(trades, stats, args.date)
+    x_post = generate_x_post(trades, stats, args.date, strategy_fills=strategy_fills)
     storyboard = generate_video_script(trades, stats, args.date)
     carousel = generate_carousel_data(trades, args.date)
     captions = generate_platform_captions(trades, stats, args.date)

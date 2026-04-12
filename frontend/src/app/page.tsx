@@ -4,9 +4,9 @@ import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
 export const metadata = {
-  title: "Form4 — Real-Time Insider Trading Intelligence",
+  title: "Form4 — Live Insider Trading Strategies",
   description:
-    "Track SEC Form 4 insider buys and sells. AI-powered insider grades, validated trading strategies, and real-time cluster detection. 1.6M+ trades analyzed.",
+    "Three live insider-trading strategies on real paper accounts. Every trade is public, research-backed, and fully transparent. 1.6M+ trades analyzed.",
 };
 
 async function getPreviewData() {
@@ -40,13 +40,13 @@ export default async function LandingPage() {
       {/* Hero */}
       <section className="px-4 pt-16 pb-20 text-center max-w-4xl mx-auto">
         <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-[#E8E8ED] leading-tight">
-          Know what insiders know.
+          Insider trading,
           <br />
-          <span className="text-[#3B82F6]">Before the market does.</span>
+          <span className="text-[#3B82F6]">in public.</span>
         </h1>
         <p className="mt-6 text-lg sm:text-xl text-[#8888A0] max-w-2xl mx-auto">
-          Real-time SEC Form 4 filings with AI-powered insider grades, cluster detection,
-          and validated trading strategies. 1.6M+ trades analyzed since 2016.
+          Three live insider-trading strategies on real paper accounts.
+          Every entry, every exit, fully transparent. Backed by 1.6M trades of research.
         </p>
         <div className="mt-10 flex items-center justify-center gap-4">
           <SignUpButton mode="modal">
@@ -61,6 +61,61 @@ export default async function LandingPage() {
           </SignInButton>
         </div>
         <p className="mt-4 text-sm text-[#55556A]">7-day free trial. No credit card required.</p>
+      </section>
+
+      {/* Strategy Cards */}
+      <section className="px-4 pb-16 max-w-5xl mx-auto">
+        <h2 className="text-center text-sm font-medium text-[#8888A0] uppercase tracking-wider mb-6">
+          Live Paper Portfolios
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {[
+            {
+              name: "Quality + Momentum",
+              thesis: "A+/A-graded insiders buying stocks in uptrends",
+              sharpe: "1.20",
+              winRate: "68.7%",
+              trades: "~50/yr",
+              hold: "42 days",
+            },
+            {
+              name: "Deep Reversal",
+              thesis: "Persistent sellers suddenly reversing into depressed stocks",
+              sharpe: "1.08",
+              winRate: "60.3%",
+              trades: "~20/yr",
+              hold: "21 days",
+            },
+            {
+              name: "10b5-1 Surprise",
+              thesis: "Scheduled sellers breaking legal commitments to buy",
+              sharpe: "0.68",
+              winRate: "54.1%",
+              trades: "~25/yr",
+              hold: "60 days",
+              experimental: true,
+            },
+          ].map((s) => (
+            <div
+              key={s.name}
+              className="rounded-xl border border-[#2A2A3A] bg-[#12121A] p-6 hover:border-[#3B82F6]/30 transition-colors"
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <h3 className="text-lg font-semibold text-[#E8E8ED]">{s.name}</h3>
+                {s.experimental && (
+                  <span className="rounded-full bg-[#F59E0B]/15 px-2 py-0.5 text-[9px] font-semibold text-[#F59E0B]">Experimental</span>
+                )}
+              </div>
+              <p className="text-sm text-[#8888A0] mb-4">{s.thesis}</p>
+              <div className="grid grid-cols-2 gap-2 text-xs font-mono text-[#55556A]">
+                <div>Sharpe <span className="text-[#E8E8ED]">{s.sharpe}</span></div>
+                <div>Win Rate <span className="text-[#E8E8ED]">{s.winRate}</span></div>
+                <div>Trades <span className="text-[#E8E8ED]">{s.trades}</span></div>
+                <div>Hold <span className="text-[#E8E8ED]">{s.hold}</span></div>
+              </div>
+            </div>
+          ))}
+        </div>
       </section>
 
       {/* Live Trades Preview */}
@@ -84,7 +139,7 @@ export default async function LandingPage() {
                 <tbody>
                   {recentTrades.map((t: any, i: number) => (
                     <tr key={i} className="border-b border-[#2A2A3A]/50 hover:bg-[#1A1A26]">
-                      <td className="px-4 py-3 text-[#E8E8ED]">{t.insider_name || "—"}</td>
+                      <td className="px-4 py-3 text-[#E8E8ED]">{t.insider_name || "\u2014"}</td>
                       <td className="px-4 py-3">
                         <span className="font-mono font-semibold text-[#22C55E]">{t.ticker}</span>
                       </td>
@@ -95,14 +150,14 @@ export default async function LandingPage() {
                               ? "bg-[#22C55E]/10 text-[#22C55E]"
                               : "bg-[#8888A0]/10 text-[#8888A0]"
                           }`}>
-                            {"★".repeat(t.trade_grade.stars || 0)} {t.trade_grade.label}
+                            {"\u2605".repeat(t.trade_grade.stars || 0)} {t.trade_grade.label}
                           </span>
-                        ) : "—"}
+                        ) : "\u2014"}
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-[#E8E8ED]">
                         {formatValue(t.value || 0)}
                       </td>
-                      <td className="px-4 py-3 text-[#8888A0]">{t.filing_date || "—"}</td>
+                      <td className="px-4 py-3 text-[#8888A0]">{t.filing_date || "\u2014"}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -111,7 +166,7 @@ export default async function LandingPage() {
             <div className="px-4 py-3 text-center border-t border-[#2A2A3A]">
               <SignUpButton mode="modal">
                 <button className="text-sm text-[#3B82F6] hover:text-[#60A5FA] font-medium">
-                  Sign up to see all filings in real time →
+                  Sign up to see all filings in real time \u2192
                 </button>
               </SignUpButton>
             </div>
@@ -124,26 +179,22 @@ export default async function LandingPage() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {[
             {
-              title: "Insider Grades",
-              desc: "Every insider scored A+ to F based on their historical track record. Know which insiders consistently beat the market.",
-              icon: "🎯",
+              title: "Live & Transparent",
+              desc: "Every trade runs on real paper accounts. Watch entries, exits, and P&L in real time. Nothing hidden.",
             },
             {
-              title: "Cluster Detection",
-              desc: "Real-time alerts when multiple insiders buy the same stock. Clusters historically outperform solo trades.",
-              icon: "🔗",
+              title: "Research-Backed",
+              desc: "1.6M insider trades analyzed with walk-forward validated scoring. Point-in-time signals, no look-ahead bias.",
             },
             {
-              title: "Validated Strategies",
-              desc: "3 backtested strategies running live paper portfolios. Quality Momentum: Sharpe 1.20, 68.7% win rate.",
-              icon: "📊",
+              title: "Retire & Replace",
+              desc: "When a strategy stops working, we say so publicly and retire it. Transparency is the product, not just performance.",
             },
           ].map((f) => (
             <div
               key={f.title}
               className="rounded-xl border border-[#2A2A3A] bg-[#12121A] p-6 hover:border-[#3B82F6]/30 transition-colors"
             >
-              <div className="text-2xl mb-3">{f.icon}</div>
               <h3 className="text-lg font-semibold text-[#E8E8ED] mb-2">{f.title}</h3>
               <p className="text-sm text-[#8888A0] leading-relaxed">{f.desc}</p>
             </div>
@@ -155,9 +206,9 @@ export default async function LandingPage() {
       <section className="border-y border-[#2A2A3A] bg-[#12121A] py-12 px-4">
         <div className="max-w-4xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
           {[
-            { value: "1.6M+", label: "Insider trades" },
-            { value: "125K+", label: "Insiders tracked" },
-            { value: "2016–now", label: "Data coverage" },
+            { value: "3", label: "Live strategies" },
+            { value: "1.6M+", label: "Trades analyzed" },
+            { value: "2016\u2013now", label: "Data coverage" },
             { value: "< 5 min", label: "Filing delay" },
           ].map((s) => (
             <div key={s.label}>
@@ -169,21 +220,21 @@ export default async function LandingPage() {
       </section>
 
       {/* Pricing Preview */}
-      <section className="px-4 py-20 max-w-4xl mx-auto text-center">
+      <section className="px-4 py-20 max-w-5xl mx-auto text-center">
         <h2 className="text-2xl sm:text-3xl font-bold text-[#E8E8ED] mb-4">
-          Start with a free trial
+          Watch three live strategies. Or do your own research.
         </h2>
         <p className="text-[#8888A0] mb-10 max-w-xl mx-auto">
           Full access for 7 days. Then choose the plan that fits.
         </p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 max-w-2xl mx-auto">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 max-w-3xl mx-auto">
           <div className="rounded-xl border border-[#2A2A3A] bg-[#12121A] p-6 text-left">
             <div className="text-sm font-medium text-[#8888A0] mb-1">Free</div>
             <div className="text-3xl font-bold text-[#E8E8ED] mb-4">$0</div>
             <ul className="space-y-2 text-sm text-[#8888A0]">
-              <li>Recent filings (90 days)</li>
+              <li>24h-delayed portfolio</li>
+              <li>90 days of filings</li>
               <li>Basic trade grades</li>
-              <li>Company & insider pages</li>
             </ul>
           </div>
           <div className="rounded-xl border border-[#3B82F6]/50 bg-[#12121A] p-6 text-left ring-1 ring-[#3B82F6]/20">
@@ -192,11 +243,9 @@ export default async function LandingPage() {
               $25<span className="text-lg text-[#8888A0] font-normal">/mo</span>
             </div>
             <ul className="space-y-2 text-sm text-[#8888A0]">
-              <li>Full history (2016+)</li>
-              <li>Real-time filings (&lt; 5 min)</li>
-              <li>Insider grades & track records</li>
-              <li>Cluster detection & alerts</li>
-              <li>Portfolio strategies</li>
+              <li>Real-time portfolio</li>
+              <li>Trade alerts</li>
+              <li>Insider grades & history</li>
             </ul>
             <SignUpButton mode="modal">
               <button className="mt-6 w-full rounded-lg bg-[#3B82F6] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#2563EB] transition-colors">
@@ -204,12 +253,23 @@ export default async function LandingPage() {
               </button>
             </SignUpButton>
           </div>
+          <div className="rounded-xl border border-[#2A2A3A] bg-[#12121A] p-6 text-left">
+            <div className="text-sm font-medium text-[#22C55E] mb-1">Pro+</div>
+            <div className="text-3xl font-bold text-[#E8E8ED] mb-4">
+              $75<span className="text-lg text-[#8888A0] font-normal">/mo</span>
+            </div>
+            <ul className="space-y-2 text-sm text-[#8888A0]">
+              <li>Everything in Pro</li>
+              <li>Screener & Leaderboard</li>
+              <li>Export, API access</li>
+            </ul>
+          </div>
         </div>
         <Link
           href="/pricing"
           className="inline-block mt-6 text-sm text-[#8888A0] hover:text-[#E8E8ED] transition-colors"
         >
-          View full pricing & API plans →
+          View full pricing details \u2192
         </Link>
       </section>
     </div>

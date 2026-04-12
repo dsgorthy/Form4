@@ -7,33 +7,35 @@ import { getUserTier, getTrialDaysLeft } from "@/lib/subscription";
 
 const PRO_MONTHLY = process.env.NEXT_PUBLIC_STRIPE_PRO_MONTHLY_PRICE_ID || "";
 const PRO_YEARLY = process.env.NEXT_PUBLIC_STRIPE_PRO_YEARLY_PRICE_ID || "";
-const API_MONTHLY = process.env.NEXT_PUBLIC_STRIPE_API_MONTHLY_PRICE_ID || "";
+const PRO_PLUS_MONTHLY = process.env.NEXT_PUBLIC_STRIPE_PRO_PLUS_MONTHLY_PRICE_ID || "";
+const PRO_PLUS_YEARLY = process.env.NEXT_PUBLIC_STRIPE_PRO_PLUS_YEARLY_PRICE_ID || "";
 
 const FREE_FEATURES = [
+  "24h-delayed portfolio view",
   "Last 90 days of filings",
-  "Basic search & company pages",
+  "Basic trade grades",
+  "Company & insider pages",
   "Congress trades",
-  "Insider tier badges (visible)",
-  "Dashboard stats & heatmap",
 ];
 
 const PRO_FEATURES = [
+  "Real-time portfolio & positions",
+  "Trade entry/exit alerts",
   "Full history (2016+)",
-  "Insider scores & track records",
-  "Percentile rankings",
+  "Insider grades & track records",
   "Cluster detection & analysis",
-  "Leaderboard access",
-  "Insider profiles & return distributions",
   "Activity inflections",
   "Sell cessation signals",
-  "CSV export",
-  "Congress convergence alerts",
 ];
 
-const API_FEATURES = [
-  "Programmatic API access",
-  "API key management",
-  "Up to 3 concurrent keys",
+const PRO_PLUS_FEATURES = [
+  "Everything in Pro",
+  "Screener & Leaderboard",
+  "Insider profiles & return distributions",
+  "Percentile rankings",
+  "Congress convergence alerts",
+  "CSV export",
+  "Programmatic API access (3 keys)",
 ];
 
 export default function PricingPage() {
@@ -44,12 +46,18 @@ export default function PricingPage() {
   const [billing, setBilling] = useState<"monthly" | "yearly">("monthly");
 
   const tier = getUserTier(user);
-  const userIsPro = tier === "pro";
+  const userIsPro = tier === "pro" || tier === "pro_plus";
+  const userIsProPlus = tier === "pro_plus";
   const trialDaysLeft = getTrialDaysLeft(user);
 
   async function handleCheckout(priceId: string) {
     if (!isSignedIn) {
       window.location.href = "/sign-up";
+      return;
+    }
+    if (!priceId) {
+      setError("This plan is not yet available. Check back soon.");
+      window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
     setLoading(priceId);
@@ -82,13 +90,13 @@ export default function PricingPage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto py-12">
+    <div className="max-w-5xl mx-auto py-12">
       <div className="text-center mb-12">
         <h1 className="text-3xl font-bold text-[#E8E8ED] mb-3">
-          Form4 Plans
+          Watch three live strategies. Or do your own research.
         </h1>
         <p className="text-[#8888A0]">
-          Actionable insider trading intelligence. Start free, upgrade when ready.
+          Full access for 7 days. Then choose the plan that fits.
         </p>
       </div>
 
@@ -159,7 +167,7 @@ export default function PricingPage() {
         {/* Pro tier */}
         <div className="rounded-lg border-2 border-[#3B82F6] bg-[#12121A] p-6 relative flex flex-col">
           <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-[#3B82F6] px-3 py-0.5 text-xs font-bold text-white">
-            RECOMMENDED
+            MOST POPULAR
           </div>
           <h2 className="text-lg font-bold text-[#E8E8ED] mb-1">Pro</h2>
           <div className="text-3xl font-bold text-[#E8E8ED] mb-1">
@@ -179,16 +187,18 @@ export default function PricingPage() {
             ))}
           </ul>
 
-          {userIsPro ? (
+          {userIsPro && !userIsProPlus ? (
             <div className="text-center text-sm text-[#3B82F6] py-2.5 font-medium">
               Current Plan
             </div>
+          ) : userIsProPlus ? (
+            <div className="text-center text-sm text-[#55556A] py-2.5">Included in Pro+</div>
           ) : !isSignedIn ? (
             <Link
               href="/sign-up"
               className="block w-full text-center rounded-lg bg-[#3B82F6] px-4 py-2.5 text-sm font-medium text-white hover:bg-[#2563EB] transition-colors"
             >
-              Sign Up to Upgrade
+              Start Free Trial
             </Link>
           ) : (
             <div>
@@ -210,32 +220,58 @@ export default function PricingPage() {
           )}
         </div>
 
-        {/* API add-on */}
-        <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] p-6 flex flex-col">
-          <h2 className="text-lg font-bold text-[#E8E8ED] mb-1">API Add-on</h2>
+        {/* Pro+ tier */}
+        <div className="rounded-lg border border-[#22C55E]/50 bg-[#12121A] p-6 relative flex flex-col">
+          <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-[#22C55E] px-3 py-0.5 text-xs font-bold text-[#0A0A0F]">
+            RESEARCH
+          </div>
+          <h2 className="text-lg font-bold text-[#E8E8ED] mb-1">Pro+</h2>
           <div className="text-3xl font-bold text-[#E8E8ED] mb-1">
-            +$15
+            {billing === "monthly" ? "$75" : "$63"}
             <span className="text-sm font-normal text-[#55556A]">/mo</span>
           </div>
-          <p className="text-xs text-[#55556A] mb-6">Requires Pro subscription</p>
+          <p className="text-xs text-[#55556A] mb-6">
+            {billing === "yearly" ? "$750/yr billed annually" : "Billed monthly"}
+          </p>
 
           <ul className="space-y-2 mb-8 flex-1">
-            {API_FEATURES.map((f) => (
-              <li key={f} className="flex items-start gap-2 text-sm text-[#8888A0]">
+            {PRO_PLUS_FEATURES.map((f) => (
+              <li key={f} className="flex items-start gap-2 text-sm text-[#E8E8ED]">
                 <span className="text-[#22C55E] mt-0.5">&#10003;</span>
                 {f}
               </li>
             ))}
           </ul>
 
-          <button
-            onClick={() => handleCheckout(API_MONTHLY)}
-            disabled={loading !== null || !userIsPro}
-            className="block w-full text-center rounded-lg border border-[#2A2A3A] px-4 py-2.5 text-sm font-medium text-[#8888A0] hover:text-[#E8E8ED] hover:border-[#55556A] transition-colors disabled:opacity-50"
-          >
-            {!userIsPro ? "Pro required" : loading ? "Redirecting to Stripe..." : "Add API Access"}
-          </button>
+          {userIsProPlus ? (
+            <div className="text-center text-sm text-[#22C55E] py-2.5 font-medium">
+              Current Plan
+            </div>
+          ) : !isSignedIn ? (
+            <Link
+              href="/sign-up"
+              className="block w-full text-center rounded-lg border border-[#22C55E]/50 px-4 py-2.5 text-sm font-medium text-[#22C55E] hover:bg-[#22C55E]/10 transition-colors"
+            >
+              Start Free Trial
+            </Link>
+          ) : (
+            <button
+              onClick={() =>
+                handleCheckout(billing === "monthly" ? PRO_PLUS_MONTHLY : PRO_PLUS_YEARLY)
+              }
+              disabled={loading !== null}
+              className="block w-full text-center rounded-lg border border-[#22C55E]/50 px-4 py-2.5 text-sm font-medium text-[#22C55E] hover:bg-[#22C55E]/10 transition-colors disabled:opacity-50"
+            >
+              {loading ? "Redirecting to Stripe..." : userIsPro ? "Upgrade to Pro+" : "Get Pro+"}
+            </button>
+          )}
         </div>
+      </div>
+
+      <div className="mt-12 text-center text-sm text-[#55556A]">
+        All plans include a 7-day free trial. Cancel anytime.
+        <br />
+        Questions? <a href="mailto:support@form4.app" className="text-[#3B82F6] hover:underline">support@form4.app</a>
       </div>
     </div>
   );

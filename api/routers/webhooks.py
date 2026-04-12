@@ -11,6 +11,7 @@ from api.config import (
     STRIPE_SECRET_KEY,
     STRIPE_WEBHOOK_SECRET,
     PRO_PRICE_IDS,
+    PRO_PLUS_PRICE_IDS,
     API_PRICE_IDS,
 )
 
@@ -41,12 +42,18 @@ async def _update_clerk_metadata(user_id: str, public_metadata: dict) -> None:
 
 
 def _determine_tier_from_items(line_items: list) -> tuple[str, bool]:
-    """Determine tier and API access from Stripe line items."""
+    """Determine tier and API access from Stripe line items.
+
+    Pro+ includes API access by default. Pro + API addon also grants API.
+    """
     tier = "free"
     api_access = False
     for item in line_items:
         price_id = item.get("price", {}).get("id", "")
-        if price_id in PRO_PRICE_IDS:
+        if price_id in PRO_PLUS_PRICE_IDS:
+            tier = "pro_plus"
+            api_access = True
+        elif price_id in PRO_PRICE_IDS and tier != "pro_plus":
             tier = "pro"
         if price_id in API_PRICE_IDS:
             api_access = True
