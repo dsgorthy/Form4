@@ -1,70 +1,120 @@
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "Form4 — Real-Time Insider Trading Intelligence",
+  title: "Form4 — Live Insider Trading Strategies",
   description:
-    "Track SEC Form 4 insider buys and sells in real time. AI-powered insider grades, trade scores, and 3 validated portfolio strategies. Analyze 196K+ insider trades.",
+    "Three live insider-trading strategies on real paper accounts. Every trade is public, research-backed, and fully transparent.",
 };
 
-import { Suspense } from "react";
-import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { StatCard } from "@/components/ui/stat-card";
-import { SignalsTable } from "@/components/signals-table";
-import { SentimentChart } from "@/components/sentiment-chart";
-import { CalendarHeatmap } from "@/components/calendar-heatmap";
-import { FilingDelayChart } from "@/components/filing-delay-chart";
-import { ConvergenceAlerts } from "@/components/dashboard/convergence-alerts";
-import { ActivitySpikes } from "@/components/dashboard/activity-spikes";
-import { SellCessation } from "@/components/dashboard/sell-cessation";
+import Link from "next/link";
 import { fetchAPIAuth } from "@/lib/auth";
 import { formatCurrency } from "@/lib/format";
-import { SyncStatus } from "@/components/sync-status";
-import { ProGate } from "@/components/pro-gate";
-import type { DashboardStats, Filing, SentimentPoint, HeatmapDay, FilingDelayData } from "@/lib/types";
+import { SignalsTable } from "@/components/signals-table";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import type { Filing } from "@/lib/types";
 
-const QUICK_FILTERS = [
-  { label: "C-Suite Buys $100K+", href: "/feed?trade_type=buy&min_value=100000&min_grade=B" },
-  { label: "A/A+ Insiders", href: "/feed?min_grade=A" },
-  { label: "Large Sells $1M+", href: "/feed?trade_type=sell&min_value=1000000" },
-  { label: "Active Clusters", href: "/clusters?days=7" },
-  { label: "Notable Events", href: "/signals?signal_type=quality_momentum_buy" },
-] as const;
+interface StrategySnapshot {
+  name: string;
+  label: string;
+  starting_capital: number;
+  current_equity?: number;
+  total_pnl?: number;
+  total_pnl_pct?: number;
+  day_change?: number;
+  day_change_pct?: number;
+  position_count?: number;
+  deviation_status?: string;
+  backtest?: { cagr: number; sharpe: number; win_rate: number; max_dd: number };
+  error?: string;
+}
+
+interface PaperDashboard {
+  as_of: string;
+  strategies: StrategySnapshot[];
+}
+
+const STRATEGY_META: Record<string, { brief: string; experimental?: boolean }> = {
+  quality_momentum: { brief: "A+/A insiders buying in uptrends" },
+  reversal_dip: { brief: "Persistent sellers reversing into deep dips" },
+  tenb51_surprise: { brief: "10b5-1 plan sellers breaking pattern to buy", experimental: true },
+};
 
 async function getDashboardData() {
   try {
-    const [stats, filingsResp, sentiment, heatmap, filingDelays] = await Promise.all([
-      fetchAPIAuth<DashboardStats>("/dashboard/stats"),
-      fetchAPIAuth<{ items: Filing[]; total: number }>("/filings", { limit: "10", min_grade: "B" }),
-      fetchAPIAuth<SentimentPoint[]>("/dashboard/sentiment", { days: "30" }),
-      fetchAPIAuth<HeatmapDay[]>("/dashboard/heatmap", { days: "365" }),
-      fetchAPIAuth<FilingDelayData>("/dashboard/filing-delays"),
+    const [paper, filingsResp] = await Promise.all([
+      fetchAPIAuth<PaperDashboard>("/paper-trading/dashboard"),
+      fetchAPIAuth<{ items: Filing[]; total: number }>("/filings", { limit: "8", min_grade: "B" }),
     ]);
-    return { stats, filings: filingsResp.items, sentiment, heatmap, filingDelays, error: null };
+    return { paper, filings: filingsResp.items, error: null };
   } catch {
-    return {
-      stats: null,
-      filings: [],
-      sentiment: [],
-      heatmap: [],
-      filingDelays: null,
-      error: "Something went wrong loading the dashboard. Please try refreshing the page.",
-    };
+    return { paper: null, filings: [], error: "Something went wrong loading the dashboard." };
   }
 }
 
-function SectionSkeleton({ title }: { title: string }) {
+function StrategyCard({ s }: { s: StrategySnapshot }) {
+  const meta = STRATEGY_META[s.name] || { brief: "" };
+  const pnl = s.total_pnl ?? 0;
+  const pnlPct = s.total_pnl_pct ?? 0;
+  const dayChg = s.day_change ?? 0;
+  const dayPct = s.day_change_pct ?? 0;
+  const eq = s.current_equity ?? s.starting_capital;
+
+  const statusColor =
+    s.deviation_status === "on_track" ? "text-[#22C55E]" :
+    s.deviation_status === "below" ? "text-[#F59E0B]" :
+    s.deviation_status === "well_below" ? "text-[#EF4444]" : "text-[#8888A0]";
+
   return (
-    <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] p-4 animate-pulse">
-      <h3 className="text-sm font-medium text-[#8888A0] mb-3">{title}</h3>
-      <div className="space-y-2">
-        {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="h-10 rounded-md bg-[#1A1A26]" />
-        ))}
+    <Link href={`/portfolio?strategy=${s.name}`} className="block group">
+      <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] p-5 transition-colors group-hover:border-[#3B82F6]/40">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-[#E8E8ED]">{s.label}</span>
+              {meta.experimental && (
+                <span className="rounded-full bg-[#F59E0B]/15 px-2 py-0.5 text-[9px] font-semibold text-[#F59E0B]">Experimental</span>
+              )}
+            </div>
+            <div className="text-xs text-[#55556A] mt-0.5">{meta.brief}</div>
+          </div>
+          <div className={`text-xs font-medium ${statusColor}`}>
+            {s.position_count ?? 0} open
+          </div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A]">Equity</div>
+            <div className="text-lg font-mono font-bold text-[#E8E8ED]">{formatCurrency(eq)}</div>
+          </div>
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A]">Total P&L</div>
+            <div className={`text-lg font-mono font-bold ${pnl >= 0 ? "text-[#22C55E]" : "text-[#EF4444]"}`}>
+              {pnl >= 0 ? "+" : ""}{formatCurrency(pnl)}
+            </div>
+            <div className="text-xs text-[#55556A] font-mono">{pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(1)}%</div>
+          </div>
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A]">Today</div>
+            <div className={`text-lg font-mono font-bold ${dayChg >= 0 ? "text-[#22C55E]" : "text-[#EF4444]"}`}>
+              {dayChg >= 0 ? "+" : ""}{formatCurrency(dayChg)}
+            </div>
+            <div className="text-xs text-[#55556A] font-mono">{dayPct >= 0 ? "+" : ""}{dayPct.toFixed(2)}%</div>
+          </div>
+        </div>
+
+        {s.backtest && (
+          <div className="flex gap-4 mt-3 pt-3 border-t border-[#2A2A3A]/50 text-[10px] text-[#55556A] font-mono">
+            <span>Sharpe {s.backtest.sharpe}</span>
+            <span>WR {s.backtest.win_rate}%</span>
+            <span>CAGR {s.backtest.cagr}%</span>
+            <span>MaxDD {s.backtest.max_dd}%</span>
+          </div>
+        )}
       </div>
-    </div>
+    </Link>
   );
 }
 
@@ -72,133 +122,66 @@ export default async function DashboardPage() {
   const { userId } = await auth();
   if (!userId) redirect("/");
 
-  const { stats, filings, sentiment, heatmap, filingDelays, error } = await getDashboardData();
+  const { paper, filings, error } = await getDashboardData();
 
   return (
     <div className="space-y-6">
-      {/* Error banner */}
       {error && (
         <div className="rounded-lg border border-[#F59E0B]/30 bg-[#F59E0B]/10 px-4 py-3 text-sm text-[#F59E0B]">
           {error}
         </div>
       )}
 
-      {/* Sync Status */}
-      <div className="flex justify-end">
-        <SyncStatus />
+      <div className="flex items-end justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-[#E8E8ED]">Live Strategies</h1>
+          <p className="text-sm text-[#55556A] mt-1">
+            Three insider-trading strategies on real paper accounts. Every trade is public.
+          </p>
+        </div>
+        {paper && (
+          <div className="text-xs text-[#55556A] font-mono">
+            Updated {new Date(paper.as_of).toLocaleTimeString()}
+          </div>
+        )}
       </div>
 
-      {/* Stat Cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          title="Signals Today"
-          value={stats?.signals_today ?? "--"}
-          subtitle="New filings detected"
-          trend="neutral"
-        />
-        <StatCard
-          title="Active Clusters"
-          value={stats?.active_clusters ?? "--"}
-          subtitle="Multi-insider convergence"
-          trend={stats && stats.active_clusters > 0 ? "up" : "neutral"}
-        />
-        <StatCard
-          title="Buy / Sell Ratio"
-          value={stats ? stats.buy_sell_ratio.toFixed(2) : "--"}
-          subtitle={
-            stats
-              ? stats.buy_sell_ratio >= 1.5
-                ? "Bullish bias"
-                : stats.buy_sell_ratio <= 0.7
-                  ? "Bearish bias"
-                  : "Neutral"
-              : undefined
-          }
-          trend={
-            stats
-              ? stats.buy_sell_ratio >= 1.5
-                ? "up"
-                : stats.buy_sell_ratio <= 0.7
-                  ? "down"
-                  : "neutral"
-              : "neutral"
-          }
-        />
-        <StatCard
-          title="Top Mover"
-          value={
-            stats?.top_mover
-              ? `${stats.top_mover.ticker} ${formatCurrency(stats.top_mover.value)}`
-              : "--"
-          }
-          subtitle="Highest value filing today"
-          trend="neutral"
-        />
+      {/* Strategy cards */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {paper?.strategies.map((s) => (
+          <StrategyCard key={s.name} s={s} />
+        )) ?? (
+          <div className="lg:col-span-3 text-sm text-[#55556A]">Loading strategies...</div>
+        )}
       </div>
 
-      {/* Quick Filters */}
+      {/* Today's notable trades */}
+      <Card className="bg-[#12121A] border-[#2A2A3A]">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-medium text-[#8888A0]">Recent Notable Insider Trades</CardTitle>
+            <Link href="/feed" className="text-xs text-[#3B82F6] hover:underline">View all</Link>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <SignalsTable filings={filings} />
+        </CardContent>
+      </Card>
+
+      {/* Quick links */}
       <div className="flex flex-wrap items-center gap-2">
-        {QUICK_FILTERS.map((filter) => (
-          <Link
-            key={filter.href}
-            href={filter.href}
-            className="rounded-md border border-[#2A2A3A] bg-[#12121A] px-3 py-1.5 text-xs font-medium text-[#8888A0] transition-colors hover:text-[#E8E8ED] hover:border-[#3B82F6]/50 hover:bg-[#3B82F6]/10"
-          >
-            {filter.label}
-          </Link>
-        ))}
-      </div>
-
-      {/* Activity Heatmap */}
-      {heatmap.length > 0 && (
-        <Card className="bg-[#12121A] border-[#2A2A3A]">
-          <CardHeader>
-            <CardTitle className="text-sm font-medium text-[#8888A0]">
-              Filing Activity (1 year)
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <CalendarHeatmap data={heatmap} days={365} />
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Dashboard sections: Convergence, Activity Spikes, Sell Cessation */}
-      <ProGate label="Intelligence Signals">
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-          <Suspense fallback={<SectionSkeleton title="Convergence Alerts" />}>
-            <ConvergenceAlerts />
-          </Suspense>
-          <Suspense fallback={<SectionSkeleton title="Activity Spikes" />}>
-            <ActivitySpikes />
-          </Suspense>
-          <Suspense fallback={<SectionSkeleton title="Sell Cessation" />}>
-            <SellCessation />
-          </Suspense>
-        </div>
-      </ProGate>
-
-      {/* Main content: Table + Chart */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
-        {/* Recent Signals Table */}
-        <Card className="bg-[#12121A] border-[#2A2A3A] lg:col-span-3">
-          <CardHeader>
-            <CardTitle className="text-sm font-medium text-[#8888A0]">
-              Recent Notable Trades
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <SignalsTable filings={filings} />
-          </CardContent>
-        </Card>
-
-        {/* Sentiment Chart + Filing Delays */}
-        <div className="lg:col-span-2 space-y-6">
-          <SentimentChart data={sentiment} />
-          {filingDelays && <FilingDelayChart data={filingDelays} />}
-        </div>
+        <Link href="/research/market-overview" className="rounded-md border border-[#2A2A3A] bg-[#12121A] px-3 py-1.5 text-xs font-medium text-[#8888A0] transition-colors hover:text-[#E8E8ED] hover:border-[#3B82F6]/50 hover:bg-[#3B82F6]/10">
+          Market Overview
+        </Link>
+        <Link href="/clusters?days=7" className="rounded-md border border-[#2A2A3A] bg-[#12121A] px-3 py-1.5 text-xs font-medium text-[#8888A0] transition-colors hover:text-[#E8E8ED] hover:border-[#3B82F6]/50 hover:bg-[#3B82F6]/10">
+          Active Clusters
+        </Link>
+        <Link href="/scoring" className="rounded-md border border-[#2A2A3A] bg-[#12121A] px-3 py-1.5 text-xs font-medium text-[#8888A0] transition-colors hover:text-[#E8E8ED] hover:border-[#3B82F6]/50 hover:bg-[#3B82F6]/10">
+          Scoring Methodology
+        </Link>
+        <Link href="/feed?trade_type=buy&min_grade=A" className="rounded-md border border-[#2A2A3A] bg-[#12121A] px-3 py-1.5 text-xs font-medium text-[#8888A0] transition-colors hover:text-[#E8E8ED] hover:border-[#3B82F6]/50 hover:bg-[#3B82F6]/10">
+          A+ Grade Buys Today
+        </Link>
       </div>
     </div>
   );

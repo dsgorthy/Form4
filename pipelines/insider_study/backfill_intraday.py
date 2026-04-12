@@ -35,8 +35,8 @@ DB_PATH = Path(__file__).resolve().parents[2] / "strategies" / "insider_catalog"
 PRICES_DB = Path(__file__).resolve().parents[2] / "strategies" / "insider_catalog" / "prices.db"
 
 ALPACA_BASE = "https://data.alpaca.markets/v2"
-ALPACA_KEY = os.getenv("ALPACA_API_KEY", "")
-ALPACA_SECRET = os.getenv("ALPACA_API_SECRET", "")
+ALPACA_KEY = os.getenv("ALPACA_DATA_API_KEY", "")
+ALPACA_SECRET = os.getenv("ALPACA_DATA_API_SECRET", "")
 
 # Rate limiting: 200 req/min
 MIN_INTERVAL = 0.31  # seconds between requests
@@ -54,7 +54,7 @@ def _throttle():
 def fetch_bars(ticker: str, start: str, end: str, timeframe: str = "5Min") -> list[dict]:
     """Fetch bars from Alpaca with pagination."""
     if not ALPACA_KEY or not ALPACA_SECRET:
-        raise RuntimeError("ALPACA_API_KEY/SECRET required (set in .env)")
+        raise RuntimeError("ALPACA_DATA_API_KEY/SECRET required (set in .env) — shared read-only data credentials")
 
     headers = {
         "APCA-API-KEY-ID": ALPACA_KEY,
@@ -176,14 +176,14 @@ def main():
     args = parser.parse_args()
 
     # Load env if not already set
-    _key = os.getenv("ALPACA_API_KEY", "") or ALPACA_KEY
-    _secret = os.getenv("ALPACA_API_SECRET", "") or ALPACA_SECRET
+    _key = os.getenv("ALPACA_DATA_API_KEY", "") or ALPACA_KEY
+    _secret = os.getenv("ALPACA_DATA_API_SECRET", "") or ALPACA_SECRET
     if not _key:
         try:
             from dotenv import load_dotenv
             load_dotenv(Path(__file__).resolve().parents[2] / ".env")
-            _key = os.getenv("ALPACA_API_KEY", "")
-            _secret = os.getenv("ALPACA_API_SECRET", "")
+            _key = os.getenv("ALPACA_DATA_API_KEY", "")
+            _secret = os.getenv("ALPACA_DATA_API_SECRET", "")
         except ImportError:
             pass
 

@@ -261,7 +261,7 @@ def get_private_company_trades(
                     t.insider_id, MAX(t.ticker) AS ticker, MAX(t.company) AS company, MAX(t.title) AS title,
                     MAX(t.normalized_title) AS normalized_title,
                     t.trade_type, t.trade_date, MAX(t.filing_date) AS filing_date,
-                    ROUND(SUM(t.value) / SUM(t.qty), 2) AS price,
+                    ROUND(SUM(t.value) / NULLIF(SUM(t.qty), 0), 2) AS price,
                     SUM(t.qty) AS qty,
                     SUM(t.value) AS value,
                     COUNT(*) AS lot_count,

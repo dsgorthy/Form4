@@ -425,16 +425,16 @@ def print_summary(conn):
         # Avg return and win rate
         stats = conn.execute(f"""
             SELECT
-                AVG({col}) * 100,
-                AVG(CASE WHEN {col} > 0 THEN 1.0 ELSE 0.0 END) * 100,
-                AVG(abnormal_{window}) * 100
+                AVG({col}) * 100 AS avg_ret,
+                AVG(CASE WHEN {col} > 0 THEN 1.0 ELSE 0.0 END) * 100 AS win_rate,
+                AVG(abnormal_{window}) * 100 AS avg_abn
             FROM trade_returns
             WHERE {col} IS NOT NULL
         """).fetchone()
 
-        avg_ret = stats[0] or 0
-        wr = stats[1] or 0
-        avg_abn = stats[2] or 0
+        avg_ret = (stats["avg_ret"] if stats else None) or 0
+        wr = (stats["win_rate"] if stats else None) or 0
+        avg_abn = (stats["avg_abn"] if stats else None) or 0
 
         print(f"  {window}: {count:,}/{total:,} trades ({100*count/total:.0f}%) | "
               f"Avg ret: {avg_ret:+.2f}% | WR: {wr:.1f}% | Avg alpha: {avg_abn:+.2f}%")

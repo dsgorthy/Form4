@@ -203,13 +203,14 @@ def _fetch_strategy_snapshot(strategy_def: dict) -> dict:
 
 @router.get("/dashboard")
 def paper_trading_dashboard(user: UserContext = Depends(get_current_user)) -> dict:
-    """Multi-strategy paper trading snapshot. Admin-only.
+    """Multi-strategy paper trading snapshot.
 
     All amounts are normalized to a $100K starting baseline. See module
     docstring for why.
+
+    Pro users see full detail (exact equity, open positions, day change).
+    Free users see a summary (rounded equity, position count, overall status).
     """
-    if not user.is_admin:
-        raise HTTPException(status_code=403, detail="admin only")
 
     cached = _CACHE.get("dashboard")
     now = time.time()
@@ -231,4 +232,27 @@ def paper_trading_dashboard(user: UserContext = Depends(get_current_user)) -> di
     }
 
     _CACHE["dashboard"] = (now, payload)
+
+    if not user.has_full_feed:
+        redacted = []
+        for s in strategies:
+            r = {
+                "name": s["name"],
+                "label": s["label"],
+                "starting_capital": s["starting_capital"],
+                "started_at": s["started_at"],
+                "backtest": s["backtest"],
+                "position_count": s.get("position_count", 0),
+                "deviation_status": s.get("deviation_status"),
+            }
+            eq = s.get("current_equity")
+            if eq is not None:
+                r["current_equity"] = round(eq / 1000) * 1000
+                r["total_pnl"] = r["current_equity"] - STARTING_CAPITAL
+                r["total_pnl_pct"] = round(r["total_pnl"] / STARTING_CAPITAL * 100, 0)
+            if "error" in s:
+                r["error"] = s["error"]
+            redacted.append(r)
+        return {**payload, "strategies": redacted, "gated": True}
+
     return payload

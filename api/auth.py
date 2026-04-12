@@ -43,7 +43,11 @@ class UserContext:
 
     @property
     def is_pro(self) -> bool:
-        return self.tier in ("pro", "trial")
+        return self.tier in ("pro", "pro_plus", "trial")
+
+    @property
+    def is_pro_plus(self) -> bool:
+        return self.tier == "pro_plus"
 
     @property
     def is_grace(self) -> bool:
@@ -51,8 +55,8 @@ class UserContext:
 
     @property
     def has_full_feed(self) -> bool:
-        """Pro, trial, and grace users see the full feed (no 90-day cutoff, no gated items)."""
-        return self.tier in ("pro", "trial", "grace")
+        """Pro, Pro+, trial, and grace users see the full feed (no 90-day cutoff, no gated items)."""
+        return self.tier in ("pro", "pro_plus", "trial", "grace")
 
     @property
     def is_admin(self) -> bool:

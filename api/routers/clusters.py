@@ -283,7 +283,7 @@ def get_cluster_detail(
                     MIN(t.trade_id) AS trade_id,
                     t.insider_id, MAX(t.ticker) AS ticker, MAX(t.company) AS company, MAX(t.title) AS title,
                     t.trade_type, MIN(t.trade_date) AS trade_date, MIN(t.filing_date) AS filing_date,
-                    ROUND(SUM(t.value) / SUM(t.qty), 2) AS price,
+                    ROUND(SUM(t.value) / NULLIF(SUM(t.qty), 0), 2) AS price,
                     SUM(t.qty) AS qty,
                     SUM(t.value) AS value,
                     MAX(t.is_csuite) AS is_csuite,

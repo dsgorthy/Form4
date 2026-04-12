@@ -23,6 +23,15 @@ from pathlib import Path
 
 import requests
 
+# Load .env for ALPACA_DATA_API_KEY / ALPACA_DATA_API_SECRET (shared read-only
+# data credentials). Plists no longer hardcode credentials — the rule is that
+# secrets live in .env only.
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+except ImportError:
+    pass
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -142,10 +151,10 @@ def main():
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
 
-    api_key = os.getenv("ALPACA_API_KEY", "")
-    api_secret = os.getenv("ALPACA_API_SECRET", "")
+    api_key = os.getenv("ALPACA_DATA_API_KEY", "")
+    api_secret = os.getenv("ALPACA_DATA_API_SECRET", "")
     if not api_key:
-        logger.error("ALPACA_API_KEY required")
+        logger.error("ALPACA_DATA_API_KEY required (shared read-only data credentials)")
         return
 
     conn = sqlite3.connect(str(INTRADAY_DB))

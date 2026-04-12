@@ -169,7 +169,7 @@ def get_company_trades(
                     MIN(t.trade_date) AS trade_date,
                     MAX(t.trade_date) AS last_trade_date,
                     MIN(t.filing_date) AS filing_date,
-                    ROUND(SUM(t.value) / SUM(t.qty), 2) AS price,
+                    ROUND(SUM(t.value) / NULLIF(SUM(t.qty), 0), 2) AS price,
                     SUM(t.qty) AS qty,
                     SUM(t.value) AS value,
                     COUNT(*) AS lot_count,
@@ -257,7 +257,7 @@ def get_company_price_history(ticker: str, user: UserContext = Depends(get_curre
                     t.insider_id,
                     t.trade_type,
                     t.trade_date,
-                    ROUND(SUM(t.value) / SUM(t.qty), 2) AS price,
+                    ROUND(SUM(t.value) / NULLIF(SUM(t.qty), 0), 2) AS price,
                     SUM(t.value) AS value
                 FROM trades t
                 WHERE {where_clause}
@@ -356,7 +356,7 @@ def get_chart_data(
                     t.insider_id,
                     t.trade_type,
                     t.trade_date,
-                    ROUND(SUM(t.value) / SUM(t.qty), 2) AS price,
+                    ROUND(SUM(t.value) / NULLIF(SUM(t.qty), 0), 2) AS price,
                     SUM(t.value) AS value
                 FROM trades t
                 WHERE {where_clause}

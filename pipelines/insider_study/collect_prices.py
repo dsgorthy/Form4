@@ -12,8 +12,9 @@ Usage:
         --start 2019-01-01 \
         --end 2026-01-01
 
-Credentials are read from .env (ALPACA_API_KEY / ALPACA_API_SECRET) two
-directories up from this file, or from environment variables.
+Credentials are read from .env (ALPACA_DATA_API_KEY / ALPACA_DATA_API_SECRET —
+shared read-only data credentials) two directories up from this file, or from
+environment variables.
 """
 
 import argparse
@@ -36,10 +37,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s — %(
 
 
 def _load_credentials() -> tuple[str, str]:
-    """Load Alpaca credentials from .env file or environment variables."""
+    """Load shared read-only Alpaca credentials from .env file or environment variables."""
     # Try environment variables first
-    key = os.environ.get("ALPACA_API_KEY", "")
-    secret = os.environ.get("ALPACA_API_SECRET", "")
+    key = os.environ.get("ALPACA_DATA_API_KEY", "")
+    secret = os.environ.get("ALPACA_DATA_API_SECRET", "")
 
     if not key or not secret:
         # Try .env file in framework root
@@ -47,15 +48,17 @@ def _load_credentials() -> tuple[str, str]:
         if env_path.exists():
             for line in env_path.read_text().splitlines():
                 line = line.strip()
-                if line.startswith("ALPACA_API_KEY=") and not key:
+                if line.startswith("ALPACA_DATA_API_KEY=") and not key:
                     key = line.split("=", 1)[1].strip()
-                elif line.startswith("ALPACA_API_SECRET=") and not secret:
+                elif line.startswith("ALPACA_DATA_API_SECRET=") and not secret:
                     secret = line.split("=", 1)[1].strip()
 
     if not key or not secret:
         logger.error(
-            "Alpaca credentials not found. Set ALPACA_API_KEY and ALPACA_API_SECRET "
-            "in environment or in %s/.env", _FRAMEWORK_ROOT
+            "Alpaca data credentials not found. Set ALPACA_DATA_API_KEY and "
+            "ALPACA_DATA_API_SECRET in environment or in %s/.env — these are the "
+            "shared read-only data credentials, never use for order execution",
+            _FRAMEWORK_ROOT
         )
         sys.exit(1)
 

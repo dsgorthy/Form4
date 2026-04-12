@@ -17,14 +17,59 @@ function SettingsIcon() {
   );
 }
 
-const links = [
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/feed", label: "Feed" },
+function ResearchDropdown({ pathname }: { pathname: string }) {
+  const [open, setOpen] = useState(false);
+  const isActive = researchLinks.some((l) => pathname === l.href);
+
+  return (
+    <div className="relative" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+      <button
+        className={`flex items-center gap-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+          isActive
+            ? "bg-[#1A1A26] text-[#E8E8ED]"
+            : "text-[#8888A0] hover:text-[#E8E8ED] hover:bg-[#1A1A26]/50"
+        }`}
+      >
+        Research
+        <svg className={`w-3.5 h-3.5 transition-transform ${open ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full pt-1 z-50">
+          <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] py-1 shadow-xl min-w-[160px]">
+            {researchLinks.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                onClick={() => setOpen(false)}
+                className={`block px-4 py-2 text-sm transition-colors ${
+                  pathname === link.href
+                    ? "text-[#E8E8ED] bg-[#1A1A26]"
+                    : "text-[#8888A0] hover:text-[#E8E8ED] hover:bg-[#1A1A26]/50"
+                }`}
+              >
+                {link.label}
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const primaryLinks = [
   { href: "/portfolio", label: "Portfolio" },
-  { href: "/clusters", label: "Clusters" },
+  { href: "/feed", label: "Today's Trades" },
+];
+
+const researchLinks = [
   { href: "/screener", label: "Screener" },
   { href: "/leaderboard", label: "Leaderboard" },
+  { href: "/clusters", label: "Clusters" },
   { href: "/congress", label: "Congress" },
+  { href: "/signals", label: "Signals" },
 ];
 
 export function Nav() {
@@ -51,8 +96,8 @@ export function Nav() {
 
         {/* Desktop nav links */}
         <div className="hidden md:flex items-center space-x-1">
-          {links.map((link) => {
-            const isActive = pathname === link.href;
+          {primaryLinks.map((link) => {
+            const isActive = pathname === link.href || (link.href === "/feed" && pathname === "/feed");
             return (
               <Link
                 key={link.href}
@@ -67,6 +112,7 @@ export function Nav() {
               </Link>
             );
           })}
+          <ResearchDropdown pathname={pathname} />
         </div>
 
         {/* Right side */}
@@ -77,7 +123,7 @@ export function Nav() {
           {isLoaded && isSignedIn && (
             <>
               {userIsPro && <NotificationBell />}
-              {userTier === "pro" ? (
+              {(userTier === "pro" || userTier === "pro_plus") ? (
                 <span className="hidden md:inline-flex"><ProBadge /></span>
               ) : userTier === "trial" ? (
                 <Link
@@ -158,8 +204,8 @@ export function Nav() {
             <SearchBar />
           </div>
 
-          {/* Nav links */}
-          {links.map((link) => {
+          {/* Primary links */}
+          {primaryLinks.map((link) => {
             const isActive = pathname === link.href;
             return (
               <Link
@@ -176,6 +222,28 @@ export function Nav() {
               </Link>
             );
           })}
+
+          {/* Research section */}
+          <div className="pt-2 mt-1 border-t border-[#2A2A3A]">
+            <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-widest text-[#55556A]">Research</div>
+            {researchLinks.map((link) => {
+              const isActive = pathname === link.href;
+              return (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  onClick={() => setMobileOpen(false)}
+                  className={`block rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                    isActive
+                      ? "bg-[#1A1A26] text-[#E8E8ED]"
+                      : "text-[#8888A0] hover:text-[#E8E8ED] hover:bg-[#1A1A26]/50"
+                  }`}
+                >
+                  {link.label}
+                </Link>
+              );
+            })}
+          </div>
 
           {/* Account section */}
           {isLoaded && isSignedIn && (

@@ -112,14 +112,14 @@ def main():
     for p in env_paths:
         if p and p.exists():
             creds = load_credentials(p)
-            if creds.get("ALPACA_API_KEY") and creds.get("ALPACA_API_SECRET"):
+            if creds.get("ALPACA_DATA_API_KEY") and creds.get("ALPACA_DATA_API_SECRET"):
                 logger.info("Using credentials from %s", p)
                 break
 
-    api_key = creds.get("ALPACA_API_KEY", "")
-    api_secret = creds.get("ALPACA_API_SECRET", "")
+    api_key = creds.get("ALPACA_DATA_API_KEY", "")
+    api_secret = creds.get("ALPACA_DATA_API_SECRET", "")
     if not api_key or not api_secret:
-        logger.error("No Alpaca credentials found. Set ALPACA_API_KEY and ALPACA_API_SECRET in .env")
+        logger.error("No Alpaca data credentials found. Set ALPACA_DATA_API_KEY and ALPACA_DATA_API_SECRET in .env (shared read-only)")
         sys.exit(1)
 
     # Resolve output directory

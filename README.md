@@ -164,7 +164,9 @@ python3 pipelines/run_board.py --strategy spy_noon_break
 
 | Strategy | Type | Board Status | Notes |
 |----------|------|--------------|-------|
-| insider_cluster_buy | Event-driven swing (small/midcap equities) | APPROVED — paper trading | Sharpe 1.18, walk-forward validated, 204 events |
+| quality_momentum | Insider A+/A buys in uptrends | LIVE paper trading | Sharpe 1.18, CAGR 18.5%, MaxDD 10.1% — productized |
+| reversal_dip | Persistent seller reverses on dip | LIVE paper trading | Sharpe 1.08, ~20 trades/yr, contrarian mean-reversion — productized |
+| tenb51_surprise | 10b5-1 scheduled seller breaks pattern to buy | LIVE paper trading (experimental) | Sharpe 0.68, 50 trades, experimental |
 | etf_gap_fill | ETF equity, intraday gap fill | Active research | SPY/QQQ production, 10-ETF expansion |
 | spy_gap_fill | SPY equity, intraday gap fill | Active research | Multiple variants under test |
 
@@ -230,7 +232,8 @@ trading-framework/
 │   └── personas/           # 5 persona system prompts
 │
 ├── strategies/             # One directory per strategy (self-contained)
-│   ├── insider_cluster_buy/# Insider cluster buy (APPROVED, paper trading)
+│   ├── cw_strategies/      # Live paper trading: cw_runner.py + yaml configs (quality_momentum, reversal_dip, tenb51_surprise)
+│   ├── insider_catalog/    # Insider data fetch/backfill/scoring pipeline
 │   ├── etf_gap_fill/       # ETF gap fill (active research)
 │   ├── spy_gap_fill/       # SPY gap fill (active research)
 │   └── archive/            # Archived strategies (see ARCHIVE_INDEX.md)
@@ -274,13 +277,13 @@ pip install pandas numpy pyyaml pytz requests
 
 # Copy and fill in credentials
 cp .env.example .env
-# Edit .env: ALPACA_API_KEY, ALPACA_API_SECRET, TELEGRAM_BOT_TOKEN
+# Edit .env: ALPACA_DATA_API_KEY (read-only), per-strategy ALPACA_API_KEY_{PREFIX} pairs, TELEGRAM_BOT_TOKEN
 ```
 
 ---
 
 ## Known Limitations / Outstanding Work
 
-1. **Paper trading validation** — insider_cluster_buy paper runner is active; need 6+ months of execution data before drawing performance conclusions
+1. **Paper trading validation** — quality_momentum, reversal_dip, and tenb51_surprise runners are active; need 6+ months of execution data before drawing performance conclusions
 2. **Walk-forward validation** — etf_gap_fill and spy_gap_fill still need OOS validation before board submission
 3. **Real options calibration** — `_reprice_option` falls back to BS when bar-level real data unavailable; verify coverage density if options strategies are revisited

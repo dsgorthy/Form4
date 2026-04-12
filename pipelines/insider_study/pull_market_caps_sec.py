@@ -272,8 +272,8 @@ def pull_market_caps(full: bool = False) -> dict:
         # If still no price, try Alpaca
         if price is None:
             try:
-                api_key = os.getenv("ALPACA_API_KEY", "")
-                api_secret = os.getenv("ALPACA_API_SECRET", "")
+                api_key = os.getenv("ALPACA_DATA_API_KEY", "")
+                api_secret = os.getenv("ALPACA_DATA_API_SECRET", "")
                 if api_key:
                     resp = requests.get(
                         f"https://data.alpaca.markets/v2/stocks/{ticker}/trades/latest",

@@ -96,18 +96,28 @@ def detect_breaking_signals(conn, target_date: str) -> list[dict]:
     # Get all non-routine, non-duplicate trades for the day
     rows = conn.execute("""
         SELECT
-            t.trade_id, t.ticker, t.company, t.insider_id,
-            COALESCE(i.display_name, i.name) AS insider_name,
-            t.title, t.trade_type, t.filing_date, t.trade_date,
+            MIN(t.trade_id) AS trade_id,
+            t.ticker,
+            MAX(t.company) AS company,
+            t.insider_id,
+            MAX(COALESCE(i.display_name, i.name)) AS insider_name,
+            MAX(t.title) AS title,
+            t.trade_type,
+            MIN(t.filing_date) AS filing_date,
+            MIN(t.trade_date) AS trade_date,
             SUM(t.value) AS total_value,
             SUM(t.qty) AS total_qty,
-            t.signal_grade, t.is_rare_reversal, t.is_csuite,
-            t.week52_proximity, t.cohen_routine, t.is_10b5_1,
-            t.shares_owned_after, t.filing_key,
-            COALESCE(t.pit_win_rate_7d, itr.buy_win_rate_7d) AS pit_win_rate_7d,
-            COALESCE(t.pit_n_trades, itr.buy_count) AS pit_n_trades,
-            t.insider_switch_rate,
-            t.is_rare_reversal
+            MAX(t.signal_grade) AS signal_grade,
+            MAX(t.is_rare_reversal) AS is_rare_reversal,
+            MAX(t.is_csuite) AS is_csuite,
+            MAX(t.week52_proximity) AS week52_proximity,
+            MAX(t.cohen_routine) AS cohen_routine,
+            MAX(t.is_10b5_1) AS is_10b5_1,
+            MAX(t.shares_owned_after) AS shares_owned_after,
+            t.filing_key,
+            MAX(COALESCE(t.pit_win_rate_7d, itr.buy_win_rate_7d)) AS pit_win_rate_7d,
+            MAX(COALESCE(t.pit_n_trades, itr.buy_count)) AS pit_n_trades,
+            MAX(t.insider_switch_rate) AS insider_switch_rate
         FROM trades t
         JOIN insiders i ON t.insider_id = i.insider_id
         LEFT JOIN insider_track_records itr ON t.insider_id = itr.insider_id

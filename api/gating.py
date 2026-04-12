@@ -102,3 +102,21 @@ def require_pro(user: UserContext = Depends(get_current_user)) -> UserContext:
             detail="Pro subscription required. Upgrade at /pricing",
         )
     return user
+
+
+def require_pro_plus(user: UserContext = Depends(get_current_user)) -> UserContext:
+    """Dependency that rejects non-Pro+ users with 403.
+
+    Pro+ is a superset of Pro — includes research tools (screener,
+    leaderboard, congress, export, API keys). Tier stored as
+    publicMetadata.tier = "pro_plus" in Clerk. Pro users who aren't
+    Pro+ get a 403 pointing them to the upgrade path.
+
+    TODO: Wire to Stripe product/price in Phase 4.
+    """
+    if not user.is_pro_plus and not user.is_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Pro+ subscription required for research tools. Upgrade at /pricing",
+        )
+    return user

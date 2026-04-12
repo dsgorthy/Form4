@@ -1,6 +1,8 @@
 strategy_name: quality_momentum
 display_name: "Form4 Quality + Momentum"
 telegram_prefix: "[QM]"
+# Dedicated paper account — reads ALPACA_API_KEY_QUALITY_MOMENTUM / _SECRET_QUALITY_MOMENTUM from .env
+alpaca_env_prefix: QUALITY_MOMENTUM
 starting_capital: 100000
 position_size_pct: 0.10
 max_concurrent: 10

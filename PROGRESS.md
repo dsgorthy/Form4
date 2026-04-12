@@ -1,7 +1,7 @@
 # Trading Framework — Project Progress
 
-**Last updated:** 2026-03-01
-**Status:** All 5 phases complete. insider_cluster_buy approved for paper trading (Sharpe 1.18). 7 strategies archived with formal manifests. 3 active strategies remain.
+**Last updated:** 2026-04-11
+**Status:** All 5 phases complete. Three productized strategies live in paper trading: quality_momentum, reversal_dip, tenb51_surprise — each with its own dedicated Alpaca account. Legacy insider_cluster_buy (V4) and insider_v2 retired 2026-04-11. 7 strategies archived with formal manifests.
 
 ---
 
@@ -243,7 +243,7 @@ Each archived strategy has an `ARCHIVE.md` manifest with key metrics, lessons le
 Master index: `strategies/archive/ARCHIVE_INDEX.md`.
 Template: `research/templates/archive_manifest.md`.
 
-**Active strategies remaining:** insider_cluster_buy (paper trading), etf_gap_fill (research), spy_gap_fill (research).
+**Active strategies remaining:** quality_momentum (paper trading), reversal_dip (paper trading), tenb51_surprise (paper trading, experimental), etf_gap_fill (research), spy_gap_fill (research).
 
 ---
 
@@ -251,8 +251,8 @@ Template: `research/templates/archive_manifest.md`.
 
 ### High Priority
 
-**1. Paper trading validation (insider_cluster_buy)**
-Paper runner is active. At ~34 signals/year, need 6 months (~17 trades) for execution validation, 12-15 months (~40 trades) for directional performance read.
+**1. Paper trading validation (3 live strategies)**
+quality_momentum, reversal_dip, and tenb51_surprise runners are active (each in its own dedicated Alpaca paper account per the "max 3 strategies, one account each" constraint). Need ~6 months of execution data before drawing performance conclusions.
 
 **2. Walk-forward validation for active strategies**
 etf_gap_fill and spy_gap_fill need OOS walk-forward validation before board submission.

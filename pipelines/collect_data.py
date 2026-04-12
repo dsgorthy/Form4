@@ -49,11 +49,11 @@ def load_env_file(path: Path) -> dict:
 
 def resolve_credentials(env_file: Path = None) -> tuple[str, str, str]:
     """
-    Resolve Alpaca credentials in priority order:
+    Resolve shared read-only Alpaca data credentials in priority order:
       1. Explicit --env-file argument
       2. .env in trading-framework root
       3. .env in spy-0dte sibling dir
-      4. os.environ (ALPACA_API_KEY / ALPACA_API_SECRET)
+      4. os.environ (ALPACA_DATA_API_KEY / ALPACA_DATA_API_SECRET)
     Returns (api_key, api_secret, data_url).
     """
     candidates = [env_file] if env_file else []
@@ -66,13 +66,13 @@ def resolve_credentials(env_file: Path = None) -> tuple[str, str, str]:
     for p in candidates:
         if p and p.exists():
             loaded = load_env_file(p)
-            if loaded.get("ALPACA_API_KEY") and loaded.get("ALPACA_API_SECRET"):
+            if loaded.get("ALPACA_DATA_API_KEY") and loaded.get("ALPACA_DATA_API_SECRET"):
                 creds = loaded
                 logger.info("Using credentials from %s", p)
                 break
 
-    api_key = creds.get("ALPACA_API_KEY") or os.getenv("ALPACA_API_KEY", "")
-    api_secret = creds.get("ALPACA_API_SECRET") or os.getenv("ALPACA_API_SECRET", "")
+    api_key = creds.get("ALPACA_DATA_API_KEY") or os.getenv("ALPACA_DATA_API_KEY", "")
+    api_secret = creds.get("ALPACA_DATA_API_SECRET") or os.getenv("ALPACA_DATA_API_SECRET", "")
     data_url = creds.get("ALPACA_DATA_URL") or os.getenv(
         "ALPACA_DATA_URL", "https://data.alpaca.markets/v2"
     )
@@ -161,8 +161,9 @@ def main():
     api_key, api_secret, data_url = resolve_credentials(args.env_file)
     if not api_key or not api_secret:
         logger.error(
-            "No Alpaca credentials found. Set ALPACA_API_KEY and ALPACA_API_SECRET "
-            "in .env or environment variables."
+            "No Alpaca data credentials found. Set ALPACA_DATA_API_KEY and "
+            "ALPACA_DATA_API_SECRET in .env or environment variables — these are "
+            "the shared read-only data credentials, never used for order execution."
         )
         sys.exit(1)
 

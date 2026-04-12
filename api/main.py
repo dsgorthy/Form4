@@ -258,30 +258,36 @@ def health_deep() -> dict:
 
 
 @app.get("/api/v1/portfolio/runner-status")
-def portfolio_runner_status(strategy: str = "form4_insider", user: UserContext = Depends(get_current_user)) -> dict:
+def portfolio_runner_status(strategy: str = "quality_momentum", user: UserContext = Depends(get_current_user)) -> dict:
     """Check portfolio runner health via heartbeat file.
-    Supports multiple strategies with per-strategy heartbeat files."""
+
+    Heartbeat files are written by cw_runner.py at
+    strategies/cw_strategies/data/{strategy_name}_heartbeat.json. Only the
+    three productized strategies are supported — legacy form4_insider /
+    cw_reversal / cw_composite runners were retired on 2026-04-11.
+    """
     import json as _json
     from pathlib import Path
     from datetime import datetime
 
-    # Strategy -> heartbeat file mapping
+    # Strategy -> heartbeat file mapping. Docker path first (production API
+    # container mounts strategies/ as /data/cw_strategies), then host path.
     heartbeat_paths = {
-        "form4_insider": [
-            Path("/data/runner/portfolio_runner_heartbeat.json"),
-            Path("/Users/openclaw/trading-framework/pipelines/data/portfolio_runner_heartbeat.json"),
+        "quality_momentum": [
+            Path("/data/cw_strategies/quality_momentum_heartbeat.json"),
+            Path("/Users/openclaw/trading-framework/strategies/cw_strategies/data/quality_momentum_heartbeat.json"),
         ],
-        "cw_reversal": [
-            Path("/data/runner/cw_reversal_heartbeat.json"),
-            Path("/Users/openclaw/trading-framework/strategies/cw_strategies/data/cw_reversal_heartbeat.json"),
+        "reversal_dip": [
+            Path("/data/cw_strategies/reversal_dip_heartbeat.json"),
+            Path("/Users/openclaw/trading-framework/strategies/cw_strategies/data/reversal_dip_heartbeat.json"),
         ],
-        "cw_composite": [
-            Path("/data/runner/cw_composite_heartbeat.json"),
-            Path("/Users/openclaw/trading-framework/strategies/cw_strategies/data/cw_composite_heartbeat.json"),
+        "tenb51_surprise": [
+            Path("/data/cw_strategies/tenb51_surprise_heartbeat.json"),
+            Path("/Users/openclaw/trading-framework/strategies/cw_strategies/data/tenb51_surprise_heartbeat.json"),
         ],
     }
 
-    candidates = heartbeat_paths.get(strategy, heartbeat_paths["form4_insider"])
+    candidates = heartbeat_paths.get(strategy, heartbeat_paths["quality_momentum"])
     heartbeat_path = None
     for p in candidates:
         if p.exists():

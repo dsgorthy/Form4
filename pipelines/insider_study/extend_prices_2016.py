@@ -38,19 +38,19 @@ EXTEND_END = "2018-12-31"
 
 
 def _load_credentials() -> tuple[str, str]:
-    key = os.environ.get("ALPACA_API_KEY", "")
-    secret = os.environ.get("ALPACA_API_SECRET", "")
+    key = os.environ.get("ALPACA_DATA_API_KEY", "")
+    secret = os.environ.get("ALPACA_DATA_API_SECRET", "")
     if not key or not secret:
         env_path = _FRAMEWORK_ROOT / ".env"
         if env_path.exists():
             for line in env_path.read_text().splitlines():
                 line = line.strip()
-                if line.startswith("ALPACA_API_KEY=") and not key:
+                if line.startswith("ALPACA_DATA_API_KEY=") and not key:
                     key = line.split("=", 1)[1].strip()
-                elif line.startswith("ALPACA_API_SECRET=") and not secret:
+                elif line.startswith("ALPACA_DATA_API_SECRET=") and not secret:
                     secret = line.split("=", 1)[1].strip()
     if not key or not secret:
-        logger.error("Alpaca credentials not found")
+        logger.error("Alpaca data credentials not found (ALPACA_DATA_API_KEY / ALPACA_DATA_API_SECRET)")
         sys.exit(1)
     return key, secret
 

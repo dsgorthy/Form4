@@ -63,8 +63,8 @@ def load_env():
 
 load_env()
 
-ALPACA_API_KEY = os.environ.get("ALPACA_API_KEY", "")
-ALPACA_API_SECRET = os.environ.get("ALPACA_API_SECRET", "")
+ALPACA_API_KEY = os.environ.get("ALPACA_DATA_API_KEY", "")
+ALPACA_API_SECRET = os.environ.get("ALPACA_DATA_API_SECRET", "")
 
 # Filter parameters for best strategy
 MIN_CLUSTER_SIZE = 2

@@ -56,11 +56,11 @@ framework/
   alerts/telegram.py        # Trade entry/exit notifications
 
 strategies/
-  insider_cluster_buy/      # LIVE paper trading (Sharpe 1.18, launchd KeepAlive)
-  insider_v2/               # BUILT, not yet live (buy shares + sell puts)
+  cw_strategies/            # LIVE paper trading — runs 3 yaml-configured strategies via cw_runner.py
+  insider_catalog/          # Insider data fetch/backfill/scoring (fetch_latest.py, compute_returns.py, pit_scoring.py)
   etf_gap_fill/             # 16 symbols, per-symbol config_*.yaml files
   spy_gap_fill/             # Base gap fill implementation
-  archive/                  # 7 rejected strategies with ARCHIVE.md manifests
+  archive/                  # Rejected strategies with ARCHIVE.md manifests
 
 pipelines/
   run_backtest.py           # Single-strategy backtest
@@ -79,13 +79,10 @@ reports/                    # Board reports, backtest results, sweep CSVs
 ## Commands
 
 ```bash
-# Run all tests (177 tests)
+# Run all tests
 python3 -m pytest tests/unit -v
 
-# Single-strategy backtest
-python3 pipelines/run_backtest.py --strategy insider_cluster_buy --start 2020-01-01 --end 2024-12-31
-
-# Backtest with custom capital/sizing
+# Backtest a historical strategy (archived/research)
 python3 pipelines/run_backtest.py --strategy spy_gap_fill --capital 50000 --position-pct 5.0
 
 # Gross P&L (no fees)
@@ -95,7 +92,6 @@ python3 pipelines/run_backtest.py --strategy spy_orb --no-fees
 python3 pipelines/run_backtest.py --strategy etf_gap_fill --spy-data /path/to/spy-0dte/data/raw
 
 # Board of Personas review
-python3 pipelines/run_board.py --strategy insider_cluster_buy
 python3 pipelines/run_board.py --strategy spy_gap_fill --backtest-file reports/spy_gap_fill/backtest_latest.json
 
 # Parameter sweep
@@ -107,8 +103,8 @@ python3 pipelines/insider_study/run_all.py --start 2020-01-01 --end 2025-12-31
 # EDGAR Form 4 bulk download
 python3 pipelines/insider_study/download_sec_bulk.py --start 2024-Q1 --end 2024-Q4 --trade-type buy
 
-# Paper trading
-python3 pipelines/run_paper.py --strategy insider_cluster_buy
+# Live paper trading (one of three productized strategies)
+python3 strategies/cw_strategies/cw_runner.py --config strategies/cw_strategies/configs/quality_momentum.yaml
 ```
 
 ## Strategy Lifecycle
@@ -120,17 +116,20 @@ python3 pipelines/run_paper.py --strategy insider_cluster_buy
    - 4 approve + 1 conditional → advance
    - 3 approve + 2 conditional → advance with conditions
    - 2+ non-skeptic rejections → return to research
-4. **Paper Trading** — `run_paper.py` or launchd plist (insider_cluster_buy is live)
+4. **Paper Trading** — launchd plist running `cw_runner.py --config configs/{strategy}.yaml` with dedicated per-strategy Alpaca account
 5. **Archive** — Failed strategies go to `strategies/archive/` with ARCHIVE.md manifest
 
-## Active Strategies
+## Active Strategies — MAX 3, each with its own dedicated Alpaca paper account
 
-| Strategy | Status | Sharpe | Key Metric |
-|----------|--------|--------|------------|
-| insider_cluster_buy | LIVE paper | 1.18 | 55.9% WR, 204 events |
-| insider_v2 | Built, not live | — | Sell signal t=-16.73 |
+| Strategy | Status | Sharpe | Key Metric | Alpaca env prefix |
+|----------|--------|--------|------------|-------------------|
+| quality_momentum | LIVE paper | 1.18 | 68.7% WR, ~50 trades/yr, 42td hold | `_QUALITY_MOMENTUM` |
+| reversal_dip | LIVE paper | 1.08 | ~20 trades/yr, 21td hold, contrarian dip entry | `_REVERSAL_DIP` |
+| tenb51_surprise | LIVE paper (experimental) | 0.68 | 10b5-1 scheduled sellers breaking pattern to buy | `_TENB51_SURPRISE` |
 | etf_gap_fill | Research | 0.59–0.88 | XLC/XLRE/RSP best |
 | spy_gap_fill | Research | — | 76.7% fill rate |
+
+**Constraint:** Never run multiple strategies through the same Alpaca config. Each trading strategy reads its own `ALPACA_API_KEY_{prefix}` / `ALPACA_API_SECRET_{prefix}` from `.env`, with the prefix declared in the strategy yaml as `alpaca_env_prefix`. Shared read-only credentials for bar-reading processes live in `ALPACA_DATA_API_KEY` / `ALPACA_DATA_API_SECRET`.
 
 ## Data
 
@@ -221,5 +220,5 @@ Historical options EOD pricing for insider event backtesting. **Check `pipeline_
 - Gap fill strategy must check if gap already filled during F30 before entry
 - Board `run_board.py` strips `CLAUDECODE` env var to allow nested Claude subprocesses
 - Options pricing: `_reprice_option` tries real data first, falls back to Black-Scholes
-- Alpaca paper trading requires `.env` with ALPACA_API_KEY, ALPACA_API_SECRET
-- `insider_cluster_buy` paper runner is active via `com.openclaw.insider-paper` launchd service — do not stop without approval
+- Alpaca paper trading requires `.env` with per-strategy trading credentials (`ALPACA_API_KEY_QUALITY_MOMENTUM`, `ALPACA_API_KEY_REVERSAL_DIP`, `ALPACA_API_KEY_TENB51_SURPRISE`) and shared read-only data credentials (`ALPACA_DATA_API_KEY` / `ALPACA_DATA_API_SECRET`). See `.env` header comment for the convention
+- Three paper runners are live via `com.openclaw.quality-momentum`, `com.openclaw.reversal-dip`, and `com.openclaw.tenb51-surprise` launchd services (all run `cw_runner.py`) — do not stop without approval

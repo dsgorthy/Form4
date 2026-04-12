@@ -248,14 +248,16 @@ def stage_deploy(slug: str) -> bool:
         return False
 
     env_text = env_file.read_text()
-    if "ALPACA_API_KEY" not in env_text or "ALPACA_SECRET_KEY" not in env_text:
-        logger.error("[deploy] ALPACA_API_KEY / ALPACA_SECRET_KEY not found in .env")
+    if "ALPACA_DATA_API_KEY" not in env_text or "ALPACA_DATA_API_SECRET" not in env_text:
+        logger.error("[deploy] ALPACA_DATA_API_KEY / ALPACA_DATA_API_SECRET not found in .env")
         return False
 
+    # NOTE: run_paper.py was retired 2026-04-11. This research_pipeline auto-deploy
+    # path will need updating to use cw_runner.py with a strategy yaml before use.
     cmd = [
         sys.executable,
-        str(PROJECT_ROOT / "pipelines" / "run_paper.py"),
-        "--strategy", slug,
+        str(PROJECT_ROOT / "strategies" / "cw_strategies" / "cw_runner.py"),
+        "--config", slug,
     ]
     logger.info("[deploy] Launching paper trading daemon: %s", " ".join(cmd))
     # Launch in background (non-blocking)

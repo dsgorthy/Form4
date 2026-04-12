@@ -90,8 +90,8 @@ def fetch_market_cap_alpaca(ticker: str) -> int | None:
     import os
     try:
         import requests
-        api_key = os.getenv("ALPACA_API_KEY", "")
-        api_secret = os.getenv("ALPACA_API_SECRET", "")
+        api_key = os.getenv("ALPACA_DATA_API_KEY", "")
+        api_secret = os.getenv("ALPACA_DATA_API_SECRET", "")
         if not api_key:
             return None
         resp = requests.get(

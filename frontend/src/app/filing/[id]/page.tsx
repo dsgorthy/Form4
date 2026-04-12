@@ -122,21 +122,21 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
   return (
     <div>
       {/* Breadcrumb */}
-      <nav className="flex items-center gap-2 text-sm text-[#55556A] mb-6">
+      <nav className="flex flex-wrap items-center gap-2 text-sm text-[#55556A] mb-6">
         <Link href="/" className="hover:text-[#8888A0] transition-colors">
           Dashboard
         </Link>
         <span>/</span>
         <span>Filing</span>
         <span>/</span>
-        <span className="text-[#E8E8ED] flex items-center gap-1">
+        <span className="text-[#E8E8ED] flex items-center gap-1 min-w-0">
           <TickerDisplay ticker={filing.ticker} company={filing.company} href={null} /> {filing.trade_type.toUpperCase()}
         </span>
       </nav>
 
       {/* Header */}
-      <div className="flex items-center gap-4 mb-8">
-        <TickerDisplay ticker={filing.ticker} company={filing.company} href={null} className="text-3xl font-bold" />
+      <div className="flex flex-wrap items-center gap-3 sm:gap-4 mb-8">
+        <TickerDisplay ticker={filing.ticker} company={filing.company} href={null} className="text-2xl sm:text-3xl font-bold" />
         <Badge
           variant="outline"
           className={`text-sm font-mono ${
@@ -148,22 +148,22 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
           {filing.trade_type.toUpperCase()}
         </Badge>
         {filing.ticker !== "NONE" && (
-          <span className="text-[#8888A0]">{filing.company}</span>
+          <span className="text-[#8888A0] text-sm sm:text-base break-words">{filing.company}</span>
         )}
       </div>
 
       {/* SEC Link prominent */}
       {filing.accession && (
-        <div className="mb-8 rounded-lg border border-blue-500/20 bg-blue-500/5 px-5 py-3 flex items-center justify-between">
+        <div className="mb-8 rounded-lg border border-blue-500/20 bg-blue-500/5 px-5 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <div>
             <div className="text-sm text-[#8888A0]">SEC EDGAR Filing</div>
-            <div className="text-xs font-mono text-[#55556A] mt-0.5">{filing.accession}</div>
+            <div className="text-xs font-mono text-[#55556A] mt-0.5 break-all">{filing.accession}</div>
           </div>
           <a
             href={secEdgarUrl(filing.accession)}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-sm text-blue-400 hover:text-blue-300 flex items-center gap-1.5 font-medium"
+            className="text-sm text-blue-400 hover:text-blue-300 flex items-center gap-1.5 font-medium shrink-0"
           >
             View on SEC EDGAR
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

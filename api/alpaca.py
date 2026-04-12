@@ -39,10 +39,10 @@ def _get_client():
     if _client is None:
         from framework.data.alpaca_client import AlpacaClient
 
-        api_key = os.environ.get("ALPACA_API_KEY", "")
-        api_secret = os.environ.get("ALPACA_API_SECRET", "")
+        api_key = os.environ.get("ALPACA_DATA_API_KEY", "")
+        api_secret = os.environ.get("ALPACA_DATA_API_SECRET", "")
         if not api_key or not api_secret:
-            raise RuntimeError("ALPACA_API_KEY / ALPACA_API_SECRET not set")
+            raise RuntimeError("ALPACA_DATA_API_KEY / ALPACA_DATA_API_SECRET not set — see .env for the read-only credential convention")
         _client = AlpacaClient(api_key=api_key, api_secret=api_secret)
     return _client
 

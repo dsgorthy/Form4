@@ -8,8 +8,8 @@ export const revalidate = 3600;
 
 const STATIC_PATHS = [
   "/", "/feed", "/leaderboard", "/signals", "/clusters", "/congress",
-  "/screener", "/scoring", "/pricing", "/sells", "/convergence",
-  "/inflections", "/privacy", "/terms", "/disclaimer",
+  "/screener", "/scoring", "/pricing", "/sells",
+  "/privacy", "/terms", "/disclaimer",
 ];
 
 interface SitemapData {

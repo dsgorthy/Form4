@@ -114,8 +114,140 @@ function StatCard({ label, value, sub, color }: { label: string; value: string; 
 const STRATEGIES = [
   { value: "quality_momentum", label: "Quality + Momentum", brief: "A+/A insiders buying in uptrends. Sharpe 1.20, 68.7% WR, ~50 trades/yr, 42td hold." },
   { value: "reversal_dip", label: "Deep Reversal", brief: "Persistent sellers reversing into depressed stocks. Sharpe 1.08, ~20 trades/yr, 21td hold." },
-  { value: "tenb51_surprise", label: "10b5-1 Surprise", brief: "Scheduled sellers breaking pattern to buy. Experimental, ~40 trades/yr, 60td hold." },
+  { value: "tenb51_surprise", label: "10b5-1 Surprise", brief: "Scheduled sellers breaking pattern to buy. Experimental, ~40 trades/yr, 60td hold.", experimental: true },
 ];
+
+interface LivePosition {
+  symbol: string;
+  qty: number;
+  avg_entry_price: number;
+  current_price: number;
+  market_value: number;
+  unrealized_pl: number;
+  unrealized_plpc: number;
+}
+
+interface LiveSnapshot {
+  name: string;
+  label: string;
+  current_equity?: number;
+  total_pnl?: number;
+  total_pnl_pct?: number;
+  day_change?: number;
+  day_change_pct?: number;
+  position_count?: number;
+  open_positions?: LivePosition[];
+  deviation_status?: string;
+  backtest?: { cagr: number; sharpe: number; win_rate: number; max_dd: number; trades: number };
+  error?: string;
+}
+
+function LiveStatusPanel({ strategy, userIsPro }: { strategy: string; userIsPro: boolean }) {
+  const { getToken } = useAuth();
+  const [snapshot, setSnapshot] = useState<LiveSnapshot | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      setLoading(true);
+      try {
+        const token = await getToken();
+        const res = await fetch(`${apiBase}/paper-trading/dashboard`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const match = data.strategies?.find((s: LiveSnapshot) => s.name === strategy);
+          if (!cancelled && match) setSnapshot(match);
+        }
+      } catch {}
+      if (!cancelled) setLoading(false);
+    };
+    load();
+    const interval = setInterval(load, 60000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [strategy, getToken]);
+
+  if (loading) {
+    return (
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 animate-pulse">
+        {[1, 2, 3, 4].map((i) => (
+          <div key={i} className="h-20 bg-[#1A1A26] rounded-lg border border-[#2A2A3A]" />
+        ))}
+      </div>
+    );
+  }
+
+  if (!snapshot || snapshot.error) return null;
+
+  const eq = snapshot.current_equity ?? 0;
+  const pnl = snapshot.total_pnl ?? 0;
+  const pnlPct = snapshot.total_pnl_pct ?? 0;
+  const dayChg = snapshot.day_change ?? 0;
+  const dayPct = snapshot.day_change_pct ?? 0;
+  const positions = snapshot.open_positions ?? [];
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A]">Live Paper Account</div>
+        <span className="inline-block w-2 h-2 rounded-full bg-[#22C55E] animate-pulse" />
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <StatCard label="Equity" value={formatCurrency(eq)} color="text-[#E8E8ED]" />
+        <StatCard
+          label="Total P&L"
+          value={`${pnl >= 0 ? "+" : ""}${formatCurrency(pnl)}`}
+          sub={`${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(1)}%`}
+          color={pnl >= 0 ? "text-[#22C55E]" : "text-[#EF4444]"}
+        />
+        <StatCard
+          label="Today"
+          value={`${dayChg >= 0 ? "+" : ""}${formatCurrency(dayChg)}`}
+          sub={`${dayPct >= 0 ? "+" : ""}${dayPct.toFixed(2)}%`}
+          color={dayChg >= 0 ? "text-[#22C55E]" : "text-[#EF4444]"}
+        />
+        <StatCard label="Open Positions" value={`${snapshot.position_count ?? positions.length}`} />
+      </div>
+
+      {userIsPro && positions.length > 0 && (
+        <div className="overflow-x-auto rounded-lg border border-[#2A2A3A]">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-[#2A2A3A] bg-[#1A1A26]/50">
+                <th className="px-3 py-2 text-left text-[#55556A] font-medium">Symbol</th>
+                <th className="px-3 py-2 text-right text-[#55556A] font-medium">Shares</th>
+                <th className="px-3 py-2 text-right text-[#55556A] font-medium">Entry</th>
+                <th className="px-3 py-2 text-right text-[#55556A] font-medium">Current</th>
+                <th className="px-3 py-2 text-right text-[#55556A] font-medium">Unrealized</th>
+              </tr>
+            </thead>
+            <tbody>
+              {positions.map((p) => (
+                <tr key={p.symbol} className="border-b border-[#2A2A3A]/30">
+                  <td className="px-3 py-2 font-mono font-semibold text-[#E8E8ED]">{p.symbol}</td>
+                  <td className="px-3 py-2 text-right text-[#8888A0] font-mono">{p.qty}</td>
+                  <td className="px-3 py-2 text-right text-[#8888A0] font-mono">${p.avg_entry_price.toFixed(2)}</td>
+                  <td className="px-3 py-2 text-right text-[#8888A0] font-mono">${p.current_price.toFixed(2)}</td>
+                  <td className={`px-3 py-2 text-right font-mono ${p.unrealized_pl >= 0 ? "text-[#22C55E]" : "text-[#EF4444]"}`}>
+                    {p.unrealized_pl >= 0 ? "+" : ""}{formatCurrency(p.unrealized_pl)} ({p.unrealized_plpc >= 0 ? "+" : ""}{p.unrealized_plpc.toFixed(1)}%)
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {!userIsPro && positions.length > 0 && (
+        <div className="rounded-lg border border-[#3B82F6]/20 bg-[#3B82F6]/5 p-3 text-xs text-[#8888A0]">
+          {positions.length} open position{positions.length !== 1 ? "s" : ""}. <Link href="/pricing" className="text-[#3B82F6] hover:underline">Upgrade to Pro</Link> to see individual holdings and real-time P&L.
+        </div>
+      )}
+    </div>
+  );
+}
 
 function StrategySelector({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const current = STRATEGIES.find((s) => s.value === value);
@@ -251,13 +383,24 @@ export function PortfolioView() {
   return (
     <div className="space-y-6">
       {/* Strategy selector */}
-      <div className="flex items-center gap-4">
-        <StrategySelector value={strategy} onChange={setStrategy} />
-        <div className="flex-1 min-w-0">
-          <div className="text-sm text-[#8888A0]">{STRATEGIES.find(s => s.value === strategy)?.brief}</div>
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+        <div className="flex items-center justify-between gap-3">
+          <StrategySelector value={strategy} onChange={setStrategy} />
+          <RunnerStatus strategy={strategy} />
         </div>
-        <RunnerStatus strategy={strategy} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <div className="text-xs sm:text-sm text-[#8888A0]">{STRATEGIES.find(s => s.value === strategy)?.brief}</div>
+            {(STRATEGIES.find(s => s.value === strategy) as any)?.experimental && (
+              <span className="shrink-0 rounded-full bg-[#F59E0B]/15 px-2 py-0.5 text-[10px] font-semibold text-[#F59E0B]">Experimental</span>
+            )}
+          </div>
+        </div>
       </div>
+
+      {/* Live paper account status */}
+      <LiveStatusPanel strategy={strategy} userIsPro={userIsPro} />
+
       {/* Portfolio Performance — blended equity with idle cash in base ETF */}
       <PortfolioOverlay strategy={strategy} onDateRangeChange={(from, to) => setDateRange({ from, to })} />
 

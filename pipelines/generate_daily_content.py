@@ -58,7 +58,7 @@ def get_top_trades(conn: object, target_date: str, limit: int = 8) -> list[dict]
             MAX(t.title) AS title,
             t.trade_type,
             SUM(t.value) AS total_value,
-            t.signal_grade,
+            MAX(t.signal_grade) AS signal_grade,
             MAX(t.is_rare_reversal) AS is_rare_reversal,
             MAX(t.week52_proximity) AS week52_proximity,
             MAX(t.cohen_routine) AS cohen_routine,
@@ -67,17 +67,15 @@ def get_top_trades(conn: object, target_date: str, limit: int = 8) -> list[dict]
             MAX(t.is_csuite) AS is_csuite,
             MAX(t.shares_owned_after) AS shares_after,
             SUM(t.qty) AS total_qty,
-            COALESCE(t.pit_win_rate_7d, itr.buy_win_rate_7d) AS pit_win_rate_7d,
-            COALESCE(t.pit_n_trades, itr.buy_count) AS pit_n_trades,
-            t.insider_switch_rate,
-            t.is_rare_reversal
+            MAX(COALESCE(t.pit_win_rate_7d, itr.buy_win_rate_7d)) AS pit_win_rate_7d,
+            MAX(COALESCE(t.pit_n_trades, itr.buy_count)) AS pit_n_trades,
+            MAX(t.insider_switch_rate) AS insider_switch_rate
         FROM trades t
         JOIN insiders i ON t.insider_id = i.insider_id
         LEFT JOIN insider_track_records itr ON t.insider_id = itr.insider_id
         WHERE t.filing_date = ?
           AND t.trans_code IN ('P', 'S')
           AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
-          AND t.title NOT LIKE '%10%%owner%'
         GROUP BY t.insider_id, t.ticker, t.trade_type, t.filing_key
         ORDER BY SUM(t.value) DESC
         LIMIT ?
@@ -198,15 +196,19 @@ def get_top_trades(conn: object, target_date: str, limit: int = 8) -> list[dict]
 def get_insider_track_record(conn: object, insider_id: int, ticker: str, trade_type: str) -> list[dict]:
     """Get the insider's past trades on this ticker with returns."""
     rows = conn.execute("""
-        SELECT t.trade_date, t.trade_type, SUM(t.value) AS value,
-               tr.return_7d, tr.return_30d, tr.return_90d
+        SELECT MAX(t.trade_date) AS trade_date,
+               MAX(t.trade_type) AS trade_type,
+               SUM(t.value) AS value,
+               MAX(tr.return_7d) AS return_7d,
+               MAX(tr.return_30d) AS return_30d,
+               MAX(tr.return_90d) AS return_90d
         FROM trades t
         LEFT JOIN trade_returns tr ON t.trade_id = tr.trade_id
         WHERE t.insider_id = ? AND t.ticker = ?
           AND t.trans_code IN ('P','S')
           AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
         GROUP BY t.filing_key
-        ORDER BY t.trade_date DESC
+        ORDER BY MAX(t.trade_date) DESC
         LIMIT 5
     """, (insider_id, ticker)).fetchall()
     return [dict(r) for r in rows]

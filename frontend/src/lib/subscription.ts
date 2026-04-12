@@ -1,4 +1,4 @@
-export type Tier = "free" | "pro" | "trial" | "grace";
+export type Tier = "free" | "pro" | "pro_plus" | "trial" | "grace";
 
 const TRIAL_DAYS = 7;
 const GRACE_DAYS = 7;
@@ -7,7 +7,8 @@ export function getUserTier(user: { publicMetadata?: Record<string, unknown>; cr
   if (!user) return "free";
   const meta = user.publicMetadata || {};
 
-  // Paid pro
+  // Paid pro / pro+
+  if ((meta.tier as string) === "pro_plus") return "pro_plus";
   if ((meta.tier as string) === "pro") return "pro";
 
   // Check account age for trial / grace (Clerk provides createdAt as ms timestamp)
@@ -45,10 +46,15 @@ export function hasApiAccess(user: { publicMetadata?: Record<string, unknown> } 
 
 export function isPro(user: { publicMetadata?: Record<string, unknown>; createdAt?: number | Date | null } | null | undefined): boolean {
   const tier = getUserTier(user);
-  return tier === "pro" || tier === "trial";
+  return tier === "pro" || tier === "pro_plus" || tier === "trial";
+}
+
+export function isProPlus(user: { publicMetadata?: Record<string, unknown> } | null | undefined): boolean {
+  if (!user) return false;
+  return (user.publicMetadata?.tier as string) === "pro_plus";
 }
 
 export function hasFullFeed(user: { publicMetadata?: Record<string, unknown>; createdAt?: number | Date | null } | null | undefined): boolean {
   const tier = getUserTier(user);
-  return tier === "pro" || tier === "trial" || tier === "grace";
+  return tier === "pro" || tier === "pro_plus" || tier === "trial" || tier === "grace";
 }

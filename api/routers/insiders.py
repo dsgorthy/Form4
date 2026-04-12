@@ -329,7 +329,7 @@ def get_insider_trades(
                     MIN(t.trade_date) AS trade_date,
                     MAX(t.trade_date) AS last_trade_date,
                     MIN(t.filing_date) AS filing_date,
-                    ROUND(SUM(t.value) / SUM(t.qty), 2) AS price,
+                    ROUND(SUM(t.value) / NULLIF(SUM(t.qty), 0), 2) AS price,
                     SUM(t.qty) AS qty,
                     SUM(t.value) AS value,
                     COUNT(*) AS lot_count,

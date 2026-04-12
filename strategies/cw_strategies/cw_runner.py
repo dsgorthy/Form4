@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""CW Paper Trading Daemon — generic YAML-configured insider strategy runner.
+"""Form4 Paper Trading Daemon — generic YAML-configured insider strategy runner.
 
-Reads a YAML config file specifying a CW strategy (reversal, composite, etc.),
-queries insiders.db for qualifying trades, submits orders to Alpaca paper,
-tracks positions in the strategy_portfolio table, and applies thesis-based exits.
+Reads a YAML config file specifying a productized strategy, queries insiders.db
+for qualifying trades, submits orders to Alpaca paper (via a dedicated per-
+strategy paper account declared in the yaml as `alpaca_env_prefix`), tracks
+positions in the strategy_portfolio table, and applies thesis-based exits.
 
 Usage:
-    python3 strategies/cw_strategies/cw_runner.py --config configs/cw_reversal.yaml
-    python3 strategies/cw_strategies/cw_runner.py --config configs/cw_reversal.yaml --dry-run
-    python3 strategies/cw_strategies/cw_runner.py --config configs/cw_reversal.yaml --once
+    python3 strategies/cw_strategies/cw_runner.py --config configs/quality_momentum.yaml
+    python3 strategies/cw_strategies/cw_runner.py --config configs/reversal_dip.yaml --dry-run
+    python3 strategies/cw_strategies/cw_runner.py --config configs/tenb51_surprise.yaml --once
 """
 from __future__ import annotations
 
@@ -29,6 +30,15 @@ import yaml
 # Ensure project root on path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
+
+# Load .env for all credential env vars (trading + data).
+# This replaces the legacy pattern where credentials were injected via the
+# launchd plist's EnvironmentVariables dict. Plists no longer hardcode secrets.
+try:
+    from dotenv import load_dotenv
+    load_dotenv(PROJECT_ROOT / ".env")
+except ImportError:
+    pass  # python-dotenv is in requirements.txt; fallback is raw os.environ
 
 from config.database import get_connection
 from framework.execution.paper import PaperBackend
@@ -133,12 +143,40 @@ def load_config(path: str) -> dict:
 # Alpaca + DB
 # ---------------------------------------------------------------------------
 
-def get_alpaca() -> PaperBackend:
-    api_key = os.getenv("ALPACA_API_KEY", "")
-    api_secret = os.getenv("ALPACA_API_SECRET", "")
+def get_alpaca(config: dict) -> PaperBackend:
+    """Load the dedicated per-strategy trading credentials.
+
+    Strategy yaml must declare `alpaca_env_prefix: QUALITY_MOMENTUM` (or similar).
+    The runner reads ALPACA_API_KEY_{prefix} / ALPACA_API_SECRET_{prefix} from .env.
+    Never uses ALPACA_DATA_API_KEY — those are read-only data credentials.
+    """
+    prefix = config.get("alpaca_env_prefix")
+    if not prefix:
+        raise RuntimeError(
+            f"Strategy '{config.get('strategy_name')}' config is missing required "
+            f"'alpaca_env_prefix' field (e.g., 'QUALITY_MOMENTUM'). "
+            f"Each strategy must have its own dedicated Alpaca paper account — "
+            f"never commingle two strategies on the same credentials."
+        )
+    key_var = f"ALPACA_API_KEY_{prefix}"
+    secret_var = f"ALPACA_API_SECRET_{prefix}"
+    api_key = os.getenv(key_var, "")
+    api_secret = os.getenv(secret_var, "")
     if not api_key or not api_secret:
-        raise RuntimeError("ALPACA_API_KEY / ALPACA_API_SECRET env vars required")
+        raise RuntimeError(f"{key_var} / {secret_var} not set in .env")
     return PaperBackend(api_key, api_secret)
+
+
+def _data_api_headers() -> dict:
+    """Shared read-only data API headers for bars/trades/snapshots.
+
+    Uses ALPACA_DATA_API_KEY / ALPACA_DATA_API_SECRET from .env — never the
+    per-strategy trading credentials. Never use this for order execution.
+    """
+    return {
+        "APCA-API-KEY-ID": os.getenv("ALPACA_DATA_API_KEY", ""),
+        "APCA-API-SECRET-KEY": os.getenv("ALPACA_DATA_API_SECRET", ""),
+    }
 
 
 def get_db(readonly: bool = False):
@@ -429,16 +467,12 @@ def _get_latest_price(alpaca: PaperBackend, ticker: str) -> Optional[float]:
         return float(data.get("trade", {}).get("p", 0)) or None
     except Exception:
         pass
-    # Fallback: use Alpaca data endpoint directly
+    # Fallback: use Alpaca data endpoint directly (shared read-only credentials)
     import requests as _req
-    headers = {
-        "APCA-API-KEY-ID": os.getenv("ALPACA_API_KEY", ""),
-        "APCA-API-SECRET-KEY": os.getenv("ALPACA_API_SECRET", ""),
-    }
     try:
         resp = _req.get(
             f"https://data.alpaca.markets/v2/stocks/{ticker}/trades/latest",
-            headers=headers,
+            headers=_data_api_headers(),
             timeout=10,
         )
         if resp.status_code == 200:
@@ -821,16 +855,12 @@ def _compute_sma50(alpaca: PaperBackend, ticker: str) -> Optional[float]:
             params={"timeframe": "1Day", "limit": 55},
         )
     except Exception:
-        # Fallback: direct request to data API
+        # Fallback: direct request to data API (shared read-only credentials)
         import requests as _req
-        headers = {
-            "APCA-API-KEY-ID": os.getenv("ALPACA_API_KEY", ""),
-            "APCA-API-SECRET-KEY": os.getenv("ALPACA_API_SECRET", ""),
-        }
         try:
             resp = _req.get(
                 f"https://data.alpaca.markets/v2/stocks/{ticker}/bars",
-                headers=headers,
+                headers=_data_api_headers(),
                 params={"timeframe": "1Day", "limit": 55},
                 timeout=15,
             )
@@ -1181,7 +1211,7 @@ def run_daily(config: dict, dry_run: bool = False) -> dict:
     state_path = DATA_DIR / f"{config['strategy_name']}_state.json"
     _load_peak_returns(state_path)
 
-    alpaca = None if dry_run else get_alpaca()
+    alpaca = None if dry_run else get_alpaca(config)
     conn = get_db(readonly=dry_run)
 
     try:
@@ -1307,7 +1337,7 @@ def run_daemon(config: dict) -> None:
                 send_telegram(f"Daily cycle error: {exc}", prefix)
             # Close any overdue positions immediately at open
             try:
-                alpaca = get_alpaca()
+                alpaca = get_alpaca(config)
                 conn = get_db(readonly=False)
                 try:
                     closed = check_scheduled_exits(conn, alpaca, config, state_path)
@@ -1323,7 +1353,7 @@ def run_daemon(config: dict) -> None:
             # 15:45: scheduled exits (deterministic time-based exits)
             if now.hour == 15 and 45 <= now.minute <= 50 and not ran_scheduled_exits:
                 try:
-                    alpaca = get_alpaca()
+                    alpaca = get_alpaca(config)
                     conn = get_db(readonly=False)
                     try:
                         closed = check_scheduled_exits(conn, alpaca, config, state_path)
@@ -1347,7 +1377,7 @@ def run_daemon(config: dict) -> None:
             # Check stops only (not time exits) every 5 min
             elif now.minute not in (0, 30):
                 try:
-                    alpaca = get_alpaca()
+                    alpaca = get_alpaca(config)
                     conn = get_db(readonly=False)
                     try:
                         closed = check_exits(conn, alpaca, config, state_path)
@@ -1427,9 +1457,17 @@ def main() -> None:
     parser.add_argument("--config", required=True, help="Path to YAML config file")
     parser.add_argument("--dry-run", action="store_true", help="Scan and log, no orders")
     parser.add_argument("--once", action="store_true", help="Run one daily cycle and exit")
+    parser.add_argument(
+        "--alpaca-env-prefix",
+        default=None,
+        help="Override the alpaca_env_prefix from the yaml config (for testing only)",
+    )
     args = parser.parse_args()
 
     config = load_config(args.config)
+    if args.alpaca_env_prefix:
+        config["alpaca_env_prefix"] = args.alpaca_env_prefix
+        logger.info("Overriding alpaca_env_prefix from CLI: %s", args.alpaca_env_prefix)
     logger.info("Loaded config: %s (%d theses)", config["strategy_name"], len(config.get("theses", [])))
 
     if args.once or args.dry_run:

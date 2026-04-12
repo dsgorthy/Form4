@@ -1,6 +1,8 @@
 strategy_name: reversal_dip
 display_name: "Form4 Deep Reversal"
 telegram_prefix: "[RDip]"
+# Dedicated paper account — reads ALPACA_API_KEY_REVERSAL_DIP / _SECRET_REVERSAL_DIP from .env
+alpaca_env_prefix: REVERSAL_DIP
 starting_capital: 100000
 position_size_pct: 0.10
 max_concurrent: 10

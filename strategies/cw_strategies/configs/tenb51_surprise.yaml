@@ -1,6 +1,8 @@
 strategy_name: tenb51_surprise
 display_name: "Form4 10b5-1 Surprise"
 telegram_prefix: "[10b5]"
+# Dedicated paper account — reads ALPACA_API_KEY_TENB51_SURPRISE / _SECRET_TENB51_SURPRISE from .env
+alpaca_env_prefix: TENB51_SURPRISE
 starting_capital: 100000
 position_size_pct: 0.20
 max_concurrent: 5

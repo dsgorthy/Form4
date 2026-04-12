@@ -54,12 +54,18 @@ def _build_trade_row(r: dict, scale: float, gated: bool = False) -> dict:
     return row
 
 
-ALLOWED_STRATEGIES = {"cw_reversal", "cw_composite", "quality_momentum", "reversal_dip", "tenb51_surprise", "reversal_quality"}
+# Productized strategy set (max 3). Legacy rows for form4_insider, cw_reversal,
+# cw_composite, and reversal_quality still exist in strategy_portfolio as
+# historical archive, but are intentionally unreachable from the API and UI.
+# Retirement dates: reversal_quality 2026-04-09 (split into reversal_dip +
+# quality_momentum); form4_insider + cw_reversal + cw_composite 2026-04-11
+# (replaced by current 3 or merged into reversal_dip/quality_momentum runners).
+ALLOWED_STRATEGIES = {"quality_momentum", "reversal_dip", "tenb51_surprise"}
 
 
 @router.get("")
 def get_portfolio(
-    strategy: str = Query(default="cw_reversal"),
+    strategy: str = Query(default="quality_momentum"),
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=25, ge=10, le=100),
     user: UserContext = Depends(get_current_user),
@@ -298,7 +304,7 @@ BASE_ASSETS = ["SPY", "QQQ", "IWM", "TLT", "GLD", "CASH"]
 
 @router.get("/overlay")
 def get_portfolio_overlay(
-    strategy: str = Query(default="cw_reversal"),
+    strategy: str = Query(default="quality_momentum"),
 ) -> dict:
     """Daily equity curves for insider-only vs blended (idle cash in base ETF).
 

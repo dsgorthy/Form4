@@ -238,8 +238,8 @@ export default async function TradeDetailPage({
 
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             <h1 className="text-2xl font-bold font-mono text-[#E8E8ED]">{trade.ticker}</h1>
             {trade.signal_quality != null && (
               <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-sm font-mono font-bold ${
