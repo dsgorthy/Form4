@@ -128,7 +128,7 @@ def list_filings(
                     FROM trades t
                     {count_join}
                     WHERE {where_clause}
-                    GROUP BY t.txn_group_id, t.ticker, t.trade_type
+                    GROUP BY COALESCE(t.txn_group_id, t.accession), t.ticker, t.trade_type
                 )
                 """,
                 params,
@@ -193,12 +193,12 @@ def list_filings(
                         COUNT(DISTINCT t.accession) AS n_filings,
                         MAX(t.is_amendment) AS is_amendment,
                         MAX(t.document_type) AS document_type,
-                        t.txn_group_id
+                        COALESCE(t.txn_group_id, t.accession) AS _group_key
                     FROM trades t
                     {data_itr_join}
                     WHERE {where_clause}
                     {date_window}
-                    GROUP BY t.txn_group_id, t.ticker, t.trade_type
+                    GROUP BY COALESCE(t.txn_group_id, t.accession), t.ticker, t.trade_type
                     ORDER BY MAX(COALESCE(t.filed_at, t.filing_date)) DESC, SUM(t.value) DESC
                     LIMIT ? OFFSET ?
             ) agg
