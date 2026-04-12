@@ -42,15 +42,19 @@ const STRATEGY_META: Record<string, { brief: string; experimental?: boolean }> =
 };
 
 async function getDashboardData() {
-  try {
-    const [paper, filingsResp] = await Promise.all([
-      fetchAPIAuth<PaperDashboard>("/paper-trading/dashboard"),
-      fetchAPIAuth<{ items: Filing[]; total: number }>("/filings", { limit: "8", min_grade: "B" }),
-    ]);
-    return { paper, filings: filingsResp.items, error: null };
-  } catch {
-    return { paper: null, filings: [], error: "Something went wrong loading the dashboard." };
-  }
+  const [paperResult, filingsResult] = await Promise.allSettled([
+    fetchAPIAuth<PaperDashboard>("/paper-trading/dashboard"),
+    fetchAPIAuth<{ items: Filing[]; total: number }>("/filings", { limit: "8", min_grade: "B" }),
+  ]);
+
+  const paper = paperResult.status === "fulfilled" ? paperResult.value : null;
+  const filings = filingsResult.status === "fulfilled" ? filingsResult.value.items : [];
+
+  const errors: string[] = [];
+  if (paperResult.status === "rejected") errors.push(`Strategies: ${paperResult.reason}`);
+  if (filingsResult.status === "rejected") errors.push(`Filings: ${filingsResult.reason}`);
+
+  return { paper, filings, error: errors.length > 0 ? errors.join(". ") : null };
 }
 
 function StrategyCard({ s }: { s: StrategySnapshot }) {
