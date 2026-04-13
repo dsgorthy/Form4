@@ -488,7 +488,7 @@ def parse_form4_xml(
                 underlying_shares = safe_float(underlying_el, "underlyingSecurityShares/value")
                 underlying_value = safe_float(underlying_el, "underlyingSecurityValue/value")
 
-            result["derivative_trades"].append({
+            deriv_dict = {
                 "ticker": ticker,
                 "insider_name": insider_name,
                 "title": title,
@@ -518,7 +518,48 @@ def parse_form4_xml(
                 "rptowner_cik": rptowner_cik,
                 "is_csuite": 1 if is_csuite(title) else 0,
                 "title_weight": get_title_weight(title),
-            })
+            }
+            result["derivative_trades"].append(deriv_dict)
+
+            # Promote P/S derivative transactions on common stock underlying
+            # to the main trades list. This captures economic exposure from
+            # swaps, options exercises, and other derivative instruments that
+            # reference the issuer's equity (e.g., total return swaps by 10%
+            # owners). Without this, filings like DART KENNETH BRYAN's $90M+
+            # FLUT swap purchases are invisible in the feed.
+            if txn_code in ("P", "S") and underlying_title and "common" in underlying_title.lower():
+                deriv_price = deriv_dict["trans_price_per_share"]
+                deriv_qty = underlying_shares or deriv_dict["trans_shares"]
+                deriv_value = deriv_price * deriv_qty if deriv_price and deriv_qty else deriv_dict["trans_total_value"]
+
+                trades.append({
+                    "ticker": ticker,
+                    "insider_name": insider_name,
+                    "insider_id": None,
+                    "title": title,
+                    "trade_type": "buy" if txn_code == "P" else "sell",
+                    "trade_date": trade_date,
+                    "filing_date": filing_date,
+                    "price": deriv_price or 0,
+                    "qty": int(abs(deriv_qty)) if deriv_qty else 0,
+                    "value": abs(deriv_value) if deriv_value else 0,
+                    "cik": cik,
+                    "company": issuer_name,
+                    "is_csuite": 1 if is_csuite(title) else 0,
+                    "title_weight": get_title_weight(title),
+                    "trans_code": txn_code,
+                    "trans_acquired_disp": trans_acquired_disp,
+                    "direct_indirect": direct_indirect,
+                    "shares_owned_after": shares_after,
+                    "value_owned_after": value_after,
+                    "nature_of_ownership": nature_of_ownership,
+                    "equity_swap": 1 if is_true(findtext(dtxn, "transactionCoding/equitySwapInvolved")) else 0,
+                    "is_10b5_1": is_10b5_1,
+                    "security_title": deriv_dict["security_title"],
+                    "deemed_execution_date": deriv_dict["deemed_execution_date"],
+                    "trans_form_type": deriv_dict["trans_form_type"],
+                    "rptowner_cik": rptowner_cik,
+                })
 
     return trades
 
