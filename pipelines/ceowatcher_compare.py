@@ -151,7 +151,11 @@ def extract_date_from_subject(subject: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 def get_our_signals(conn, filing_date: str) -> dict[str, dict]:
-    """Get our trades for a given filing date, keyed by ticker."""
+    """Get our trades around a filing date, keyed by ticker.
+
+    Uses a 3-day window because CEO Watcher emails often report trades
+    1-2 days after the SEC filing date.
+    """
     rows = conn.execute("""
         SELECT
             t.ticker,
@@ -169,12 +173,14 @@ def get_our_signals(conn, filing_date: str) -> dict[str, dict]:
             COUNT(DISTINCT t.insider_id) AS n_insiders
         FROM trades t
         JOIN insiders i ON t.insider_id = i.insider_id
-        WHERE t.filing_date = %s
+        WHERE t.filing_date BETWEEN
+              (DATE %s - INTERVAL '3 days')::text
+              AND (DATE %s + INTERVAL '1 day')::text
           AND t.trans_code IN ('P', 'S')
           AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
         GROUP BY t.ticker, t.trade_type
         ORDER BY SUM(t.value) DESC
-    """, (filing_date,)).fetchall()
+    """, (filing_date, filing_date)).fetchall()
 
     result = {}
     for r in rows:
