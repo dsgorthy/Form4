@@ -4,9 +4,9 @@ import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
 export const metadata = {
-  title: "Form4 — Live Insider Trading Strategies",
+  title: "Form4 — Insider Trading Intelligence",
   description:
-    "Three live insider-trading strategies on real paper accounts. Every trade is public, research-backed, and fully transparent. 1.6M+ trades analyzed.",
+    "1.6M insider trades analyzed. Real-time SEC Form 4 filings with AI-powered signal grading. Three live strategies to prove the research works.",
 };
 
 async function getPreviewData() {
@@ -40,13 +40,13 @@ export default async function LandingPage() {
       {/* Hero */}
       <section className="px-4 pt-16 pb-20 text-center max-w-4xl mx-auto">
         <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-[#E8E8ED] leading-tight">
-          Insider trading,
+          1.6 million insider trades.
           <br />
-          <span className="text-[#3B82F6]">in public.</span>
+          <span className="text-[#3B82F6]">We found what works.</span>
         </h1>
         <p className="mt-6 text-lg sm:text-xl text-[#8888A0] max-w-2xl mx-auto">
-          Three live insider-trading strategies on real paper accounts.
-          Every entry, every exit, fully transparent. Backed by 1.6M trades of research.
+          Real-time SEC Form 4 filings with AI-powered signal grading.
+          We believe in our research enough to trade it live — three paper portfolios, fully transparent.
         </p>
         <div className="mt-10 flex items-center justify-center gap-4">
           <SignUpButton mode="modal">
@@ -66,7 +66,7 @@ export default async function LandingPage() {
       {/* Strategy Cards */}
       <section className="px-4 pb-16 max-w-5xl mx-auto">
         <h2 className="text-center text-sm font-medium text-[#8888A0] uppercase tracking-wider mb-6">
-          Live Paper Portfolios
+          Research-Backed Strategies — Traded Live
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {[
@@ -179,16 +179,16 @@ export default async function LandingPage() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {[
             {
-              title: "Live & Transparent",
-              desc: "Every trade runs on real paper accounts. Watch entries, exits, and P&L in real time. Nothing hidden.",
+              title: "Real-Time Filings",
+              desc: "SEC Form 4 filings ingested within minutes. AI-powered grading separates signal from noise so you see what matters.",
             },
             {
-              title: "Research-Backed",
-              desc: "1.6M insider trades analyzed with walk-forward validated scoring. Point-in-time signals, no look-ahead bias.",
+              title: "Research-Grade Signals",
+              desc: "1.6M insider trades analyzed with walk-forward validated scoring. Every signal is point-in-time — no look-ahead bias.",
             },
             {
-              title: "Retire & Replace",
-              desc: "When a strategy stops working, we say so publicly and retire it. Transparency is the product, not just performance.",
+              title: "Transparent Strategies",
+              desc: "We trade our own signals on live paper accounts. Every entry, exit, and P&L is public. See what we see.",
             },
           ].map((f) => (
             <div
@@ -206,8 +206,8 @@ export default async function LandingPage() {
       <section className="border-y border-[#2A2A3A] bg-[#12121A] py-12 px-4">
         <div className="max-w-4xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
           {[
-            { value: "3", label: "Live strategies" },
             { value: "1.6M+", label: "Trades analyzed" },
+            { value: "125K+", label: "Insiders tracked" },
             { value: "2016–now", label: "Data coverage" },
             { value: "< 5 min", label: "Filing delay" },
           ].map((s) => (
