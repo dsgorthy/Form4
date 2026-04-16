@@ -3,8 +3,8 @@ Conviction scoring for insider trading signals.
 
 Two scoring paths:
 - Reversal: driven by consecutive sells, streak break, grade, holdings change
-- Composite (dip_cluster, momentum_largest): driven by role, cluster size,
-  dip depth, first-ever buy, cohen routine — NO insider history needed
+- Composite (dip_cluster, momentum_largest, quality_momentum, tenb51_surprise):
+  driven by role, cluster size, dip depth, first-ever buy, cohen routine
 
 Derived from empirical return analysis (2020-2026):
 - VP/SVP/EVP: 62% WR, +5.0% avg 30d on composite signals
@@ -15,6 +15,10 @@ Derived from empirical return analysis (2020-2026):
 """
 
 from __future__ import annotations
+
+REVERSAL_THESES = frozenset({"reversal", "reversal_dip"})
+COMPOSITE_THESES = frozenset({"dip_cluster", "momentum_largest", "quality_momentum", "tenb51_surprise"})
+VALID_THESES = REVERSAL_THESES | COMPOSITE_THESES
 
 
 def _categorize_insider(title: str | None, is_csuite: bool = False) -> str:
@@ -30,7 +34,7 @@ def _categorize_insider(title: str | None, is_csuite: bool = False) -> str:
     if "VICE PRESIDENT" in t or "SVP" in t or "EVP" in t or (" VP" in t or t.startswith("VP")):
         return "vp"
     # DIRECTOR must come before COO/CTO check ("DIRECTOR" contains "CTO")
-    if "DIRECTOR" in t:
+    if "DIRECTOR" in t or t in ("DIR", "DIR."):
         return "director"
     if "COO" in t or "CHIEF OPERATING" in t or "CTO" in t or "CHIEF TECH" in t:
         return "csuite"
@@ -70,18 +74,24 @@ def compute_conviction(
     """
     score = 0.0
 
+    if thesis not in VALID_THESES:
+        raise ValueError(
+            f"Unknown thesis {thesis!r}. Valid: {sorted(VALID_THESES)}. "
+            f"If adding a new strategy, register it in VALID_THESES in conviction_score.py."
+        )
+
     # --- Insider type filter ---
     role = _categorize_insider(insider_title, is_csuite)
     if role == "10pct_owner":
         return 0.0
     if role == "president":
-        return 0.0
+        score -= 3.0
 
     # --- Trade value filter (>$2M is negative signal for composite) ---
-    if thesis in ("dip_cluster", "momentum_largest") and trade_value and trade_value >= 2_000_000:
+    if thesis in COMPOSITE_THESES and trade_value and trade_value >= 2_000_000:
         return 0.0  # -1.5% avg, 42% WR — actively bad
 
-    if thesis == "reversal":
+    if thesis in REVERSAL_THESES:
         return _score_reversal(
             score, role, signal_grade, consecutive_sells,
             dip_1mo, dip_3mo, is_largest_ever, above_sma50, above_sma200,
@@ -235,8 +245,7 @@ def _score_composite(
         score += 0.5
 
     # --- Grade (reduced weight for composite — PIT grades are mostly D) ---
-    # Only give bonus for A (the few insiders with proven PIT records)
-    if signal_grade == "A":
+    if signal_grade in ("A+", "A"):
         score += 1.0
     elif signal_grade == "B":
         score += 0.5
@@ -263,7 +272,8 @@ def pit_score_to_grade(blended_score: float | None) -> str | None:
     return "D"
 
 
-# Minimum conviction to enter a position
+# Legacy default — backfill/optimize scripts import this.
+# Live runner uses per-config min_conviction from YAML instead.
 MIN_CONVICTION = 5.0
 
 # Minimum conviction advantage to replace an open position

@@ -21,7 +21,7 @@ filing_lookback_days: 2
 # Universe: ~50 trades/yr at A+/A filter
 
 soft_cap: 10
-min_conviction: 5.0
+min_conviction: 1.5
 min_conviction_above_soft: 7.0
 min_conviction_at_hard: 7.0
 

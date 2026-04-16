@@ -388,7 +388,7 @@ def scan_signals(conn, config: dict) -> list[dict]:
             ''', (tid, ticker, r["filing_date"])).fetchone()
 
             from pipelines.insider_study.conviction_score import (
-                compute_conviction, pit_score_to_grade, MIN_CONVICTION,
+                compute_conviction, pit_score_to_grade,
             )
             pit_grade = pit_score_to_grade(pit_row[0] if pit_row else None) or "C"
 
@@ -423,9 +423,22 @@ def scan_signals(conn, config: dict) -> list[dict]:
                 is_csuite=bool(r["is_csuite"]),
             )
 
-            # Skip below minimum conviction
-            if conv < MIN_CONVICTION:
+            # Skip below minimum conviction (per-config threshold)
+            min_conv = config.get("min_conviction", 5.0)
+            from pipelines.insider_study.conviction_score import _categorize_insider
+            role = _categorize_insider(r["title"], bool(r["is_csuite"]))
+            if conv < min_conv:
+                logger.info(
+                    "  SKIP %s %s conv=%.1f < %.1f grade=%s role=%s %s",
+                    ticker, r["filing_date"], conv, min_conv, pit_grade, role,
+                    r["insider_name"],
+                )
                 continue
+            logger.info(
+                "  PASS %s %s conv=%.1f >= %.1f grade=%s role=%s %s",
+                ticker, r["filing_date"], conv, min_conv, pit_grade, role,
+                r["insider_name"],
+            )
 
             seen_trade_ids.add(tid)
             all_candidates.append({
@@ -1203,6 +1216,63 @@ def _write_heartbeat(config: dict, status: str = "ok", detail: str = "", **extra
 
 
 # ---------------------------------------------------------------------------
+# Weekly digest
+# ---------------------------------------------------------------------------
+
+def _send_weekly_digest(config: dict, prefix: str = "") -> None:
+    """Send a Friday Telegram digest: entries, exits, open count, idle days, drawdown."""
+    strategy_name = config["strategy_name"]
+    conn = get_db(readonly=True)
+    try:
+        now = _now_et()
+        week_start = (now - timedelta(days=now.weekday())).strftime("%Y-%m-%d")
+
+        entries_week = conn.execute(
+            "SELECT COUNT(*) FROM strategy_portfolio WHERE strategy = ? AND entry_date >= ?",
+            (strategy_name, week_start),
+        ).fetchone()[0]
+
+        exits_week = conn.execute(
+            "SELECT COUNT(*) FROM strategy_portfolio WHERE strategy = ? AND exit_date >= ?",
+            (strategy_name, week_start),
+        ).fetchone()[0]
+
+        n_open = conn.execute(
+            "SELECT COUNT(*) FROM strategy_portfolio WHERE strategy = ? AND status = 'open'",
+            (strategy_name,),
+        ).fetchone()[0]
+
+        last_entry = conn.execute(
+            "SELECT MAX(entry_date) FROM strategy_portfolio WHERE strategy = ?",
+            (strategy_name,),
+        ).fetchone()[0]
+
+        equity = get_theoretical_equity(conn, config)
+        dd_pct = max(0, 1.0 - equity / config["starting_capital"]) * 100
+
+        days_idle = 0
+        if last_entry:
+            d = datetime.strptime(str(last_entry)[:10], "%Y-%m-%d").date()
+            current = d + timedelta(days=1)
+            while current <= now.date():
+                if current.weekday() < 5:
+                    days_idle += 1
+                current += timedelta(days=1)
+
+        msg = (
+            f"📊 *Weekly Digest — {strategy_name}*\n"
+            f"Week of {week_start}\n\n"
+            f"Entries: {entries_week} | Exits: {exits_week}\n"
+            f"Open: {n_open} | Days idle: {days_idle}\n"
+            f"Equity: ${equity:,.0f} | Drawdown: {dd_pct:.1f}%"
+        )
+        send_telegram(msg, prefix)
+        logger.info("Weekly digest sent: entries=%d exits=%d open=%d idle=%d", entries_week, exits_week, n_open, days_idle)
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
 # Daily cycle
 # ---------------------------------------------------------------------------
 
@@ -1403,6 +1473,14 @@ def run_daemon(config: dict) -> None:
             time.sleep(300)  # 5 min
             continue
 
+        # Friday EOD: send weekly digest
+        if now.hour >= 16 and now.weekday() == 4 and not getattr(run_daemon, "_sent_weekly", False):
+            try:
+                _send_weekly_digest(config, prefix)
+                run_daemon._sent_weekly = True
+            except Exception as exc:
+                logger.error("Weekly digest failed: %s", exc)
+
         # After 16:00: daily summary, then sleep
         if now.hour >= 16:
             try:
@@ -1442,6 +1520,8 @@ def run_daemon(config: dict) -> None:
             time.sleep(3600)
             ran_daily = False
             ran_scheduled_exits = False
+            if now.weekday() >= 5:
+                run_daemon._sent_weekly = False
             continue
 
         # Fallback
@@ -1458,6 +1538,10 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help="Scan and log, no orders")
     parser.add_argument("--once", action="store_true", help="Run one daily cycle and exit")
     parser.add_argument(
+        "--catchup", type=int, default=None, metavar="DAYS",
+        help="One-time run with wider lookback (e.g. --catchup 30) to recover missed signals",
+    )
+    parser.add_argument(
         "--alpaca-env-prefix",
         default=None,
         help="Override the alpaca_env_prefix from the yaml config (for testing only)",
@@ -1468,9 +1552,12 @@ def main() -> None:
     if args.alpaca_env_prefix:
         config["alpaca_env_prefix"] = args.alpaca_env_prefix
         logger.info("Overriding alpaca_env_prefix from CLI: %s", args.alpaca_env_prefix)
+    if args.catchup:
+        config["filing_lookback_days"] = args.catchup
+        logger.info("CATCHUP MODE: lookback widened to %d days", args.catchup)
     logger.info("Loaded config: %s (%d theses)", config["strategy_name"], len(config.get("theses", [])))
 
-    if args.once or args.dry_run:
+    if args.once or args.dry_run or args.catchup:
         result = run_daily(config, dry_run=args.dry_run)
         print(json.dumps(result, indent=2))
     else:
