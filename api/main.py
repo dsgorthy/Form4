@@ -268,7 +268,7 @@ def portfolio_runner_status(strategy: str = "quality_momentum", user: UserContex
     """
     import json as _json
     from pathlib import Path
-    from datetime import datetime
+    from datetime import datetime, timezone
 
     # Heartbeat files are mounted at /data/cw_strategies inside the API
     # container (see docker-compose.yml). The runners write them to
@@ -285,8 +285,7 @@ def portfolio_runner_status(strategy: str = "quality_momentum", user: UserContex
 
     if heartbeat_path is None:
         # Check if it's a weekend — daemons sleep on weekends, that's normal
-        now = datetime.utcnow()
-        if now.weekday() >= 5:
+        if datetime.now(timezone.utc).weekday() >= 5:
             return {"status": "weekend", "healthy": True, "detail": "Daemons sleep on weekends"}
         return {"status": "unknown", "detail": "No heartbeat file found"}
 
@@ -294,7 +293,12 @@ def portfolio_runner_status(strategy: str = "quality_momentum", user: UserContex
         beat = _json.loads(heartbeat_path.read_text())
         ts = beat.get("timestamp", "")
         if ts:
-            age_sec = (datetime.utcnow() - datetime.fromisoformat(ts)).total_seconds()
+            # Heartbeat timestamps written by cw_runner.py include tz offset
+            # (ET); make a tz-aware comparison so we don't mix naive/aware.
+            parsed = datetime.fromisoformat(ts)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            age_sec = (datetime.now(timezone.utc) - parsed).total_seconds()
             beat["age_seconds"] = int(age_sec)
             beat["healthy"] = age_sec < 3600  # stale if > 1 hour
         return beat
