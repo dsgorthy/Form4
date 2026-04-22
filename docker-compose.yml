@@ -11,6 +11,7 @@ services:
     volumes:
       - ./data:/data/app_data:ro
       - ./pipelines/data:/data/runner:ro
+      - ./strategies/cw_strategies/data:/data/cw_strategies:ro
     networks:
       - internal
     expose:

@@ -6,7 +6,9 @@ set -euo pipefail
 
 TUNNEL_NAME="form4"
 DOMAIN="form4.app"
-REPO_DIR="/Users/openclaw/trading-framework"
+# Derive REPO_DIR from this script's location so the same checked-in code
+# works on every host (Mini at /Users/openclaw, Studio at /Users/derekg, …).
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 echo "=== Cloudflare Tunnel Setup for $DOMAIN ==="
 echo ""

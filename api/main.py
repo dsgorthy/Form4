@@ -270,29 +270,18 @@ def portfolio_runner_status(strategy: str = "quality_momentum", user: UserContex
     from pathlib import Path
     from datetime import datetime
 
-    # Strategy -> heartbeat file mapping. Docker path first (production API
-    # container mounts strategies/ as /data/cw_strategies), then host path.
+    # Heartbeat files are mounted at /data/cw_strategies inside the API
+    # container (see docker-compose.yml). The runners write them to
+    # ./strategies/cw_strategies/data/ on the host (Studio).
     heartbeat_paths = {
-        "quality_momentum": [
-            Path("/data/cw_strategies/quality_momentum_heartbeat.json"),
-            Path("/Users/openclaw/trading-framework/strategies/cw_strategies/data/quality_momentum_heartbeat.json"),
-        ],
-        "reversal_dip": [
-            Path("/data/cw_strategies/reversal_dip_heartbeat.json"),
-            Path("/Users/openclaw/trading-framework/strategies/cw_strategies/data/reversal_dip_heartbeat.json"),
-        ],
-        "tenb51_surprise": [
-            Path("/data/cw_strategies/tenb51_surprise_heartbeat.json"),
-            Path("/Users/openclaw/trading-framework/strategies/cw_strategies/data/tenb51_surprise_heartbeat.json"),
-        ],
+        "quality_momentum": Path("/data/cw_strategies/quality_momentum_heartbeat.json"),
+        "reversal_dip": Path("/data/cw_strategies/reversal_dip_heartbeat.json"),
+        "tenb51_surprise": Path("/data/cw_strategies/tenb51_surprise_heartbeat.json"),
     }
 
-    candidates = heartbeat_paths.get(strategy, heartbeat_paths["quality_momentum"])
-    heartbeat_path = None
-    for p in candidates:
-        if p.exists():
-            heartbeat_path = p
-            break
+    heartbeat_path = heartbeat_paths.get(strategy)
+    if heartbeat_path is not None and not heartbeat_path.exists():
+        heartbeat_path = None
 
     if heartbeat_path is None:
         # Check if it's a weekend — daemons sleep on weekends, that's normal

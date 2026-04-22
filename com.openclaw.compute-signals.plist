@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.openclaw.compute-signals</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>/Users/openclaw/trading-framework/pipelines/insider_study/compute_signals.py</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/openclaw/trading-framework</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONPATH</key>
+        <string>/Users/openclaw/trading-framework</string>
+    </dict>
+
+    <!-- Run weekdays at 5:45 PM PT — 15 min after daily-prices finishes,
+         so signal computation has fresh price data to consume. -->
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict>
+            <key>Weekday</key><integer>1</integer>
+            <key>Hour</key><integer>17</integer>
+            <key>Minute</key><integer>45</integer>
+        </dict>
+        <dict>
+            <key>Weekday</key><integer>2</integer>
+            <key>Hour</key><integer>17</integer>
+            <key>Minute</key><integer>45</integer>
+        </dict>
+        <dict>
+            <key>Weekday</key><integer>3</integer>
+            <key>Hour</key><integer>17</integer>
+            <key>Minute</key><integer>45</integer>
+        </dict>
+        <dict>
+            <key>Weekday</key><integer>4</integer>
+            <key>Hour</key><integer>17</integer>
+            <key>Minute</key><integer>45</integer>
+        </dict>
+        <dict>
+            <key>Weekday</key><integer>5</integer>
+            <key>Hour</key><integer>17</integer>
+            <key>Minute</key><integer>45</integer>
+        </dict>
+    </array>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>KeepAlive</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>/Users/openclaw/trading-framework/logs/compute-signals.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/openclaw/trading-framework/logs/compute-signals.log</string>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>LowPriorityIO</key>
+    <true/>
+    <key>Nice</key>
+    <integer>10</integer>
+</dict>
+</plist>

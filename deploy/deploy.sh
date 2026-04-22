@@ -21,7 +21,9 @@ set -euo pipefail
 #
 # =============================================================================
 
-REPO_DIR="/Users/openclaw/trading-framework"
+# Derive REPO_DIR from this script's location so the same checked-in code
+# works on every host (Mini at /Users/openclaw, Studio at /Users/derekg, CI, …).
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOG_DIR="$REPO_DIR/logs"
 
 cd "$REPO_DIR"

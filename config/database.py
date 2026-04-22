@@ -86,6 +86,9 @@ _RE_DATETIME_NOW = re.compile(r"datetime\('now'\)", re.IGNORECASE)
 _RE_STRFTIME_MONTH = re.compile(r"strftime\('%m',\s*(\w+)\)", re.IGNORECASE)
 _RE_STRFTIME_YEAR = re.compile(r"strftime\('%Y',\s*(\w+)\)", re.IGNORECASE)
 _RE_STRFTIME_DAY = re.compile(r"strftime\('%d',\s*(\w+)\)", re.IGNORECASE)
+# Composite formats: 'YYYY-MM' (year-month) and 'YYYY-MM-DD' (full date).
+_RE_STRFTIME_YM = re.compile(r"strftime\('%Y-%m',\s*(\w+)\)", re.IGNORECASE)
+_RE_STRFTIME_YMD = re.compile(r"strftime\('%Y-%m-%d',\s*(\w+)\)", re.IGNORECASE)
 _RE_DATE_NOW = re.compile(r"date\('now'\)", re.IGNORECASE)
 _RE_DATE_NOW_OFFSET = re.compile(
     r"date\('now',\s*'(-?\d+)\s+(day|days|month|months)'\)", re.IGNORECASE
@@ -203,6 +206,10 @@ def translate_sql(sql: str) -> tuple[str, bool]:
         else:
             result = result.rstrip().rstrip(';') + ' ON CONFLICT DO NOTHING'
 
+    # Composite strftime formats first — order matters so simpler regexes
+    # below don't accidentally consume part of these.
+    result = _RE_STRFTIME_YMD.sub(r"TO_CHAR(\1::date, 'YYYY-MM-DD')", result)
+    result = _RE_STRFTIME_YM.sub(r"TO_CHAR(\1::date, 'YYYY-MM')", result)
     # strftime('%m'/''%Y'/'%d', col) → EXTRACT(MONTH/YEAR/DAY FROM col::date)
     result = _RE_STRFTIME_MONTH.sub(r"EXTRACT(MONTH FROM \1::date)", result)
     result = _RE_STRFTIME_YEAR.sub(r"EXTRACT(YEAR FROM \1::date)", result)

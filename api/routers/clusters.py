@@ -88,7 +88,9 @@ def list_clusters(
         having_params = params + [latest] + [min_insiders]
 
         if min_value is not None:
-            base_query += " AND SUM(t.value) >= ?"
+            # SUM(group_value) is the same outer aggregate that produces
+            # total_value; t.value is not in scope outside the inner subquery.
+            base_query += " AND SUM(group_value) >= ?"
             having_params.append(min_value)
 
         # Count total
