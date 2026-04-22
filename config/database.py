@@ -221,6 +221,11 @@ def translate_sql(sql: str) -> tuple[str, bool]:
         result,
     )
 
+    # INTEGER PRIMARY KEY AUTOINCREMENT → BIGSERIAL PRIMARY KEY
+    # SQLite-isms inside CREATE TABLE statements (notably compute_signals.py
+    # bootstrapping trade_signals).
+    result = _RE_AUTOINCREMENT.sub('BIGSERIAL PRIMARY KEY', result)
+
     # GROUP_CONCAT → STRING_AGG
     result = _RE_GROUP_CONCAT.sub(r"STRING_AGG(\1::text, '\2')", result)
     result = _RE_GROUP_CONCAT_SINGLE.sub(r"STRING_AGG(\1::text, ',')", result)
