@@ -7,8 +7,8 @@ Checks:
 3. Alpaca account connectivity per strategy
 
 Usage:
-    python3 scripts/strategy_health_check.py              # run checks, send alerts
-    python3 scripts/strategy_health_check.py --dry-run     # print results, no Telegram
+    python3 scripts/strategy_health_check.py              # run checks, print to stdout
+    python3 scripts/strategy_health_check.py --dry-run    # synonym (kept for back-compat)
 """
 
 from __future__ import annotations
@@ -38,22 +38,6 @@ DATA_DIR = PROJECT_ROOT / "strategies" / "cw_strategies" / "data"
 
 IDLE_THRESHOLD_DAYS = 5
 HEARTBEAT_MAX_AGE_HOURS = 3
-
-
-def send_telegram(msg: str) -> None:
-    import requests
-    bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-    chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
-    if not bot_token or not chat_id:
-        return
-    try:
-        requests.post(
-            f"https://api.telegram.org/bot{bot_token}/sendMessage",
-            json={"chat_id": chat_id, "text": msg, "parse_mode": "Markdown"},
-            timeout=10,
-        )
-    except Exception:
-        pass
 
 
 def _market_days_since(date_str: str) -> int:
@@ -123,8 +107,8 @@ def check_heartbeats() -> list[str]:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dry-run", action="store_true")
-    args = parser.parse_args()
+    parser.add_argument("--dry-run", action="store_true", help="No-op (kept for back-compat).")
+    parser.parse_args()
 
     now = datetime.now(ET)
     print(f"Strategy Health Check — {now.strftime('%Y-%m-%d %H:%M ET')}")
@@ -142,17 +126,11 @@ def main():
 
     all_alerts = idle_alerts + hb_alerts
     if all_alerts:
-        msg = "🔴 *Strategy Health Alert*\n\n" + "\n".join(f"• {a}" for a in all_alerts)
-        print(f"\n⚠️  {len(all_alerts)} alert(s):")
+        print(f"\nALERT: {len(all_alerts)} health issue(s):")
         for a in all_alerts:
             print(f"  {a}")
-        if not args.dry_run:
-            send_telegram(msg)
-            print("\nTelegram alert sent.")
-        else:
-            print("\n[DRY RUN] Would send Telegram alert.")
     else:
-        print("\n✅ All strategies healthy.")
+        print("\nAll strategies healthy.")
 
 
 if __name__ == "__main__":

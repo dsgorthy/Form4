@@ -1061,8 +1061,11 @@ def check_exits(
         if not should_exit:
             if exit_strategy == "fixed_hold":
                 target_hold = exit_cfg.get("hold_days", pos.get("target_hold", 7))
-                stop_loss = exit_cfg.get("stop_loss_pct", pos.get("stop_pct", -0.15))
-                if stop_loss is not None and pnl_pct <= stop_loss:
+                stop_loss = exit_cfg.get("stop_loss_pct")
+                if stop_loss is None:
+                    stop_loss = pos.get("stop_pct")
+                # A stop must be negative; 0 / None / positive all mean "no stop".
+                if stop_loss is not None and stop_loss < 0 and pnl_pct <= stop_loss:
                     exit_reason = "stop_loss"
                     should_exit = True
                 elif hold_days >= target_hold:
@@ -1186,11 +1189,14 @@ def _parse_exit_config(pos: dict) -> dict:
             return exit_cfg
     except (json.JSONDecodeError, TypeError):
         pass
-    # Fallback: reconstruct from DB columns
+    # Fallback: reconstruct from DB columns. stop_pct=0 in DB is the "no stop"
+    # sentinel (column default), so map it to None — never invent a -15% default
+    # for a position whose strategy explicitly disabled stops.
+    db_stop = pos.get("stop_pct")
     return {
         "strategy": "fixed_hold",
         "hold_days": pos.get("target_hold", 7),
-        "stop_loss_pct": pos.get("stop_pct", -0.15),
+        "stop_loss_pct": db_stop if (db_stop is not None and db_stop < 0) else None,
     }
 
 
