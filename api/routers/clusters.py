@@ -79,7 +79,7 @@ def list_clusters(
                   AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
                   AND t.superseded_by IS NULL
                   {extra_where}
-                GROUP BY COALESCE(t.txn_group_id, t.accession)
+                GROUP BY COALESCE(t.txn_group_id::text, t.accession)
             )
             GROUP BY ticker, trade_type
             HAVING COUNT(DISTINCT representative_insider) >= ?
