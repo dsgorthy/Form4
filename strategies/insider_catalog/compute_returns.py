@@ -154,11 +154,15 @@ def process_trades(conn, windows: list[str], dry_run: bool = False, trade_type: 
         logger.error("SPY price data not found")
         return
 
-    # Get trades that need return computation
+    # Get trades that need return computation. Skip is_derivative=1 rows
+    # — their notional pricing makes "return" nonsensical (a $11M/share
+    # option exercise would compute a meaningless % gain against next-day
+    # share prices). Common stock + share-equivalent swaps only.
     trades = conn.execute("""
         SELECT t.trade_id, t.ticker, t.filing_date, t.trade_date
         FROM trades t
         WHERE t.trade_type = ?
+          AND t.is_derivative = 0
         ORDER BY t.filing_date
     """, (trade_type,)).fetchall()
 

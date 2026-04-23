@@ -63,6 +63,7 @@ def first_time_buyer(conn: object, since: str | None = None) -> list[tuple]:
         FROM trades t
         JOIN insiders i ON t.insider_id = i.insider_id
         WHERE t.trans_code = 'P'
+          AND t.is_derivative = 0
           {where_since}
           AND t.trade_id = (
               SELECT MIN(t2.trade_id)
@@ -70,6 +71,7 @@ def first_time_buyer(conn: object, since: str | None = None) -> list[tuple]:
               WHERE t2.insider_id = t.insider_id
                 AND t2.ticker = t.ticker
                 AND t2.trans_code = 'P'
+                AND t2.is_derivative = 0
           )
     """).fetchall()
 
@@ -100,6 +102,7 @@ def insider_returns(conn: object, since: str | None = None) -> list[tuple]:
         FROM trades t
         JOIN insiders i ON t.insider_id = i.insider_id
         WHERE t.trans_code = 'P'
+          AND t.is_derivative = 0
           AND t.pit_blended_score >= 2.0
           AND t.pit_blended_score IS NOT NULL
           {where_since}
@@ -132,6 +135,7 @@ def size_anomaly(conn: object, since: str | None = None) -> list[tuple]:
         FROM trades t
         JOIN insiders i ON t.insider_id = i.insider_id
         WHERE t.trans_code IN ('P', 'S')
+          AND t.is_derivative = 0
           AND t.value > 0
           {where_since}
         ORDER BY t.insider_id, t.ticker, t.trade_date
@@ -178,6 +182,7 @@ def high_signal(conn: object, since: str | None = None) -> list[tuple]:
         WHERE t.pit_grade IN ('A+', 'A')
           AND t.is_csuite = 1
           AND t.trans_code IN ('P', 'S')
+          AND t.is_derivative = 0
           {where_since}
     """).fetchall()
 
@@ -215,6 +220,7 @@ def top_trade(conn: object, since: str | None = None) -> list[tuple]:
                t.insider_id
         FROM trades t
         WHERE t.trans_code IN ('P', 'S')
+          AND t.is_derivative = 0
           AND t.value > 0
           {where_since}
         ORDER BY t.trade_date
@@ -239,6 +245,7 @@ def top_trade(conn: object, since: str | None = None) -> list[tuple]:
         SELECT ticker, trade_type, MIN(trade_date) AS win_start, MAX(trade_date) AS win_end
         FROM trades
         WHERE trans_code IN ('P', 'S')
+          AND is_derivative = 0
           {where_since.replace('t.', '')}
         GROUP BY ticker, trade_type, strftime('%Y-%m', trade_date)
         HAVING COUNT(DISTINCT insider_id) >= 3
@@ -249,6 +256,7 @@ def top_trade(conn: object, since: str | None = None) -> list[tuple]:
             WHERE ticker = ? AND trade_type = ?
               AND trade_date BETWEEN ? AND ?
               AND trans_code IN ('P', 'S')
+              AND is_derivative = 0
         """, (cw["ticker"], cw["trade_type"], cw["win_start"], cw["win_end"])).fetchall()
         for r in cw_rows:
             cluster_trade_ids.add(r["trade_id"])
@@ -359,6 +367,7 @@ def post_vest_dump(conn: object, since: str | None = None) -> list[tuple]:
         JOIN trades a ON s.insider_id = a.insider_id AND s.ticker = a.ticker
         JOIN insiders i ON s.insider_id = i.insider_id
         WHERE s.trans_code = 'S'
+          AND s.is_derivative = 0
           AND a.trans_code = 'A'
           AND s.trade_date BETWEEN a.trade_date AND date(a.trade_date, '+30 days')
           AND s.trade_id != a.trade_id
@@ -396,6 +405,7 @@ def exercise_and_sell(conn: object, since: str | None = None) -> list[tuple]:
         JOIN trades m ON s.insider_id = m.insider_id AND s.ticker = m.ticker
         JOIN insiders i ON s.insider_id = i.insider_id
         WHERE s.trans_code = 'S'
+          AND s.is_derivative = 0
           AND m.trans_code = 'M'
           AND s.trade_date BETWEEN m.trade_date AND date(m.trade_date, '+3 days')
           AND s.trade_id != m.trade_id
@@ -432,6 +442,7 @@ def trend_reversal(conn: object, since: str | None = None) -> list[tuple]:
         FROM trades t
         JOIN insiders i ON t.insider_id = i.insider_id
         WHERE t.trans_code = 'P'
+          AND t.is_derivative = 0
           {where_since}
           AND EXISTS (
               SELECT 1 FROM trades t2
@@ -467,6 +478,7 @@ def trend_reversal(conn: object, since: str | None = None) -> list[tuple]:
         FROM trades t
         JOIN insiders i ON t.insider_id = i.insider_id
         WHERE t.trans_code = 'S'
+          AND t.is_derivative = 0
           {where_since}
           AND EXISTS (
               SELECT 1 FROM trades t2
@@ -516,6 +528,7 @@ def buying_the_dip(conn: object, since: str | None = None) -> list[tuple]:
         SELECT t.trade_id, t.ticker, t.trade_date
         FROM trades t
         WHERE t.trans_code = 'P'
+          AND t.is_derivative = 0
           AND t.ticker IN ({placeholders})
           {where_since}
     """, tickers).fetchall()
@@ -555,6 +568,7 @@ def selling_the_rip(conn: object, since: str | None = None) -> list[tuple]:
         SELECT t.trade_id, t.ticker, t.trade_date
         FROM trades t
         WHERE t.trans_code = 'S'
+          AND t.is_derivative = 0
           AND (t.is_10b5_1 = 0 OR t.is_10b5_1 IS NULL)
           AND (t.is_routine = 0 OR t.is_routine IS NULL)
           AND t.ticker IN ({placeholders})
@@ -608,6 +622,7 @@ def contrarian(conn: object, since: str | None = None) -> list[tuple]:
         SELECT t.trade_id, t.ticker, t.trade_date
         FROM trades t
         WHERE t.trans_code = 'P'
+          AND t.is_derivative = 0
           {where_since}
     """).fetchall()
 
@@ -654,6 +669,7 @@ def large_holdings_increase(conn: object, since: str | None = None) -> list[tupl
         SELECT t.trade_id, t.ticker, t.qty, t.shares_owned_after, t.trade_type, t.value
         FROM trades t
         WHERE t.trans_code = 'P'
+          AND t.is_derivative = 0
           AND t.shares_owned_after IS NOT NULL
           AND t.shares_owned_after > 0
           AND t.qty > 0
@@ -712,6 +728,7 @@ def small_holdings_increase(conn: object, since: str | None = None) -> list[tupl
         SELECT t.trade_id, t.ticker, t.qty, t.shares_owned_after
         FROM trades t
         WHERE t.trans_code = 'P'
+          AND t.is_derivative = 0
           AND t.shares_owned_after IS NOT NULL
           AND t.shares_owned_after > 0
           AND t.qty > 0
@@ -756,6 +773,7 @@ def ten_pct_owner_buy(conn: object, since: str | None = None) -> list[tuple]:
         JOIN insiders i ON t.insider_id = i.insider_id
         LEFT JOIN trade_returns tr ON t.trade_id = tr.trade_id
         WHERE t.trans_code = 'P'
+          AND t.is_derivative = 0
           AND (t.title LIKE '%10%%' OR t.title LIKE '%TenPercent%')
           AND t.is_csuite = 0
         ORDER BY t.insider_id, t.trade_date
@@ -822,6 +840,7 @@ def opportunistic_trade(conn: object, since: str | None = None) -> list[tuple]:
         SELECT t.trade_id, t.trade_type, t.cohen_routine
         FROM trades t
         WHERE t.trans_code IN ('P', 'S')
+          AND t.is_derivative = 0
           AND t.cohen_routine IS NOT NULL
           {where_since}
     """).fetchall()
@@ -864,6 +883,7 @@ def deep_dip_buy(conn: object, since: str | None = None) -> list[tuple]:
         SELECT t.trade_id, t.ticker, t.trade_date, t.dip_1mo, t.dip_3mo, t.dip_1yr
         FROM trades t
         WHERE t.trans_code = 'P'
+          AND t.is_derivative = 0
           AND (t.dip_3mo <= -0.20 OR t.dip_1yr <= -0.30)
           {where_since}
     """).fetchall()
@@ -904,6 +924,7 @@ def reversal_buy(conn: object, since: str | None = None) -> list[tuple]:
         FROM trades t
         JOIN insiders i ON t.insider_id = i.insider_id
         WHERE t.trans_code = 'P'
+          AND t.is_derivative = 0
           AND t.is_rare_reversal = 1
           AND t.consecutive_sells_before >= 5
           {where_since}
@@ -937,6 +958,7 @@ def momentum_buy(conn: object, since: str | None = None) -> list[tuple]:
         SELECT t.trade_id, t.ticker, t.sma50_rel, t.sma200_rel
         FROM trades t
         WHERE t.trans_code = 'P'
+          AND t.is_derivative = 0
           AND t.above_sma50 = 1
           AND t.above_sma200 = 1
           {where_since}
@@ -969,6 +991,7 @@ def largest_purchase_ever(conn: object, since: str | None = None) -> list[tuple]
         FROM trades t
         JOIN insiders i ON t.insider_id = i.insider_id
         WHERE t.trans_code = 'P'
+          AND t.is_derivative = 0
           AND t.is_largest_ever = 1
           AND t.purchase_size_ratio > 1.5
           {where_since}
@@ -1003,6 +1026,7 @@ def recurring_buyer_noise(conn: object, since: str | None = None) -> list[tuple]
         SELECT t.trade_id, t.ticker, t.recurring_period
         FROM trades t
         WHERE t.trans_code = 'P'
+          AND t.is_derivative = 0
           AND t.is_recurring = 1
           {where_since}
     """).fetchall()
@@ -1029,6 +1053,7 @@ def tax_sale_noise(conn: object, since: str | None = None) -> list[tuple]:
         SELECT t.trade_id, t.ticker
         FROM trades t
         WHERE t.trans_code = 'S'
+          AND t.is_derivative = 0
           AND t.is_tax_sale = 1
           {where_since}
     """).fetchall()
@@ -1059,6 +1084,7 @@ def quality_momentum_buy(conn: object, since: str | None = None) -> list[tuple]:
         FROM trades t
         JOIN insiders i ON t.insider_id = i.insider_id
         WHERE t.trans_code = 'P'
+          AND t.is_derivative = 0
           AND t.pit_grade IN ('A+', 'A')
           AND t.above_sma50 = 1
           AND t.above_sma200 = 1
@@ -1103,6 +1129,7 @@ def tenb51_surprise_buy(conn: object, since: str | None = None) -> list[tuple]:
         SELECT insider_id, ticker, filing_date
         FROM trades
         WHERE trans_code = 'S' AND is_10b5_1 = 1
+          AND is_derivative = 0
         ORDER BY filing_date
     """).fetchall()
 
@@ -1124,6 +1151,7 @@ def tenb51_surprise_buy(conn: object, since: str | None = None) -> list[tuple]:
         FROM trades t
         JOIN insiders i ON t.insider_id = i.insider_id
         WHERE t.trans_code = 'P'
+          AND t.is_derivative = 0
           {where_since}
     """).fetchall()
 
@@ -1176,6 +1204,7 @@ def deep_reversal_dip_buy(conn: object, since: str | None = None) -> list[tuple]
         FROM trades t
         JOIN insiders i ON t.insider_id = i.insider_id
         WHERE t.trans_code = 'P'
+          AND t.is_derivative = 0
           AND t.is_rare_reversal = 1
           AND t.consecutive_sells_before >= 10
           AND t.dip_3mo <= -0.25
@@ -1225,6 +1254,7 @@ def reversal_quality_buy(conn: object, since: str | None = None) -> list[tuple]:
         FROM trades t
         JOIN insiders i ON t.insider_id = i.insider_id
         WHERE t.trans_code = 'P'
+          AND t.is_derivative = 0
           AND t.is_rare_reversal = 1
           AND t.pit_grade IN ('A+', 'A', 'B')
           AND (t.is_recurring = 0 OR t.is_recurring IS NULL)

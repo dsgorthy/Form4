@@ -213,7 +213,8 @@ def rebuild_aggregates(conn: sqlite3.Connection):
             MIN(t.trade_date),
             MAX(t.trade_date)
         FROM trades t
-        WHERE t.is_duplicate = 0 OR t.is_duplicate IS NULL
+        WHERE (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
+          AND t.is_derivative = 0
         GROUP BY t.insider_id, t.ticker
     """)
     conn.commit()

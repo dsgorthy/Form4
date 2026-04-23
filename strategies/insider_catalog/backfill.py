@@ -331,9 +331,32 @@ def migrate_schema(conn: sqlite3.Connection):
         "CREATE INDEX IF NOT EXISTS idx_trades_signal_category ON trades(signal_category)",
         "CREATE INDEX IF NOT EXISTS idx_trades_is_routine ON trades(is_routine)",
         "CREATE INDEX IF NOT EXISTS idx_trades_rptowner_cik ON trades(rptowner_cik)",
+        # Partial index on is_derivative=1 — small (~6K rows of 1.66M),
+        # makes the WHERE is_derivative = 0 filter on aggregation queries
+        # cheap to evaluate.
+        "CREATE INDEX IF NOT EXISTS idx_trades_is_derivative ON trades(is_derivative) WHERE is_derivative = 1",
     ]
     for stmt in index_stmts:
-        conn.execute(stmt)
+        try:
+            conn.execute(stmt)
+        except sqlite3.OperationalError:
+            pass  # PG syntax already in place, or index exists
+
+    # Schema-level guarantee that no notional-priced row enters the
+    # common-stock $-volume aggregate path. $1M/share is comfortably above
+    # BRK-A (~$700K, the highest-priced US common stock) and ~10x below the
+    # smallest notional-pricing leak we've seen ($11M for a Call option).
+    # If a future ingest path forgets to set is_derivative=1 on a row with
+    # absurd pricing, the INSERT fails loudly instead of silently
+    # polluting downstream aggregates. Idempotent — the constraint name is
+    # checked by the catalog before re-adding.
+    try:
+        conn.execute(
+            "ALTER TABLE trades ADD CONSTRAINT trades_no_notional_in_common "
+            "CHECK (is_derivative = 1 OR price < 1000000)"
+        )
+    except (sqlite3.OperationalError, Exception):
+        pass  # constraint already present, or SQLite (which has no PG-style ALTER ADD CONSTRAINT)
 
     conn.commit()
     logger.info("Schema migration complete")
@@ -456,8 +479,8 @@ def _flush_batch(conn: sqlite3.Connection, batch: list) -> int:
                 INSERT OR IGNORE INTO trades
                     (insider_id, ticker, company, title, trade_type, trade_date,
                      filing_date, price, qty, value, is_csuite, title_weight, source,
-                     normalized_title)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'edgar_bulk', ?)
+                     normalized_title, is_derivative)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'edgar_bulk', ?, 0)
             """, (
                 insider_id, row["ticker"], row["company"], row["title"],
                 row["trade_type"], row["trade_date"], row["filing_date"],

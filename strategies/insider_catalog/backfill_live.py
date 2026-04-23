@@ -81,6 +81,40 @@ EFTS_URL = "https://efts.sec.gov/LATEST/search-index"
 USER_AGENT = "Form4/1.0 dsgorthy@hotmail.com"
 REQUEST_DELAY = 0.12  # SEC allows 10 req/sec, stay under
 
+# Derivative-classification — keep in sync with Phase 2 SQL backfill in the
+# is_derivative migration. The CHECK constraint on trades enforces the
+# price ceiling at the schema level; this helper produces the same answer
+# at insert time so the row passes the constraint and aggregates filter
+# it out cleanly.
+_DERIVATIVE_TITLE_TOKENS = (
+    "option",
+    "warrant",
+    "convertible",
+    "debenture",
+    "preferred",
+    "note",
+    "right to purchase",
+    "right to buy",
+)
+# US tickers commonly priced above $5K. Anything else above the price floor
+# is almost certainly notional bad data, not common stock. Keep this list
+# small — it's a deliberate allowlist, not a deny-list of suspicious rows.
+_HIGH_PRICED_COMMON_TICKERS = {"BRK-A", "BRK.A"}
+_NOTIONAL_PRICE_FLOOR = 100_000.0
+
+
+def _classify_is_derivative(security_title, price, ticker) -> int:
+    """Return 1 if a row should be excluded from common-stock $-volume aggregates."""
+    if security_title:
+        lowered = security_title.lower()
+        if any(tok in lowered for tok in _DERIVATIVE_TITLE_TOKENS):
+            return 1
+    if price is not None and price > _NOTIONAL_PRICE_FLOOR:
+        if not ticker or ticker.upper() not in _HIGH_PRICED_COMMON_TICKERS:
+            return 1
+    return 0
+
+
 # ── EFTS Search ──────────────────────────────────────────────────────────
 
 
@@ -559,20 +593,20 @@ def parse_form4_xml(
                     "deemed_execution_date": deriv_dict["deemed_execution_date"],
                     "trans_form_type": deriv_dict["trans_form_type"],
                     "rptowner_cik": rptowner_cik,
-                    # Flag options/warrants so dollar-volume aggregates can
-                    # exclude them — their notional pricing (e.g. $11M/share
-                    # for a Call option) dwarfs real common-stock activity.
-                    # Total return swaps and other instruments with realistic
-                    # share-equivalent pricing stay is_derivative=0 so the
-                    # feed and aggregates still include them (the original
-                    # f493d46 intent). Mirrors the SQL backfill predicate.
-                    "is_derivative": 1 if (
-                        deriv_dict["security_title"]
-                        and (
-                            "option" in deriv_dict["security_title"].lower()
-                            or "warrant" in deriv_dict["security_title"].lower()
-                        )
-                    ) else 0,
+                    # Flag derivatives so dollar-volume aggregates can exclude
+                    # them — their notional pricing (e.g. $11M/share for a
+                    # Call option, $10M for a Convertible Note) dwarfs real
+                    # common-stock activity when SUM'd. Total return swaps
+                    # and other instruments with realistic share-equivalent
+                    # pricing stay is_derivative=0 so the feed and aggregates
+                    # still include them (the original f493d46 intent).
+                    # Mirrors the SQL backfill predicate in the Phase 2
+                    # one-shot UPDATE on Studio.
+                    "is_derivative": _classify_is_derivative(
+                        deriv_dict.get("security_title"),
+                        deriv_dict.get("trans_price_per_share"),
+                        ticker,
+                    ),
                 })
 
     return trades
@@ -758,9 +792,10 @@ def insert_trades(conn, trades: List[dict], accession: str, filed_at: Optional[s
                      trans_code, trans_acquired_disp, direct_indirect,
                      shares_owned_after, value_owned_after, nature_of_ownership,
                      equity_swap, is_10b5_1, security_title,
-                     deemed_execution_date, trans_form_type, rptowner_cik)
+                     deemed_execution_date, trans_form_type, rptowner_cik,
+                     is_derivative)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'edgar_live', ?, ?, ?,
-                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 insider_id, t["ticker"], t["company"], t["title"],
                 t["trade_type"], t["trade_date"], t["filing_date"],
@@ -779,6 +814,7 @@ def insert_trades(conn, trades: List[dict], accession: str, filed_at: Optional[s
                 t.get("deemed_execution_date") or None,
                 t.get("trans_form_type") or None,
                 t.get("rptowner_cik") or None,
+                t.get("is_derivative", 0),
             ))
             inserted += 1
         except Exception:

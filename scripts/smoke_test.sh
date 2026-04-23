@@ -73,6 +73,27 @@ for entry in "${ENDPOINTS[@]}"; do
   rm -f /tmp/smoke_body.$$
 done
 
+
+# Aggregate-ceiling sanity check — catches the class of bug where a
+# derivative row with notional pricing (e.g. $11M/share for a Call option
+# notional, $10M for a Convertible Note face value) leaks past the
+# is_derivative=0 filter into a SUM-of-value display. Realistic top
+# cluster values today are sub-$1B; $10B is a 10x sanity ceiling. If this
+# fires the deploy fails and the issue is caught before users see it.
+clusters_body=$(curl -sf --max-time "$TIMEOUT" "$BASE/api/v1/clusters?days=14&limit=20" 2>/dev/null || echo "")
+if [ -n "$clusters_body" ]; then
+  max_cluster=$(echo "$clusters_body" | python3 -c "import json,sys; d=json.load(sys.stdin); print(max((c.get('total_value', 0) or 0) for c in d.get('items', [])) if d.get('items') else 0)" 2>/dev/null || echo "0")
+  # 10_000_000_000 = $10B
+  if python3 -c "import sys; sys.exit(0 if float('$max_cluster') < 10_000_000_000 else 1)"; then
+    printf "  PASS  %-25s max cluster total_value=\$%.0f\n" "aggregate-ceiling" "$max_cluster"
+    PASSED=$((PASSED + 1))
+  else
+    printf "  FAIL  %-25s max cluster total_value=\$%.0f exceeds \$10B sanity ceiling — likely is_derivative leak\n" "aggregate-ceiling" "$max_cluster"
+    FAILURES+=("aggregate-ceiling: max cluster total_value=\$$max_cluster > \$10B")
+    FAILED=$((FAILED + 1))
+  fi
+fi
+
 echo ""
 echo "=== Summary: $PASSED passed, $FAILED failed ==="
 
