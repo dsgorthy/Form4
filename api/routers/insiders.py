@@ -74,7 +74,11 @@ def get_insider(identifier: str, user: UserContext = Depends(require_pro)) -> di
         except Exception:
             pass  # Tables may not exist yet
 
-        # Volume breakdown by transaction type (filing-level: one filing = one trade)
+        # Volume breakdown by transaction type (filing-level: one filing = one trade).
+        # Exclude derivative titles (options/warrants) — they came over from
+        # research.derivative_trades with notional pricing that dwarfs real
+        # stock-volume aggregates. NULL security_title is treated as common
+        # stock for back-compat with older filings.
         volume_rows = conn.execute("""
             SELECT trans_code,
                    CASE WHEN trans_code IN ('P') THEN 'buy'
@@ -86,13 +90,18 @@ def get_insider(identifier: str, user: UserContext = Depends(require_pro)) -> di
                 FROM trades
                 WHERE insider_id = ? AND trans_code IS NOT NULL
                   AND superseded_by IS NULL
-                GROUP BY trans_code, filing_key
+                  AND (security_title IS NULL
+                       OR (security_title NOT ILIKE '%option%'
+                           AND security_title NOT ILIKE '%warrant%'))
+                GROUP BY trans_code, COALESCE(filing_key, accession, trade_date)
             )
             GROUP BY trans_code
             ORDER BY total_value DESC
         """, (insider_id,)).fetchall()
 
-        # Filing-level win rates (consistent with filing-level counts)
+        # Filing-level win rates (consistent with filing-level counts).
+        # Same derivative-exclusion as volume_by_type — we want the win rate
+        # of stock trades, not options that share a 'P'/'S' code.
         filing_win_rates = conn.execute(f"""
             SELECT
                 trade_type,
@@ -107,12 +116,15 @@ def get_insider(identifier: str, user: UserContext = Depends(require_pro)) -> di
                 WHERE t.insider_id = ? AND t.trans_code IN ('P', 'S')
                   AND t.superseded_by IS NULL
                   AND tr.return_7d IS NOT NULL
-                GROUP BY t.trade_type, {filing_group_by()}
+                  AND (t.security_title IS NULL
+                       OR (t.security_title NOT ILIKE '%option%'
+                           AND t.security_title NOT ILIKE '%warrant%'))
+                GROUP BY t.trade_type, COALESCE(t.filing_key, t.accession, t.trade_date)
             )
             GROUP BY trade_type
         """, (insider_id,)).fetchall()
 
-        # Filing-level trade counts (consistent with feed display)
+        # Filing-level trade counts (consistent with feed display).
         filing_counts = conn.execute("""
             SELECT
                 SUM(CASE WHEN trans_code = 'P' THEN 1 ELSE 0 END) AS buy_filings,
@@ -122,11 +134,14 @@ def get_insider(identifier: str, user: UserContext = Depends(require_pro)) -> di
                 FROM trades
                 WHERE insider_id = ? AND trans_code IN ('P', 'S')
                   AND superseded_by IS NULL
-                GROUP BY filing_key, trans_code
+                  AND (security_title IS NULL
+                       OR (security_title NOT ILIKE '%option%'
+                           AND security_title NOT ILIKE '%warrant%'))
+                GROUP BY COALESCE(filing_key, accession, trade_date), trans_code
             )
         """, (insider_id,)).fetchone()
 
-        # Sell pattern breakdown (filing-level)
+        # Sell pattern breakdown (filing-level) — common stock only.
         sell_pattern = conn.execute("""
             SELECT
                 COUNT(*) AS total_sells,
@@ -137,7 +152,10 @@ def get_insider(identifier: str, user: UserContext = Depends(require_pro)) -> di
                 FROM trades
                 WHERE insider_id = ? AND trans_code = 'S'
                   AND superseded_by IS NULL
-                GROUP BY filing_key
+                  AND (security_title IS NULL
+                       OR (security_title NOT ILIKE '%option%'
+                           AND security_title NOT ILIKE '%warrant%'))
+                GROUP BY COALESCE(filing_key, accession, trade_date)
             )
         """, (insider_id,)).fetchone()
 
@@ -289,7 +307,15 @@ def get_insider_trades(
 
         insider_id = insider["insider_id"]
 
-        tc_conditions: list = ["insider_id = ?", "superseded_by IS NULL"]
+        tc_conditions: list = [
+            "insider_id = ?",
+            "superseded_by IS NULL",
+            # Match the security_title filter used by the row query below so
+            # the total count and the rendered list don't diverge.
+            "(security_title IS NULL"
+            " OR (security_title NOT ILIKE '%option%'"
+            " AND security_title NOT ILIKE '%warrant%'))",
+        ]
         tc_params: list = [insider_id]
         add_trans_code_filter(tc_conditions, tc_params, trans_codes, alias="trades")
         tc_where = " AND ".join(tc_conditions)
@@ -305,7 +331,14 @@ def get_insider_trades(
             tc_params,
         ).fetchone()["cnt"]
 
-        inner_conditions: list = ["t.insider_id = ?", "t.superseded_by IS NULL"]
+        inner_conditions: list = [
+            "t.insider_id = ?",
+            "t.superseded_by IS NULL",
+            # Exclude derivative titles — see comment in volume_by_type query.
+            "(t.security_title IS NULL"
+            " OR (t.security_title NOT ILIKE '%option%'"
+            " AND t.security_title NOT ILIKE '%warrant%'))",
+        ]
         inner_params: list = [insider_id]
         add_trans_code_filter(inner_conditions, inner_params, trans_codes)
         inner_where = " AND ".join(inner_conditions)
