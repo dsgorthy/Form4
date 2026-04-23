@@ -101,9 +101,14 @@ _DERIVATIVE_TITLE_TOKENS = (
 # small — it's a deliberate allowlist, not a deny-list of suspicious rows.
 _HIGH_PRICED_COMMON_TICKERS = {"BRK-A", "BRK.A"}
 _NOTIONAL_PRICE_FLOOR = 100_000.0
+# A single insider trade above $5B in real common stock has never happened
+# (Buffett's largest were ~$1-2B). Anything above is dirty data — almost
+# always price × qty multiplied through a notional unit. Mirrors the
+# CHECK (value < 5_000_000_000) half of the schema constraint.
+_NOTIONAL_VALUE_FLOOR = 5_000_000_000.0
 
 
-def _classify_is_derivative(security_title, price, ticker) -> int:
+def _classify_is_derivative(security_title, price, ticker, value=None) -> int:
     """Return 1 if a row should be excluded from common-stock $-volume aggregates."""
     if security_title:
         lowered = security_title.lower()
@@ -112,6 +117,8 @@ def _classify_is_derivative(security_title, price, ticker) -> int:
     if price is not None and price > _NOTIONAL_PRICE_FLOOR:
         if not ticker or ticker.upper() not in _HIGH_PRICED_COMMON_TICKERS:
             return 1
+    if value is not None and value > _NOTIONAL_VALUE_FLOOR:
+        return 1
     return 0
 
 
@@ -606,6 +613,7 @@ def parse_form4_xml(
                         deriv_dict.get("security_title"),
                         deriv_dict.get("trans_price_per_share"),
                         ticker,
+                        value=deriv_value,
                     ),
                 })
 

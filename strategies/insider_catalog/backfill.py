@@ -343,17 +343,20 @@ def migrate_schema(conn: sqlite3.Connection):
             pass  # PG syntax already in place, or index exists
 
     # Schema-level guarantee that no notional-priced row enters the
-    # common-stock $-volume aggregate path. $1M/share is comfortably above
-    # BRK-A (~$700K, the highest-priced US common stock) and ~10x below the
-    # smallest notional-pricing leak we've seen ($11M for a Call option).
-    # If a future ingest path forgets to set is_derivative=1 on a row with
-    # absurd pricing, the INSERT fails loudly instead of silently
-    # polluting downstream aggregates. Idempotent — the constraint name is
-    # checked by the catalog before re-adding.
+    # common-stock $-volume aggregate path. Two ceilings, both required:
+    #   price < $1M/share — covers Call options at $11M/share, Convertible
+    #     Notes at $10M/share. $1M is well above BRK-A's ~$700K (highest
+    #     US common-stock price).
+    #   value < $5B/row — single insider trades above $5B in real common
+    #     stock have never happened. Catches the pathological case of
+    #     $50K price × 160M qty (penny-stock-style data quality issues).
+    # If a future ingest path forgets to set is_derivative=1 on a row that
+    # blows either ceiling, the INSERT fails loudly instead of silently
+    # polluting downstream aggregates. Idempotent.
     try:
         conn.execute(
             "ALTER TABLE trades ADD CONSTRAINT trades_no_notional_in_common "
-            "CHECK (is_derivative = 1 OR price < 1000000)"
+            "CHECK (is_derivative = 1 OR (price < 1000000 AND value < 5000000000))"
         )
     except (sqlite3.OperationalError, Exception):
         pass  # constraint already present, or SQLite (which has no PG-style ALTER ADD CONSTRAINT)
