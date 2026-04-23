@@ -37,7 +37,8 @@ def _render_value_rank(conn, meta: dict) -> str | None:
         """SELECT COUNT(DISTINCT CASE WHEN accession IS NOT NULL THEN accession ELSE trade_date END) AS cnt
            FROM trades
            WHERE insider_id = ? AND ticker = ? AND trade_type = ?
-             AND trans_code IN ('P', 'S')""",
+             AND trans_code IN ('P', 'S')
+             AND is_derivative = 0""",
         (insider_id, ticker, trade_type),
     ).fetchone()
     total = row["cnt"] if row else 0
@@ -63,7 +64,8 @@ def _render_cluster_count(conn, meta: dict) -> str | None:
         """SELECT COUNT(DISTINCT insider_id) AS cnt FROM trades
            WHERE ticker = ? AND trade_type = ?
              AND trade_date BETWEEN date(?, '-30 days') AND ?
-             AND trans_code IN ('P', 'S')""",
+             AND trans_code IN ('P', 'S')
+             AND is_derivative = 0""",
         (ticker, trade_type, as_of, as_of),
     ).fetchone()
     # Subtract 1 for the current insider (the count includes them)

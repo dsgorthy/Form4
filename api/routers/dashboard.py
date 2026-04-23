@@ -43,6 +43,7 @@ def dashboard_stats(user: UserContext = Depends(get_current_user)) -> dict:
               AND t.pit_grade IN ('A', 'B')
               AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
               AND t.superseded_by IS NULL
+              AND t.is_derivative = 0
               AND """ + _PS_FILTER + """
             """,
             (latest,),
@@ -58,6 +59,7 @@ def dashboard_stats(user: UserContext = Depends(get_current_user)) -> dict:
                 WHERE filing_date BETWEEN date(?, '-7 days') AND ?
                   AND (is_duplicate = 0 OR is_duplicate IS NULL)
                   AND superseded_by IS NULL
+              AND is_derivative = 0
                   AND """ + _PS_FILTER_BARE + """
                 Group BY ticker, trade_type
                 HAVING COUNT(DISTINCT insider_id) >= 2
@@ -75,6 +77,7 @@ def dashboard_stats(user: UserContext = Depends(get_current_user)) -> dict:
             FROM trades
             WHERE filing_date BETWEEN date(?, '-5 days') AND ?
               AND superseded_by IS NULL
+              AND is_derivative = 0
               AND """ + _PS_FILTER_BARE + """
             """,
             (latest, latest),
@@ -95,6 +98,7 @@ def dashboard_stats(user: UserContext = Depends(get_current_user)) -> dict:
               AND ticker != 'NONE'
               AND (is_duplicate = 0 OR is_duplicate IS NULL)
               AND superseded_by IS NULL
+              AND is_derivative = 0
               AND """ + _PS_FILTER_BARE + """
             GROUP BY ticker
             HAVING COUNT(DISTINCT insider_id) >= 2
@@ -145,6 +149,7 @@ def sync_status(user: UserContext = Depends(get_current_user)) -> dict:
                WHERE filing_date = date('now')
                AND (is_duplicate = 0 OR is_duplicate IS NULL)
                AND superseded_by IS NULL
+              AND is_derivative = 0
                AND """ + _PS_FILTER_BARE
         ).fetchone()["cnt"]
 
@@ -155,7 +160,7 @@ def sync_status(user: UserContext = Depends(get_current_user)) -> dict:
 
         # Total trades (P/S only)
         total = conn.execute(
-            "SELECT COUNT(*) AS cnt FROM trades WHERE (is_duplicate = 0 OR is_duplicate IS NULL) AND superseded_by IS NULL AND " + _PS_FILTER_BARE
+            "SELECT COUNT(*) AS cnt FROM trades WHERE (is_duplicate = 0 OR is_duplicate IS NULL) AND superseded_by IS NULL AND is_derivative = 0 AND " + _PS_FILTER_BARE
         ).fetchone()["cnt"]
 
     return {
@@ -206,6 +211,7 @@ def dashboard_highlights(user: UserContext = Depends(get_current_user)) -> dict:
                   AND t.filing_date >= date(?, '-30 days')
                   AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
                   AND t.superseded_by IS NULL
+              AND t.is_derivative = 0
                   AND """ + _PS_FILTER + """
                 GROUP BY t.insider_id, t.ticker, t.trade_type, t.trade_date
                 HAVING SUM(t.value) >= 100000
@@ -250,6 +256,7 @@ def dashboard_highlights(user: UserContext = Depends(get_current_user)) -> dict:
                   AND t.filing_date >= date(?, '-30 days')
                   AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
                   AND t.superseded_by IS NULL
+              AND t.is_derivative = 0
                   AND """ + _PS_FILTER + """
                 GROUP BY t.insider_id, t.ticker, t.trade_type, t.trade_date
                 HAVING SUM(t.value) >= 1000000
@@ -286,6 +293,7 @@ def dashboard_highlights(user: UserContext = Depends(get_current_user)) -> dict:
               AND t.filing_date <= ?
               AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
               AND t.superseded_by IS NULL
+              AND t.is_derivative = 0
               AND """ + _PS_FILTER + """
             GROUP BY t.ticker, t.trade_type
             HAVING COUNT(DISTINCT t.insider_id) >= 2
@@ -348,6 +356,7 @@ def dashboard_sentiment(
             FROM trades
             WHERE filing_date BETWEEN (?::date - ? * interval '1 day')::text AND ?
               AND superseded_by IS NULL
+              AND is_derivative = 0
               AND {_PS_FILTER_BARE}
               {routine_filter}
             GROUP BY filing_date
@@ -391,6 +400,7 @@ def dashboard_heatmap(days: int = Query(default=90, ge=1, le=365)) -> List[dict]
             FROM trades
             WHERE filing_date BETWEEN (?::date - ? * interval '1 day')::text AND ?
               AND superseded_by IS NULL
+              AND is_derivative = 0
               AND """ + _PS_FILTER_BARE + """
             GROUP BY filing_date
             ORDER BY filing_date
@@ -405,6 +415,7 @@ def dashboard_heatmap(days: int = Query(default=90, ge=1, le=365)) -> List[dict]
             FROM trades
             WHERE filing_date BETWEEN (?::date - ? * interval '1 day')::text AND ?
               AND superseded_by IS NULL
+              AND is_derivative = 0
               AND """ + _PS_FILTER_BARE + """
             GROUP BY filing_date, ticker
             ORDER BY filing_date, tv DESC
@@ -455,6 +466,7 @@ def dashboard_inflections(
             FROM trades
             WHERE filing_date BETWEEN date(?, '-7 days') AND ?
               AND superseded_by IS NULL
+              AND is_derivative = 0
               AND {_PS_FILTER_BARE}
               {routine_filter}
             GROUP BY ticker, trade_type
@@ -472,6 +484,7 @@ def dashboard_inflections(
             FROM trades
             WHERE filing_date BETWEEN date(?, '-90 days') AND date(?, '-8 days')
               AND superseded_by IS NULL
+              AND is_derivative = 0
               AND {_PS_FILTER_BARE}
               {routine_filter}
             GROUP BY ticker, trade_type
@@ -525,6 +538,7 @@ def filing_delays() -> dict:
             FROM trades
             WHERE filing_date IS NOT NULL AND trade_date IS NOT NULL
               AND superseded_by IS NULL
+              AND is_derivative = 0
               AND """ + _PS_FILTER_BARE + """
             """,
         ).fetchall()

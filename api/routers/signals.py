@@ -84,6 +84,7 @@ def sell_cessation(
             WHERE t.trade_type = 'sell'
               AND t.trans_code = 'S'
               AND t.superseded_by IS NULL
+              AND t.is_derivative = 0
               AND t.trade_date BETWEEN date(?, '-14 months') AND date(?, '-60 days')
               AND t.insider_id NOT IN (
                   SELECT DISTINCT insider_id
@@ -91,6 +92,7 @@ def sell_cessation(
                   WHERE trade_type = 'sell'
                     AND trans_code = 'S'
                     AND superseded_by IS NULL
+                    AND is_derivative = 0
                     AND trade_date > date(?, '-60 days')
               )
             GROUP BY t.insider_id

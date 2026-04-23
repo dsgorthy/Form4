@@ -78,6 +78,7 @@ def list_clusters(
                   AND t.filing_date <= ?
                   AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
                   AND t.superseded_by IS NULL
+                  AND t.is_derivative = 0
                   {extra_where}
                 GROUP BY COALESCE(t.txn_group_id::text, t.accession)
             )
@@ -136,6 +137,7 @@ def list_clusters(
                   AND t.filing_date <= ?
                   AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
                   AND t.superseded_by IS NULL
+                  AND t.is_derivative = 0
                   {extra_where}
                 GROUP BY t.insider_id
                 ORDER BY SUM(t.value) DESC
@@ -213,6 +215,7 @@ def get_cluster_detail(
               AND t.filing_date <= ?
               AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
               AND t.superseded_by IS NULL
+              AND t.is_derivative = 0
               {_PS}
             GROUP BY t.ticker, t.trade_type
             """,
@@ -244,6 +247,7 @@ def get_cluster_detail(
               AND t.filing_date <= ?
               AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
               AND t.superseded_by IS NULL
+              AND t.is_derivative = 0
               {_PS}
             GROUP BY t.insider_id
             ORDER BY SUM(t.value) DESC
@@ -297,6 +301,7 @@ def get_cluster_detail(
                   AND t.filing_date <= ?
                   AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
                   AND t.superseded_by IS NULL
+                  AND t.is_derivative = 0
                   {_PS}
                 GROUP BY t.insider_id, t.trade_type, CASE WHEN t.accession IS NOT NULL THEN t.accession ELSE t.trade_date END
             ) agg

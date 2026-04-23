@@ -39,6 +39,7 @@ def get_company(ticker: str, user: UserContext = Depends(get_current_user)) -> d
               AND (is_duplicate = 0 OR is_duplicate IS NULL)
               AND superseded_by IS NULL
               AND trans_code IN ('P', 'S')
+              AND is_derivative = 0
             GROUP BY ticker
             """,
             (ticker,),
@@ -116,7 +117,12 @@ def get_company_trades(
     ticker = ticker.upper()
     free_cutoff = get_free_cutoff_date() if not user.has_full_feed else None
 
-    conditions = ["t.ticker = ?", "(t.is_duplicate = 0 OR t.is_duplicate IS NULL)", "t.superseded_by IS NULL"]
+    conditions = [
+        "t.ticker = ?",
+        "(t.is_duplicate = 0 OR t.is_duplicate IS NULL)",
+        "t.superseded_by IS NULL",
+        "t.is_derivative = 0",
+    ]
     params: list = [ticker]
 
     add_trans_code_filter(conditions, params, trans_codes)
@@ -230,7 +236,7 @@ def get_company_price_history(ticker: str, user: UserContext = Depends(get_curre
     """Insider trade markers over time for the price chart scatter plot."""
     ticker = ticker.upper()
 
-    conditions = ["t.ticker = ?", "t.superseded_by IS NULL"]
+    conditions = ["t.ticker = ?", "t.superseded_by IS NULL", "t.is_derivative = 0"]
     params_list = [ticker]
 
     add_trans_code_filter(conditions, params_list, "P,S")
@@ -321,7 +327,14 @@ def get_chart_data(
     free_cutoff = get_free_cutoff_date() if not user.has_full_feed else None
 
     # Build dynamic WHERE clause for trade filters
-    conditions = ["t.ticker = ?", "t.trade_date >= ?", "t.trade_date <= ?", "(t.is_duplicate = 0 OR t.is_duplicate IS NULL)", "t.superseded_by IS NULL"]
+    conditions = [
+        "t.ticker = ?",
+        "t.trade_date >= ?",
+        "t.trade_date <= ?",
+        "(t.is_duplicate = 0 OR t.is_duplicate IS NULL)",
+        "t.superseded_by IS NULL",
+        "t.is_derivative = 0",
+    ]
     params: list = [ticker, trade_start, trade_end]
 
     add_trans_code_filter(conditions, params, trans_codes)

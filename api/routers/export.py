@@ -52,6 +52,7 @@ def export_filings(
         params.append(min_value)
 
     conditions.append("t.superseded_by IS NULL")
+    conditions.append("t.is_derivative = 0")
     where = " AND ".join(conditions) if conditions else "1=1"
 
     with get_db() as conn:

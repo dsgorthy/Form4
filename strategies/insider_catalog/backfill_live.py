@@ -559,6 +559,20 @@ def parse_form4_xml(
                     "deemed_execution_date": deriv_dict["deemed_execution_date"],
                     "trans_form_type": deriv_dict["trans_form_type"],
                     "rptowner_cik": rptowner_cik,
+                    # Flag options/warrants so dollar-volume aggregates can
+                    # exclude them — their notional pricing (e.g. $11M/share
+                    # for a Call option) dwarfs real common-stock activity.
+                    # Total return swaps and other instruments with realistic
+                    # share-equivalent pricing stay is_derivative=0 so the
+                    # feed and aggregates still include them (the original
+                    # f493d46 intent). Mirrors the SQL backfill predicate.
+                    "is_derivative": 1 if (
+                        deriv_dict["security_title"]
+                        and (
+                            "option" in deriv_dict["security_title"].lower()
+                            or "warrant" in deriv_dict["security_title"].lower()
+                        )
+                    ) else 0,
                 })
 
     return trades

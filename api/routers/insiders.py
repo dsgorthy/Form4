@@ -90,9 +90,7 @@ def get_insider(identifier: str, user: UserContext = Depends(require_pro)) -> di
                 FROM trades
                 WHERE insider_id = ? AND trans_code IS NOT NULL
                   AND superseded_by IS NULL
-                  AND (security_title IS NULL
-                       OR (security_title NOT ILIKE '%option%'
-                           AND security_title NOT ILIKE '%warrant%'))
+                  AND is_derivative = 0
                 GROUP BY trans_code, COALESCE(filing_key, accession, trade_date)
             )
             GROUP BY trans_code
@@ -116,9 +114,7 @@ def get_insider(identifier: str, user: UserContext = Depends(require_pro)) -> di
                 WHERE t.insider_id = ? AND t.trans_code IN ('P', 'S')
                   AND t.superseded_by IS NULL
                   AND tr.return_7d IS NOT NULL
-                  AND (t.security_title IS NULL
-                       OR (t.security_title NOT ILIKE '%option%'
-                           AND t.security_title NOT ILIKE '%warrant%'))
+                  AND t.is_derivative = 0
                 GROUP BY t.trade_type, COALESCE(t.filing_key, t.accession, t.trade_date)
             )
             GROUP BY trade_type
@@ -134,9 +130,7 @@ def get_insider(identifier: str, user: UserContext = Depends(require_pro)) -> di
                 FROM trades
                 WHERE insider_id = ? AND trans_code IN ('P', 'S')
                   AND superseded_by IS NULL
-                  AND (security_title IS NULL
-                       OR (security_title NOT ILIKE '%option%'
-                           AND security_title NOT ILIKE '%warrant%'))
+                  AND is_derivative = 0
                 GROUP BY COALESCE(filing_key, accession, trade_date), trans_code
             )
         """, (insider_id,)).fetchone()
@@ -152,9 +146,7 @@ def get_insider(identifier: str, user: UserContext = Depends(require_pro)) -> di
                 FROM trades
                 WHERE insider_id = ? AND trans_code = 'S'
                   AND superseded_by IS NULL
-                  AND (security_title IS NULL
-                       OR (security_title NOT ILIKE '%option%'
-                           AND security_title NOT ILIKE '%warrant%'))
+                  AND is_derivative = 0
                 GROUP BY COALESCE(filing_key, accession, trade_date)
             )
         """, (insider_id,)).fetchone()
@@ -312,9 +304,7 @@ def get_insider_trades(
             "superseded_by IS NULL",
             # Match the security_title filter used by the row query below so
             # the total count and the rendered list don't diverge.
-            "(security_title IS NULL"
-            " OR (security_title NOT ILIKE '%option%'"
-            " AND security_title NOT ILIKE '%warrant%'))",
+            "is_derivative = 0",
         ]
         tc_params: list = [insider_id]
         add_trans_code_filter(tc_conditions, tc_params, trans_codes, alias="trades")
@@ -335,9 +325,7 @@ def get_insider_trades(
             "t.insider_id = ?",
             "t.superseded_by IS NULL",
             # Exclude derivative titles — see comment in volume_by_type query.
-            "(t.security_title IS NULL"
-            " OR (t.security_title NOT ILIKE '%option%'"
-            " AND t.security_title NOT ILIKE '%warrant%'))",
+            "t.is_derivative = 0",
         ]
         inner_params: list = [insider_id]
         add_trans_code_filter(inner_conditions, inner_params, trans_codes)
@@ -543,6 +531,7 @@ def get_return_distribution(
             WHERE t.insider_id = ?
               AND t.trans_code IN ('P','S')
               AND t.superseded_by IS NULL
+              AND t.is_derivative = 0
               AND tr.{col} IS NOT NULL
             GROUP BY t.ticker, t.trade_type, {filing_group_by()}
             ORDER BY MIN(t.trade_date)

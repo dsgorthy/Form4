@@ -35,7 +35,7 @@ def list_filings(
     offset: int = Query(default=0, ge=0),
 ) -> dict:
     """Paginated, filterable filings list with insider tier/score and returns."""
-    conditions = ["t.superseded_by IS NULL"]
+    conditions = ["t.superseded_by IS NULL", "t.is_derivative = 0"]
     if not include_private:
         conditions.append("t.ticker != 'NONE' AND t.ticker IS NOT NULL AND t.ticker != ''")
     params = []
@@ -315,6 +315,7 @@ def get_related_trades(trade_id: str, limit: int = Query(default=5, ge=1, le=20)
                   {exclude_clause}
                   AND t.trans_code IN ('P', 'S')
                   AND t.superseded_by IS NULL
+                  AND t.is_derivative = 0
                 GROUP BY t.insider_id, t.ticker, t.trade_type, {_fgb}
             ) agg
             LEFT JOIN insiders i ON agg.insider_id = i.insider_id

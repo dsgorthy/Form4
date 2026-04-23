@@ -49,6 +49,7 @@ def list_private_companies(
                 WHERE ticker = 'NONE'
                   AND (is_duplicate = 0 OR is_duplicate IS NULL)
                   AND superseded_by IS NULL
+                  AND is_derivative = 0
                   AND trans_code IN ('P', 'S')
                 GROUP BY company
             )
@@ -67,6 +68,7 @@ def list_private_companies(
             WHERE ticker = 'NONE'
               AND (is_duplicate = 0 OR is_duplicate IS NULL)
               AND superseded_by IS NULL
+              AND is_derivative = 0
               AND trans_code IN ('P', 'S')
             GROUP BY company
             ORDER BY COUNT(*) DESC
@@ -116,6 +118,7 @@ def get_private_company(slug: str, user: UserContext = Depends(get_current_user)
               AND company = ?
               AND (is_duplicate = 0 OR is_duplicate IS NULL)
               AND superseded_by IS NULL
+              AND is_derivative = 0
               AND trans_code IN ('P', 'S')
             GROUP BY company
             """,
@@ -151,6 +154,7 @@ def get_private_company(slug: str, user: UserContext = Depends(get_current_user)
               AND t.company = ?
               AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
               AND t.superseded_by IS NULL
+              AND t.is_derivative = 0
               AND t.trans_code IN ('P', 'S')
             GROUP BY t.insider_id
             ORDER BY itr.score DESC
@@ -214,6 +218,7 @@ def get_private_company_trades(
         "t.company = ?",
         "(t.is_duplicate = 0 OR t.is_duplicate IS NULL)",
         "t.superseded_by IS NULL",
+        "t.is_derivative = 0",
         "t.trans_code IN ('P', 'S')",
     ]
     params: list = [company_name]

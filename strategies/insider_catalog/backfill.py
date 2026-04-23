@@ -298,6 +298,13 @@ def migrate_schema(conn: sqlite3.Connection):
         ("signal_quality", "REAL"),
         ("signal_category", "TEXT"),
         ("is_routine", "INTEGER"),
+        # 1 if this row represents an option or warrant whose price/value is
+        # notional rather than per-share dollars. Set by backfill_live.py at
+        # ingest (f493d46 promotion path). Aggregation queries that SUM value
+        # filter `is_derivative = 0` so $11T-notional rows don't dwarf real
+        # common-stock volume. Cash-Settled Total Return Swaps and similar
+        # share-equivalent instruments stay flagged 0 and remain visible.
+        ("is_derivative", "INTEGER"),
     ]
 
     added = 0

@@ -30,6 +30,7 @@ def search(q: str = Query(..., min_length=1, max_length=100), request: Request =
             FROM trades
             WHERE ticker != 'NONE' AND (ticker LIKE ? OR company LIKE ?)
               AND trans_code IN ('P', 'S')
+              AND is_derivative = 0
             GROUP BY ticker
             ORDER BY
                 CASE WHEN ticker = ? THEN 0
