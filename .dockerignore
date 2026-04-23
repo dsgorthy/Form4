@@ -7,6 +7,12 @@ data/
 reports/
 pipelines/
 strategies/insider_catalog/insiders.db
+strategies/insider_catalog/*.db
+strategies/insider_catalog/*.db-*
+strategies/insider_catalog/sandbox/
+strategies/insider_catalog/archive/
+strategies/insider_catalog/data/
+strategies/insider_catalog/logs/
 api/notifications.db*
 frontend/node_modules/
 frontend/.next/
