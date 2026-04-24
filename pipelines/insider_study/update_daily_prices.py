@@ -28,6 +28,12 @@ from framework.data.alpaca_client import AlpacaClient
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
+# Benchmark ETFs used by /portfolio/overlay as idle-cash vehicles. These tickers
+# almost never appear in insider filings, so the trade-based discovery below
+# would leave them stale. Kept in sync with BASE_ASSETS in
+# api/routers/portfolio.py (CASH excluded — no price).
+BENCHMARK_TICKERS = ("SPY", "QQQ", "IWM", "TLT", "GLD")
+
 
 def load_alpaca_credentials() -> tuple[str, str]:
     """Load shared read-only data credentials from .env. This script only fetches
@@ -64,8 +70,9 @@ def get_tickers_to_update(conn, since: str, explicit: list[str] | None) -> list[
         """,
         (since,),
     ).fetchall()
-    tickers = [r["ticker"] for r in rows if r["ticker"]]
-    return sorted(set(tickers))
+    tickers = {r["ticker"] for r in rows if r["ticker"]}
+    tickers.update(BENCHMARK_TICKERS)
+    return sorted(tickers)
 
 
 def get_latest_dates(conn, tickers: list[str]) -> dict[str, str]:
