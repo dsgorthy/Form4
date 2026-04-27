@@ -4,11 +4,24 @@ import { useUser, useAuth } from "@clerk/nextjs";
 import Link from "next/link";
 import { useState } from "react";
 import { getUserTier, getTrialDaysLeft } from "@/lib/subscription";
+import { posthog } from "@/lib/posthog";
 
 const PRO_MONTHLY = process.env.NEXT_PUBLIC_STRIPE_PRO_MONTHLY_PRICE_ID || "";
 const PRO_YEARLY = process.env.NEXT_PUBLIC_STRIPE_PRO_YEARLY_PRICE_ID || "";
 const PRO_PLUS_MONTHLY = process.env.NEXT_PUBLIC_STRIPE_PRO_PLUS_MONTHLY_PRICE_ID || "";
 const PRO_PLUS_YEARLY = process.env.NEXT_PUBLIC_STRIPE_PRO_PLUS_YEARLY_PRICE_ID || "";
+
+function tierFromPriceId(priceId: string): string {
+  if (priceId === PRO_PLUS_MONTHLY || priceId === PRO_PLUS_YEARLY) return "pro_plus";
+  if (priceId === PRO_MONTHLY || priceId === PRO_YEARLY) return "pro";
+  return "unknown";
+}
+
+function billingFromPriceId(priceId: string): string {
+  if (priceId === PRO_YEARLY || priceId === PRO_PLUS_YEARLY) return "yearly";
+  if (priceId === PRO_MONTHLY || priceId === PRO_PLUS_MONTHLY) return "monthly";
+  return "unknown";
+}
 
 const FREE_FEATURES = [
   "24h-delayed portfolio view",
@@ -52,6 +65,13 @@ export default function PricingPage() {
 
   async function handleCheckout(priceId: string) {
     if (!isSignedIn) {
+      try {
+        posthog.capture("checkout_started", {
+          target_tier: tierFromPriceId(priceId),
+          billing: billingFromPriceId(priceId),
+          authenticated: false,
+        });
+      } catch { /* posthog optional */ }
       window.location.href = "/sign-up";
       return;
     }
@@ -60,6 +80,14 @@ export default function PricingPage() {
       window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
+    try {
+      posthog.capture("checkout_started", {
+        target_tier: tierFromPriceId(priceId),
+        billing: billingFromPriceId(priceId),
+        authenticated: true,
+        current_tier: tier,
+      });
+    } catch { /* posthog optional */ }
     setLoading(priceId);
     setError(null);
     try {

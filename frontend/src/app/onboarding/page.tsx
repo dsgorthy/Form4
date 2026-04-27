@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useUser, useAuth } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
+import { posthog } from "@/lib/posthog";
 
 const STRATEGIES = [
   {
@@ -81,6 +82,16 @@ export default function OnboardingPage() {
             referral_source: referral || null,
           }),
         }).catch(() => {});
+      }
+
+      try {
+        posthog.capture("onboarding_complete", {
+          skipped,
+          strategy: skipped ? null : selectedStrategy,
+          referral_source: skipped ? null : referral || null,
+        });
+      } catch {
+        // posthog uninitialized in dev — non-blocking
       }
 
       router.push(`/portfolio?strategy=${selectedStrategy}`);

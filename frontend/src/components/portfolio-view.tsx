@@ -146,6 +146,7 @@ function LiveStatusPanel({ strategy, userIsPro }: { strategy: string; userIsPro:
   const { getToken } = useAuth();
   const [snapshot, setSnapshot] = useState<LiveSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
+  const [fetchFailed, setFetchFailed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -159,9 +160,16 @@ function LiveStatusPanel({ strategy, userIsPro }: { strategy: string; userIsPro:
         if (res.ok) {
           const data = await res.json();
           const match = data.strategies?.find((s: LiveSnapshot) => s.name === strategy);
-          if (!cancelled && match) setSnapshot(match);
+          if (!cancelled) {
+            setSnapshot(match || null);
+            setFetchFailed(!match);
+          }
+        } else if (!cancelled) {
+          setFetchFailed(true);
         }
-      } catch {}
+      } catch {
+        if (!cancelled) setFetchFailed(true);
+      }
       if (!cancelled) setLoading(false);
     };
     load();
@@ -179,7 +187,24 @@ function LiveStatusPanel({ strategy, userIsPro }: { strategy: string; userIsPro:
     );
   }
 
-  if (!snapshot || snapshot.error) return null;
+  // Surface a real failure (network error, no matching strategy, or per-strategy
+  // Alpaca error) instead of silently rendering nothing — the live panel
+  // disappearing made data outages invisible.
+  const errored = fetchFailed || !snapshot || snapshot.error;
+  if (errored) {
+    const reason = snapshot?.error || (fetchFailed ? "Live data unreachable" : "No data");
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A]">Live Paper Account</div>
+          <span className="inline-block w-2 h-2 rounded-full bg-[#EF4444]" />
+        </div>
+        <div className="rounded-lg border border-[#EF4444]/30 bg-[#EF4444]/5 px-4 py-3 text-xs text-[#EF4444]">
+          {reason}. Retrying in 60s.
+        </div>
+      </div>
+    );
+  }
 
   const eq = snapshot.current_equity ?? 0;
   const pnl = snapshot.total_pnl ?? 0;

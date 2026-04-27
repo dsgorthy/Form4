@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { isPro, hasApiAccess } from "@/lib/subscription";
 import { ProBadge } from "@/components/pro-badge";
 import { TickerAutocomplete } from "@/components/ticker-autocomplete";
+import { posthog } from "@/lib/posthog";
 import type { NotificationPreferences, WatchlistItem } from "@/lib/types";
 
 interface ApiKeyInfo {
@@ -34,12 +35,23 @@ export default function SettingsPage() {
 
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
 
-  // Force Clerk to refetch user data after checkout redirect
+  // Force Clerk to refetch user data after checkout redirect, and fire the
+  // upgrade_complete analytics event once per checkout session.
   useEffect(() => {
     if (justSubscribed && user) {
       user.reload();
+      try {
+        const flagKey = `ph_upgrade_fired:${user.id}:${searchParams.get("success") || ""}`;
+        if (!sessionStorage.getItem(flagKey)) {
+          const tier = (user.publicMetadata as { tier?: string } | undefined)?.tier || "unknown";
+          posthog.capture("upgrade_complete", { tier });
+          sessionStorage.setItem(flagKey, "1");
+        }
+      } catch {
+        // sessionStorage / posthog optional
+      }
     }
-  }, [justSubscribed, user]);
+  }, [justSubscribed, user, searchParams]);
 
   const fetchKeys = useCallback(async () => {
     try {

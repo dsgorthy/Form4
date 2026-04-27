@@ -5,9 +5,9 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 
-from api.auth import UserContext, get_current_user
+from api.auth import UserContext
 from api.db import get_db
-from api.gating import null_items_track_records, redact_gated_items
+from api.gating import null_items_track_records, redact_gated_items, require_pro_plus
 from api.id_encoding import decode_insider_id, encode_response_ids
 from api.pit_helpers import enrich_with_best_pit_grade
 
@@ -24,7 +24,7 @@ SORT_COLUMNS = {
 
 @router.get("")
 def leaderboard(
-    user: UserContext = Depends(get_current_user),
+    user: UserContext = Depends(require_pro_plus),
     sort_by: str = Query(default="score", pattern="^(score|win_rate|alpha|buy_count|percentile)$"),
     order: str = Query(default="desc", pattern="^(asc|desc)$"),
     min_trades: Optional[int] = Query(default=None, ge=1),
@@ -120,7 +120,7 @@ def leaderboard(
 @router.get("/sparklines")
 def sparklines(
     insider_ids: str = Query(..., description="Comma-separated insider IDs"),
-    user: UserContext = Depends(get_current_user),
+    user: UserContext = Depends(require_pro_plus),
 ) -> dict:
     """Return last 10 trades' return_7d per insider for inline sparklines."""
     raw_tokens = [s.strip() for s in insider_ids.split(",") if s.strip()]
