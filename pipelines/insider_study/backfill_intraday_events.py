@@ -127,10 +127,16 @@ def get_ticker_date_ranges(cw_only=False):
             OR (t.above_sma50 = 1 AND t.above_sma200 = 1 AND t.is_largest_ever = 1))
             AND COALESCE(t.is_recurring, 0) = 0
             AND COALESCE(t.is_tax_sale, 0) = 0"""
+    # Drop NULL/empty/'NONE' ticker placeholders that the raw Form 4 ingest
+    # leaves behind for trades whose issuer ticker couldn't be resolved.
+    # Without this filter the puller wastes ~30+ requests per such row
+    # hitting a non-existent symbol on Alpaca (see logs from 2026-04-09).
     rows = conn.execute(f"""
         SELECT ticker, MIN(filing_date) as first_filing, MAX(filing_date) as last_filing
         FROM trades t
         WHERE t.trans_code = 'P' AND t.filing_date >= '2020-01-01'
+          AND t.ticker IS NOT NULL
+          AND t.ticker NOT IN ('', 'NONE')
           AND COALESCE(t.cohen_routine, 0) = 0
           {cw_filter}
         GROUP BY ticker ORDER BY ticker
@@ -138,6 +144,8 @@ def get_ticker_date_ranges(cw_only=False):
     conn.close()
     ranges = []
     for ticker, first, last in rows:
+        if not ticker or ticker.strip().upper() in ("", "NONE"):
+            continue  # belt-and-suspenders if SQL filter fails
         start = datetime.strptime(first, "%Y-%m-%d")
         end = datetime.strptime(last, "%Y-%m-%d") + timedelta(days=95)
         ranges.append((ticker, start, end))

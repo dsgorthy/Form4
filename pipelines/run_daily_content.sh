@@ -72,7 +72,7 @@ $PYTHON pipelines/content_sync.py --backup 2>&1
 
 echo "$(date): === Done ==="
 
-# Step 7: Send Telegram notification
+# Step 7: Append content-ready alert to logs/alerts.ndjson
 echo "$(date): Step 7 — Sending Telegram notification..."
 
 # Build summary of what's ready
@@ -109,16 +109,13 @@ Weekend carousels ready:${WEEKLY_NOTE}"
     fi
 fi
 
-MSG="📢 *Form4 Content Ready — ${DATE}*
-${CAROUSEL_SUMMARY}${WEEKLY_NOTE}
+MSG="Form4 Content Ready — ${DATE}. ${CAROUSEL_SUMMARY}${WEEKLY_NOTE} Assets in Google Drive: form4-content/${DATE}/. Open slides.txt for copy + asset paths. Post to: IG, X, FB"
 
-✅ Assets in Google Drive: form4-content/${DATE}/
-📝 Open slides.txt for copy + asset paths
-📱 Post to: IG, X, FB"
+# Append to logs/alerts.ndjson instead of Telegram (removed 2026-05-02).
+ALERT_LOG="/Users/openclaw/trading-framework/logs/alerts.ndjson"
+UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+ESC_MSG=$(printf '%s' "$MSG" | python3 -c 'import sys, json; print(json.dumps(sys.stdin.read()))' 2>/dev/null) || ESC_MSG="\"content ready (escape error)\""
+mkdir -p "$(dirname "$ALERT_LOG")"
+printf '{"ts":"%s","severity":"info","component":"daily_content","message":%s}\n' "$UTC" "$ESC_MSG" >> "$ALERT_LOG"
 
-curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-    -d "chat_id=${TELEGRAM_CHAT_ID}" \
-    -d "parse_mode=Markdown" \
-    --data-urlencode "text=${MSG}" > /dev/null 2>&1
-
-echo "$(date): Telegram notification sent"
+echo "$(date): content-ready alert appended to $ALERT_LOG"

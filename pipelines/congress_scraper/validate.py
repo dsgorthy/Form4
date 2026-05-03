@@ -291,15 +291,13 @@ def check_freshness_alert(conn: sqlite3.Connection, max_gap_hours: int = 48) -> 
 # Layer 4: Alerting
 # ---------------------------------------------------------------------------
 
-def send_telegram_alert(message: str) -> None:
-    """Send a validation alert via Telegram (reuses existing framework alert)."""
+def emit_alert(message: str, severity: str = "warn") -> None:
+    """Append a validation alert to logs/alerts.ndjson (Telegram removed)."""
     try:
-        from framework.alerts.telegram import send_alert
-        send_alert(f"[Congress Scraper] {message}")
-    except ImportError:
-        logger.warning(f"Telegram alert not available. Alert: {message}")
+        from framework.alerts.log import alert
+        getattr(alert, severity, alert.warn)("congress_scraper", message)
     except Exception as e:
-        logger.error(f"Failed to send Telegram alert: {e}")
+        logger.error(f"Failed to write alert log: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -352,12 +350,12 @@ def run_full_audit(db_path: Path = DB_PATH) -> dict:
 
     if report["freshness_alert"]:
         logger.warning(report["freshness_alert"])
-        send_telegram_alert(report["freshness_alert"])
+        emit_alert(report["freshness_alert"])
 
     if len(report["field_errors"]) > 50:
         msg = f"High field error rate: {len(report['field_errors'])} errors in last 1000 records"
         logger.warning(msg)
-        send_telegram_alert(msg)
+        emit_alert(msg)
 
     return report
 

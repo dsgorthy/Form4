@@ -7,10 +7,9 @@ set -uo pipefail
 
 CONTAINER="trading-framework-api-1"
 LOG_FILE="/Users/openclaw/trading-framework/logs/api-errors.log"
+ALERT_LOG="/Users/openclaw/trading-framework/logs/alerts.ndjson"
 DEDUPE_DB="/tmp/form4-error-dedupe.txt"
 DEDUPE_WINDOW=300   # 5 minutes
-TG_BOT="8676824600:AAHcTkRFmRL25HwW1OC-l1jPyoDmYiu69u0"
-TG_CHAT="${TELEGRAM_CHAT_ID:-}"
 
 mkdir -p "$(dirname "$LOG_FILE")"
 touch "$DEDUPE_DB"
@@ -18,13 +17,16 @@ touch "$DEDUPE_DB"
 ts() { date "+%Y-%m-%d %H:%M:%S"; }
 log() { echo "[$(ts)] $*" >> "$LOG_FILE"; }
 
-send_telegram() {
-    local msg="$1"
-    [ -z "$TG_CHAT" ] && return
-    curl -s -X POST "https://api.telegram.org/bot${TG_BOT}/sendMessage" \
-        -d chat_id="${TG_CHAT}" \
-        -d text="$msg" \
-        -d parse_mode="Markdown" > /dev/null 2>&1 || true
+emit_alert() {
+    local severity="$1"
+    local message="$2"
+    local utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    local esc_msg
+    esc_msg=$(printf '%s' "$message" | python3 -c 'import sys, json; print(json.dumps(sys.stdin.read()))' 2>/dev/null) \
+        || esc_msg="\"(message escape failed)\""
+    mkdir -p "$(dirname "$ALERT_LOG")"
+    printf '{"ts":"%s","severity":"%s","component":"api_error_tail","message":%s}\n' \
+        "$utc" "$severity" "$esc_msg" >> "$ALERT_LOG"
 }
 
 # Returns 0 if we should alert (not seen recently), 1 if deduped
@@ -59,12 +61,7 @@ docker logs --follow --tail 0 "$CONTAINER" 2>&1 | while IFS= read -r line; do
         # Dedupe by endpoint (so 100 hits to same broken route = 1 alert per 5min)
         dedupe_key=$(echo "$endpoint" | sed 's/[?].*//')   # strip query string
         if should_alert "$dedupe_key"; then
-            msg="⚠️ *form4 API 500*
-
-\`$endpoint\`
-
-Check: \`docker logs $CONTAINER --tail 50 | grep -B2 -A20 'Traceback' | tail -40\`"
-            send_telegram "$msg"
+            emit_alert "error" "form4 API 500 — $endpoint. Check: docker logs $CONTAINER --tail 50 | grep -B2 -A20 'Traceback'"
             log "ALERTED: $endpoint"
         fi
     fi
@@ -74,12 +71,8 @@ Check: \`docker logs $CONTAINER --tail 50 | grep -B2 -A20 'Traceback' | tail -40
         log "EXC: $line"
         dedupe_key=$(echo "$line" | head -c 80)
         if should_alert "$dedupe_key"; then
-            msg="⚠️ *form4 API Exception*
-
-\`$(echo "$line" | head -c 200)\`
-
-Check: \`docker logs $CONTAINER --tail 100 | grep -B 1 -A 15 InterfaceError\`"
-            send_telegram "$msg"
+            local short_line=$(echo "$line" | head -c 200)
+            emit_alert "error" "form4 API Exception — $short_line. Check: docker logs $CONTAINER --tail 100 | grep -B 1 -A 15"
             log "ALERTED EXC: $line"
         fi
     fi

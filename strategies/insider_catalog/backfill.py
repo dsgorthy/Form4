@@ -307,13 +307,27 @@ def migrate_schema(conn: sqlite3.Connection):
         ("is_derivative", "INTEGER"),
     ]
 
+    # Catch ONLY the exception types that mean "column already exists" — not
+    # broad Exception with string matching. The April 2026 outage taught us:
+    # catching by string is the bug pattern, not the fix.
+    try:
+        import psycopg2.errors as _pg_errors
+        _DuplicateColumn = _pg_errors.DuplicateColumn
+    except ImportError:
+        _DuplicateColumn = ()  # PG not in scope (running pure SQLite)
+
     added = 0
     for col_name, col_type in new_columns:
         try:
             conn.execute(f"ALTER TABLE trades ADD COLUMN {col_name} {col_type}")
             added += 1
-        except sqlite3.OperationalError:
-            pass  # column already exists
+        except sqlite3.OperationalError as e:
+            # SQLite path: only swallow the "column already exists" message.
+            # Anything else (typos, bad SQL) re-raises.
+            if "duplicate column" not in str(e).lower():
+                raise
+        except _DuplicateColumn:
+            pass  # PG path: column already exists, idempotent re-run.
 
     if added:
         logger.info("Added %d new columns to trades table", added)

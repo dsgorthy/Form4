@@ -60,21 +60,19 @@ logger = logging.getLogger(__name__)
 INSIDERS_DB = SCRIPT_DIR.parent.parent / "strategies" / "insider_catalog" / "insiders.db"
 THETA_CACHE_DB = SCRIPT_DIR / "data" / "theta_cache.db"
 
-# Telegram config (same as V3.3 paper runner)
-TG_BOT_TOKEN = "8738253569:AAGHNvkFuyVEaZzGlUesgP5AN9F4vT24mtA"
-TG_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+# Telegram removed 2026-05-02 — backfill progress now appended to logs/alerts.ndjson.
 
 
 def send_telegram(text: str) -> bool:
+    """Backward-compat shim: append progress message to alerts.ndjson.
+    Function name preserved so existing callers keep working without re-edit."""
     try:
-        resp = requests.post(
-            f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage",
-            json={"chat_id": TG_CHAT_ID, "text": text, "parse_mode": "Markdown"},
-            timeout=10,
-        )
-        return resp.status_code == 200
+        sys.path.insert(0, str(SCRIPT_DIR.parent.parent))
+        from framework.alerts.log import alert
+        alert.info("options_backfill", text)
+        return True
     except Exception as e:
-        logger.warning("Telegram send failed: %s", e)
+        logger.warning("alert log write failed: %s", e)
         return False
 
 

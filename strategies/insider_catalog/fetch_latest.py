@@ -113,51 +113,70 @@ def mark_processed(conn, accession: str, filing_date: str, trade_count: int):
     )
 
 
+class IndicatorComputeError(RuntimeError):
+    """Raised when a downstream compute subprocess fails. Caller must
+    abort + alert; never silently mark filings as processed."""
+
+
 def _run_indicators():
     """Run CW indicators + PIT grades as subprocesses after fetch.
 
     Uses separate processes to avoid SIGBUS from stale memory-mapped files
     in the parent process. Each subprocess gets fresh file handles.
     Called OUTSIDE db_write_lock() so subprocesses can acquire their own locks.
+
+    HARD FAIL POLICY (post-April-2026 outage): any subprocess failure raises
+    IndicatorComputeError. Previously these were `logger.warning()` and the
+    parent script would mark filings as 'processed' → permanent feature gap.
     """
     t0 = time.monotonic()
     script_dir = Path(__file__).resolve().parents[2] / "pipelines" / "insider_study"
-    # Use Homebrew Python for subprocesses — Apple Python 3.9 has stale
-    # page cache entries after DB file swaps that cause SIGBUS crashes.
     python = "/opt/homebrew/bin/python3" if Path("/opt/homebrew/bin/python3").exists() else sys.executable
+    repo_root = str(Path(__file__).resolve().parents[2])
 
-    # 1. CW indicators (SMA, dip, consecutive, size)
-    try:
-        result = subprocess.run(
-            [python, str(script_dir / "compute_cw_indicators.py")],
-            capture_output=True, text=True, timeout=300,
-            cwd=str(Path(__file__).resolve().parents[2]),
-        )
-        if result.returncode == 0:
-            logger.info("CW indicators computed (%.1fs)", time.monotonic() - t0)
-        else:
-            logger.warning("CW indicators failed (exit %d): %s", result.returncode, result.stderr[-300:] if result.stderr else "")
-    except subprocess.TimeoutExpired:
-        logger.warning("CW indicators timed out after 300s")
-    except Exception as e:
-        logger.warning("CW indicator error: %s", e)
+    failures: list[str] = []
 
-    # 2. PIT grades (incremental)
-    try:
-        t1 = time.monotonic()
-        result = subprocess.run(
-            [python, str(script_dir / "backfill_pit_grades.py")],
-            capture_output=True, text=True, timeout=120,
-            cwd=str(Path(__file__).resolve().parents[2]),
-        )
+    def _run(label: str, args: list[str], timeout: int):
+        nonlocal failures
+        sub_t0 = time.monotonic()
+        try:
+            result = subprocess.run(
+                args, capture_output=True, text=True, timeout=timeout, cwd=repo_root,
+            )
+        except subprocess.TimeoutExpired:
+            failures.append(f"{label}: TIMEOUT after {timeout}s")
+            logger.error("%s timed out after %ds", label, timeout)
+            return
+        except Exception as e:
+            failures.append(f"{label}: subprocess raised {type(e).__name__}: {e}")
+            logger.exception("%s subprocess raised", label)
+            return
         if result.returncode == 0:
-            logger.info("PIT grades computed (%.1fs)", time.monotonic() - t1)
+            logger.info("%s computed (%.1fs)", label, time.monotonic() - sub_t0)
         else:
-            logger.warning("PIT grades failed (exit %d): %s", result.returncode, result.stderr[-300:] if result.stderr else "")
-    except subprocess.TimeoutExpired:
-        logger.warning("PIT grades timed out after 120s")
-    except Exception as e:
-        logger.warning("PIT grade error: %s", e)
+            tail = result.stderr[-500:] if result.stderr else ""
+            failures.append(f"{label}: exit {result.returncode}: {tail!r}")
+            logger.error("%s failed (exit %d): %s", label, result.returncode, tail)
+
+    _run("CW indicators",
+         [python, str(script_dir / "compute_cw_indicators.py")],
+         timeout=300)
+    _run("PIT grades",
+         [python, str(script_dir / "backfill_pit_grades.py")],
+         timeout=120)
+
+    if failures:
+        # Append to logs/alerts.ndjson before raising.
+        with __import__("contextlib").suppress(Exception):
+            from framework.alerts.log import alert
+            alert.critical(
+                "fetch_latest._run_indicators",
+                "\n".join(f"  • {f}" for f in failures),
+                failure_count=len(failures),
+            )
+        raise IndicatorComputeError(
+            f"{len(failures)} indicator/PIT subprocess(es) failed: {failures}"
+        )
 
 
 def run_fetch(days: int = 2, dry_run: bool = False) -> dict:

@@ -9,8 +9,7 @@ BASE="https://form4.app"
 TIMEOUT=5
 STATE_FILE="/tmp/form4-uptime-state.json"
 LOG_FILE="/Users/openclaw/trading-framework/logs/uptime.log"
-TG_BOT="8676824600:AAHcTkRFmRL25HwW1OC-l1jPyoDmYiu69u0"
-TG_CHAT="${TELEGRAM_CHAT_ID:-}"
+ALERT_LOG="/Users/openclaw/trading-framework/logs/alerts.ndjson"
 ALERT_THRESHOLD=3   # consecutive failures before alerting
 
 # Critical endpoints — keep this list small (one ping every 60s × this many)
@@ -28,16 +27,17 @@ ts() { date "+%Y-%m-%d %H:%M:%S"; }
 
 log() { echo "[$(ts)] $*" >> "$LOG_FILE"; }
 
-send_telegram() {
-    local msg="$1"
-    if [ -z "$TG_CHAT" ]; then
-        log "TELEGRAM_CHAT_ID not set, skipping alert: $msg"
-        return
-    fi
-    curl -s -X POST "https://api.telegram.org/bot${TG_BOT}/sendMessage" \
-        -d chat_id="${TG_CHAT}" \
-        -d text="$msg" \
-        -d parse_mode="Markdown" > /dev/null 2>&1 || true
+emit_alert() {
+    # Write a single NDJSON line to logs/alerts.ndjson. severity+message provided.
+    local severity="$1"
+    local message="$2"
+    local utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    local esc_msg
+    esc_msg=$(printf '%s' "$message" | python3 -c 'import sys, json; print(json.dumps(sys.stdin.read()))' 2>/dev/null) \
+        || esc_msg="\"(message escape failed)\""
+    mkdir -p "$(dirname "$ALERT_LOG")"
+    printf '{"ts":"%s","severity":"%s","component":"uptime_monitor","message":%s}\n' \
+        "$utc" "$severity" "$esc_msg" >> "$ALERT_LOG"
 }
 
 # Read previous state (consecutive_failures, last_alert_state)
@@ -63,13 +63,8 @@ if [ ${#failed_endpoints[@]} -gt 0 ]; then
 
     # Alert when we cross the threshold (only once per outage)
     if [ "$new_failures" -ge "$ALERT_THRESHOLD" ] && [ "$prev_state" != "down" ]; then
-        msg="🚨 *form4.app DOWN*
-
-After $new_failures consecutive failures (60s apart):
-$(printf '• %s\n' "${failed_endpoints[@]}")
-
-Check: \`docker logs trading-framework-api-1 --tail 50\`"
-        send_telegram "$msg"
+        msg="form4.app DOWN — $new_failures consecutive failures (60s apart): ${failed_endpoints[*]}. Check: docker logs trading-framework-api-1 --tail 50"
+        emit_alert "critical" "$msg"
         prev_state="down"
         log "ALERT SENT (state: down)"
     fi
@@ -79,10 +74,8 @@ Check: \`docker logs trading-framework-api-1 --tail 50\`"
 else
     # All endpoints OK
     if [ "$prev_state" = "down" ]; then
-        msg="✅ *form4.app RECOVERED*
-
-After being down for ~$((prev_failures * 60))s, all endpoints responding 200."
-        send_telegram "$msg"
+        msg="form4.app RECOVERED — was down ~$((prev_failures * 60))s, all endpoints responding 200."
+        emit_alert "info" "$msg"
         log "RECOVERY ALERT SENT"
     fi
     log "OK"

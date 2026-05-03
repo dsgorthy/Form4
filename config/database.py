@@ -404,8 +404,16 @@ class CursorWrapper:
         return self
 
     def executescript(self, sql: str) -> 'CursorWrapper':
-        """Execute multiple SQL statements separated by semicolons."""
-        for stmt in sql.split(';'):
+        """Execute multiple SQL statements separated by semicolons.
+
+        Strips comments BEFORE splitting on ';' so a literal ';' inside a
+        comment doesn't shred a single statement into two halves
+        (PG then chokes on the comment-text-as-SQL fragment; SQLite tolerated it).
+        """
+        # Strip line comments (-- to end of line) and block comments (/* ... */).
+        sql_no_comments = re.sub(r'--[^\n]*', '', sql)
+        sql_no_comments = re.sub(r'/\*.*?\*/', '', sql_no_comments, flags=re.DOTALL)
+        for stmt in sql_no_comments.split(';'):
             stmt = stmt.strip()
             if stmt:
                 self.execute(stmt)

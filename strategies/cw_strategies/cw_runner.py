@@ -53,25 +53,24 @@ logger = logging.getLogger(__name__)
 DATA_DIR = Path(__file__).resolve().parent / "data"
 
 # ---------------------------------------------------------------------------
-# Telegram (sync, minimal)
+# Alert writer — appends to logs/alerts.ndjson (Telegram removed 2026-05-02)
 # ---------------------------------------------------------------------------
 
-def send_telegram(msg: str, prefix: str = "") -> None:
-    """Send a Telegram notification. Fails silently."""
-    import requests as _req
-    bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-    chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
-    if not bot_token or not chat_id:
-        return
-    text = f"{prefix} {msg}".strip() if prefix else msg
+def send_alert(msg: str, prefix: str = "", severity: str = "info") -> None:
+    """Append a structured alert to logs/alerts.ndjson. Fails silently.
+
+    Backward-compatible shim for `send_alert(msg, prefix)` callers — same
+    signature, but writes to the local NDJSON alert log instead of pushing
+    to Telegram. Derek reviews the log via dashboard / morning routine
+    (24h MTTD floor accepted).
+    """
     try:
-        _req.post(
-            f"https://api.telegram.org/bot{bot_token}/sendMessage",
-            json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"},
-            timeout=10,
-        )
+        from framework.alerts.log import alert as _alert
+        component = (prefix.strip("[]: ").lower() or "cw_runner")
+        method = getattr(_alert, severity, _alert.info)
+        method(component, msg)
     except Exception as exc:
-        logger.warning("Telegram send failed: %s", exc)
+        logger.warning("alert log write failed: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -127,7 +126,7 @@ def load_config(path: str) -> dict:
 
     # Defaults
     cfg.setdefault("display_name", cfg["strategy_name"])
-    cfg.setdefault("telegram_prefix", f"[{cfg['strategy_name'][:6].upper()}]")
+    cfg.setdefault("alert_prefix", f"[{cfg['strategy_name'][:6].upper()}]")
     cfg.setdefault("filing_lookback_days", 2)
     cfg.setdefault("circuit_breaker_dd_pct", 0.10)
 
@@ -506,7 +505,7 @@ def execute_entries(
     strategy_name = config["strategy_name"]
     max_concurrent = config["max_concurrent"]
     size_pct = config["position_size_pct"]
-    prefix = config.get("telegram_prefix", "")
+    prefix = config.get("alert_prefix", "")
 
     n_open = conn.execute(
         "SELECT COUNT(*) FROM strategy_portfolio WHERE strategy = ? AND status = 'open'",
@@ -523,7 +522,7 @@ def execute_entries(
     dd_pct = 1.0 - (equity / config["starting_capital"])
     if dd_pct >= config.get("circuit_breaker_dd_pct", 0.10):
         logger.warning("Circuit breaker: drawdown %.1f%% exceeds limit, halting entries", dd_pct * 100)
-        send_telegram(
+        send_alert(
             f"Circuit breaker tripped. DD={dd_pct*100:.1f}%, equity=${equity:,.0f}. Entries halted.",
             prefix,
         )
@@ -636,7 +635,7 @@ def execute_entries(
                             held_tickers.discard(oldest_ticker)
                             logger.info("REPLACED oldest %s → %s (conv=%.1f)",
                                         oldest_ticker, ticker, conv)
-                            send_telegram(
+                            send_alert(
                                 f"Replaced oldest {oldest_ticker} → {ticker} (conv={conv:.1f})", prefix)
                         else:
                             continue
@@ -672,7 +671,7 @@ def execute_entries(
                             held_tickers.discard(weakest_ticker)
                             logger.info("REPLACED %s (conv=%.1f) with %s (conv=%.1f)",
                                         weakest_ticker, weakest_conv, ticker, conv)
-                            send_telegram(
+                            send_alert(
                                 f"Replaced {weakest_ticker} (conv={weakest_conv:.1f}) → "
                                 f"{ticker} (conv={conv:.1f})", prefix)
                         else:
@@ -813,7 +812,7 @@ def execute_entries(
         )
         conn.commit()
 
-        send_telegram(
+        send_alert(
             f"BUY *{ticker}* {qty} shares @ ${entry_price:.2f}\n"
             f"Thesis: {c['thesis_name']} | Insider: {c['insider_name']}\n"
             f"Size: ${qty * entry_price:,.0f} ({size_pct*100:.0f}% of ${equity:,.0f})\n"
@@ -904,7 +903,7 @@ def check_scheduled_exits(
     at the configured exit time (default 15:45 ET).
     """
     strategy_name = config["strategy_name"]
-    prefix = config.get("telegram_prefix", "")
+    prefix = config.get("alert_prefix", "")
     today = _now_et().strftime("%Y-%m-%d")
 
     due_rows = conn.execute(
@@ -990,7 +989,7 @@ def check_scheduled_exits(
 
         logger.info("EXIT %s: reason=time_exit pnl=%.2f%% hold=%dd price=$%.2f (planned=%s)",
                      ticker, pnl_pct * 100, hold_days, fill_price, pos["planned_exit_date"])
-        send_telegram(
+        send_alert(
             f"SELL *{ticker}* @ ${fill_price:.2f} ({pnl_pct*100:+.1f}%)\n"
             f"Reason: scheduled exit (hold {hold_days}d)\n"
             f"P&L: ${pnl_dollar:+,.0f}",
@@ -1009,7 +1008,7 @@ def check_exits(
 ) -> list[dict]:
     """Check all open positions for exit conditions."""
     strategy_name = config["strategy_name"]
-    prefix = config.get("telegram_prefix", "")
+    prefix = config.get("alert_prefix", "")
 
     open_rows = conn.execute(
         "SELECT * FROM strategy_portfolio WHERE strategy = ? AND status = 'open' AND execution_source != 'backtest' ORDER BY entry_date",
@@ -1162,7 +1161,7 @@ def check_exits(
         _save_peak_returns(state_path)
 
         win_loss = "WIN" if pnl_pct_final >= 0 else "LOSS"
-        send_telegram(
+        send_alert(
             f"SELL *{ticker}* [{win_loss}]\n"
             f"PnL: {pnl_pct_final*100:+.1f}% (${pnl_dollar:+,.0f})\n"
             f"Reason: {exit_reason} | Held: {hold_days}d",
@@ -1226,7 +1225,7 @@ def _write_heartbeat(config: dict, status: str = "ok", detail: str = "", **extra
 # ---------------------------------------------------------------------------
 
 def _send_weekly_digest(config: dict, prefix: str = "") -> None:
-    """Send a Friday Telegram digest: entries, exits, open count, idle days, drawdown."""
+    """Append a Friday weekly digest to logs/alerts.ndjson: entries, exits, open count, idle days, drawdown."""
     strategy_name = config["strategy_name"]
     conn = get_db(readonly=True)
     try:
@@ -1272,7 +1271,7 @@ def _send_weekly_digest(config: dict, prefix: str = "") -> None:
             f"Open: {n_open} | Days idle: {days_idle}\n"
             f"Equity: ${equity:,.0f} | Drawdown: {dd_pct:.1f}%"
         )
-        send_telegram(msg, prefix)
+        send_alert(msg, prefix)
         logger.info("Weekly digest sent: entries=%d exits=%d open=%d idle=%d", entries_week, exits_week, n_open, days_idle)
     finally:
         conn.close()
@@ -1350,11 +1349,11 @@ def run_daily(config: dict, dry_run: bool = False) -> dict:
 def run_daemon(config: dict) -> None:
     """Main loop: pre-market scan, market-open entries, intraday exit checks."""
     strategy_name = config["strategy_name"]
-    prefix = config.get("telegram_prefix", "")
+    prefix = config.get("alert_prefix", "")
     state_path = DATA_DIR / f"{strategy_name}_state.json"
 
     logger.info("CW Runner starting: %s", strategy_name)
-    send_telegram(f"CW Runner starting: {strategy_name}", prefix)
+    send_alert(f"CW Runner starting: {strategy_name}", prefix)
     _load_peak_returns(state_path)
 
     ran_daily = False  # Track whether we already ran today's daily cycle
@@ -1410,7 +1409,7 @@ def run_daemon(config: dict) -> None:
                 ran_daily = True
             except Exception as exc:
                 logger.error("Daily cycle failed: %s", exc)
-                send_telegram(f"Daily cycle error: {exc}", prefix)
+                send_alert(f"Daily cycle error: {exc}", prefix)
             # Close any overdue positions immediately at open
             try:
                 alpaca = get_alpaca(config)
@@ -1511,7 +1510,7 @@ def run_daemon(config: dict) -> None:
                         n_open, today_entries, today_exits, equity,
                     )
                     if today_entries > 0 or today_exits > 0:
-                        send_telegram(
+                        send_alert(
                             f"EOD: {n_open} open, +{today_entries} entries, -{today_exits} exits\n"
                             f"Equity: ${equity:,.0f}",
                             prefix,

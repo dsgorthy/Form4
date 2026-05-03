@@ -14,6 +14,7 @@ Usage:
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -25,19 +26,32 @@ sys.path.insert(0, str(ROOT))
 
 from config.database import get_connection
 
+# Credentials sourced from .env per-strategy convention. See CLAUDE.md:
+#   ALPACA_API_KEY_QUALITY_MOMENTUM / ALPACA_API_SECRET_QUALITY_MOMENTUM
+#   ALPACA_API_KEY_REVERSAL_DIP   / ALPACA_API_SECRET_REVERSAL_DIP
+#   ALPACA_API_KEY_TENB51_SURPRISE / ALPACA_API_SECRET_TENB51_SURPRISE
+# Hardcoded keys removed 2026-05-02 per Phase 1.1 of the reliability rebuild.
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+except ImportError:
+    pass
+
+def _alpaca_creds(strategy: str) -> dict:
+    """Read per-strategy paper credentials from .env. Raises if missing."""
+    prefix = strategy.upper()
+    key = os.environ.get(f"ALPACA_API_KEY_{prefix}")
+    secret = os.environ.get(f"ALPACA_API_SECRET_{prefix}")
+    if not key or not secret:
+        raise RuntimeError(
+            f"ALPACA_API_KEY_{prefix} / ALPACA_API_SECRET_{prefix} missing from .env"
+        )
+    return {"key": key, "secret": secret}
+
 ACCOUNTS = {
-    "quality_momentum": {
-        "key": "PKZGPFGOQOZSSBGJWCZRJU66C3",
-        "secret": "FTPEDLDxG1hWAhnrN2rCcreUT3DRnrSsjT4phPXanBdt",
-    },
-    "reversal_dip": {
-        "key": "PKO3JMAFDGV7CXBW5XD4EALVS7",
-        "secret": "7grzpikhzPhGgAMsEUT7u9GpsixNSuj6ZckXGcecXoVb",
-    },
-    "tenb51_surprise": {
-        "key": "PK74VNQ7FC5HCZP6YKP2DDUROJ",
-        "secret": "8XBrr45exYvbFUiGi5hzwygdAGSXD413b8oGgf2fN5Mh",
-    },
+    "quality_momentum": _alpaca_creds("quality_momentum"),
+    "reversal_dip":     _alpaca_creds("reversal_dip"),
+    "tenb51_surprise":  _alpaca_creds("tenb51_surprise"),
 }
 
 BASE_URL = "https://paper-api.alpaca.markets/v2"

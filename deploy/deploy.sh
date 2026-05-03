@@ -218,15 +218,14 @@ if [ -x "$SMOKE_SCRIPT" ]; then
         log "Smoke test: PASS"
     else
         log "Smoke test: FAIL — see endpoints above"
-        # Send Telegram alert (uses same bot/chat as other monitors)
-        TG_BOT="8676824600:AAHcTkRFmRL25HwW1OC-l1jPyoDmYiu69u0"
-        TG_CHAT="${TELEGRAM_CHAT_ID:-}"
-        if [ -n "$TG_CHAT" ]; then
-            curl -s -X POST "https://api.telegram.org/bot${TG_BOT}/sendMessage" \
-                -d chat_id="${TG_CHAT}" \
-                -d text="🚨 *[${LABEL}]* Smoke test FAILED after deploy on ${DOMAIN}. Check ${LOG_FILE}." \
-                -d parse_mode="Markdown" > /dev/null 2>&1 || true
-        fi
+        # Append a critical alert to logs/alerts.ndjson — Derek picks it up
+        # via dashboard / morning review (Telegram removed 2026-05-02).
+        ALERT_LOG="/Users/openclaw/trading-framework/logs/alerts.ndjson"
+        UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        MSG="[${LABEL}] Smoke test FAILED after deploy on ${DOMAIN}. Check ${LOG_FILE}."
+        ESC_MSG=$(printf '%s' "$MSG" | python3 -c 'import sys, json; print(json.dumps(sys.stdin.read()))' 2>/dev/null) || ESC_MSG="\"smoke fail (escape error)\""
+        mkdir -p "$(dirname "$ALERT_LOG")"
+        printf '{"ts":"%s","severity":"critical","component":"deploy","message":%s}\n' "$UTC" "$ESC_MSG" >> "$ALERT_LOG"
         exit 1
     fi
 fi

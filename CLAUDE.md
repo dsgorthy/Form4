@@ -11,7 +11,7 @@ Event-driven backtesting engine + strategy research platform + Form4.app product
 3. **Follow existing patterns** — dark theme colors, table structure, gating logic, pagination, ID encoding all have established conventions.
 4. **The portfolio overlay already handles idle cash** — `portfolio-overlay.tsx` exists. Extend it, don't replace it.
 5. **Keep documentation current** — When adding, removing, or overhauling a feature, update `reference_product_audit.md` in Claude memory. This is a living document, not a snapshot. If you add a new page, component, or API endpoint, document it. If you remove or rename one, remove or update the entry.
-6. **All data lives in PostgreSQL** — Database `form4` on localhost with schemas: `public` (insiders, trades, scores), `prices` (daily_prices, option_prices), `research` (derivative_trades, footnotes), `notifications`. Use `from config.database import get_connection` for all DB access. Use `price_utils.get_close(ticker, date)` for single price lookups. Never use `sqlite3` directly — the compat layer in `config/database.py` handles SQL translation automatically.
+6. **All data lives in PostgreSQL on Mac Studio** — Database `form4` runs on Studio (not Mini). Schemas: `public` (insiders, trades, scores), `prices` (daily_prices, option_prices), `research` (derivative_trades, footnotes), `notifications`. Use `from config.database import get_connection` for all DB access. Use `price_utils.get_close(ticker, date)` for single price lookups. Never use `sqlite3` directly — the compat layer in `config/database.py` handles SQL translation automatically. **DB-touching scripts must run on Studio** (`ssh derekg@100.78.9.66` or a launchd service there); Mini has no local `form4` DB.
 7. **Backtesting must use day-by-day simulation** — never pre-compute exit dates at entry time. Walk through each trading day, check exits on all open positions, then process new entries. This prevents capacity violations and ensures position counts never exceed limits. Total allocation must NEVER exceed 100% of equity.
 
 ## Architecture
@@ -140,7 +140,7 @@ python3 strategies/cw_strategies/cw_runner.py --config strategies/cw_strategies/
 
 ### Insider Catalog Database — SOURCE OF TRUTH
 
-**PostgreSQL database `form4`** on localhost is the single source of truth for all insider data. Access via `from config.database import get_connection`. **Never read from CSV exports** or SQLite files — always query PG directly. The old SQLite files (`insiders.db`, `prices.db`, `research.db`) are archived backups.
+**PostgreSQL database `form4`** on Mac Studio (`derekg@100.78.9.66`) is the single source of truth for all insider data. Access via `from config.database import get_connection` from code running on Studio. **Never read from CSV exports** or SQLite files — always query PG directly. The old SQLite files (`insiders.db`, `prices.db`, `research.db`) are archived backups. Mini is dev-only; it has no `form4` DB of its own.
 
 **Connection:** `from config.database import get_connection, get_db`
 - `get_connection()` for scripts (individual connection)
@@ -212,6 +212,18 @@ Historical options EOD pricing for insider event backtesting. **Check `pipeline_
 - Aggregates over "all trades" without a date cutoff
 - Score thresholds that were tuned on the same data used for backtesting
 
+## Common Tasks
+
+**"Run a backtest"** — Always clarify: which strategy (name from `strategies/`), capital amount, date range (or "all available"), include fees or `--no-fees`, any parameter overrides. Command: `python3 pipelines/run_backtest.py --strategy NAME --capital N`. Output lands in `reports/{strategy}/`.
+
+**"Add/modify a strategy"** — Requires: which `BaseStrategy` methods to implement (`data_requirements`, `generate_signal`, `select_instrument`, `should_exit`), an existing strategy to copy patterns from (suggest one), data source (1-min bars, daily prices, insider DB). New strategies go in `strategies/`. Read `framework/strategy.py` first.
+
+**"Board review"** — Requires: strategy name and path to backtest JSON. Command: `python3 pipelines/run_board.py --strategy NAME --backtest-file reports/NAME/backtest_latest.json`. 5 personas evaluate independently. Approval rules in Strategy Lifecycle section above.
+
+**"PIT audit / scoring change"** — MANDATORY: read `reference_signal_registry.md` from Claude memory first. Then follow the full PIT Validation Checklist above. Never skip this even if the change seems safe.
+
+**"Insider pipeline work"** — Clarify which step: fetch (`fetch_latest.py`), compute returns (`compute_returns.py`), score (`pit_scoring.py`), or options pull (`options_pull.py --from-db`). Always specify date range. DB source is PostgreSQL `form4` — never CSV or SQLite.
+
 ## Gotchas
 
 - Engine injects `bars["_meta"]` with `prev_close`, `date`, `prev_date` — strategies depend on this
@@ -222,3 +234,4 @@ Historical options EOD pricing for insider event backtesting. **Check `pipeline_
 - Options pricing: `_reprice_option` tries real data first, falls back to Black-Scholes
 - Alpaca paper trading requires `.env` with per-strategy trading credentials (`ALPACA_API_KEY_QUALITY_MOMENTUM`, `ALPACA_API_KEY_REVERSAL_DIP`, `ALPACA_API_KEY_TENB51_SURPRISE`) and shared read-only data credentials (`ALPACA_DATA_API_KEY` / `ALPACA_DATA_API_SECRET`). See `.env` header comment for the convention
 - Three paper runners are live via `com.openclaw.quality-momentum`, `com.openclaw.reversal-dip`, and `com.openclaw.tenb51-surprise` launchd services (all run `cw_runner.py`) — do not stop without approval
+- **Studio-only launch agents — must never autoload on Mini.** Running the same launchd service on both machines against the same Alpaca paper account risks duplicate order submission (`submit_order` in `framework/execution/paper.py` passes no `client_order_id`, so Alpaca has no server-side dedup). The services confined to Studio: `quality-momentum`, `reversal-dip`, `tenb51-surprise`, `trial-emails`, `backfill-returns`, `breaking-signal`, `ceowatcher-reader`, `daily-content`, `insider-fetch`, `intraday-backfill`, `position-rules-test`, `strategy-health`, `form4-error-tail`, `form4-notifications`, `form4-seed-positions`, `form4-uptime`, `tailorly-tunnel`. `~/.local/bin/studio` has a `guard_studio_only_plists` pre-check that fails `studio deploy form4` / `studio deploy pm` if any `com.openclaw.*` plist other than `claude-agent`, `etsy-bot`, `prank-mail-bot` is present on the deploying machine.

@@ -506,7 +506,16 @@ def main():
     parser = argparse.ArgumentParser(description="Compute CW-inspired indicators on trades table")
     parser.add_argument("--indicator", choices=list(INDICATOR_MAP.keys()),
                         help="Compute only this indicator (default: all)")
+    parser.add_argument("--since",
+                        help="Only process trades with trade_date >= this YYYY-MM-DD "
+                             "(default: 2016-01-01). Use to backfill recent trades quickly.")
     args = parser.parse_args()
+
+    if args.since:
+        # Mutate the module-global so all indicator functions pick it up.
+        global MIN_DATE
+        MIN_DATE = args.since
+        print(f"--since override: MIN_DATE = {MIN_DATE}")
 
     conn = get_connection()
 

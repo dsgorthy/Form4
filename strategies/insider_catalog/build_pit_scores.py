@@ -162,6 +162,23 @@ def build_walkforward_scores(
 
     logger.info("Processing %d trades...", len(trades))
 
+    # FAIL CLOSED: refuse to "succeed" with 0 scored if the input window
+    # had no trades at all. The April 2026 outage analog: a successful
+    # 0-score run looks identical to "scoring is healthy" downstream, but
+    # produces no `insider_ticker_scores` rows for the window — which then
+    # silently demotes every fresh trade's pit_grade to NULL → "C".
+    if len(trades) == 0:
+        msg = (
+            f"build_pit_scores: 0 trades found in window {start_date}..{end_date}. "
+            "Likely an upstream data gap. Refusing to 'succeed' on empty input."
+        )
+        logger.error(msg)
+        with __import__("contextlib").suppress(Exception):
+            from framework.alerts.log import alert
+            alert.critical("build_pit_scores", msg,
+                           start_date=start_date, end_date=end_date)
+        raise RuntimeError(msg)
+
     agg = RunningAggregates()
     scored = 0
     start_time = time.monotonic()
@@ -260,11 +277,15 @@ def main():
                         help="Score all trade types, not just buys")
     parser.add_argument("--clear", action="store_true",
                         help="Clear existing scores before building")
+    parser.add_argument("--skip-migrate", action="store_true",
+                        help="Skip migrate_schema (already applied on PG; "
+                             "the SQLite-era schema.sql doesn't translate cleanly).")
     args = parser.parse_args()
 
     conn = get_connection()
 
-    migrate_schema(conn)
+    if not args.skip_migrate:
+        migrate_schema(conn)
 
     if args.clear:
         logger.info("Clearing existing scores...")

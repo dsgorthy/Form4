@@ -1,0 +1,104 @@
+# Per-column freshness contracts.
+#
+# Every analytical column the strategy runners filter on must have an entry.
+# `framework/contracts/freshness.py:assert_fresh()` raises StaleSignalError
+# if a column's last_computed_at exceeds the contract.
+#
+# Schema:
+#   <table>.<column>:
+#     max_staleness_hours: float    # hard SLO
+#     required_for: [strategy ...]  # which strategies depend on this column
+#                                   # use ['*'] to mean "all live strategies"
+#     description: str              # human-readable; for runbook clarity
+#     populated_by: str             # script/job that writes this column
+#
+# Contract review: bumped during the post-incident hardening (May 2026).
+# Tighten only after observing the new SLO holds for ≥ 30 days.
+
+# ── Trade-level analytical columns (populated by compute_cw_indicators) ──
+trades.dip_3mo:
+  max_staleness_hours: 26
+  required_for: [reversal_dip]
+  description: "3-month price change vs trade_date close (PIT)"
+  populated_by: pipelines/insider_study/compute_cw_indicators.py
+
+trades.dip_1mo:
+  max_staleness_hours: 26
+  required_for: [reversal_dip]
+  description: "1-month price change vs trade_date close (PIT)"
+  populated_by: pipelines/insider_study/compute_cw_indicators.py
+
+trades.above_sma50:
+  max_staleness_hours: 26
+  required_for: [quality_momentum]
+  description: "Boolean: trade price above 50-day SMA at trade_date"
+  populated_by: pipelines/insider_study/compute_cw_indicators.py
+
+trades.above_sma200:
+  max_staleness_hours: 26
+  required_for: [quality_momentum]
+  description: "Boolean: trade price above 200-day SMA at trade_date"
+  populated_by: pipelines/insider_study/compute_cw_indicators.py
+
+trades.consecutive_sells_before:
+  max_staleness_hours: 26
+  required_for: [reversal_dip]
+  description: "Count of consecutive S-code trades by same insider on same ticker before this buy (PIT)"
+  populated_by: pipelines/insider_study/compute_cw_indicators.py
+
+trades.is_recurring:
+  max_staleness_hours: 48
+  required_for: ['*']
+  description: "Boolean: insider buys this ticker on a regular schedule (heuristic)"
+  populated_by: pipelines/insider_study/compute_cw_indicators.py
+
+trades.is_tax_sale:
+  max_staleness_hours: 48
+  required_for: ['*']
+  description: "Boolean: heuristic for tax-loss-harvest sales (Nov/Dec)"
+  populated_by: pipelines/insider_study/compute_cw_indicators.py
+
+trades.cohen_routine:
+  max_staleness_hours: 48
+  required_for: [reversal_dip]
+  description: "Boolean: trade is part of routine plan per Cohen et al."
+  populated_by: pipelines/insider_study/compute_cohen_pit.py
+
+trades.is_10b5_1:
+  max_staleness_hours: 48
+  required_for: [reversal_dip, tenb51_surprise]
+  description: "Boolean: trade was filed under a Rule 10b5-1 plan"
+  populated_by: pipelines/insider_study/compute_cw_indicators.py
+
+trades.is_rare_reversal:
+  max_staleness_hours: 26
+  required_for: [reversal_dip]
+  description: "Boolean: insider broke ≥10-sell streak with this buy (PIT)"
+  populated_by: pipelines/insider_study/compute_cw_indicators.py
+
+# ── PIT scoring (populated by build_pit_scores) ──
+trades.pit_grade:
+  max_staleness_hours: 30
+  required_for: [quality_momentum]
+  description: "PIT-derived grade A+/A/B/C/D from insider_ticker_scores"
+  populated_by: pipelines/insider_study/backfill_pit_grades.py
+
+insider_ticker_scores.blended_score:
+  max_staleness_hours: 30
+  required_for: ['*']
+  description: "Bayesian-shrinkage walk-forward PIT score per (insider, ticker, as_of_date)"
+  populated_by: strategies/insider_catalog/build_pit_scores.py
+
+# ── Raw ingest (populated by insider-fetch) ──
+trades.filing_date:
+  max_staleness_hours: 30
+  required_for: ['*']
+  description: "Latest filing_date in trades — proxy for ingest freshness"
+  populated_by: strategies/insider_catalog/fetch_latest.py
+
+# ── Daily prices (populated by daily-prices) ──
+prices.daily_prices.date:
+  max_staleness_hours: 30
+  required_for: ['*']
+  description: "Latest date in prices.daily_prices for SPY (proxy for full coverage)"
+  populated_by: pipelines/insider_study/update_daily_prices.py
