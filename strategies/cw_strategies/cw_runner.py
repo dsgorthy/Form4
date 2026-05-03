@@ -301,12 +301,45 @@ def _build_thesis_query(thesis: dict, lookback_days: int) -> tuple[str, list]:
 
 
 def scan_signals(conn, config: dict) -> list[dict]:
-    """Query trades for qualifying signals across all theses. Return de-duped candidates."""
+    """Query trades for qualifying signals across all theses. Return de-duped candidates.
+
+    FAIL-CLOSED: pre-flight check on freshness contracts. If any required input
+    column is older than its contract, return [] AFTER writing a critical alert.
+    The pre-rebuild system silently produced 0 candidates on stale data; the
+    new system makes the same end-result observably visible (caller sees [],
+    operator sees a critical alert in logs/alerts.ndjson with full breach detail).
+    """
     strategy_name = config["strategy_name"]
     lookback = config.get("filing_lookback_days", 2)
     theses = config.get("theses", [])
     all_candidates: list[dict] = []
     seen_trade_ids: set[int] = set()
+
+    # Pre-flight: refuse to operate on stale inputs. assert_all_fresh_for_strategy
+    # raises StaleSignalError on the first contract breach. Catch + alert + halt
+    # cleanly rather than letting the SQL filters silently match zero rows.
+    try:
+        from framework.contracts.freshness import assert_all_fresh_for_strategy
+        from framework.contracts.exceptions import StaleSignalError
+        from framework.alerts.log import alert
+        try:
+            assert_all_fresh_for_strategy(conn, strategy_name)
+        except StaleSignalError as e:
+            alert.critical(
+                f"cw_runner.{strategy_name}",
+                f"HALT — input freshness contract breached: {e}. "
+                f"Entries skipped this cycle. Runbook R-001.",
+                strategy=strategy_name,
+                breach=str(e),
+            )
+            logger.error("[%s] STALE_INPUT_HALT — %s", strategy_name, e)
+            return []
+    except Exception as e:
+        # Contract module load failure (e.g., on legacy machines without the
+        # contracts module installed yet) — log a warning but DON'T halt.
+        # The probe layer is the safety net for that case.
+        logger.warning("[%s] freshness pre-flight unavailable, falling through: %s",
+                       strategy_name, e)
 
     # Tickers already open for this strategy
     held_tickers = {
@@ -325,6 +358,13 @@ def scan_signals(conn, config: dict) -> list[dict]:
         ).fetchall()
         if r["trade_id"] is not None
     }
+
+    # One audit batch per scan_signals invocation, shared across theses.
+    # Every candidate evaluation below writes one row per filter stage to
+    # trade_decision_audit. Powers the admin diagnostics view.
+    import uuid as _uuid
+    run_id = str(_uuid.uuid4())
+    audit_buffer: list[tuple] = []
 
     for thesis in theses:
         thesis_name = thesis["name"]
@@ -367,18 +407,31 @@ def scan_signals(conn, config: dict) -> list[dict]:
 
         rows = conn.execute(sql, where_params).fetchall()
 
+        def _audit(stage, ticker, trade_id, filing_date, passed, reason=None,
+                   pit_grade=None, conviction=None, snapshot=None,
+                   _thesis=thesis_name):
+            audit_buffer.append((
+                run_id, strategy_name, ticker, trade_id, filing_date,
+                _thesis, stage, passed, reason, pit_grade, conviction,
+                json.dumps(snapshot) if snapshot is not None else None,
+            ))
+
         for r in rows:
             tid = r["trade_id"]
             ticker = r["ticker"]
 
-            # Dedup: skip already-used trades
+            # Stage: dedup
             if tid in used_trade_ids or tid in seen_trade_ids:
+                _audit("dedup", ticker, tid, r["filing_date"], False,
+                       reason="trade_id already seen this strategy")
                 continue
-            # Dedup: skip tickers with open positions
             if ticker in held_tickers:
+                _audit("dedup", ticker, tid, r["filing_date"], False,
+                       reason="ticker has open position")
                 continue
+            _audit("dedup", ticker, tid, r["filing_date"], True)
 
-            # Compute PIT grade from insider_ticker_scores
+            # Stage: PIT lookup
             pit_row = conn.execute('''
                 SELECT blended_score FROM insider_ticker_scores
                 WHERE insider_id = (SELECT insider_id FROM trades WHERE trade_id = ?)
@@ -390,8 +443,11 @@ def scan_signals(conn, config: dict) -> list[dict]:
                 compute_conviction, pit_score_to_grade,
             )
             pit_grade = pit_score_to_grade(pit_row[0] if pit_row else None) or "C"
+            _audit("pit_lookup", ticker, tid, r["filing_date"], True,
+                   reason=("score=%.3f" % pit_row[0]) if pit_row else "no_pit_score → fallback C",
+                   pit_grade=pit_grade)
 
-            # PIT filter: min_prior_10b5_1_sells (count 10b5-1 sells filed before this buy)
+            # Stage: min_prior_10b5_1_sells (tenb51_surprise only)
             min_10b5_1 = thesis.get("filters", {}).get("min_prior_10b5_1_sells")
             if min_10b5_1:
                 insider_id_row = conn.execute(
@@ -404,12 +460,20 @@ def scan_signals(conn, config: dict) -> list[dict]:
                           AND trans_code = 'S' AND is_10b5_1 = 1
                           AND filing_date < ?
                     """, (insider_id_row[0], ticker, r["filing_date"])).fetchone()
-                    if (cnt_row[0] or 0) < int(min_10b5_1):
+                    n = (cnt_row[0] or 0)
+                    if n < int(min_10b5_1):
+                        _audit("min_10b5_1", ticker, tid, r["filing_date"], False,
+                               reason=f"prior_10b5_1_sells={n} < required {min_10b5_1}",
+                               pit_grade=pit_grade)
                         continue
+                    _audit("min_10b5_1", ticker, tid, r["filing_date"], True,
+                           reason=f"prior_10b5_1_sells={n}", pit_grade=pit_grade)
                 else:
+                    _audit("min_10b5_1", ticker, tid, r["filing_date"], False,
+                           reason="insider_id not resolved", pit_grade=pit_grade)
                     continue
 
-            # Compute conviction with PIT grade + new features
+            # Stage: conviction
             conv = compute_conviction(
                 thesis=thesis_name,
                 signal_grade=pit_grade,
@@ -422,22 +486,40 @@ def scan_signals(conn, config: dict) -> list[dict]:
                 is_csuite=bool(r["is_csuite"]),
             )
 
-            # Skip below minimum conviction (per-config threshold)
             min_conv = config.get("min_conviction", 5.0)
             from pipelines.insider_study.conviction_score import _categorize_insider
             role = _categorize_insider(r["title"], bool(r["is_csuite"]))
+            snapshot = {
+                "consecutive_sells_before": r["consecutive_sells_before"],
+                "dip_1mo": r["dip_1mo"],
+                "is_largest_ever": bool(r["is_largest_ever"]),
+                "above_sma50": bool(r["above_sma50"]),
+                "above_sma200": bool(r["above_sma200"]),
+                "insider_title": r["title"],
+                "is_csuite": bool(r["is_csuite"]),
+                "insider_name": r["insider_name"],
+                "company": r["company"],
+                "role": role,
+            }
+
             if conv < min_conv:
                 logger.info(
                     "  SKIP %s %s conv=%.1f < %.1f grade=%s role=%s %s",
                     ticker, r["filing_date"], conv, min_conv, pit_grade, role,
                     r["insider_name"],
                 )
+                _audit("conviction", ticker, tid, r["filing_date"], False,
+                       reason=f"conv={conv:.1f} < threshold {min_conv:.1f}",
+                       pit_grade=pit_grade, conviction=conv, snapshot=snapshot)
                 continue
             logger.info(
                 "  PASS %s %s conv=%.1f >= %.1f grade=%s role=%s %s",
                 ticker, r["filing_date"], conv, min_conv, pit_grade, role,
                 r["insider_name"],
             )
+            _audit("conviction", ticker, tid, r["filing_date"], True,
+                   reason=f"conv={conv:.1f} >= threshold {min_conv:.1f}",
+                   pit_grade=pit_grade, conviction=conv, snapshot=snapshot)
 
             seen_trade_ids.add(tid)
             all_candidates.append({
@@ -464,7 +546,23 @@ def scan_signals(conn, config: dict) -> list[dict]:
     # Sort by conviction (highest first)
     all_candidates.sort(key=lambda c: c.get("conviction", 0), reverse=True)
 
-    logger.info("scan_signals: %d candidates across %d theses", len(all_candidates), len(theses))
+    # Flush audit rows. Best-effort — never raise from instrumentation.
+    if audit_buffer:
+        try:
+            conn.executemany(
+                """INSERT INTO trade_decision_audit
+                   (run_id, strategy, ticker, trade_id, filing_date, thesis,
+                    stage, passed, reason, pit_grade, conviction, feature_snapshot)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb)""",
+                audit_buffer,
+            )
+            conn.commit()
+        except Exception as e:
+            logger.warning("trade_decision_audit write failed: %s "
+                           "(non-fatal — admin view will be incomplete)", e)
+
+    logger.info("scan_signals: %d candidates across %d theses (audit rows: %d)",
+                len(all_candidates), len(theses), len(audit_buffer))
     return all_candidates
 
 

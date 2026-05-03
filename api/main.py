@@ -15,6 +15,7 @@ from config.database import get_db
 
 from api.notifications_db import init_db as init_notifications_db
 from api.routers import (
+    admin_diagnostics,
     api_keys,
     clusters,
     companies,
@@ -197,6 +198,7 @@ app.include_router(export.router)
 app.include_router(notifications.router)
 app.include_router(onboarding.router)
 app.include_router(paper_trading.router)
+app.include_router(admin_diagnostics.router)
 app.include_router(portfolio.router)
 app.include_router(private_companies.router)
 app.include_router(sitemap.router)

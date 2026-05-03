@@ -235,3 +235,40 @@ async def _resolve_api_key(api_key: str) -> UserContext:
     except Exception as e:
         logger.debug("API key validation failed: %s", e)
         return ANONYMOUS
+
+
+def require_admin(user: "UserContext" = None) -> "UserContext":
+    """FastAPI dependency. Returns the UserContext only if user.is_admin;
+    raises HTTPException(403) otherwise. Routes that depend on this
+    dependency MUST also depend on get_current_user (FastAPI sub-deps
+    handle that automatically when using Depends in the route signature).
+
+    Usage:
+        from fastapi import Depends
+        from api.auth import require_admin, UserContext
+
+        @router.get("/admin/foo")
+        def my_endpoint(user: UserContext = Depends(require_admin)):
+            ...
+    """
+    # Note: FastAPI auto-resolves sub-dependencies. We accept the user param
+    # via Depends(get_current_user) at call time — this is bound below.
+    raise NotImplementedError("require_admin is a FastAPI dependency factory")
+
+
+def _make_require_admin():
+    """Build the actual FastAPI dependency. Calls get_current_user upstream
+    and gates on is_admin. Avoids the chicken-and-egg of Depends(get_current_user)
+    being a name reference at module import time."""
+    from fastapi import Depends, HTTPException
+
+    async def _require_admin_impl(user: UserContext = Depends(get_current_user)) -> UserContext:
+        if not user.is_admin:
+            raise HTTPException(status_code=403, detail="Admin access required.")
+        return user
+
+    return _require_admin_impl
+
+
+# Replace the placeholder with the real dependency.
+require_admin = _make_require_admin()
