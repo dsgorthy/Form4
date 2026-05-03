@@ -181,27 +181,101 @@ def list_strategies(
     return {"strategies": out}
 
 
+# Aggregated query: pivot per-stage rows into one row per evaluation
+# (strategy, run_id, trade_id, source). Each evaluation = one trade getting
+# scanned by the strategy on a given run. Per-stage outcomes become columns.
+_EVAL_SQL_BASE = """
+WITH evaluations AS (
+    SELECT
+        strategy,
+        run_id,
+        trade_id,
+        ticker,
+        filing_date,
+        thesis,
+        source,
+        MAX(ts) AS ts,
+        MAX(pit_grade) AS pit_grade,
+        MAX(conviction) AS conviction,
+        BOOL_OR(stage = 'dedup' AND passed)        AS dedup_passed,
+        BOOL_OR(stage = 'filter' AND passed)       AS filter_passed,
+        BOOL_OR(stage = 'pit_lookup' AND passed)   AS pit_passed,
+        BOOL_OR(stage = 'min_10b5_1' AND passed)   AS tenb51_passed,
+        BOOL_OR(stage = 'conviction' AND passed)   AS conviction_passed,
+        BOOL_OR(stage = 'dedup')                   AS dedup_evaluated,
+        BOOL_OR(stage = 'filter')                  AS filter_evaluated,
+        BOOL_OR(stage = 'pit_lookup')              AS pit_evaluated,
+        BOOL_OR(stage = 'min_10b5_1')              AS tenb51_evaluated,
+        BOOL_OR(stage = 'conviction')              AS conviction_evaluated,
+        MAX(reason) FILTER (WHERE stage = 'dedup')      AS dedup_reason,
+        MAX(reason) FILTER (WHERE stage = 'filter')     AS filter_reason,
+        MAX(reason) FILTER (WHERE stage = 'pit_lookup') AS pit_reason,
+        MAX(reason) FILTER (WHERE stage = 'min_10b5_1') AS tenb51_reason,
+        MAX(reason) FILTER (WHERE stage = 'conviction') AS conviction_reason,
+        MAX(feature_snapshot::text) FILTER (WHERE stage = 'conviction') AS feature_snapshot_text
+    FROM trade_decision_audit
+    {where_clause}
+    GROUP BY strategy, run_id, trade_id, ticker, filing_date, thesis, source
+)
+SELECT
+    *,
+    -- Final outcome: did this evaluation make it through conviction successfully?
+    -- If conviction wasn't reached (rejected earlier), final_passed = false.
+    COALESCE(conviction_passed, false) AS final_passed,
+    -- The first stage that rejected this trade (informational; null if it passed everything).
+    CASE
+        WHEN dedup_passed = false      THEN 'dedup'
+        WHEN filter_passed = false     THEN 'filter'
+        WHEN pit_passed = false        THEN 'pit_lookup'
+        WHEN tenb51_passed = false     THEN 'min_10b5_1'
+        WHEN conviction_passed = false THEN 'conviction'
+        ELSE NULL
+    END AS rejected_at
+FROM evaluations
+"""
+
+
+def _query_evaluations(conn, where_sql: str, params: list,
+                       order_sql: str = "ORDER BY ts DESC",
+                       limit_sql: str = "LIMIT 50") -> list[dict]:
+    sql = _EVAL_SQL_BASE.format(where_clause=where_sql) + f" {order_sql} {limit_sql}"
+    rows = conn.execute(sql, params).fetchall()
+    out: list[dict] = []
+    for r in rows:
+        d = dict(r)
+        # Parse feature_snapshot if present
+        snap_str = d.pop("feature_snapshot_text", None)
+        if snap_str:
+            try:
+                d["feature_snapshot"] = json.loads(snap_str)
+            except Exception:
+                d["feature_snapshot"] = None
+        else:
+            d["feature_snapshot"] = None
+        out.append(d)
+    return out
+
+
 @router.get("/strategies/{name}")
 def strategy_detail(
     name: str,
     user: UserContext = Depends(require_admin),
 ):
-    """Full diagnostic for one strategy: freshness, decision summary, recent decisions, rejection histogram."""
+    """Full diagnostic for one strategy: freshness, decision summary, recent
+    evaluations (one row per trade-evaluation, all stages summarized), and
+    rejection histogram."""
     s = _strategy_or_404(name)
     with get_db() as conn:
         summary = _decision_summary(conn, name)
         freshness = _freshness_for_strategy(conn, name)
         rejections = _rejection_histogram(conn, name, days=30)
-        recent_decisions = conn.execute(
-            """SELECT ts, ticker, trade_id, filing_date, thesis, stage, passed,
-                      reason, pit_grade, conviction, source
-                 FROM trade_decision_audit
-                WHERE strategy = ?
-                ORDER BY ts DESC
-                LIMIT 50""",
-            (name,),
-        ).fetchall()
-        decisions_out = [dict(r) for r in recent_decisions]
+        recent_evaluations = _query_evaluations(
+            conn,
+            where_sql="WHERE strategy = ?",
+            params=[name],
+            order_sql="ORDER BY ts DESC",
+            limit_sql="LIMIT 50",
+        )
     alerts = _recent_alerts(limit=20, severity=None,
                             component_filter=f"cw_runner.{name}")
     return {
@@ -209,33 +283,46 @@ def strategy_detail(
         "decision_summary": summary,
         "freshness": freshness,
         "rejection_histogram_30d": rejections,
-        "recent_decisions": decisions_out,
+        "recent_evaluations": recent_evaluations,
         "recent_alerts": alerts,
     }
 
 
-@router.get("/strategies/{name}/decisions")
-def strategy_decisions(
+@router.get("/strategies/{name}/evaluations")
+def strategy_evaluations(
     name: str,
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=500),
-    stage: Optional[str] = None,
-    passed: Optional[bool] = None,
+    final_passed: Optional[bool] = Query(None,
+        description="true = only evaluations that PASSED all stages and would have entered; "
+                    "false = only those that were rejected at some stage"),
+    rejected_at: Optional[str] = Query(None,
+        regex="^(dedup|filter|pit_lookup|min_10b5_1|conviction)$",
+        description="Only show evaluations rejected at this specific stage"),
     source: Optional[str] = Query(None, regex="^(live|simulation|log_replay)$"),
     since: Optional[str] = None,
     ticker: Optional[str] = None,
     user: UserContext = Depends(require_admin),
 ):
-    """Paginated decision audit for one strategy, with filters."""
+    """Paginated decisions, ONE ROW PER EVALUATION (= one row per trade-and-run).
+
+    Each row summarizes all the stages this trade went through for this run:
+    dedup → filter → pit_lookup → (min_10b5_1) → conviction. Columns indicate
+    pass/fail for each stage and the human-readable reason. `final_passed`
+    is the bottom-line outcome: did the strategy enter the trade?
+
+    Filter examples:
+      ?final_passed=true                   → trades the strategy would have taken
+      ?final_passed=false                  → trades it rejected (with reasons)
+      ?rejected_at=conviction              → trades that nearly passed but conviction
+                                             scored too low
+      ?rejected_at=filter                  → trades that failed a hard filter clause
+      ?source=simulation&final_passed=true → backfilled "would-have-entered" history
+      ?ticker=AAPL                         → all evaluations of AAPL
+    """
     _strategy_or_404(name)
     clauses = ["strategy = ?"]
     params: list = [name]
-    if stage:
-        clauses.append("stage = ?")
-        params.append(stage)
-    if passed is not None:
-        clauses.append("passed = ?")
-        params.append(passed)
     if source:
         clauses.append("source = ?")
         params.append(source)
@@ -246,34 +333,52 @@ def strategy_decisions(
         clauses.append("ts >= ?::timestamptz")
         params.append(since)
 
-    where = " AND ".join(clauses)
+    base_where = " AND ".join(clauses)
+    base_where_clause = f"WHERE {base_where}"
     offset = (page - 1) * per_page
     with get_db() as conn:
-        total_row = conn.execute(
-            f"SELECT COUNT(*) AS n FROM trade_decision_audit WHERE {where}",
-            params,
-        ).fetchone()
+        # First, get total + apply final_passed/rejected_at filters at the
+        # outer level (after the GROUP BY pivot).
+        outer_clauses: list[str] = []
+        if final_passed is not None:
+            outer_clauses.append(f"final_passed = {bool(final_passed)}")
+        if rejected_at:
+            outer_clauses.append(f"rejected_at = '{rejected_at}'")
+        outer_where = (" WHERE " + " AND ".join(outer_clauses)) if outer_clauses else ""
+
+        # Total
+        count_sql = (
+            _EVAL_SQL_BASE.format(where_clause=base_where_clause)
+            + outer_where
+        )
+        total_sql = f"SELECT COUNT(*) AS n FROM ({count_sql}) sub"
+        total_row = conn.execute(total_sql, params).fetchone()
         total = int(total_row["n"]) if total_row else 0
-        rows = conn.execute(
-            f"""SELECT id, ts, run_id, strategy, ticker, trade_id, filing_date,
-                       thesis, stage, passed, reason, pit_grade, conviction,
-                       feature_snapshot, source
-                  FROM trade_decision_audit
-                 WHERE {where}
-                 ORDER BY ts DESC
-                 LIMIT {int(per_page)} OFFSET {int(offset)}""",
-            params,
-        ).fetchall()
+
+        # Page rows
+        sql = (
+            _EVAL_SQL_BASE.format(where_clause=base_where_clause)
+            + outer_where
+            + f" ORDER BY ts DESC LIMIT {int(per_page)} OFFSET {int(offset)}"
+        )
+        rows = conn.execute(sql, params).fetchall()
         decisions = []
         for r in rows:
             d = dict(r)
-            # feature_snapshot is jsonb; psycopg2 returns it parsed already
+            snap_str = d.pop("feature_snapshot_text", None)
+            if snap_str:
+                try:
+                    d["feature_snapshot"] = json.loads(snap_str)
+                except Exception:
+                    d["feature_snapshot"] = None
+            else:
+                d["feature_snapshot"] = None
             decisions.append(d)
     return {
         "page": page,
         "per_page": per_page,
         "total": total,
-        "decisions": decisions,
+        "evaluations": decisions,
     }
 
 
