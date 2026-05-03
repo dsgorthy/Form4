@@ -219,10 +219,10 @@ WITH evaluations AS (
 )
 SELECT
     *,
-    -- Final outcome: did this evaluation make it through conviction successfully?
-    -- If conviction wasn't reached (rejected earlier), final_passed = false.
+    -- Final outcome. true iff this evaluation reached AND passed conviction.
+    -- If conviction was not reached (rejected earlier), final_passed = false.
     COALESCE(conviction_passed, false) AS final_passed,
-    -- The first stage that rejected this trade (informational; null if it passed everything).
+    -- The first stage that rejected this trade. NULL if it passed every stage.
     CASE
         WHEN dedup_passed = false      THEN 'dedup'
         WHEN filter_passed = false     THEN 'filter'

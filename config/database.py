@@ -175,6 +175,14 @@ def translate_sql(sql: str) -> tuple[str, bool]:
     )
     result = _RE_DATE_NOW.sub('CURRENT_DATE::text', result)
 
+    # Strip SQL comments BEFORE the ? → %s substitution. A literal ?
+    # inside a comment ("-- did it pass?") would otherwise be treated as
+    # a parameter placeholder and crash psycopg2 with IndexError when the
+    # caller's params don't have a corresponding value. Affects line
+    # comments (--) and block comments (/* ... */).
+    result = re.sub(r'--[^\n]*', '', result)
+    result = re.sub(r'/\*.*?\*/', '', result, flags=re.DOTALL)
+
     # Parameter placeholders: ? → %s
     result = _RE_PARAM.sub('%s', result)
 
