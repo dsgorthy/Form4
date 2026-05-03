@@ -60,12 +60,25 @@ class AlpacaClient:
         api_key: str,
         api_secret: str,
         base_url: str = "https://data.alpaca.markets/v2",
+        feed: str = "sip",
     ):
+        """Construct an Alpaca data client.
+
+        feed: which data feed to query. Valid values:
+          - 'sip'   — consolidated tape (paid subscription required for recent data)
+          - 'iex'   — IEX-only data (free tier; recent data permitted but lower volume)
+          - 'otc'   — OTC equities feed
+        Default 'sip' for backward compat. Pass feed='iex' for jobs that
+        only need EOD coverage and tolerate lower-volume single-venue data.
+        """
         if not api_key or not api_secret:
             raise ValueError(
                 "Alpaca credentials missing. Pass api_key and api_secret."
             )
+        if feed not in ("sip", "iex", "otc"):
+            raise ValueError(f"feed must be sip|iex|otc, got {feed!r}")
         self._base_url = base_url.rstrip("/")
+        self._feed = feed
         self._session = requests.Session()
         self._session.headers.update({
             "APCA-API-KEY-ID": api_key,
@@ -118,7 +131,7 @@ class AlpacaClient:
             params: Dict[str, Any] = {
                 "start": start, "end": end, "timeframe": timeframe,
                 "limit": _MAX_BARS_PER_PAGE, "adjustment": adjustment,
-                "feed": "sip", "sort": "asc",
+                "feed": self._feed, "sort": "asc",
             }
             if page_token is not None:
                 params["page_token"] = page_token

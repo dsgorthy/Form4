@@ -118,6 +118,12 @@ def main():
     parser.add_argument("--tickers", default=None, help="Comma-separated tickers to force-update (overrides --since)")
     parser.add_argument("--max-tickers", type=int, default=2000, help="Cap number of tickers per run")
     parser.add_argument("--lookback-days", type=int, default=60, help="Days of bars to fetch for tickers with no existing data")
+    parser.add_argument(
+        "--feed", default="iex", choices=["sip", "iex", "otc"],
+        help=("Alpaca data feed. Default 'iex' — free tier, EOD bars. SIP requires "
+              "paid subscription which has been failing 403 since the subscription "
+              "lapsed (see logs/daily-prices.log circa 2026-04-26)."),
+    )
     args = parser.parse_args()
 
     since = args.since or (date.today() - timedelta(days=30)).isoformat()
@@ -136,7 +142,8 @@ def main():
     latest = get_latest_dates(conn, tickers)
 
     key, secret = load_alpaca_credentials()
-    client = AlpacaClient(api_key=key, api_secret=secret)
+    client = AlpacaClient(api_key=key, api_secret=secret, feed=args.feed)
+    logger.info("Alpaca client using feed=%s", args.feed)
 
     total_rows = 0
     updated = 0
