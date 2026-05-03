@@ -120,6 +120,16 @@ export default function AdminStrategyDetailPage() {
         </p>
         <h1 className="text-2xl font-bold mt-1">{data.strategy.label}</h1>
         <p className="text-sm text-[#8888A0] mt-1">{data.strategy.thesis}</p>
+        <div className="mt-3 flex gap-2 text-[10px]">
+          <span className="inline-block px-2 py-0.5 rounded font-bold bg-[#22C55E22] text-[#22C55E] border border-[#22C55E55]">
+            LIVE
+          </span>
+          <span className="text-[#8888A0]">= cw_runner real-time decision</span>
+          <span className="ml-3 inline-block px-2 py-0.5 rounded font-bold bg-[#3B82F622] text-[#3B82F6] border border-[#3B82F655]">
+            SIM
+          </span>
+          <span className="text-[#8888A0]">= deterministic walk-forward replay (PIT-correct)</span>
+        </div>
       </div>
 
       {/* Summary stats */}
@@ -240,7 +250,17 @@ export default function AdminStrategyDetailPage() {
                 <td className="text-xs">{d.reason ?? "—"}</td>
                 <td className="text-xs">{d.pit_grade ?? "—"}</td>
                 <td className="text-xs">{d.conviction != null ? d.conviction.toFixed(1) : "—"}</td>
-                <td className="text-xs text-[#55556A]">{d.source}</td>
+                <td>
+                  <span className={
+                    d.source === "live"
+                      ? "inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-[#22C55E22] text-[#22C55E] border border-[#22C55E55]"
+                      : d.source === "simulation"
+                        ? "inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-[#3B82F622] text-[#3B82F6] border border-[#3B82F655]"
+                        : "inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-[#55556A22] text-[#8888A0] border border-[#55556A55]"
+                  }>
+                    {d.source === "live" ? "LIVE" : d.source === "simulation" ? "SIM" : d.source.toUpperCase()}
+                  </span>
+                </td>
               </tr>
             ))}
           </tbody>
