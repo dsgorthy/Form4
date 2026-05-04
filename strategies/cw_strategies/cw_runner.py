@@ -1141,13 +1141,27 @@ def check_exits(
 
         pnl_pct = (current_price - entry_price) / entry_price if entry_price > 0 else 0.0
 
-        # Hold days
+        # Hold days. `hold_days` is CALENDAR days (used for display + DB save);
+        # `trading_days_held` is what the YAML hold_days/max_hold_days targets
+        # are denominated in (they're trading days). Comparing calendar to
+        # trading-day thresholds was an old bug that exited positions ~30%
+        # early (BW exited 47cd vs target 42td → should have been ~58cd).
         try:
             d_entry = datetime.strptime(entry_date[:10], "%Y-%m-%d")
             d_today = datetime.strptime(today[:10], "%Y-%m-%d")
             hold_days = (d_today - d_entry).days
         except Exception:
             hold_days = 0
+
+        from framework.data.calendar import MarketCalendar as _MarketCalendar
+        try:
+            _cal_check = _MarketCalendar()
+            trading_days_held = max(
+                0,
+                _cal_check.trading_days_count(entry_date[:10], today) - 1,
+            )
+        except Exception:
+            trading_days_held = hold_days  # safe fallback
 
         # Track peak return
         peak_return = max(_peak_returns.get(pos_id, 0.0), pnl_pct)
@@ -1156,6 +1170,13 @@ def check_exits(
         exit_strategy = exit_cfg.get("strategy", "fixed_hold")
 
         if not should_exit:
+            # Time-exit gate: prefer the row's planned_exit_date (computed at
+            # entry via MarketCalendar.add_trading_days, so already correct in
+            # trading-day terms). Fall back to comparing trading_days_held to
+            # the YAML target for legacy rows where planned_exit_date is null.
+            planned = pos.get("planned_exit_date")
+            planned_str = str(planned)[:10] if planned else None
+
             if exit_strategy == "fixed_hold":
                 target_hold = exit_cfg.get("hold_days", pos.get("target_hold", 7))
                 stop_loss = exit_cfg.get("stop_loss_pct")
@@ -1165,7 +1186,10 @@ def check_exits(
                 if stop_loss is not None and stop_loss < 0 and pnl_pct <= stop_loss:
                     exit_reason = "stop_loss"
                     should_exit = True
-                elif hold_days >= target_hold:
+                elif planned_str and planned_str <= today:
+                    exit_reason = "time_exit"
+                    should_exit = True
+                elif not planned_str and trading_days_held >= target_hold:
                     exit_reason = "time_exit"
                     should_exit = True
 
@@ -1175,7 +1199,10 @@ def check_exits(
                 if peak_return > 0 and (peak_return - pnl_pct) >= stop_pct:
                     exit_reason = "trailing_stop"
                     should_exit = True
-                elif hold_days >= max_hold:
+                elif planned_str and planned_str <= today:
+                    exit_reason = "time_exit"
+                    should_exit = True
+                elif not planned_str and trading_days_held >= max_hold:
                     exit_reason = "time_exit"
                     should_exit = True
 
@@ -1185,7 +1212,10 @@ def check_exits(
                 if sma50 is not None and current_price < sma50:
                     exit_reason = "sma50_break"
                     should_exit = True
-                elif hold_days >= max_hold:
+                elif planned_str and planned_str <= today:
+                    exit_reason = "time_exit"
+                    should_exit = True
+                elif not planned_str and trading_days_held >= max_hold:
                     exit_reason = "time_exit"
                     should_exit = True
 
