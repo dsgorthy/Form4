@@ -202,16 +202,19 @@ WITH evaluations AS (
         BOOL_OR(stage = 'pit_lookup' AND passed)   AS pit_passed,
         BOOL_OR(stage = 'min_10b5_1' AND passed)   AS tenb51_passed,
         BOOL_OR(stage = 'conviction' AND passed)   AS conviction_passed,
+        BOOL_OR(stage = 'capacity' AND passed)     AS capacity_passed,
         BOOL_OR(stage = 'dedup')                   AS dedup_evaluated,
         BOOL_OR(stage = 'filter')                  AS filter_evaluated,
         BOOL_OR(stage = 'pit_lookup')              AS pit_evaluated,
         BOOL_OR(stage = 'min_10b5_1')              AS tenb51_evaluated,
         BOOL_OR(stage = 'conviction')              AS conviction_evaluated,
+        BOOL_OR(stage = 'capacity')                AS capacity_evaluated,
         MAX(reason) FILTER (WHERE stage = 'dedup')      AS dedup_reason,
         MAX(reason) FILTER (WHERE stage = 'filter')     AS filter_reason,
         MAX(reason) FILTER (WHERE stage = 'pit_lookup') AS pit_reason,
         MAX(reason) FILTER (WHERE stage = 'min_10b5_1') AS tenb51_reason,
         MAX(reason) FILTER (WHERE stage = 'conviction') AS conviction_reason,
+        MAX(reason) FILTER (WHERE stage = 'capacity')   AS capacity_reason,
         MAX(feature_snapshot::text) FILTER (WHERE stage = 'conviction') AS feature_snapshot_text
     FROM trade_decision_audit
     {where_clause}
@@ -219,16 +222,27 @@ WITH evaluations AS (
 )
 SELECT
     *,
-    -- Final outcome. true iff this evaluation reached AND passed conviction.
-    -- If conviction was not reached (rejected earlier), final_passed = false.
-    COALESCE(conviction_passed, false) AS final_passed,
-    -- The first stage that rejected this trade. NULL if it passed every stage.
+    -- Final outcome. Two cases that count as "would-have-entered":
+    --   1. Capacity stage was reached and passed (newer simulation runs +
+    --      future live runs that emit the capacity stage).
+    --   2. Capacity was not evaluated but conviction passed (legacy live rows
+    --      and historical 'actual' imports that don't have a capacity row).
+    COALESCE(
+        capacity_passed,
+        CASE WHEN capacity_evaluated THEN false ELSE conviction_passed END,
+        false
+    ) AS final_passed,
+    -- The first stage that rejected this trade. NULL if every evaluated stage
+    -- passed. Reads top-down through the pipeline; if conviction passed but
+    -- capacity rejected, surfaces 'capacity' (e.g. max_concurrent skip,
+    -- same-day same-ticker dedup).
     CASE
         WHEN dedup_passed = false      THEN 'dedup'
         WHEN filter_passed = false     THEN 'filter'
         WHEN pit_passed = false        THEN 'pit_lookup'
         WHEN tenb51_passed = false     THEN 'min_10b5_1'
         WHEN conviction_passed = false THEN 'conviction'
+        WHEN capacity_passed = false   THEN 'capacity'
         ELSE NULL
     END AS rejected_at
 FROM evaluations
@@ -297,9 +311,9 @@ def strategy_evaluations(
         description="true = only evaluations that PASSED all stages and would have entered; "
                     "false = only those that were rejected at some stage"),
     rejected_at: Optional[str] = Query(None,
-        regex="^(dedup|filter|pit_lookup|min_10b5_1|conviction)$",
+        regex="^(dedup|filter|pit_lookup|min_10b5_1|conviction|capacity)$",
         description="Only show evaluations rejected at this specific stage"),
-    source: Optional[str] = Query(None, regex="^(live|simulation|log_replay)$"),
+    source: Optional[str] = Query(None, regex="^(live|simulation|log_replay|actual)$"),
     since: Optional[str] = None,
     ticker: Optional[str] = None,
     user: UserContext = Depends(require_admin),
@@ -307,17 +321,22 @@ def strategy_evaluations(
     """Paginated decisions, ONE ROW PER EVALUATION (= one row per trade-and-run).
 
     Each row summarizes all the stages this trade went through for this run:
-    dedup → filter → pit_lookup → (min_10b5_1) → conviction. Columns indicate
-    pass/fail for each stage and the human-readable reason. `final_passed`
-    is the bottom-line outcome: did the strategy enter the trade?
+    dedup → filter → pit_lookup → (min_10b5_1) → conviction → capacity.
+    Columns indicate pass/fail for each stage and the human-readable reason.
+    `final_passed` is the bottom-line outcome: did the strategy enter?
 
     Filter examples:
       ?final_passed=true                   → trades the strategy would have taken
       ?final_passed=false                  → trades it rejected (with reasons)
       ?rejected_at=conviction              → trades that nearly passed but conviction
                                              scored too low
+      ?rejected_at=capacity                → blocked by max_concurrent or same-day
+                                             same-ticker dedup (a higher-conviction
+                                             variant won the slot)
       ?rejected_at=filter                  → trades that failed a hard filter clause
       ?source=simulation&final_passed=true → backfilled "would-have-entered" history
+      ?source=actual                       → historical entries from strategy_portfolio
+                                             (mixed backtest + live code versions)
       ?ticker=AAPL                         → all evaluations of AAPL
     """
     _strategy_or_404(name)

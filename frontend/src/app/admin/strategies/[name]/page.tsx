@@ -43,6 +43,9 @@ interface EvaluationRow {
   conviction_evaluated: boolean;
   conviction_passed: boolean | null;
   conviction_reason: string | null;
+  capacity_evaluated: boolean;
+  capacity_passed: boolean | null;
+  capacity_reason: string | null;
   final_passed: boolean;
   rejected_at: string | null;
   feature_snapshot: Record<string, unknown> | null;
@@ -145,7 +148,8 @@ export default function AdminStrategyDetailPage() {
         <p className="text-sm text-[#8888A0] mt-1">{data.strategy.thesis}</p>
         <div className="mt-3 flex flex-wrap items-center gap-2 text-[10px]">
           <SourceBadge source="live" /><span className="text-[#8888A0]">cw_runner real-time</span>
-          <SourceBadge source="simulation" /><span className="text-[#8888A0] mr-2">deterministic walk-forward replay (PIT-correct)</span>
+          <SourceBadge source="simulation" /><span className="text-[#8888A0]">deterministic walk-forward replay (current code, PIT-correct)</span>
+          <SourceBadge source="actual" /><span className="text-[#8888A0]">historical entries from strategy_portfolio (mixed code versions)</span>
         </div>
       </div>
 
@@ -197,7 +201,7 @@ export default function AdminStrategyDetailPage() {
           {filterMode === "rejected" && (
             <>
               <span className="text-[#55556A] mx-2">at stage:</span>
-              {(["dedup", "filter", "pit_lookup", "min_10b5_1", "conviction"] as const).map((s) => {
+              {(["dedup", "filter", "pit_lookup", "min_10b5_1", "conviction", "capacity"] as const).map((s) => {
                 const count = data.recent_evaluations.filter((r) => r.rejected_at === s).length;
                 if (count === 0) return null;
                 return (
@@ -222,6 +226,7 @@ export default function AdminStrategyDetailPage() {
                 <th className="pr-3">PIT</th>
                 <th className="pr-3">10b5-1</th>
                 <th className="pr-3">Conviction</th>
+                <th className="pr-3">Capacity</th>
                 <th className="pr-3">Result</th>
                 <th className="pr-3">Grade</th>
                 <th className="pr-3">Conv</th>
@@ -245,6 +250,7 @@ export default function AdminStrategyDetailPage() {
                       <td className="pr-3"><StageDot evaluated={r.pit_evaluated} passed={r.pit_passed} /></td>
                       <td className="pr-3"><StageDot evaluated={r.tenb51_evaluated} passed={r.tenb51_passed} /></td>
                       <td className="pr-3"><StageDot evaluated={r.conviction_evaluated} passed={r.conviction_passed} /></td>
+                      <td className="pr-3"><StageDot evaluated={r.capacity_evaluated} passed={r.capacity_passed} /></td>
                       <td className="pr-3">
                         <span className={r.final_passed
                           ? "inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-[#22C55E22] text-[#22C55E]"
@@ -259,13 +265,14 @@ export default function AdminStrategyDetailPage() {
                     </tr>
                     {isOpen && (
                       <tr className="border-t border-[#2A2A3A] bg-[#0A0A0F]">
-                        <td colSpan={13} className="py-3 px-4">
+                        <td colSpan={14} className="py-3 px-4">
                           <div className="space-y-2 text-xs">
                             <Reason label="Dedup"      passed={r.dedup_passed}      reason={r.dedup_reason} />
                             <Reason label="Filter"     passed={r.filter_passed}     reason={r.filter_reason} />
                             <Reason label="PIT lookup" passed={r.pit_passed}        reason={r.pit_reason} />
                             <Reason label="10b5-1"     passed={r.tenb51_passed}     reason={r.tenb51_reason} />
                             <Reason label="Conviction" passed={r.conviction_passed} reason={r.conviction_reason} />
+                            <Reason label="Capacity"   passed={r.capacity_passed}   reason={r.capacity_reason} />
                             {r.feature_snapshot && (
                               <details className="mt-2">
                                 <summary className="cursor-pointer text-[#3B82F6] text-[11px]">Feature snapshot</summary>
@@ -281,7 +288,7 @@ export default function AdminStrategyDetailPage() {
               })}
               {visibleRows.length === 0 && (
                 <tr>
-                  <td colSpan={13} className="py-6 text-center text-[#55556A] text-xs">
+                  <td colSpan={14} className="py-6 text-center text-[#55556A] text-xs">
                     No evaluations match the current filter.
                   </td>
                 </tr>
@@ -375,9 +382,16 @@ function SourceBadge({ source }: { source: string }) {
       ? "bg-[#22C55E22] text-[#22C55E] border-[#22C55E55]"
       : source === "simulation"
         ? "bg-[#3B82F622] text-[#3B82F6] border-[#3B82F655]"
-        : "bg-[#55556A22] text-[#8888A0] border-[#55556A55]";
+        : source === "actual"
+          ? "bg-[#A855F722] text-[#A855F7] border-[#A855F755]"
+          : "bg-[#55556A22] text-[#8888A0] border-[#55556A55]";
+  const label =
+    source === "live" ? "LIVE"
+      : source === "simulation" ? "SIM"
+        : source === "actual" ? "ACTUAL"
+          : source.toUpperCase();
   return <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold border ${cls}`}>
-    {source === "live" ? "LIVE" : source === "simulation" ? "SIM" : source.toUpperCase()}
+    {label}
   </span>;
 }
 

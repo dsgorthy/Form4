@@ -206,6 +206,7 @@ def simulate_strategy(
 
     min_conv_default = float(config.get("min_conviction", 5.0))
     hold_days = int(theses[0].get("exit", {}).get("hold_days", 30))
+    max_concurrent = int(config.get("max_concurrent", 10))
 
     # Optionally clear prior simulation rows for this strategy
     if replace_existing:
@@ -260,6 +261,7 @@ def simulate_strategy(
         "pit_lookup_only": 0,
         "min_10b5_1_skipped": 0,
         "conviction_skipped": 0,
+        "capacity_skipped": 0,
         "audit_rows": 0,
     }
 
@@ -301,28 +303,38 @@ def simulate_strategy(
 
     last_progress = time.monotonic()
 
+    # Bucket all P-trades by filing_date. Each day is processed as a unit:
+    # pass 1 evaluates each trade through conviction; pass 2 sorts passing
+    # candidates by conviction DESC (mirroring cw_runner.scan_signals' sort
+    # at line 547) and applies max_concurrent + same-day-same-ticker dedup
+    # in cw_runner.execute_entries' order. Without this two-pass structure,
+    # the simulator picks the lowest-trade_id passing candidate per ticker
+    # rather than the highest-conviction one, which diverges from live.
+    from collections import defaultdict
+    rows_by_date: dict[str, list] = defaultdict(list)
     for r in rows:
-        counts["evaluated"] += 1
-        # Convert pseudo-Row to dict for filter evaluation
         if hasattr(r, "_asdict"):
-            t = r._asdict()
+            d = r._asdict()
         elif hasattr(r, "keys"):
-            t = {k: r[k] for k in r.keys()}
+            d = {k: r[k] for k in r.keys()}
         else:
-            t = dict(r)
+            d = dict(r)
+        rows_by_date[d["filing_date"]].append(d)
 
-        ticker = t["ticker"]
-        tid = t["trade_id"]
-        filing_date = t["filing_date"]
-        thesis = theses[0]
-        thesis_name = thesis["name"]
-        # Use a deterministic run_id grouping all decisions on the same filing_date
-        # for one strategy. Lets the admin view group by-day naturally.
+    thesis = theses[0]
+    thesis_name = thesis["name"]
+    thesis_filters = thesis.get("filters", {}) or {}
+
+    for filing_date in sorted(rows_by_date.keys()):
+        # Release any holds whose simulated exit has now passed
+        for held_ticker, exit_date in list(held_until.items()):
+            if exit_date <= filing_date:
+                del held_until[held_ticker]
+
         run_id = str(uuid.uuid5(
             uuid.NAMESPACE_URL,
             f"simulation/{strategy_name}/{filing_date}",
         ))
-        # Use end-of-day timestamp on filing_date as the audit ts
         try:
             sim_ts = datetime.strptime(filing_date, "%Y-%m-%d").replace(
                 hour=23, minute=59, second=59, tzinfo=timezone.utc,
@@ -330,137 +342,191 @@ def simulate_strategy(
         except ValueError:
             sim_ts = datetime.now(timezone.utc)
 
-        # Process exits before evaluating new trades on this date.
-        for held_ticker, exit_date in list(held_until.items()):
-            if exit_date <= filing_date:
-                del held_until[held_ticker]
+        # Pass 1 — evaluate every P-trade for this date through to conviction.
+        # held_until reflects state at start-of-day (exits already released
+        # above) and is NOT mutated mid-pass. Passing candidates collected for
+        # the capacity stage in pass 2.
+        day_candidates: list[dict] = []
 
-        # Stage 1: dedup
-        if tid in used_trade_ids:
-            _audit(run_id, ticker, tid, filing_date, thesis_name, "dedup", False,
-                   reason="trade_id already in strategy_portfolio", ts=sim_ts)
-            counts["dedup_skipped"] += 1
-            continue
-        if ticker in held_until:
-            _audit(run_id, ticker, tid, filing_date, thesis_name, "dedup", False,
-                   reason=f"ticker held until {held_until[ticker]} (open position)",
-                   ts=sim_ts)
-            counts["dedup_skipped"] += 1
-            continue
-        _audit(run_id, ticker, tid, filing_date, thesis_name, "dedup", True, ts=sim_ts)
+        for t in rows_by_date[filing_date]:
+            counts["evaluated"] += 1
+            ticker = t["ticker"]
+            tid = t["trade_id"]
 
-        # Stage 2: filter clauses
-        passed_filters, failures = evaluate_filters(thesis.get("filters", {}), t)
-        if not passed_filters:
-            _audit(run_id, ticker, tid, filing_date, thesis_name, "filter", False,
-                   reason="; ".join(failures),
-                   pit_grade=t.get("pit_grade"),
-                   snapshot={
-                       "is_rare_reversal": t.get("is_rare_reversal"),
-                       "consecutive_sells_before": t.get("consecutive_sells_before"),
-                       "dip_1mo": t.get("dip_1mo"),
-                       "dip_3mo": t.get("dip_3mo"),
-                       "above_sma50": t.get("above_sma50"),
-                       "above_sma200": t.get("above_sma200"),
-                       "is_largest_ever": t.get("is_largest_ever"),
-                       "pit_grade": t.get("pit_grade"),
-                       "is_10b5_1": t.get("is_10b5_1"),
-                       "is_recurring": t.get("is_recurring"),
-                       "is_tax_sale": t.get("is_tax_sale"),
-                       "cohen_routine": t.get("cohen_routine"),
-                       "insider_name": t.get("insider_name"),
-                       "company": t.get("company"),
-                   },
-                   ts=sim_ts)
-            counts["filter_failed"] += 1
-            continue
-        _audit(run_id, ticker, tid, filing_date, thesis_name, "filter", True,
-               reason=f"all {len(thesis.get('filters', {}))} filter(s) passed",
-               pit_grade=t.get("pit_grade"), ts=sim_ts)
-
-        # Stage 3: PIT lookup (PIT-correct: use trade-level pit_grade as stored,
-        # which already encodes the as_of_date constraint).
-        # The live runner re-queries insider_ticker_scores; we trust trades.pit_grade
-        # since both are computed PIT.
-        pit_grade = t.get("pit_grade") or "C"
-        _audit(run_id, ticker, tid, filing_date, thesis_name, "pit_lookup", True,
-               reason=f"pit_grade={pit_grade} (from trades column, PIT-as-of {filing_date})",
-               pit_grade=pit_grade, ts=sim_ts)
-
-        # Stage 4: min_prior_10b5_1_sells (tenb51_surprise only)
-        min_10b5_1 = thesis.get("filters", {}).get("min_prior_10b5_1_sells")
-        if min_10b5_1:
-            n = count_prior_10b5_1_sells(conn, t["insider_id"], ticker, filing_date)
-            if n < int(min_10b5_1):
-                _audit(run_id, ticker, tid, filing_date, thesis_name,
-                       "min_10b5_1", False,
-                       reason=f"prior_10b5_1_sells={n} < required {min_10b5_1}",
-                       pit_grade=pit_grade, ts=sim_ts)
-                counts["min_10b5_1_skipped"] += 1
+            # Stage 1: dedup
+            if tid in used_trade_ids:
+                _audit(run_id, ticker, tid, filing_date, thesis_name, "dedup", False,
+                       reason="trade_id already in strategy_portfolio", ts=sim_ts)
+                counts["dedup_skipped"] += 1
                 continue
-            _audit(run_id, ticker, tid, filing_date, thesis_name,
-                   "min_10b5_1", True,
-                   reason=f"prior_10b5_1_sells={n} >= {min_10b5_1}",
+            if ticker in held_until:
+                _audit(run_id, ticker, tid, filing_date, thesis_name, "dedup", False,
+                       reason=f"ticker held until {held_until[ticker]} (open position)",
+                       ts=sim_ts)
+                counts["dedup_skipped"] += 1
+                continue
+            _audit(run_id, ticker, tid, filing_date, thesis_name, "dedup", True,
+                   ts=sim_ts)
+
+            # Stage 2: filter clauses
+            passed_filters, failures = evaluate_filters(thesis_filters, t)
+            if not passed_filters:
+                _audit(run_id, ticker, tid, filing_date, thesis_name, "filter", False,
+                       reason="; ".join(failures),
+                       pit_grade=t.get("pit_grade"),
+                       snapshot={
+                           "is_rare_reversal": t.get("is_rare_reversal"),
+                           "consecutive_sells_before": t.get("consecutive_sells_before"),
+                           "dip_1mo": t.get("dip_1mo"),
+                           "dip_3mo": t.get("dip_3mo"),
+                           "above_sma50": t.get("above_sma50"),
+                           "above_sma200": t.get("above_sma200"),
+                           "is_largest_ever": t.get("is_largest_ever"),
+                           "pit_grade": t.get("pit_grade"),
+                           "is_10b5_1": t.get("is_10b5_1"),
+                           "is_recurring": t.get("is_recurring"),
+                           "is_tax_sale": t.get("is_tax_sale"),
+                           "cohen_routine": t.get("cohen_routine"),
+                           "insider_name": t.get("insider_name"),
+                           "company": t.get("company"),
+                       },
+                       ts=sim_ts)
+                counts["filter_failed"] += 1
+                continue
+            _audit(run_id, ticker, tid, filing_date, thesis_name, "filter", True,
+                   reason=f"all {len(thesis_filters)} filter(s) passed",
+                   pit_grade=t.get("pit_grade"), ts=sim_ts)
+
+            # Stage 3: PIT lookup (trade-level pit_grade is already PIT-correct)
+            pit_grade = t.get("pit_grade") or "C"
+            _audit(run_id, ticker, tid, filing_date, thesis_name, "pit_lookup", True,
+                   reason=f"pit_grade={pit_grade} (from trades column, PIT-as-of {filing_date})",
                    pit_grade=pit_grade, ts=sim_ts)
 
-        # Stage 5: conviction
-        conv = compute_conviction(
-            thesis=thesis_name,
-            signal_grade=pit_grade,
-            consecutive_sells=t.get("consecutive_sells_before"),
-            dip_1mo=t.get("dip_1mo"),
-            is_largest_ever=bool(t.get("is_largest_ever")),
-            above_sma50=bool(t.get("above_sma50")),
-            above_sma200=bool(t.get("above_sma200")),
-            insider_title=t.get("title"),
-            is_csuite=bool(t.get("is_csuite")),
-        )
-        role = _categorize_insider(t.get("title"), bool(t.get("is_csuite")))
-        snap = {
-            "consecutive_sells_before": t.get("consecutive_sells_before"),
-            "dip_1mo": t.get("dip_1mo"),
-            "is_largest_ever": bool(t.get("is_largest_ever")),
-            "above_sma50": bool(t.get("above_sma50")),
-            "above_sma200": bool(t.get("above_sma200")),
-            "insider_title": t.get("title"),
-            "is_csuite": bool(t.get("is_csuite")),
-            "insider_name": t.get("insider_name"),
-            "company": t.get("company"),
-            "role": role,
-        }
-        if conv < min_conv_default:
+            # Stage 4: min_prior_10b5_1_sells (tenb51_surprise only)
+            min_10b5_1 = thesis_filters.get("min_prior_10b5_1_sells")
+            if min_10b5_1:
+                n = count_prior_10b5_1_sells(conn, t["insider_id"], ticker, filing_date)
+                if n < int(min_10b5_1):
+                    _audit(run_id, ticker, tid, filing_date, thesis_name,
+                           "min_10b5_1", False,
+                           reason=f"prior_10b5_1_sells={n} < required {min_10b5_1}",
+                           pit_grade=pit_grade, ts=sim_ts)
+                    counts["min_10b5_1_skipped"] += 1
+                    continue
+                _audit(run_id, ticker, tid, filing_date, thesis_name,
+                       "min_10b5_1", True,
+                       reason=f"prior_10b5_1_sells={n} >= {min_10b5_1}",
+                       pit_grade=pit_grade, ts=sim_ts)
+
+            # Stage 5: conviction
+            conv = compute_conviction(
+                thesis=thesis_name,
+                signal_grade=pit_grade,
+                consecutive_sells=t.get("consecutive_sells_before"),
+                dip_1mo=t.get("dip_1mo"),
+                is_largest_ever=bool(t.get("is_largest_ever")),
+                above_sma50=bool(t.get("above_sma50")),
+                above_sma200=bool(t.get("above_sma200")),
+                insider_title=t.get("title"),
+                is_csuite=bool(t.get("is_csuite")),
+            )
+            role = _categorize_insider(t.get("title"), bool(t.get("is_csuite")))
+            snap = {
+                "consecutive_sells_before": t.get("consecutive_sells_before"),
+                "dip_1mo": t.get("dip_1mo"),
+                "is_largest_ever": bool(t.get("is_largest_ever")),
+                "above_sma50": bool(t.get("above_sma50")),
+                "above_sma200": bool(t.get("above_sma200")),
+                "insider_title": t.get("title"),
+                "is_csuite": bool(t.get("is_csuite")),
+                "insider_name": t.get("insider_name"),
+                "company": t.get("company"),
+                "role": role,
+            }
+            if conv < min_conv_default:
+                _audit(run_id, ticker, tid, filing_date, thesis_name,
+                       "conviction", False,
+                       reason=f"conv={conv:.1f} < threshold {min_conv_default:.1f} grade={pit_grade} role={role}",
+                       pit_grade=pit_grade, conviction=conv, snapshot=snap, ts=sim_ts)
+                counts["conviction_skipped"] += 1
+                continue
             _audit(run_id, ticker, tid, filing_date, thesis_name,
-                   "conviction", False,
-                   reason=f"conv={conv:.1f} < threshold {min_conv_default:.1f} grade={pit_grade} role={role}",
+                   "conviction", True,
+                   reason=f"conv={conv:.1f} >= threshold {min_conv_default:.1f} grade={pit_grade} role={role}",
                    pit_grade=pit_grade, conviction=conv, snapshot=snap, ts=sim_ts)
-            counts["conviction_skipped"] += 1
-            continue
-        _audit(run_id, ticker, tid, filing_date, thesis_name,
-               "conviction", True,
-               reason=f"conv={conv:.1f} >= threshold {min_conv_default:.1f} grade={pit_grade} role={role}",
-               pit_grade=pit_grade, conviction=conv, snapshot=snap, ts=sim_ts)
 
-        # Would have entered. Track for dedup.
-        used_trade_ids.add(tid)
-        counts["entered"] += 1
+            day_candidates.append({
+                "tid": tid,
+                "ticker": ticker,
+                "conv": conv,
+                "pit_grade": pit_grade,
+                "snap": snap,
+                "role": role,
+            })
 
-        # Compute exit_date as filing_date + hold_days (calendar approx).
-        try:
-            entry_dt = datetime.strptime(filing_date, "%Y-%m-%d")
-            exit_dt = entry_dt + timedelta(days=int(hold_days * 1.4))  # 1.4 calendar / business
-            held_until[ticker] = exit_dt.strftime("%Y-%m-%d")
-        except Exception:
-            held_until[ticker] = filing_date  # falls open immediately, accept
+        # Pass 2 — capacity stage. Sort by conviction DESC (matches
+        # cw_runner.scan_signals ordering); same-day-same-ticker resolves
+        # to the highest-conviction variant; max_concurrent enforced under
+        # at_capacity=skip semantics.
+        day_candidates.sort(key=lambda c: c["conv"], reverse=True)
+        entered_today: set[str] = set()
+        for cand in day_candidates:
+            tid = cand["tid"]
+            ticker = cand["ticker"]
+            conv = cand["conv"]
+            pit_grade = cand["pit_grade"]
+            snap = cand["snap"]
+            slots_used = len(held_until) + len(entered_today)
+
+            if ticker in entered_today:
+                _audit(run_id, ticker, tid, filing_date, thesis_name,
+                       "capacity", False,
+                       reason=("same-day same-ticker — higher-conviction "
+                               "variant taken first"),
+                       pit_grade=pit_grade, conviction=conv, snapshot=snap,
+                       ts=sim_ts)
+                counts["capacity_skipped"] += 1
+                continue
+
+            if slots_used >= max_concurrent:
+                _audit(run_id, ticker, tid, filing_date, thesis_name,
+                       "capacity", False,
+                       reason=(f"at max_concurrent={max_concurrent} "
+                               f"(open={len(held_until)} entered_today={len(entered_today)}) "
+                               f"at_capacity=skip"),
+                       pit_grade=pit_grade, conviction=conv, snapshot=snap,
+                       ts=sim_ts)
+                counts["capacity_skipped"] += 1
+                continue
+
+            _audit(run_id, ticker, tid, filing_date, thesis_name,
+                   "capacity", True,
+                   reason=f"slot {slots_used + 1}/{max_concurrent} "
+                          f"(open={len(held_until)} entered_today={len(entered_today)})",
+                   pit_grade=pit_grade, conviction=conv, snapshot=snap,
+                   ts=sim_ts)
+            used_trade_ids.add(tid)
+            entered_today.add(ticker)
+            counts["entered"] += 1
+
+            try:
+                entry_dt = datetime.strptime(filing_date, "%Y-%m-%d")
+                exit_dt = entry_dt + timedelta(days=int(hold_days * 1.4))
+                held_until[ticker] = exit_dt.strftime("%Y-%m-%d")
+            except Exception:
+                held_until[ticker] = filing_date
 
         # Periodic progress
         if time.monotonic() - last_progress > 5.0:
             elapsed = time.monotonic() - t0
             rate = counts["evaluated"] / elapsed if elapsed > 0 else 0
             logger.info(
-                "[%s] %d/%d evaluated (%d entered, %d audit rows queued) "
-                "%.0f trades/s",
+                "[%s] %d/%d evaluated (%d entered, %d capacity_skipped, "
+                "%d audit queued) %.0f trades/s",
                 strategy_name, counts["evaluated"], len(rows),
-                counts["entered"], len(audit_buffer), rate,
+                counts["entered"], counts["capacity_skipped"],
+                len(audit_buffer), rate,
             )
             last_progress = time.monotonic()
 
@@ -499,12 +565,13 @@ def main():
         elapsed = time.monotonic() - t_strategy
         logger.info(
             "[%s] DONE in %.1fs — evaluated=%d entered=%d dedup=%d "
-            "filter_failed=%d conviction_skipped=%d 10b5_1_skipped=%d audit=%d",
+            "filter_failed=%d conviction_skipped=%d 10b5_1_skipped=%d "
+            "capacity_skipped=%d audit=%d",
             s["name"], elapsed,
             counts["evaluated"], counts["entered"],
             counts["dedup_skipped"], counts["filter_failed"],
             counts["conviction_skipped"], counts["min_10b5_1_skipped"],
-            counts["audit_rows"],
+            counts["capacity_skipped"], counts["audit_rows"],
         )
         grand_total += counts["audit_rows"]
 
