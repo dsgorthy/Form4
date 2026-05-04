@@ -1127,17 +1127,26 @@ def check_exits(
         # Parse exit config from entry_reasoning
         exit_cfg = _parse_exit_config(pos)
 
-        # Get current price
+        # Get current price.
+        # Decoupled from Alpaca state: strategy_portfolio is canonical (what
+        # the strategy logic says we hold); Alpaca is a side-channel for
+        # eventual real-money tracking. If Alpaca lacks the position (manual
+        # exit, decoupled revert, lost share, etc.) we DO NOT auto-close the
+        # DB row — that was the `missing_position` regression that produced
+        # phantom closes the customer saw. Just log and price via the data
+        # API so P&L still computes against a real quote.
         alpaca_pos = alpaca.get_position(ticker)
         if alpaca_pos is None:
-            logger.warning("No Alpaca position for %s (id=%d), marking closed", ticker, pos_id)
-            current_price = entry_price
-            exit_reason = "missing_position"
-            should_exit = True
+            logger.warning(
+                "No Alpaca position for %s (id=%d) — DB row stays open "
+                "(strategy/Alpaca decoupled). Pricing via data API.",
+                ticker, pos_id,
+            )
+            current_price = _get_latest_price(alpaca, ticker) or entry_price
         else:
             current_price = alpaca_pos["current_price"]
-            exit_reason = None
-            should_exit = False
+        exit_reason = None
+        should_exit = False
 
         pnl_pct = (current_price - entry_price) / entry_price if entry_price > 0 else 0.0
 
