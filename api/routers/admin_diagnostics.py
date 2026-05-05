@@ -270,14 +270,62 @@ def _query_evaluations(conn, where_sql: str, params: list,
     return out
 
 
+def _reconciliation_state(conn, strategy: str) -> dict:
+    """Active strategy↔Alpaca divergences + latest Alpaca snapshot. Returns
+    {"divergences": [...], "alpaca_positions": [...], "captured_at": <iso>}.
+    Empty if no snapshot has ever been captured."""
+    divergences = []
+    rows = conn.execute(
+        """SELECT id, ticker, issue_type, severity, db_qty, alpaca_qty,
+                  db_entry_price, alpaca_avg_cost, db_status, portfolio_id,
+                  detail, detected_at
+             FROM alpaca_reconciliation
+            WHERE strategy = ? AND resolved_at IS NULL
+            ORDER BY severity DESC, detected_at DESC""",
+        (strategy,),
+    ).fetchall()
+    for r in rows:
+        d = dict(r)
+        if d.get("detected_at"):
+            d["detected_at"] = str(d["detected_at"])
+        divergences.append(d)
+
+    # Latest snapshot (per ticker — pick the most recent row per ticker)
+    snap_rows = conn.execute(
+        """SELECT DISTINCT ON (ticker)
+                  ticker, qty, avg_entry_price, market_value,
+                  current_price, unrealized_pl, captured_at
+             FROM alpaca_position_snapshots
+            WHERE strategy = ?
+            ORDER BY ticker, captured_at DESC""",
+        (strategy,),
+    ).fetchall()
+    alpaca_positions = []
+    latest_capture = None
+    for r in snap_rows:
+        d = dict(r)
+        if d.get("captured_at"):
+            ts = str(d["captured_at"])
+            d["captured_at"] = ts
+            if latest_capture is None or ts > latest_capture:
+                latest_capture = ts
+        alpaca_positions.append(d)
+
+    return {
+        "divergences": divergences,
+        "alpaca_positions": alpaca_positions,
+        "latest_capture_at": latest_capture,
+    }
+
+
 @router.get("/strategies/{name}")
 def strategy_detail(
     name: str,
     user: UserContext = Depends(require_admin),
 ):
     """Full diagnostic for one strategy: freshness, decision summary, recent
-    evaluations (one row per trade-evaluation, all stages summarized), and
-    rejection histogram."""
+    evaluations (one row per trade-evaluation, all stages summarized),
+    rejection histogram, and strategy↔Alpaca divergence."""
     s = _strategy_or_404(name)
     with get_db() as conn:
         summary = _decision_summary(conn, name)
@@ -290,6 +338,7 @@ def strategy_detail(
             order_sql="ORDER BY ts DESC",
             limit_sql="LIMIT 50",
         )
+        reconciliation = _reconciliation_state(conn, name)
     alerts = _recent_alerts(limit=20, severity=None,
                             component_filter=f"cw_runner.{name}")
     return {
@@ -299,6 +348,7 @@ def strategy_detail(
         "rejection_histogram_30d": rejections,
         "recent_evaluations": recent_evaluations,
         "recent_alerts": alerts,
+        "reconciliation": reconciliation,
     }
 
 

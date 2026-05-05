@@ -65,6 +65,37 @@ interface AlertRow {
   extra?: Record<string, unknown>;
 }
 
+interface DivergenceRow {
+  id: number;
+  ticker: string;
+  issue_type: "missing_in_alpaca" | "orphan_in_alpaca" | "qty_mismatch" | "price_mismatch";
+  severity: "info" | "warn" | "critical";
+  db_qty: number | null;
+  alpaca_qty: number | null;
+  db_entry_price: number | null;
+  alpaca_avg_cost: number | null;
+  db_status: string | null;
+  portfolio_id: number | null;
+  detail: string | null;
+  detected_at: string;
+}
+
+interface AlpacaPositionRow {
+  ticker: string;
+  qty: number;
+  avg_entry_price: number | null;
+  market_value: number | null;
+  current_price: number | null;
+  unrealized_pl: number | null;
+  captured_at: string | null;
+}
+
+interface ReconciliationBlock {
+  divergences: DivergenceRow[];
+  alpaca_positions: AlpacaPositionRow[];
+  latest_capture_at: string | null;
+}
+
 interface DetailResponse {
   strategy: { name: string; label: string; thesis: string };
   decision_summary: {
@@ -76,6 +107,7 @@ interface DetailResponse {
   rejection_histogram_30d: RejectionRow[];
   recent_evaluations: EvaluationRow[];
   recent_alerts: AlertRow[];
+  reconciliation?: ReconciliationBlock;
 }
 
 type FilterMode = "all" | "passed" | "rejected";
@@ -184,6 +216,111 @@ export default function AdminStrategyDetailPage() {
           </tbody>
         </table>
       </Section>
+
+      {/* Strategy ↔ Alpaca reconciliation */}
+      {data.reconciliation && (
+        <Section title="Strategy ↔ Alpaca">
+          {data.reconciliation.latest_capture_at ? (
+            <p className="text-[10px] text-[#55556A] mb-3">
+              Latest snapshot {data.reconciliation.latest_capture_at.slice(0, 19).replace("T", " ")} ·{" "}
+              <span className="text-[#8888A0]">
+                strategy_portfolio is canonical; Alpaca is a side-channel for tracking.
+              </span>
+            </p>
+          ) : (
+            <p className="text-[10px] text-[#55556A] mb-3">
+              No Alpaca snapshot yet — run <code>scripts/alpaca_reconcile.py</code>.
+            </p>
+          )}
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-[#55556A] mb-2">
+                Active divergences ({data.reconciliation.divergences.length})
+              </div>
+              {data.reconciliation.divergences.length === 0 ? (
+                <p className="text-sm text-[#22C55E]">No drift. Strategy ↔ Alpaca aligned.</p>
+              ) : (
+                <table className="w-full text-xs">
+                  <thead className="text-left text-[#55556A] text-[10px] uppercase">
+                    <tr>
+                      <th className="py-1 pr-2">Ticker</th>
+                      <th className="pr-2">Issue</th>
+                      <th className="pr-2">Sev</th>
+                      <th className="pr-2">DB</th>
+                      <th className="pr-2">Alpaca</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.reconciliation.divergences.map((d) => (
+                      <tr key={d.id} className="border-t border-[#2A2A3A]">
+                        <td className="py-1 pr-2 font-mono">{d.ticker}</td>
+                        <td className="pr-2"><code className="text-[10px]">{d.issue_type}</code></td>
+                        <td className="pr-2">
+                          <span className={
+                            d.severity === "critical" ? "text-[#EF4444]"
+                              : d.severity === "warn" ? "text-[#F59E0B]"
+                                : "text-[#55556A]"}>
+                            {d.severity}
+                          </span>
+                        </td>
+                        <td className="pr-2">
+                          {d.db_qty != null ? `${d.db_qty} sh` : "—"}
+                          {d.db_entry_price != null && (
+                            <span className="text-[#8888A0]"> @ ${d.db_entry_price.toFixed(2)}</span>
+                          )}
+                        </td>
+                        <td className="pr-2">
+                          {d.alpaca_qty != null ? `${d.alpaca_qty} sh` : "—"}
+                          {d.alpaca_avg_cost != null && (
+                            <span className="text-[#8888A0]"> @ ${d.alpaca_avg_cost.toFixed(2)}</span>
+                          )}
+                        </td>
+                        <td className="text-[10px] text-[#8888A0]">{d.detail}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-[#55556A] mb-2">
+                Alpaca holdings ({data.reconciliation.alpaca_positions.length})
+              </div>
+              {data.reconciliation.alpaca_positions.length === 0 ? (
+                <p className="text-sm text-[#55556A]">No positions in Alpaca.</p>
+              ) : (
+                <table className="w-full text-xs">
+                  <thead className="text-left text-[#55556A] text-[10px] uppercase">
+                    <tr>
+                      <th className="py-1 pr-2">Ticker</th>
+                      <th className="pr-2">Qty</th>
+                      <th className="pr-2">Cost</th>
+                      <th className="pr-2">Last</th>
+                      <th className="pr-2">P&L</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.reconciliation.alpaca_positions.map((p) => (
+                      <tr key={p.ticker} className="border-t border-[#2A2A3A]">
+                        <td className="py-1 pr-2 font-mono">{p.ticker}</td>
+                        <td className="pr-2">{p.qty}</td>
+                        <td className="pr-2">{p.avg_entry_price != null ? `$${p.avg_entry_price.toFixed(2)}` : "—"}</td>
+                        <td className="pr-2">{p.current_price != null ? `$${p.current_price.toFixed(2)}` : "—"}</td>
+                        <td className={`pr-2 ${(p.unrealized_pl ?? 0) >= 0 ? "text-[#22C55E]" : "text-[#EF4444]"}`}>
+                          {p.unrealized_pl != null ? `$${p.unrealized_pl.toFixed(0)}` : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </Section>
+      )}
 
       {/* Recent evaluations — ONE ROW PER EVALUATION */}
       <Section title="Recent Evaluations">
