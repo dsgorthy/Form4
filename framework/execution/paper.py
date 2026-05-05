@@ -93,6 +93,7 @@ class PaperBackend(ExecutionBackend):
         order_type: str = "market",
         limit_price: Optional[float] = None,
         time_in_force: str = "day",
+        client_order_id: Optional[str] = None,
     ) -> OrderResult:
         body: Dict[str, Any] = {
             "symbol": symbol,
@@ -103,6 +104,10 @@ class PaperBackend(ExecutionBackend):
         }
         if order_type == "limit" and limit_price is not None:
             body["limit_price"] = str(round(limit_price, 2))
+        if client_order_id:
+            # Alpaca dedups on client_order_id — closes the dual-host race
+            # where Studio + Mini could double-submit the same order.
+            body["client_order_id"] = client_order_id
 
         try:
             data = self._request("POST", "/orders", json_body=body)

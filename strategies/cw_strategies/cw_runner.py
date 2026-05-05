@@ -14,13 +14,16 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import math
 import os
+import subprocess
 import sys
 import time
-from datetime import datetime, timedelta
+import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
@@ -113,6 +116,7 @@ def load_config(path: str) -> dict:
     missing = _REQUIRED_KEYS - set(cfg.keys())
     if missing:
         raise ValueError(f"Config missing required keys: {missing}")
+    cfg["_yaml_path"] = str(p.resolve())
 
     # Normalise: if no 'theses' list and there is a top-level 'filters'+'exit', wrap it
     if "theses" not in cfg and "filters" in cfg and "exit" in cfg:
@@ -180,6 +184,120 @@ def _data_api_headers() -> dict:
 
 def get_db(readonly: bool = False):
     return get_connection(readonly=readonly)
+
+
+# ---------------------------------------------------------------------------
+# order_audit — Alpaca submission side-channel record
+# ---------------------------------------------------------------------------
+# strategy_portfolio is the canonical strategy state (decoupled from Alpaca).
+# order_audit records every order we attempted to place against Alpaca, with
+# the full decision context at submission time and the eventual fill outcome.
+# Joining the two reveals strategy↔Alpaca drift cleanly.
+
+_GIT_SHA: Optional[str] = None
+_YAML_SHAS: dict[str, str] = {}
+
+
+def _git_head_sha() -> str:
+    global _GIT_SHA
+    if _GIT_SHA is None:
+        try:
+            _GIT_SHA = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=PROJECT_ROOT,
+                stderr=subprocess.DEVNULL, text=True,
+            ).strip()
+        except Exception:
+            _GIT_SHA = "unknown"
+    return _GIT_SHA
+
+
+def _yaml_sha(path: Optional[str]) -> str:
+    if not path:
+        return "unknown"
+    cached = _YAML_SHAS.get(path)
+    if cached is not None:
+        return cached
+    try:
+        with open(path, "rb") as f:
+            sha = hashlib.sha256(f.read()).hexdigest()
+    except Exception:
+        sha = "unknown"
+    _YAML_SHAS[path] = sha
+    return sha
+
+
+def _record_order_decision(
+    conn,
+    *,
+    order_id: str,
+    strategy: str,
+    ticker: str,
+    side: str,
+    qty: int,
+    conviction: Optional[float],
+    pit_grade: Optional[str],
+    signal_inputs: dict,
+    rationale: str,
+    config_yaml_path: Optional[str],
+) -> None:
+    """Insert decision-time row into order_audit. Best-effort — never raise
+    from instrumentation."""
+    try:
+        conn.execute(
+            """INSERT INTO order_audit
+                  (order_id, strategy, ticker, side, qty, order_type,
+                   conviction_score, pit_grade, signal_inputs_json,
+                   decision_rationale, config_version_sha, config_yaml_sha,
+                   decided_at, fill_status)
+               VALUES (?, ?, ?, ?, ?, 'market',
+                       ?, ?, ?::jsonb,
+                       ?, ?, ?,
+                       NOW(), 'pending')""",
+            (
+                order_id, strategy, ticker, side, qty,
+                conviction, pit_grade, json.dumps(signal_inputs, default=str),
+                rationale, _git_head_sha(), _yaml_sha(config_yaml_path),
+            ),
+        )
+        conn.commit()
+    except Exception as exc:
+        logger.warning("order_audit decision write failed (%s %s): %s",
+                       strategy, ticker, exc)
+
+
+def _record_alpaca_outcome(
+    conn,
+    *,
+    order_id: str,
+    alpaca_order_id: Optional[str],
+    fill_status: str,
+    fill_price: Optional[float] = None,
+    fill_qty: Optional[float] = None,
+    rejection_reason: Optional[str] = None,
+) -> None:
+    """Update order_audit with Alpaca submission outcome. Best-effort."""
+    try:
+        conn.execute(
+            """UPDATE order_audit
+                  SET alpaca_order_id = COALESCE(?, alpaca_order_id),
+                      submitted_at    = COALESCE(submitted_at, NOW()),
+                      fill_status     = ?,
+                      fill_price      = ?,
+                      fill_qty        = ?,
+                      filled_at       = CASE WHEN ? = 'filled' THEN NOW() ELSE filled_at END,
+                      rejection_reason= ?
+                WHERE order_id = ?""",
+            (
+                alpaca_order_id, fill_status,
+                fill_price, fill_qty,
+                fill_status, rejection_reason,
+                order_id,
+            ),
+        )
+        conn.commit()
+    except Exception as exc:
+        logger.warning("order_audit outcome write failed (%s): %s",
+                       order_id, exc)
 
 
 # ---------------------------------------------------------------------------
@@ -362,8 +480,7 @@ def scan_signals(conn, config: dict) -> list[dict]:
     # One audit batch per scan_signals invocation, shared across theses.
     # Every candidate evaluation below writes one row per filter stage to
     # trade_decision_audit. Powers the admin diagnostics view.
-    import uuid as _uuid
-    run_id = str(_uuid.uuid4())
+    run_id = str(uuid.uuid4())
     audit_buffer: list[tuple] = []
 
     for thesis in theses:
@@ -800,7 +917,7 @@ def execute_entries(
             slots -= 1
             continue
 
-        # Get current price
+        # Get current price (data API, decoupled from Alpaca account state).
         current_price = _get_latest_price(alpaca, ticker)
         if not current_price or current_price <= 0:
             logger.warning("No valid price for %s, skipping", ticker)
@@ -811,37 +928,16 @@ def execute_entries(
             logger.warning("Qty 0 for %s ($%.0f / $%.2f), skip", ticker, dollar_amount, current_price)
             continue
 
-        # Check Alpaca doesn't already hold this
-        if alpaca.get_position(ticker) is not None:
-            logger.info("Alpaca already holds %s, skip", ticker)
-            held_tickers.add(ticker)
-            continue
-
-        # Submit market order
-        try:
-            result = alpaca.submit_order(
-                symbol=ticker,
-                qty=qty,
-                side="buy",
-                order_type="market",
-                time_in_force="day",
-            )
-            if result.status == "pending":
-                result = alpaca.wait_for_fill(result.order_id, timeout=10)
-
-            if result.status != "filled":
-                logger.warning("Order for %s not filled (status=%s), skipping", ticker, result.status)
-                continue
-
-            entry_price = result.filled_price or current_price
-            logger.info("Filled %s: %d shares @ $%.2f", ticker, qty, entry_price)
-
-        except Exception as exc:
-            logger.error("Order failed for %s: %s", ticker, exc)
-            continue
+        # Strategy decision is canonical — entry_price is the data-API quote at
+        # decision time, NOT the Alpaca fill price. Alpaca submission below is
+        # a side-channel for tracking; if Alpaca already holds the ticker
+        # (decoupling, manual buy, prior session), the strategy still records
+        # the entry and order_audit captures whatever Alpaca does or doesn't do.
+        entry_price = current_price
+        order_id = str(uuid.uuid4())
 
         # Build entry reasoning JSON
-        reasoning = json.dumps({
+        signal_inputs = {
             "thesis": c["thesis_name"],
             "exit_config": exit_cfg,
             "insider_name": c["insider_name"],
@@ -856,7 +952,8 @@ def execute_entries(
             "dip_1mo": c.get("dip_1mo"),
             "pit_n": c.get("pit_n"),
             "pit_wr": c.get("pit_wr"),
-        }, default=str)
+        }
+        reasoning = json.dumps(signal_inputs, default=str)
 
         # Determine target_hold and stop_pct from exit config
         target_hold = exit_cfg.get("hold_days") or exit_cfg.get("max_hold_days") or 30
@@ -871,6 +968,7 @@ def execute_entries(
         _cal = MarketCalendar()
         planned_exit = _cal.add_trading_days(today, target_hold).isoformat()
 
+        # 1. Insert canonical strategy state (decoupled from Alpaca outcome)
         conn.execute(
             """INSERT INTO strategy_portfolio (
                 strategy, portfolio_id, trade_id, ticker, trade_type, direction,
@@ -909,6 +1007,76 @@ def execute_entries(
             ),
         )
         conn.commit()
+
+        # 2. Record decision-time order_audit row (carries order_id; Alpaca
+        #    outcome updated below).
+        _record_order_decision(
+            conn,
+            order_id=order_id,
+            strategy=strategy_name,
+            ticker=ticker,
+            side="buy",
+            qty=qty,
+            conviction=c.get("conviction"),
+            pit_grade=c.get("signal_grade"),
+            signal_inputs=signal_inputs,
+            rationale=f"thesis={c['thesis_name']} insider={c['insider_name']} "
+                      f"entry@${entry_price:.2f}",
+            config_yaml_path=config.get("_yaml_path"),
+        )
+
+        # 3. Submit Alpaca order (best-effort side-channel). If the ticker is
+        #    already held in Alpaca, skip submission to avoid stacking; the
+        #    strategy_portfolio row is already canonical regardless of fill.
+        alpaca_already_holds = alpaca.get_position(ticker) is not None
+        if alpaca_already_holds:
+            logger.warning(
+                "Alpaca already holds %s — strategy/Alpaca diverged, "
+                "skipping Alpaca submission to avoid stacking.", ticker,
+            )
+            _record_alpaca_outcome(
+                conn, order_id=order_id, alpaca_order_id=None,
+                fill_status="skipped",
+                rejection_reason="alpaca_already_holds",
+            )
+        else:
+            try:
+                result = alpaca.submit_order(
+                    symbol=ticker,
+                    qty=qty,
+                    side="buy",
+                    order_type="market",
+                    time_in_force="day",
+                    client_order_id=order_id,
+                )
+                if result.status == "pending":
+                    result = alpaca.wait_for_fill(result.order_id, timeout=10)
+                _record_alpaca_outcome(
+                    conn,
+                    order_id=order_id,
+                    alpaca_order_id=result.order_id,
+                    fill_status=result.status,
+                    fill_price=result.filled_price if result.status == "filled" else None,
+                    fill_qty=qty if result.status == "filled" else None,
+                )
+                if result.status == "filled":
+                    logger.info(
+                        "Alpaca fill %s: %d @ $%.2f (strategy entry @ $%.2f)",
+                        ticker, qty,
+                        result.filled_price or current_price, entry_price,
+                    )
+                else:
+                    logger.warning(
+                        "Alpaca for %s status=%s (strategy entry recorded anyway)",
+                        ticker, result.status,
+                    )
+            except Exception as exc:
+                logger.error("Alpaca submission failed for %s: %s "
+                             "(strategy state preserved)", ticker, exc)
+                _record_alpaca_outcome(
+                    conn, order_id=order_id, alpaca_order_id=None,
+                    fill_status="exception", rejection_reason=str(exc),
+                )
 
         send_alert(
             f"BUY *{ticker}* {qty} shares @ ${entry_price:.2f}\n"
@@ -1240,31 +1408,15 @@ def check_exits(
             ticker, exit_reason, pnl_pct * 100, hold_days, current_price,
         )
 
-        if alpaca_pos is not None and shares > 0:
-            try:
-                result = alpaca.submit_order(
-                    symbol=ticker,
-                    qty=shares,
-                    side="sell",
-                    order_type="market",
-                    time_in_force="day",
-                )
-                if result.status == "pending":
-                    fill = alpaca.wait_for_fill(result.order_id, timeout=30)
-                    if fill.status == "filled":
-                        current_price = fill.filled_price or current_price
-                elif result.status == "filled":
-                    current_price = result.filled_price or current_price
-                else:
-                    logger.warning("Sell order for %s: status=%s", ticker, result.status)
-            except Exception as exc:
-                logger.error("Sell order failed for %s: %s", ticker, exc)
-
-        # Compute final P&L
-        pnl_pct_final = (current_price - entry_price) / entry_price if entry_price > 0 else 0.0
+        # Strategy decision is canonical: exit_price is locked to the data-API
+        # quote at decision time, NOT the Alpaca fill (which lives in
+        # order_audit). Customer-facing P&L computes against this clean price.
+        strategy_exit_price = current_price
+        pnl_pct_final = (strategy_exit_price - entry_price) / entry_price if entry_price > 0 else 0.0
         pnl_dollar = (pos.get("dollar_amount") or (shares * entry_price)) * pnl_pct_final
+        order_id = str(uuid.uuid4())
 
-        # Update DB
+        # 1. Update canonical strategy state with strategy_exit_price.
         conn.execute(
             """UPDATE strategy_portfolio SET
                 exit_date = ?,
@@ -1280,18 +1432,82 @@ def check_exits(
             WHERE id = ?""",
             (
                 today,
-                round(current_price, 4),
+                round(strategy_exit_price, 4),
                 hold_days,
                 round(pnl_pct_final, 6),
                 round(pnl_dollar, 2),
                 1 if exit_reason == "stop_loss" else 0,
                 exit_reason,
                 round(peak_return, 6),
-                round(current_price, 4),
+                round(strategy_exit_price, 4),
                 pos_id,
             ),
         )
         conn.commit()
+
+        # 2. Record decision-time order_audit row for the sell.
+        _record_order_decision(
+            conn,
+            order_id=order_id,
+            strategy=strategy_name,
+            ticker=ticker,
+            side="sell",
+            qty=shares,
+            conviction=None,
+            pit_grade=pos.get("signal_grade"),
+            signal_inputs={
+                "exit_reason": exit_reason,
+                "pnl_pct_at_decision": pnl_pct_final,
+                "trading_days_held": trading_days_held,
+                "calendar_days_held": hold_days,
+                "planned_exit_date": str(pos.get("planned_exit_date") or ""),
+                "strategy_exit_price": strategy_exit_price,
+                "entry_price": entry_price,
+                "portfolio_row_id": pos_id,
+            },
+            rationale=f"{exit_reason} pnl={pnl_pct_final*100:+.2f}% "
+                      f"@ ${strategy_exit_price:.2f} (held {hold_days}d)",
+            config_yaml_path=config.get("_yaml_path"),
+        )
+
+        # 3. Submit Alpaca sell (best-effort side-channel). Skip if Alpaca
+        #    doesn't hold the position (decoupled, lost share, etc.).
+        if alpaca_pos is None or shares <= 0:
+            _record_alpaca_outcome(
+                conn, order_id=order_id, alpaca_order_id=None,
+                fill_status="skipped",
+                rejection_reason="alpaca_no_position" if alpaca_pos is None else "zero_shares",
+            )
+        else:
+            try:
+                result = alpaca.submit_order(
+                    symbol=ticker,
+                    qty=shares,
+                    side="sell",
+                    order_type="market",
+                    time_in_force="day",
+                    client_order_id=order_id,
+                )
+                if result.status == "pending":
+                    result = alpaca.wait_for_fill(result.order_id, timeout=30)
+                _record_alpaca_outcome(
+                    conn,
+                    order_id=order_id,
+                    alpaca_order_id=result.order_id,
+                    fill_status=result.status,
+                    fill_price=result.filled_price if result.status == "filled" else None,
+                    fill_qty=shares if result.status == "filled" else None,
+                )
+                if result.status != "filled":
+                    logger.warning("Alpaca sell %s status=%s (strategy exit recorded anyway)",
+                                   ticker, result.status)
+            except Exception as exc:
+                logger.error("Alpaca sell failed for %s: %s "
+                             "(strategy state preserved)", ticker, exc)
+                _record_alpaca_outcome(
+                    conn, order_id=order_id, alpaca_order_id=None,
+                    fill_status="exception", rejection_reason=str(exc),
+                )
 
         # Clean up peak return tracking
         _peak_returns.pop(pos_id, None)
