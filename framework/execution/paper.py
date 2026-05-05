@@ -222,6 +222,24 @@ class PaperBackend(ExecutionBackend):
         except Exception:
             return None
 
+    def list_positions(self) -> list[Dict[str, Any]]:
+        """Return every position currently held in the account."""
+        try:
+            data = self._request("GET", "/positions")
+        except Exception:
+            return []
+        out = []
+        for p in data or []:
+            out.append({
+                "symbol": p.get("symbol"),
+                "qty": float(p.get("qty", 0)),
+                "avg_entry_price": float(p.get("avg_entry_price", 0)),
+                "market_value": float(p.get("market_value", 0)),
+                "current_price": float(p.get("current_price", 0)),
+                "unrealized_pl": float(p.get("unrealized_pl", 0)),
+            })
+        return out
+
     def get_account(self) -> Dict[str, Any]:
         data = self._request("GET", "/account")
         return {
