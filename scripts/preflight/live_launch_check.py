@@ -42,10 +42,10 @@ class GateResult:
     severity: str = "blocker"   # blocker | warning
 
 
-def gate_paper_sharpe_30d(conn, strategy: str) -> GateResult:
+def gate_paper_sharpe_30d(conn, strategy: str, _mode: str = "live") -> GateResult:
     """Last 30d closed paper trades — mean & stddev of pnl_pct → annualized
-    Sharpe proxy. We require Sharpe > 0 (paper isn't bleeding) as a basic
-    "the strategy edge is at least directionally there".
+    Sharpe proxy. Always reads paper history (paper is the control even
+    when checking live readiness).
     """
     cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d")
     rows = conn.execute(
@@ -80,11 +80,14 @@ def gate_paper_sharpe_30d(conn, strategy: str) -> GateResult:
     )
 
 
-def gate_active_divergences(conn, strategy: str) -> GateResult:
+def gate_active_divergences(conn, strategy: str, mode: str = "live") -> GateResult:
+    is_live = (mode == "live")
     rows = conn.execute(
         """SELECT issue_type, severity, ticker FROM alpaca_reconciliation
-            WHERE strategy = ? AND resolved_at IS NULL""",
-        (strategy,),
+            WHERE strategy = ?
+              AND COALESCE(is_live, false) = ?
+              AND resolved_at IS NULL""",
+        (strategy, is_live),
     ).fetchall()
     rows = [dict(r) for r in rows]
     crit_or_warn = [r for r in rows if r.get("severity") in ("critical", "warn")]
@@ -97,13 +100,16 @@ def gate_active_divergences(conn, strategy: str) -> GateResult:
     return GateResult("no_active_divergences", False, detail)
 
 
-def gate_unresolved_orders(conn, strategy: str) -> GateResult:
+def gate_unresolved_orders(conn, strategy: str, mode: str = "live") -> GateResult:
+    is_live = (mode == "live")
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
     rows = conn.execute(
         """SELECT order_id, fill_status FROM order_audit
-            WHERE strategy = ? AND fill_status NOT IN ('filled', 'skipped')
+            WHERE strategy = ?
+              AND COALESCE(is_live, false) = ?
+              AND fill_status NOT IN ('filled', 'skipped')
               AND decided_at < ?""",
-        (strategy, cutoff),
+        (strategy, is_live, cutoff),
     ).fetchall()
     rows = [dict(r) for r in rows]
     ok = len(rows) == 0
@@ -183,9 +189,17 @@ def gate_daily_summary_recent() -> GateResult:
                       f"last successful send {age_hours:.1f}h ago")
 
 
-def gate_heartbeat_fresh(strategy: str) -> GateResult:
-    hb_path = REPO / "strategies/cw_strategies/data" / f"{strategy}_heartbeat.json"
+def gate_heartbeat_fresh(strategy: str, mode: str = "live") -> GateResult:
+    suffix = "" if mode == "paper" else "_live"
+    hb_path = REPO / "strategies/cw_strategies/data" / f"{strategy}{suffix}_heartbeat.json"
     if not hb_path.exists():
+        if mode == "live":
+            # In live-mode preflight, missing live heartbeat is OK before
+            # the live runner is loaded. Reframe as not-loaded warning.
+            return GateResult("heartbeat_fresh", True,
+                              f"{hb_path.name} not present yet — live runner "
+                              f"not loaded (this gate becomes blocker after launch)",
+                              severity="warning")
         return GateResult("heartbeat_fresh", False,
                           f"{hb_path.name} missing — runner not started?")
     try:
@@ -264,17 +278,18 @@ def gate_recent_deploy() -> GateResult:
 
 # ── Driver ─────────────────────────────────────────────────────────────────
 
-def run_all(strategy: str, min_equity: float) -> list[GateResult]:
+def run_all(strategy: str, min_equity: float, mode: str = "live") -> list[GateResult]:
     conn = get_connection(readonly=True)
     results: list[GateResult] = []
     results.append(gate_is_live_columns(conn))
     results.append(gate_paper_sharpe_30d(conn, strategy))
-    results.append(gate_active_divergences(conn, strategy))
-    results.append(gate_unresolved_orders(conn, strategy))
+    results.append(gate_active_divergences(conn, strategy, mode=mode))
+    results.append(gate_unresolved_orders(conn, strategy, mode=mode))
     results.append(gate_freshness(conn, strategy))
     results.append(gate_daily_summary_recent())
-    results.append(gate_heartbeat_fresh(strategy))
-    results.append(gate_live_creds(strategy, min_equity))
+    results.append(gate_heartbeat_fresh(strategy, mode=mode))
+    if mode == "live":
+        results.append(gate_live_creds(strategy, min_equity))
     results.append(gate_kill_switch_off(strategy))
     results.append(gate_recent_deploy())
     conn.close()
@@ -326,16 +341,20 @@ def render_markdown(strategy: str, results: list[GateResult]) -> str:
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--strategy", default="quality_momentum")
+    p.add_argument("--mode", choices=["paper", "live"], default="live",
+                   help="Which mode to validate. Paper skips the live-creds gate "
+                        "and treats a missing live heartbeat as a warning.")
     p.add_argument("--min-equity", type=float, default=9500.0)
     p.add_argument("--markdown", action="store_true",
                    help="Output Markdown report instead of text")
     args = p.parse_args()
 
-    results = run_all(args.strategy, args.min_equity)
+    results = run_all(args.strategy, args.min_equity, mode=args.mode)
+    label = f"{args.strategy} [{args.mode}]"
     if args.markdown:
-        print(render_markdown(args.strategy, results))
+        print(render_markdown(label, results))
     else:
-        print(render_text(args.strategy, results))
+        print(render_text(label, results))
 
     blockers = [r for r in results if not r.ok and r.severity == "blocker"]
     sys.exit(0 if not blockers else 1)

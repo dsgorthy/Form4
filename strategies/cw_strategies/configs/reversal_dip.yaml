@@ -46,3 +46,15 @@ exit:
 at_capacity: skip
 
 circuit_breaker_dd_pct: 0.15
+
+# Hard guardrails — see quality_momentum.yaml for rationale. Reversal trades
+# tend to be in beaten-down stocks so min_price floor is intentionally low.
+guardrails:
+  min_dollar_amount: 100.0
+  max_dollar_amount: 25_000.0
+  min_qty: 1
+  max_qty: 10_000
+  min_price: 0.50
+  max_price: 5_000.0
+  max_daily_buys: 10
+  max_daily_sells: 20

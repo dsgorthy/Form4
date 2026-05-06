@@ -47,3 +47,16 @@ exit:
 at_capacity: skip
 
 circuit_breaker_dd_pct: 0.15
+
+# Hard guardrails — tenb51 sizes are larger (20% per position vs 10% on QM/RD)
+# so max_dollar_amount scales accordingly. Daily count cap is also smaller
+# since the strategy only fires ~25-40 times/year.
+guardrails:
+  min_dollar_amount: 100.0
+  max_dollar_amount: 30_000.0
+  min_qty: 1
+  max_qty: 10_000
+  min_price: 0.50
+  max_price: 5_000.0
+  max_daily_buys: 5
+  max_daily_sells: 15

@@ -58,20 +58,38 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-STRATEGIES = [
-    {
-        "name": "quality_momentum",
-        "config_path": REPO / "strategies/cw_strategies/configs/quality_momentum.yaml",
-    },
-    {
-        "name": "reversal_dip",
-        "config_path": REPO / "strategies/cw_strategies/configs/reversal_dip.yaml",
-    },
-    {
-        "name": "tenb51_surprise",
-        "config_path": REPO / "strategies/cw_strategies/configs/tenb51_surprise.yaml",
-    },
-]
+CONFIG_DIR = REPO / "strategies/cw_strategies/configs"
+
+
+def discover_strategies() -> list[dict]:
+    """Auto-enumerate every yaml in the configs/ dir. Each yaml is one
+    (strategy_name, mode) entry. Paper and live yamls for the same strategy
+    show up as separate entries so we reconcile their dedicated Alpaca
+    accounts independently.
+    """
+    import yaml as _yaml
+    out = []
+    for p in sorted(CONFIG_DIR.glob("*.yaml")):
+        try:
+            cfg = _yaml.safe_load(p.read_text())
+        except Exception:
+            continue
+        if not isinstance(cfg, dict):
+            continue
+        name = cfg.get("strategy_name")
+        if not name:
+            continue
+        is_live = bool(cfg.get("live_money", False))
+        out.append({
+            "name": name,
+            "config_path": p,
+            "is_live": is_live,
+            "label": f"{name} ({'live' if is_live else 'paper'})",
+        })
+    return out
+
+
+STRATEGIES = discover_strategies()
 
 # Tunables — keep generous defaults; the reconciler should produce useful
 # signal not noise.
@@ -81,8 +99,11 @@ ORPHAN_INFO_MARKET_VALUE = 500.0     # < $500 orphan stays info-level
 MISSING_CRITICAL_DAYS = 7            # missing_in_alpaca older than 7d → critical
 
 
-def snapshot_alpaca_positions(conn, strategy: str, alpaca_positions: list[dict]) -> None:
-    """Append a fresh row per Alpaca position to alpaca_position_snapshots."""
+def snapshot_alpaca_positions(conn, strategy: str, alpaca_positions: list[dict],
+                              is_live: bool = False) -> None:
+    """Append a fresh row per Alpaca position to alpaca_position_snapshots.
+    is_live distinguishes paper from live snapshots so the admin diff view
+    can show both side-by-side."""
     if not alpaca_positions:
         return
     rows = [
@@ -90,14 +111,15 @@ def snapshot_alpaca_positions(conn, strategy: str, alpaca_positions: list[dict])
             strategy, p["symbol"], p["qty"],
             p.get("avg_entry_price"), p.get("market_value"),
             p.get("current_price"), p.get("unrealized_pl"),
+            is_live,
         )
         for p in alpaca_positions
     ]
     conn.executemany(
         """INSERT INTO alpaca_position_snapshots
               (strategy, ticker, qty, avg_entry_price, market_value,
-               current_price, unrealized_pl)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+               current_price, unrealized_pl, is_live)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
         rows,
     )
     conn.commit()
@@ -204,16 +226,19 @@ def detect_divergences(
 
 
 def upsert_divergences(conn, strategy: str, divergences: list[dict],
+                       is_live: bool = False,
                        dry_run: bool = False) -> tuple[int, int]:
     """Open rows for new divergences; resolve previously-open rows whose
-    divergence has cleared.
+    divergence has cleared. Scoped per (strategy, is_live) so paper and
+    live divergences are tracked independently.
 
     Returns (opened, resolved)."""
     cur = conn.execute(
         """SELECT id, ticker, issue_type
              FROM alpaca_reconciliation
-            WHERE strategy = ? AND resolved_at IS NULL""",
-        (strategy,),
+            WHERE strategy = ? AND COALESCE(is_live, false) = ?
+              AND resolved_at IS NULL""",
+        (strategy, is_live),
     )
     existing = {(r["ticker"], r["issue_type"]): r["id"] for r in cur.fetchall()}
 
@@ -231,14 +256,15 @@ def upsert_divergences(conn, strategy: str, divergences: list[dict],
         conn.execute(
             """INSERT INTO alpaca_reconciliation
                   (strategy, ticker, issue_type, severity, db_qty, alpaca_qty,
-                   db_entry_price, alpaca_avg_cost, db_status, portfolio_id, detail)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   db_entry_price, alpaca_avg_cost, db_status, portfolio_id,
+                   detail, is_live)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 strategy, d["ticker"], d["issue_type"], d["severity"],
                 d.get("db_qty"), d.get("alpaca_qty"),
                 d.get("db_entry_price"), d.get("alpaca_avg_cost"),
                 d.get("db_status"), d.get("portfolio_id"),
-                d.get("detail"),
+                d.get("detail"), is_live,
             ),
         )
         opened += 1
@@ -266,29 +292,45 @@ def upsert_divergences(conn, strategy: str, divergences: list[dict],
 
 
 def reconcile_strategy(conn, strategy: dict, dry_run: bool = False) -> dict:
-    """Run reconciliation for one strategy. Returns a summary dict."""
+    """Run reconciliation for one (strategy, mode). Returns a summary dict."""
     name = strategy["name"]
+    is_live = bool(strategy.get("is_live", False))
+    label = strategy.get("label", name)
     config = load_config(str(strategy["config_path"]))
-    alpaca = get_alpaca(config)
+    try:
+        alpaca = get_alpaca(config)
+    except RuntimeError as exc:
+        # Live creds missing is expected pre-launch — skip cleanly.
+        if is_live and "_LIVE not set" in str(exc):
+            return {"strategy": name, "label": label, "is_live": is_live,
+                    "skipped": "live_creds_not_configured",
+                    "db_open": 0, "alpaca_positions": 0,
+                    "divergences_now": 0, "opened": 0, "resolved": 0,
+                    "by_type": {}}
+        raise
     alpaca_positions = alpaca.list_positions()
 
-    # Pull DB open rows for this strategy
+    # Pull DB open rows scoped to this mode.
     rows = conn.execute(
         """SELECT id, ticker, shares, entry_price, entry_date, status
              FROM strategy_portfolio
-            WHERE strategy = ? AND status = 'open'""",
-        (name,),
+            WHERE strategy = ? AND status = 'open'
+              AND COALESCE(is_live, false) = ?""",
+        (name, is_live),
     ).fetchall()
     db_open = {r["ticker"]: dict(r) for r in rows}
 
     if not dry_run:
-        snapshot_alpaca_positions(conn, name, alpaca_positions)
+        snapshot_alpaca_positions(conn, name, alpaca_positions, is_live=is_live)
 
     divergences = detect_divergences(db_open, alpaca_positions)
-    opened, resolved = upsert_divergences(conn, name, divergences, dry_run=dry_run)
+    opened, resolved = upsert_divergences(conn, name, divergences,
+                                          is_live=is_live, dry_run=dry_run)
 
     summary = {
         "strategy": name,
+        "label": label,
+        "is_live": is_live,
         "db_open": len(db_open),
         "alpaca_positions": len(alpaca_positions),
         "divergences_now": len(divergences),
@@ -317,13 +359,17 @@ def main():
         try:
             summary = reconcile_strategy(conn, s, dry_run=args.dry_run)
         except Exception as exc:
-            logger.exception("[%s] reconciliation failed: %s", s["name"], exc)
-            summaries.append({"strategy": s["name"], "error": str(exc)})
+            logger.exception("[%s] reconciliation failed: %s", s["label"], exc)
+            summaries.append({"strategy": s["name"], "label": s["label"],
+                              "error": str(exc)})
             continue
         summaries.append(summary)
+        if summary.get("skipped"):
+            logger.info("[%s] skipped: %s", summary["label"], summary["skipped"])
+            continue
         logger.info(
             "[%s] db_open=%d alpaca=%d divergences=%d (opened=%d resolved=%d) by_type=%s",
-            summary["strategy"], summary["db_open"], summary["alpaca_positions"],
+            summary["label"], summary["db_open"], summary["alpaca_positions"],
             summary["divergences_now"], summary["opened"], summary["resolved"],
             summary["by_type"],
         )

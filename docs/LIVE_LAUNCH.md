@@ -8,7 +8,12 @@ This is the playbook for the moment Derek flips QM into real-money trading. It a
    ```bash
    ssh derekg@100.78.9.66
    cd ~/trading-framework
-   python3 scripts/preflight/live_launch_check.py --strategy quality_momentum
+   # Live preflight — full gate including credentials + funding
+   python3 scripts/preflight/live_launch_check.py --strategy quality_momentum --mode live
+
+   # Paper preflight — same gates minus the live-creds check; useful any
+   # day to confirm the paper system itself is healthy
+   python3 scripts/preflight/live_launch_check.py --strategy quality_momentum --mode paper
    ```
    All gates must show `[✓]` blocker-severity. Warnings are OK; blockers are not.
 

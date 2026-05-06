@@ -1687,10 +1687,20 @@ def _parse_exit_config(pos: dict) -> dict:
 # Heartbeat
 # ---------------------------------------------------------------------------
 
+def _heartbeat_path(config: dict) -> Path:
+    """Per-(strategy, mode) path so paper and live runners don't overwrite
+    each other's heartbeat. Paper heartbeats keep the legacy filename for
+    backwards-compatibility with anything that reads it."""
+    mode = "live" if config.get("live_money") else "paper"
+    suffix = "" if mode == "paper" else "_live"
+    return DATA_DIR / f"{config['strategy_name']}{suffix}_heartbeat.json"
+
+
 def _write_heartbeat(config: dict, status: str = "ok", detail: str = "", **extra: Any) -> None:
-    hb_path = DATA_DIR / f"{config['strategy_name']}_heartbeat.json"
+    hb_path = _heartbeat_path(config)
     beat = {
         "strategy": config["strategy_name"],
+        "mode": "live" if config.get("live_money") else "paper",
         "status": status,
         "timestamp": _now_et().isoformat(),
         "pid": os.getpid(),

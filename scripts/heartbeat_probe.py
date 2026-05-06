@@ -41,6 +41,14 @@ logger = logging.getLogger(__name__)
 
 ET = ZoneInfo("America/New_York")
 STRATEGIES = ["quality_momentum", "reversal_dip", "tenb51_surprise"]
+# Modes: paper heartbeat at {strategy}_heartbeat.json (legacy filename for
+# backwards-compat), live at {strategy}_live_heartbeat.json. Probe scopes
+# itself to whichever files exist on disk — a missing live file is fine
+# (the live runner isn't loaded), a stale paper file is not.
+HEARTBEAT_MODES = [
+    ("paper", ""),
+    ("live", "_live"),
+]
 HEARTBEAT_DIR = REPO / "strategies/cw_strategies/data"
 STATE_PATH = REPO / "logs" / "heartbeat_probe_state.json"
 DAILY_SUMMARY_LOG = REPO / "logs" / "daily-summary.log"
@@ -57,8 +65,8 @@ def _is_market_hours_now() -> bool:
     return dt_time(9, 30) <= now.time() <= dt_time(16, 0)
 
 
-def _read_heartbeat(strategy: str) -> dict | None:
-    p = HEARTBEAT_DIR / f"{strategy}_heartbeat.json"
+def _read_heartbeat(strategy: str, mode_suffix: str = "") -> dict | None:
+    p = HEARTBEAT_DIR / f"{strategy}{mode_suffix}_heartbeat.json"
     if not p.exists():
         return None
     try:
@@ -96,21 +104,36 @@ def _save_state(state: dict) -> None:
 
 
 def check_strategies() -> dict:
-    """Returns {strategy: {ok: bool, age_min: float, threshold: float, status: str}}."""
+    """Returns {(strategy, mode): {ok, age_min, threshold, status, ...}}.
+
+    Paper and live modes are checked independently. A missing paper
+    heartbeat is a problem (paper runner is always-loaded); a missing
+    live heartbeat is fine (live plist may not be loaded yet)."""
     market_hours = _is_market_hours_now()
     threshold = MARKET_HOURS_THRESHOLD_MIN if market_hours else OFF_HOURS_THRESHOLD_MIN
     out = {}
     for s in STRATEGIES:
-        hb = _read_heartbeat(s)
-        if hb is None:
-            out[s] = {"ok": False, "age_min": None, "threshold": threshold,
-                      "status": "missing", "hb_status": None}
-            continue
-        age = _heartbeat_age_minutes(hb)
-        ok = age is not None and age <= threshold
-        out[s] = {"ok": ok, "age_min": age, "threshold": threshold,
-                  "status": "fresh" if ok else "stale",
-                  "hb_status": hb.get("status")}
+        for mode, suffix in HEARTBEAT_MODES:
+            hb = _read_heartbeat(s, suffix)
+            key = f"{s}_{mode}"
+            if hb is None:
+                # Live missing is expected when the plist isn't loaded.
+                # Paper missing IS a problem — runner always-loaded.
+                if mode == "live":
+                    out[key] = {"ok": True, "age_min": None,
+                                "threshold": threshold, "status": "not_loaded",
+                                "hb_status": None, "mode": mode, "strategy": s}
+                else:
+                    out[key] = {"ok": False, "age_min": None,
+                                "threshold": threshold, "status": "missing",
+                                "hb_status": None, "mode": mode, "strategy": s}
+                continue
+            age = _heartbeat_age_minutes(hb)
+            ok = age is not None and age <= threshold
+            out[key] = {"ok": ok, "age_min": age, "threshold": threshold,
+                        "status": "fresh" if ok else "stale",
+                        "hb_status": hb.get("status"),
+                        "mode": mode, "strategy": s}
     return out
 
 
@@ -150,30 +173,31 @@ def main():
     state = _load_state()
     new_state = dict(state)
 
-    # 1. Heartbeat checks
+    # 1. Heartbeat checks (per strategy × mode)
     results = check_strategies()
-    for strategy, r in results.items():
-        prev = state.get(f"hb_{strategy}", "ok")
+    for key, r in results.items():
+        prev = state.get(f"hb_{key}", "ok")
         cur = "ok" if r["ok"] else r["status"]
         if cur != prev:
+            label = f"{r['strategy']}({r['mode']})"
             if not r["ok"]:
                 age_str = f"{r['age_min']:.0f}m" if r["age_min"] is not None else "missing"
                 alert.critical(
-                    f"heartbeat_probe.{strategy}",
-                    f"{strategy} heartbeat stale: age={age_str} threshold={r['threshold']}m "
-                    f"(market_hours={r['threshold']==MARKET_HOURS_THRESHOLD_MIN})",
-                    strategy=strategy, age_minutes=r["age_min"],
-                    threshold=r["threshold"], hb_status=r["hb_status"],
+                    f"heartbeat_probe.{key}",
+                    f"{label} heartbeat stale: age={age_str} threshold={r['threshold']}m",
+                    strategy=r["strategy"], mode=r["mode"],
+                    age_minutes=r["age_min"], threshold=r["threshold"],
+                    hb_status=r["hb_status"],
                 )
             else:
                 alert.critical(
-                    f"heartbeat_probe.{strategy}",
-                    f"{strategy} heartbeat recovered (was {prev})",
-                    strategy=strategy,
+                    f"heartbeat_probe.{key}",
+                    f"{label} heartbeat recovered (was {prev})",
+                    strategy=r["strategy"], mode=r["mode"],
                 )
-            new_state[f"hb_{strategy}"] = cur
-        logger.info("[%s] heartbeat: %s (age=%s, status=%s)",
-                    strategy, cur,
+            new_state[f"hb_{key}"] = cur
+        logger.info("[%s/%s] heartbeat: %s (age=%s, status=%s)",
+                    r["strategy"], r["mode"], cur,
                     f"{r['age_min']:.0f}m" if r["age_min"] is not None else "missing",
                     r["hb_status"])
 
