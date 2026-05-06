@@ -86,8 +86,20 @@ def error(component: str, message: str, **extra) -> None:
 
 
 def critical(component: str, message: str, **extra) -> None:
-    """P0 — trading-decision path degraded. Top of morning review."""
+    """P0 — trading-decision path degraded. Top of morning review.
+
+    Critical alerts also fan out to SMS (email-to-SMS via Resend) when
+    CRITICAL_ALERT_SMS_TO is configured. Throttled per (component, message)
+    so a stuck failure doesn't pager-storm. NDJSON write happens first so
+    SMS path failures never lose the audit record.
+    """
     _write("critical", component, message, extra or None)
+    try:
+        from framework.alerts.sms import send_critical_sms
+        send_critical_sms(component, message, **extra)
+    except Exception as e:
+        # SMS is best-effort. Never let it propagate.
+        print(f"[alert.critical] SMS fan-out failed: {e}", file=sys.stderr)
 
 
 # Module-level dotted access (alert.critical / alert.info) — convenience.
