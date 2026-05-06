@@ -709,6 +709,26 @@ def _get_latest_price(alpaca: PaperBackend, ticker: str) -> Optional[float]:
     return None
 
 
+# Module-level: tracks the last halt reason logged per strategy so we don't
+# spam the alert log every cycle while halted.
+_LAST_HALT_LOG: dict[str, Optional[str]] = {}
+
+
+def _trading_halted(strategy_name: str) -> tuple[bool, str]:
+    """Return (halted, reason). Reads TRADING_HALTED (global) and
+    TRADING_HALTED_<STRATEGY> (per-strategy) env vars. Set either to a
+    truthy value (1, true, yes) to halt new entries. Exits still process
+    so positions can safety-out. Set in .env on Studio.
+    """
+    truthy = lambda v: str(v).strip().lower() in ("1", "true", "yes", "on")
+    if truthy(os.environ.get("TRADING_HALTED", "")):
+        return True, "TRADING_HALTED set globally"
+    per_key = f"TRADING_HALTED_{strategy_name.upper()}"
+    if truthy(os.environ.get(per_key, "")):
+        return True, f"{per_key} set"
+    return False, ""
+
+
 def execute_entries(
     conn,
     alpaca: PaperBackend,
@@ -721,6 +741,31 @@ def execute_entries(
     max_concurrent = config["max_concurrent"]
     size_pct = config["position_size_pct"]
     prefix = config.get("alert_prefix", "")
+
+    # Kill switch — entries-only halt. Exits continue so safety-outs (stops,
+    # trailing stops, time-exits) still fire while we figure out why we
+    # halted. Critical alert on first halt-state observation per process.
+    halted, halt_reason = _trading_halted(strategy_name)
+    if halted:
+        if _LAST_HALT_LOG.get(strategy_name) != halt_reason:
+            from framework.alerts.log import alert
+            alert.critical(
+                f"cw_runner.{strategy_name}.kill_switch",
+                f"Entries halted: {halt_reason}. Exits continue.",
+                strategy=strategy_name, halt_reason=halt_reason,
+            )
+            _LAST_HALT_LOG[strategy_name] = halt_reason
+        logger.warning("[%s] entries halted: %s", strategy_name, halt_reason)
+        return []
+    elif strategy_name in _LAST_HALT_LOG:
+        # Resume transition — alert that we're trading again
+        from framework.alerts.log import alert
+        alert.critical(
+            f"cw_runner.{strategy_name}.kill_switch",
+            f"Entries resumed (was halted: {_LAST_HALT_LOG[strategy_name]}).",
+            strategy=strategy_name,
+        )
+        del _LAST_HALT_LOG[strategy_name]
 
     n_open = conn.execute(
         "SELECT COUNT(*) FROM strategy_portfolio WHERE strategy = ? AND status = 'open'",
@@ -928,6 +973,28 @@ def execute_entries(
             logger.warning("Qty 0 for %s ($%.0f / $%.2f), skip", ticker, dollar_amount, current_price)
             continue
 
+        # Hard guardrails — last line of defense before submission. A bug in
+        # filter / conviction / sizing logic that produces an oversized,
+        # undersized, wrong-priced, or runaway-volume order should fail HERE,
+        # critically alerted, before any DB write or Alpaca submission.
+        from framework.risk.guardrails import validate_entry_order
+        ok, reason = validate_entry_order(
+            conn, strategy=strategy_name, side="buy",
+            qty=qty, dollar_amount=dollar_amount,
+            current_price=current_price, equity=equity,
+            guardrails_cfg=config.get("guardrails", {}),
+        )
+        if not ok:
+            from framework.alerts.log import alert
+            alert.critical(
+                f"cw_runner.{strategy_name}.guardrails",
+                f"REJECTED entry {ticker}: {reason}",
+                ticker=ticker, qty=qty, dollar_amount=dollar_amount,
+                current_price=current_price, equity=equity,
+            )
+            logger.error("GUARDRAIL REJECT %s: %s", ticker, reason)
+            continue
+
         # Strategy decision is canonical — entry_price is the data-API quote at
         # decision time, NOT the Alpaca fill price. Alpaca submission below is
         # a side-channel for tracking; if Alpaca already holds the ticker
@@ -1050,25 +1117,40 @@ def execute_entries(
                     client_order_id=order_id,
                 )
                 if result.status == "pending":
-                    result = alpaca.wait_for_fill(result.order_id, timeout=10)
+                    # Up to 90s for terminal status. If still pending after,
+                    # we don't know if Alpaca filled or not — treat as timeout
+                    # and fire critical alert so the operator can verify by
+                    # hand. This is the worst case for live money: an order
+                    # in unknown state.
+                    result = alpaca.wait_for_fill(result.order_id, timeout=90)
+                fill_status = result.status if result.status != "pending" else "timeout"
                 _record_alpaca_outcome(
                     conn,
                     order_id=order_id,
                     alpaca_order_id=result.order_id,
-                    fill_status=result.status,
-                    fill_price=result.filled_price if result.status == "filled" else None,
-                    fill_qty=qty if result.status == "filled" else None,
+                    fill_status=fill_status,
+                    fill_price=result.filled_price if fill_status == "filled" else None,
+                    fill_qty=qty if fill_status == "filled" else None,
                 )
-                if result.status == "filled":
+                if fill_status == "filled":
                     logger.info(
                         "Alpaca fill %s: %d @ $%.2f (strategy entry @ $%.2f)",
                         ticker, qty,
                         result.filled_price or current_price, entry_price,
                     )
+                elif fill_status == "timeout":
+                    from framework.alerts.log import alert
+                    alert.critical(
+                        f"cw_runner.{strategy_name}.alpaca",
+                        f"BUY {ticker} qty={qty} status=timeout — "
+                        f"order in unknown state, manual verify needed",
+                        ticker=ticker, qty=qty, order_id=order_id,
+                        alpaca_order_id=result.order_id,
+                    )
                 else:
                     logger.warning(
                         "Alpaca for %s status=%s (strategy entry recorded anyway)",
-                        ticker, result.status,
+                        ticker, fill_status,
                     )
             except Exception as exc:
                 logger.error("Alpaca submission failed for %s: %s "
@@ -1076,6 +1158,12 @@ def execute_entries(
                 _record_alpaca_outcome(
                     conn, order_id=order_id, alpaca_order_id=None,
                     fill_status="exception", rejection_reason=str(exc),
+                )
+                from framework.alerts.log import alert
+                alert.critical(
+                    f"cw_runner.{strategy_name}.alpaca",
+                    f"BUY {ticker} qty={qty} threw exception: {str(exc)[:200]}",
+                    ticker=ticker, qty=qty, order_id=order_id,
                 )
 
         send_alert(
@@ -1489,24 +1577,42 @@ def check_exits(
                     client_order_id=order_id,
                 )
                 if result.status == "pending":
-                    result = alpaca.wait_for_fill(result.order_id, timeout=30)
+                    # Sells get a longer fill window (90s) than buys — they
+                    # can sit in the queue if the market's thin near close.
+                    result = alpaca.wait_for_fill(result.order_id, timeout=90)
+                fill_status = result.status if result.status != "pending" else "timeout"
                 _record_alpaca_outcome(
                     conn,
                     order_id=order_id,
                     alpaca_order_id=result.order_id,
-                    fill_status=result.status,
-                    fill_price=result.filled_price if result.status == "filled" else None,
-                    fill_qty=shares if result.status == "filled" else None,
+                    fill_status=fill_status,
+                    fill_price=result.filled_price if fill_status == "filled" else None,
+                    fill_qty=shares if fill_status == "filled" else None,
                 )
-                if result.status != "filled":
+                if fill_status == "timeout":
+                    from framework.alerts.log import alert
+                    alert.critical(
+                        f"cw_runner.{strategy_name}.alpaca",
+                        f"SELL {ticker} qty={shares} status=timeout — "
+                        f"position may still be held in Alpaca, manual verify",
+                        ticker=ticker, qty=shares, order_id=order_id,
+                        alpaca_order_id=result.order_id,
+                    )
+                elif fill_status != "filled":
                     logger.warning("Alpaca sell %s status=%s (strategy exit recorded anyway)",
-                                   ticker, result.status)
+                                   ticker, fill_status)
             except Exception as exc:
                 logger.error("Alpaca sell failed for %s: %s "
                              "(strategy state preserved)", ticker, exc)
                 _record_alpaca_outcome(
                     conn, order_id=order_id, alpaca_order_id=None,
                     fill_status="exception", rejection_reason=str(exc),
+                )
+                from framework.alerts.log import alert
+                alert.critical(
+                    f"cw_runner.{strategy_name}.alpaca",
+                    f"SELL {ticker} qty={shares} threw exception: {str(exc)[:200]}",
+                    ticker=ticker, qty=shares, order_id=order_id,
                 )
 
         # Clean up peak return tracking
