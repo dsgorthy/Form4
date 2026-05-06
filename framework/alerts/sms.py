@@ -170,7 +170,18 @@ def send_critical_sms(component: str, message: str, **extra) -> bool:
 #   python3 -m framework.alerts.sms test "this is a test"
 if __name__ == "__main__":
     import sys
+    # Load .env when invoked from CLI — the runner already does this at
+    # startup, but standalone calls need it explicitly.
+    try:
+        from dotenv import load_dotenv
+        repo = Path(__file__).resolve().parents[2]
+        load_dotenv(repo / ".env")
+    except Exception:
+        pass
     component = sys.argv[1] if len(sys.argv) > 1 else "framework.alerts.sms.test"
     message = sys.argv[2] if len(sys.argv) > 2 else "test critical alert"
     ok = send_critical_sms(component, message, source="cli")
-    print("sent" if ok else "not sent (check CRITICAL_ALERT_SMS_TO + RESEND_API_KEY)")
+    if ok:
+        print(f"sent → {os.getenv('CRITICAL_ALERT_SMS_TO', '?')}")
+    else:
+        print("not sent (check CRITICAL_ALERT_SMS_TO + RESEND_API_KEY in .env)")
