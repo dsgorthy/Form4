@@ -98,14 +98,14 @@ def get_portfolio(
                 MAX(exit_date) AS last_trade,
                 MAX(equity_after) AS peak_equity
             FROM strategy_portfolio
-            WHERE strategy = ? AND status = 'closed'
+            WHERE strategy = ? AND COALESCE(is_live, false) = false AND status = 'closed'
         """, (strategy,)).fetchone()
 
         # Equity curve — rebuild from P&L to avoid snapshot artifacts
         curve_raw = conn.execute("""
             SELECT exit_date, pnl_dollar, ticker, exit_reason
             FROM strategy_portfolio
-            WHERE strategy = ? AND status = 'closed' AND exit_date IS NOT NULL
+            WHERE strategy = ? AND COALESCE(is_live, false) = false AND status = 'closed' AND exit_date IS NOT NULL
             ORDER BY exit_date
         """, (strategy,)).fetchall()
 
@@ -143,7 +143,8 @@ def get_portfolio(
 
         # Total trade count for pagination
         total_count = conn.execute("""
-            SELECT COUNT(*) AS cnt FROM strategy_portfolio WHERE strategy = ?
+            SELECT COUNT(*) AS cnt FROM strategy_portfolio
+            WHERE strategy = ? AND COALESCE(is_live, false) = false
         """, (strategy,)).fetchone()["cnt"]
 
         # Per-trade data for client-side filtering (lightweight: date, return, exit type)
@@ -151,7 +152,7 @@ def get_portfolio(
             SELECT exit_date, ROUND(pnl_pct * 100, 2) AS pnl_pct, exit_reason,
                    ROUND(hold_days, 0) AS hold_days, signal_quality
             FROM strategy_portfolio
-            WHERE strategy = ? AND status = 'closed' AND pnl_pct IS NOT NULL
+            WHERE strategy = ? AND COALESCE(is_live, false) = false AND status = 'closed' AND pnl_pct IS NOT NULL
             ORDER BY exit_date
         """, (strategy,)).fetchall()]
 
@@ -166,7 +167,7 @@ def get_portfolio(
                    ROUND(SUM(CASE WHEN pnl_pct > 0 THEN 1.0 ELSE 0 END) / COUNT(*) * 100, 1) AS win_rate,
                    ROUND(AVG(hold_days), 1) AS avg_hold
             FROM strategy_portfolio
-            WHERE strategy = ? AND status = 'closed'
+            WHERE strategy = ? AND COALESCE(is_live, false) = false AND status = 'closed'
             GROUP BY exit_reason
             ORDER BY count DESC
         """, (strategy,)).fetchall()]
@@ -178,7 +179,7 @@ def get_portfolio(
                    ROUND(SUM(pnl_dollar), 2) AS pnl,
                    ROUND(SUM(CASE WHEN pnl_pct > 0 THEN 1.0 ELSE 0 END) / COUNT(*) * 100, 1) AS win_rate
             FROM strategy_portfolio
-            WHERE strategy = ? AND status = 'closed'
+            WHERE strategy = ? AND COALESCE(is_live, false) = false AND status = 'closed'
             GROUP BY SUBSTR(exit_date, 1, 4)
             ORDER BY year
         """, (strategy,)).fetchall()]
@@ -195,7 +196,7 @@ def get_portfolio(
                    exit_reason, status,
                    execution_source, is_estimated, company
             FROM strategy_portfolio
-            WHERE strategy = ?
+            WHERE strategy = ? AND COALESCE(is_live, false) = false
             ORDER BY entry_date DESC
             LIMIT ? OFFSET ?
         """, (strategy, per_page, offset)).fetchall()
@@ -326,7 +327,7 @@ def get_portfolio_overlay(
             SELECT entry_date, exit_date, position_size, pnl_dollar,
                    portfolio_value, dollar_amount, status
             FROM strategy_portfolio
-            WHERE strategy = ?
+            WHERE strategy = ? AND COALESCE(is_live, false) = false
             ORDER BY entry_date
         """, (strategy,)).fetchall()]
 
@@ -474,7 +475,7 @@ def get_trade_detail(
         row = conn.execute("""
             SELECT *
             FROM strategy_portfolio
-            WHERE id = ?
+            WHERE id = ? AND COALESCE(is_live, false) = false
         """, (trade_row_id,)).fetchone()
 
     if not row:
