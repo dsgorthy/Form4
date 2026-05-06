@@ -150,7 +150,12 @@ def get_alpaca(config: dict) -> PaperBackend:
     """Load the dedicated per-strategy trading credentials.
 
     Strategy yaml must declare `alpaca_env_prefix: QUALITY_MOMENTUM` (or similar).
-    The runner reads ALPACA_API_KEY_{prefix} / ALPACA_API_SECRET_{prefix} from .env.
+    Paper mode (default): reads ALPACA_API_KEY_{prefix} / ALPACA_API_SECRET_{prefix}.
+    Live mode (yaml: live_money: true): reads ALPACA_API_KEY_{prefix}_LIVE /
+    ALPACA_API_SECRET_{prefix}_LIVE and routes orders to api.alpaca.markets
+    instead of paper-api.alpaca.markets. The two account types use separate
+    credentials by Alpaca design — paper key won't authenticate against live.
+
     Never uses ALPACA_DATA_API_KEY — those are read-only data credentials.
     """
     prefix = config.get("alpaca_env_prefix")
@@ -158,16 +163,29 @@ def get_alpaca(config: dict) -> PaperBackend:
         raise RuntimeError(
             f"Strategy '{config.get('strategy_name')}' config is missing required "
             f"'alpaca_env_prefix' field (e.g., 'QUALITY_MOMENTUM'). "
-            f"Each strategy must have its own dedicated Alpaca paper account — "
+            f"Each strategy must have its own dedicated Alpaca account — "
             f"never commingle two strategies on the same credentials."
         )
-    key_var = f"ALPACA_API_KEY_{prefix}"
-    secret_var = f"ALPACA_API_SECRET_{prefix}"
+    is_live = bool(config.get("live_money", False))
+    suffix = "_LIVE" if is_live else ""
+    key_var = f"ALPACA_API_KEY_{prefix}{suffix}"
+    secret_var = f"ALPACA_API_SECRET_{prefix}{suffix}"
     api_key = os.getenv(key_var, "")
     api_secret = os.getenv(secret_var, "")
     if not api_key or not api_secret:
-        raise RuntimeError(f"{key_var} / {secret_var} not set in .env")
-    return PaperBackend(api_key, api_secret)
+        raise RuntimeError(
+            f"{key_var} / {secret_var} not set in .env "
+            f"(live_money={is_live})"
+        )
+    from framework.execution.paper import LIVE_API_BASE, PAPER_API_BASE
+    base_url = LIVE_API_BASE if is_live else PAPER_API_BASE
+    backend = PaperBackend(api_key, api_secret, base_url=base_url)
+    if is_live:
+        logger.warning(
+            "[%s] LIVE TRADING ENABLED — orders route to %s",
+            config.get("strategy_name"), LIVE_API_BASE,
+        )
+    return backend
 
 
 def _data_api_headers() -> dict:
@@ -239,6 +257,7 @@ def _record_order_decision(
     signal_inputs: dict,
     rationale: str,
     config_yaml_path: Optional[str],
+    is_live: bool = False,
 ) -> None:
     """Insert decision-time row into order_audit. Best-effort — never raise
     from instrumentation."""
@@ -248,15 +267,16 @@ def _record_order_decision(
                   (order_id, strategy, ticker, side, qty, order_type,
                    conviction_score, pit_grade, signal_inputs_json,
                    decision_rationale, config_version_sha, config_yaml_sha,
-                   decided_at, fill_status)
+                   decided_at, fill_status, is_live)
                VALUES (?, ?, ?, ?, ?, 'market',
                        ?, ?, ?::jsonb,
                        ?, ?, ?,
-                       NOW(), 'pending')""",
+                       NOW(), 'pending', ?)""",
             (
                 order_id, strategy, ticker, side, qty,
                 conviction, pit_grade, json.dumps(signal_inputs, default=str),
                 rationale, _git_head_sha(), _yaml_sha(config_yaml_path),
+                bool(is_live),
             ),
         )
         conn.commit()
@@ -1036,6 +1056,8 @@ def execute_entries(
         planned_exit = _cal.add_trading_days(today, target_hold).isoformat()
 
         # 1. Insert canonical strategy state (decoupled from Alpaca outcome)
+        is_live = bool(config.get("live_money", False))
+        execution_source = "live" if is_live else "paper"
         conn.execute(
             """INSERT INTO strategy_portfolio (
                 strategy, portfolio_id, trade_id, ticker, trade_type, direction,
@@ -1047,17 +1069,17 @@ def execute_entries(
                 entry_reasoning,
                 company, insider_title, filing_date, trade_date,
                 signal_grade, is_rare_reversal,
-                shares, dollar_amount, planned_exit_date
+                shares, dollar_amount, planned_exit_date, is_live
             ) VALUES (?, ?, ?, ?, 'buy_stock', 'long',
                       ?, ?, ?, ?,
                       ?, ?,
                       ?, ?, ?,
                       ?, 'open',
-                      'paper', 0, ?,
+                      ?, 0, ?,
                       ?,
                       ?, ?, ?, ?,
                       ?, ?,
-                      ?, ?, ?)""",
+                      ?, ?, ?, ?)""",
             (
                 strategy_name, portfolio_id,
                 c["trade_id"], ticker,
@@ -1065,12 +1087,13 @@ def execute_entries(
                 size_pct, equity,
                 c["insider_name"], c.get("pit_n"), c.get("pit_wr"),
                 c.get("signal_quality"),
+                execution_source,
                 round(entry_price, 4),
                 reasoning,
                 c.get("company"), c.get("title"), c.get("filing_date"), c.get("filing_date"),
                 c.get("signal_grade"), 1 if c.get("is_rare_reversal") else 0,
                 qty, round(qty * entry_price, 2),
-                planned_exit,
+                planned_exit, is_live,
             ),
         )
         conn.commit()
@@ -1087,6 +1110,7 @@ def execute_entries(
             conviction=c.get("conviction"),
             pit_grade=c.get("signal_grade"),
             signal_inputs=signal_inputs,
+            is_live=is_live,
             rationale=f"thesis={c['thesis_name']} insider={c['insider_name']} "
                       f"entry@${entry_price:.2f}",
             config_yaml_path=config.get("_yaml_path"),
@@ -1556,6 +1580,7 @@ def check_exits(
             rationale=f"{exit_reason} pnl={pnl_pct_final*100:+.2f}% "
                       f"@ ${strategy_exit_price:.2f} (held {hold_days}d)",
             config_yaml_path=config.get("_yaml_path"),
+            is_live=bool(pos.get("is_live", False)),
         )
 
         # 3. Submit Alpaca sell (best-effort side-channel). Skip if Alpaca

@@ -18,13 +18,14 @@ from framework.execution.base import ExecutionBackend, OrderResult
 logger = logging.getLogger(__name__)
 
 PAPER_API_BASE = "https://paper-api.alpaca.markets/v2"
+LIVE_API_BASE = "https://api.alpaca.markets/v2"
 MAX_RETRIES = 3
 BACKOFF_BASE = 1.0
 
 
 class PaperBackend(ExecutionBackend):
     """
-    Alpaca paper trading execution backend.
+    Alpaca trading execution backend (paper or live).
 
     Parameters
     ----------
@@ -33,7 +34,9 @@ class PaperBackend(ExecutionBackend):
     api_secret : str
         Alpaca API secret key.
     base_url : str
-        API base URL. Defaults to paper API endpoint.
+        API base URL. Defaults to paper API endpoint. Set to
+        ``LIVE_API_BASE`` (or pass ``live=True`` to ``cw_runner.get_alpaca``)
+        to route real-money orders.
     """
 
     def __init__(

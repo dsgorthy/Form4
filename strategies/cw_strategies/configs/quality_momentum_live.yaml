@@ -1,0 +1,56 @@
+strategy_name: quality_momentum
+display_name: "Form4 Quality + Momentum (LIVE)"
+alert_prefix: "[QM-LIVE]"
+# Real-money Alpaca account — reads ALPACA_API_KEY_QUALITY_MOMENTUM_LIVE /
+# _SECRET_QUALITY_MOMENTUM_LIVE from .env. The live_money flag also routes
+# orders to api.alpaca.markets instead of paper-api.alpaca.markets.
+alpaca_env_prefix: QUALITY_MOMENTUM
+live_money: true
+
+# Real-money sizing — $10k initial deposit. Position sizing is identical to
+# paper (10%) but max_concurrent is halved to 5 so each open position is
+# ~$1k of risk capital. circuit_breaker tightened from 15% to 10% for live.
+starting_capital: 10000
+position_size_pct: 0.10
+max_concurrent: 5
+filing_lookback_days: 2
+
+# Same thesis as paper QM (validated A+/A insiders buying in uptrend), same
+# 42-trading-day hold. Paper continues to run independently as the control
+# arm; reconciler tracks both via is_live column.
+
+soft_cap: 5
+min_conviction: 1.5
+min_conviction_above_soft: 7.0
+min_conviction_at_hard: 7.0
+
+filters:
+  pit_grade: ["A+", "A"]
+  above_sma50: 1
+  above_sma200: 1
+  exclude_recurring: true
+  exclude_tax_sales: true
+
+exit:
+  strategy: fixed_hold
+  hold_days: 42
+  stop_loss_pct: null
+
+at_capacity: skip
+
+# Tightened from 15% paper → 10% live. Real money doesn't get to ride a
+# steeper drawdown looking for recovery.
+circuit_breaker_dd_pct: 0.10
+
+# Hard guardrails — narrower than paper defaults. The biggest single trade
+# we'd ever want at $10k portfolio is $2k (20% concentration); $5k is the
+# hard backstop in case sizing math goes wrong.
+guardrails:
+  min_dollar_amount: 100.0
+  max_dollar_amount: 5_000.0
+  min_qty: 1
+  max_qty: 5_000
+  min_price: 1.00
+  max_price: 5_000.0
+  max_daily_buys: 5
+  max_daily_sells: 10

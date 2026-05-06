@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Form4 Quality + Momentum LIVE runner.
+
+  This plist is *not* loaded by default. After completing the Day-14
+  pre-flight checklist, install with:
+
+      cp scripts/launchd/com.openclaw.quality-momentum-live.plist \
+         ~/Library/LaunchAgents/
+      launchctl load -w ~/Library/LaunchAgents/com.openclaw.quality-momentum-live.plist
+
+  The paper runner (com.openclaw.quality-momentum) keeps running as a
+  control. Both write to strategy_portfolio with the is_live column
+  distinguishing the rows; alpaca_reconciliation tracks both accounts.
+
+  Halt with: studio halt-trading quality_momentum
+  (sets TRADING_HALTED_QUALITY_MOMENTUM=true → both paper + live halt
+  entries; exits continue.)
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.openclaw.quality-momentum-live</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>/Users/derekg/trading-framework/strategies/cw_strategies/cw_runner.py</string>
+        <string>--config</string>
+        <string>/Users/derekg/trading-framework/strategies/cw_strategies/configs/quality_momentum_live.yaml</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/derekg/trading-framework</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONPATH</key>
+        <string>/Users/derekg/trading-framework</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/derekg/trading-framework/logs/quality-momentum-live.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/derekg/trading-framework/logs/quality-momentum-live.log</string>
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>
