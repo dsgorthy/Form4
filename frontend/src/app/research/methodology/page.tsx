@@ -87,9 +87,9 @@ export default async function ScoringPage() {
     <div className="max-w-3xl">
       {/* Breadcrumb */}
       <nav className="flex items-center gap-2 text-sm text-[#55556A] mb-6">
-        <Link href="/" className="hover:text-[#8888A0] transition-colors">Dashboard</Link>
+        <Link href="/research" className="hover:text-[#8888A0] transition-colors">Research</Link>
         <span>/</span>
-        <span className="text-[#8888A0]">Scoring</span>
+        <span className="text-[#8888A0]">Methodology</span>
       </nav>
 
       {/* Page header — PUBLIC */}
@@ -306,7 +306,7 @@ export default async function ScoringPage() {
           </p>
           <p>
             On the{" "}
-            <Link href="/" className="text-[#3B82F6] hover:text-[#60A5FA] transition-colors">Dashboard</Link>
+            <Link href="/feed" className="text-[#3B82F6] hover:text-[#60A5FA] transition-colors">Feed</Link>
             , you can filter by both grades to find the intersection that matches your conviction level.
           </p>
         </div>

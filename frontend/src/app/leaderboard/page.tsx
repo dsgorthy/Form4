@@ -59,7 +59,7 @@ export default async function LeaderboardPage({ searchParams }: Props) {
             Ranked insiders by track record
             <span className="mx-2">&middot;</span>
             <a
-              href="/scoring"
+              href="/research/methodology"
               target="_blank"
               rel="noopener noreferrer"
               className="text-[#3B82F6] hover:text-[#60A5FA] transition-colors"

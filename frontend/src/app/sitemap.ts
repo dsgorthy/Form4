@@ -9,7 +9,7 @@ export const revalidate = 3600;
 
 const STATIC_PATHS = [
   "/", "/feed", "/leaderboard", "/signals", "/clusters", "/congress",
-  "/screener", "/scoring", "/pricing", "/sells",
+  "/screener", "/pricing",
   "/research",
   ...RESEARCH_TYPES.map((t) => `/research/${t}`),
   "/privacy", "/terms", "/disclaimer",

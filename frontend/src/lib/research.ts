@@ -27,7 +27,7 @@ export const RESEARCH_TYPE_DESCRIPTIONS: Record<ResearchType, string> = {
   whitepapers:
     "Long-form thesis papers documenting strategies that work. Each paper covers academic foundation, validation, risk factors, and live operational metrics.",
   "portfolio-updates":
-    "Per-trade and monthly recaps from our live paper portfolios. What we entered, why, what we exited, and what we'd do differently.",
+    "Per-trade and monthly recaps from our live portfolios. What we entered, why, what we exited, and what we'd do differently.",
   notes:
     "Short observations, single-chart pieces, and market commentary that don't yet warrant a full paper.",
 };

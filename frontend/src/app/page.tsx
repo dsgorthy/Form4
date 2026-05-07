@@ -46,7 +46,7 @@ export default async function LandingPage() {
         </h1>
         <p className="mt-6 text-lg sm:text-xl text-[#8888A0] max-w-2xl mx-auto">
           Real-time SEC Form 4 filings with AI-powered signal grading.
-          We believe in our research enough to trade it live — three paper portfolios, fully transparent.
+          We believe in our research enough to trade it live — three portfolios, fully transparent.
         </p>
         <div className="mt-10 flex items-center justify-center gap-4">
           <SignUpButton mode="modal">
@@ -188,7 +188,7 @@ export default async function LandingPage() {
             },
             {
               title: "Transparent Strategies",
-              desc: "We trade our own signals on live paper accounts. Every entry, exit, and P&L is public. See what we see.",
+              desc: "We trade our own signals live. Every entry, exit, and P&L is public. See what we see.",
             },
           ].map((f) => (
             <div

@@ -12,7 +12,7 @@ const SKIP_PATHS = [
   "/privacy",
   "/terms",
   "/disclaimer",
-  "/scoring",
+  "/research/methodology",
   "/api",
 ];
 

@@ -191,11 +191,8 @@ function ExitReasonBadge({ reason }: { reason: string }) {
 }
 
 function ExecutionBadge({ source, estimated }: { source: string; estimated: boolean }) {
-  if (source === "paper") {
-    return <Badge variant="outline" className="text-[10px] border-[#22C55E]/30 text-[#22C55E]">PAPER TRADED</Badge>;
-  }
-  if (source === "live") {
-    return <Badge variant="outline" className="text-[10px] border-[#3B82F6]/30 text-[#3B82F6]">LIVE</Badge>;
+  if (source === "paper" || source === "live") {
+    return <Badge variant="outline" className="text-[10px] border-[#22C55E]/30 text-[#22C55E]">LIVE</Badge>;
   }
   return <Badge variant="outline" className="text-[10px] border-[#55556A]/30 text-[#55556A]">SIMULATED</Badge>;
 }

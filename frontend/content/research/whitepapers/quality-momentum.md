@@ -19,7 +19,7 @@ Insider buys used to be alpha.
 
 From 1986 to roughly 2020, every major academic study reached the same conclusion: when officers and directors put their own money into their own stock, the stock outperformed. Since 2021 that is no longer true on average. The signal hasn't disappeared. It has compressed and moved. Some kinds of insider buys still produce real returns. Most don't.
 
-This paper documents one filter — quality-graded buys confirmed by a price uptrend — that recovered a Sharpe of 1.18 net of fees from January 2020 through April 2026, and now trades a real-money portfolio in public view at form4.app/portfolio.
+This paper documents one filter — quality-graded buys confirmed by a price uptrend — that recovered a Sharpe of 1.18 net of fees from January 2020 through April 2026, and now trades a active portfolio in public view at form4.app/portfolio.
 
 Form4 exists to answer one question: with the basic insider signal mostly dead since 2021, which trades still work?
 
@@ -45,7 +45,7 @@ Three classes of services currently address this market.
 
 **Subscription-research products.** Motley Fool's Stock Advisor and Validea publish a small number of high-conviction picks at a defensible cadence (monthly to quarterly) for retail. They typically operate on multi-year hold horizons and frame themselves as research subscriptions rather than alert services. They have brand recognition. They don't publish their methodology.
 
-**Form4's positioning.** We sit between the dashboards and the subscription-research products. We publish opinionated signals on a 42-trading-day hold, validated by walk-forward backtests, and operated against a real-money portfolio. The differentiator is not access to data; the data is public. It is the filter that converts raw filings into actionable signals.
+**Form4's positioning.** We sit between the dashboards and the subscription-research products. We publish opinionated signals on a 42-trading-day hold, validated by walk-forward backtests, and operated against a active portfolio. The differentiator is not access to data; the data is public. It is the filter that converts raw filings into actionable signals.
 
 ---
 
@@ -192,7 +192,7 @@ Parameters don't move mid-quarter. Tuning on recent results is how strategies di
 
 ### Public reporting
 
-The strategy operates a real-money portfolio in public view at form4.app/portfolio with full trade-level transparency. Every entry, every exit, and the cumulative equity curve are visible without subscription. Subscribers receive real-time alerts for entries and exits. Non-subscribers see the same information after a defined delay.
+The strategy operates a active portfolio in public view at form4.app/portfolio with full trade-level transparency. Every entry, every exit, and the cumulative equity curve are visible without subscription. Subscribers receive real-time alerts for entries and exits. Non-subscribers see the same information after a defined delay.
 
 ---
 

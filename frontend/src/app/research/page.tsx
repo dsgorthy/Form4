@@ -202,6 +202,28 @@ export default function ResearchHubPage() {
 
         {featured && <FeaturedCard post={featured} />}
 
+        <section className="space-y-4">
+          <div>
+            <h2 className="text-2xl font-bold text-[#E8E8ED] tracking-tight">Methodology</h2>
+            <p className="mt-1 text-sm text-[#8888A0] max-w-2xl">
+              How we compute Insider Grades and Trade Grades — the two-tier system behind every signal.
+            </p>
+          </div>
+          <Link
+            href="/research/methodology"
+            className="block rounded-lg border border-[#2A2A3A] bg-[#12121A] p-5 hover:border-[#3B82F6]/50 transition-colors"
+          >
+            <h3 className="text-lg font-semibold text-[#E8E8ED] tracking-tight">How Scoring Works</h3>
+            <p className="mt-2 text-sm text-[#8888A0] leading-relaxed">
+              Insider Grade (A+ to D) measures the person&apos;s historical track record.
+              Trade Grade (1-5★) scores each transaction on 13 factors. Bayesian analysis across 196K+ insider trades.
+            </p>
+            <div className="mt-3 text-xs text-[#55556A]">
+              Reference · How scoring works
+            </div>
+          </Link>
+        </section>
+
         <div className="space-y-12">
           {RESEARCH_TYPES.map((type) => (
             <TypeSection key={type} type={type} posts={byType[type]} />
