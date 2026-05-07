@@ -17,9 +17,9 @@ function SettingsIcon() {
   );
 }
 
-function ResearchDropdown({ pathname }: { pathname: string }) {
+function ExploreDropdown({ pathname }: { pathname: string }) {
   const [open, setOpen] = useState(false);
-  const isActive = researchLinks.some((l) => pathname === l.href);
+  const isActive = exploreLinks.some((l) => pathname === l.href);
 
   return (
     <div className="relative" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
@@ -30,7 +30,7 @@ function ResearchDropdown({ pathname }: { pathname: string }) {
             : "text-[#8888A0] hover:text-[#E8E8ED] hover:bg-[#1A1A26]/50"
         }`}
       >
-        Research
+        Explore
         <svg className={`w-3.5 h-3.5 transition-transform ${open ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
         </svg>
@@ -38,7 +38,7 @@ function ResearchDropdown({ pathname }: { pathname: string }) {
       {open && (
         <div className="absolute left-0 top-full pt-1 z-50">
           <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] py-1 shadow-xl min-w-[160px]">
-            {researchLinks.map((link) => (
+            {exploreLinks.map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
@@ -62,9 +62,10 @@ function ResearchDropdown({ pathname }: { pathname: string }) {
 const primaryLinks = [
   { href: "/portfolio", label: "Portfolio" },
   { href: "/feed", label: "Today's Trades" },
+  { href: "/research", label: "Research" },
 ];
 
-const researchLinks = [
+const exploreLinks = [
   { href: "/screener", label: "Screener" },
   { href: "/leaderboard", label: "Leaderboard" },
   { href: "/clusters", label: "Clusters" },
@@ -112,7 +113,7 @@ export function Nav() {
               </Link>
             );
           })}
-          <ResearchDropdown pathname={pathname} />
+          <ExploreDropdown pathname={pathname} />
         </div>
 
         {/* Right side */}
@@ -223,10 +224,10 @@ export function Nav() {
             );
           })}
 
-          {/* Research section */}
+          {/* Explore section */}
           <div className="pt-2 mt-1 border-t border-[#2A2A3A]">
-            <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-widest text-[#55556A]">Research</div>
-            {researchLinks.map((link) => {
+            <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-widest text-[#55556A]">Explore</div>
+            {exploreLinks.map((link) => {
               const isActive = pathname === link.href;
               return (
                 <Link

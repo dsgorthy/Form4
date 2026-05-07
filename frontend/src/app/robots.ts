@@ -5,7 +5,7 @@ export default function robots(): MetadataRoute.Robots {
     rules: {
       userAgent: "*",
       allow: "/",
-      disallow: ["/portfolio/", "/settings/", "/onboarding/", "/api/"],
+      disallow: ["/portfolio/", "/settings/", "/onboarding/", "/admin/", "/api/"],
     },
     sitemap: "https://form4.app/sitemap.xml",
   };

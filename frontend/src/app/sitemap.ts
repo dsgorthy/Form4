@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { getAllResearch, RESEARCH_TYPES } from "@/lib/research";
 
 const BASE = "https://form4.app";
 const API = process.env.API_URL_INTERNAL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
@@ -9,6 +10,8 @@ export const revalidate = 3600;
 const STATIC_PATHS = [
   "/", "/feed", "/leaderboard", "/signals", "/clusters", "/congress",
   "/screener", "/scoring", "/pricing", "/sells",
+  "/research",
+  ...RESEARCH_TYPES.map((t) => `/research/${t}`),
   "/privacy", "/terms", "/disclaimer",
 ];
 
@@ -61,5 +64,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.5,
   }));
 
-  return [...staticPages, ...companyPages, ...insiderPages, ...filingPages];
+  // Research posts (whitepapers, portfolio-updates, notes)
+  const researchPages: MetadataRoute.Sitemap = getAllResearch().map((p) => ({
+    url: `${BASE}${p.url}`,
+    lastModified: p.frontmatter.date ? new Date(p.frontmatter.date) : now,
+    changeFrequency: "monthly" as const,
+    priority: p.type === "whitepapers" ? 0.9 : 0.7,
+  }));
+
+  return [...staticPages, ...companyPages, ...insiderPages, ...filingPages, ...researchPages];
 }
