@@ -3,7 +3,7 @@
 import { useEffect, useCallback } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
-import { TierBadge } from "@/components/ui/tier-badge";
+import { InsiderGradeBadge } from "@/components/insider-grade-badge";
 import { formatCurrency, formatPercent } from "@/lib/format";
 import { TickerDisplay, companyToSlug } from "@/components/ui/ticker-display";
 import type { Filing } from "@/lib/types";
@@ -159,7 +159,7 @@ export function FilingDetailPanel({ filing, onClose }: FilingDetailPanelProps) {
                 <InfoRow label="Title">{filing.title}</InfoRow>
                 <div className="flex items-center justify-between py-1.5">
                   <span className="text-[#8888A0] text-sm">Tier</span>
-                  <TierBadge tier={filing.tier} pitGrade={filing.pit_grade} />
+                  <InsiderGradeBadge grade={filing.pit_grade} showLabel />
                 </div>
                 <InfoRow label="Score">{filing.score?.toFixed(2) ?? "\u2014"}</InfoRow>
               </div>

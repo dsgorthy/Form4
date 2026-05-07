@@ -17,10 +17,17 @@ import { Pagination } from "@/components/pagination";
 const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
 
 function StarsPill({ stars }: { stars: number }) {
-  const color = stars >= 4 ? "text-[#22C55E]" : stars >= 3 ? "text-[#3B82F6]" : "text-[#8888A0]";
-  const bg = stars >= 4 ? "bg-[#22C55E]/15" : stars >= 3 ? "bg-[#3B82F6]/15" : "bg-[#8888A0]/10";
+  // Semantic palette: 5=green, 4=blue, 3=slate, 2=amber, 1=red
+  const palette: Record<number, { fg: string; bg: string }> = {
+    5: { fg: "text-[#22C55E]", bg: "bg-[#22C55E]/15" },
+    4: { fg: "text-[#3B82F6]", bg: "bg-[#3B82F6]/15" },
+    3: { fg: "text-[#8888A0]", bg: "bg-[#8888A0]/10" },
+    2: { fg: "text-[#F59E0B]", bg: "bg-[#F59E0B]/15" },
+    1: { fg: "text-[#EF4444]", bg: "bg-[#EF4444]/15" },
+  };
+  const { fg, bg } = palette[stars] || palette[3];
   return (
-    <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold ${color} ${bg}`}>
+    <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold ${fg} ${bg}`}>
       {"★".repeat(stars)}{"☆".repeat(5 - stars)}
     </span>
   );

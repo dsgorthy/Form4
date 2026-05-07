@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@clerk/nextjs";
 import Link from "next/link";
 import { formatCurrency } from "@/lib/format";
-import { TierBadge } from "@/components/ui/tier-badge";
+import { InsiderGradeBadge } from "@/components/insider-grade-badge";
+import { TradeGradeBadge } from "@/components/trade-grade-badge";
 import { Badge } from "@/components/ui/badge";
 import { Pagination } from "@/components/pagination";
 import type { Filing, PaginatedResponse } from "@/lib/types";
@@ -82,8 +83,8 @@ export function PrivateTradesTable({ slug, initialData }: PrivateTradesTableProp
                   <span className={`text-sm truncate ${t.gated ? "text-blue-400/40 blur-[3px]" : "text-blue-400"}`}>
                     {t.insider_name}
                   </span>
-                  {(t.score_tier ?? t.tier) != null && (
-                    <TierBadge tier={t.score_tier ?? t.tier} pitGrade={t.pit_grade} />
+                  {t.pit_grade && (
+                    <InsiderGradeBadge grade={t.pit_grade} />
                   )}
                 </div>
                 <Badge
@@ -105,6 +106,11 @@ export function PrivateTradesTable({ slug, initialData }: PrivateTradesTableProp
                   {formatCurrency(t.value)}
                 </span>
               </div>
+              {!t.gated && (t as any).trade_grade && (
+                <div className="mt-1.5">
+                  <TradeGradeBadge grade={(t as any).trade_grade} />
+                </div>
+              )}
             </Wrapper>
           );
         })}
@@ -116,7 +122,9 @@ export function PrivateTradesTable({ slug, initialData }: PrivateTradesTableProp
           <thead>
             <tr className="border-b border-[#2A2A3A] bg-[#1A1A26]/50">
               <th className="px-4 py-3 text-left text-[#55556A] font-medium">Insider</th>
+              <th className="px-4 py-3 text-left text-[#55556A] font-medium">Grade</th>
               <th className="px-4 py-3 text-left text-[#55556A] font-medium">Type</th>
+              <th className="px-4 py-3 text-left text-[#55556A] font-medium">Trade Grade</th>
               <th className="px-4 py-3 text-left text-[#55556A] font-medium">Traded</th>
               <th className="px-4 py-3 text-left text-[#55556A] font-medium">Filed</th>
               <th className="px-4 py-3 text-right text-[#55556A] font-medium">Value</th>
@@ -141,6 +149,9 @@ export function PrivateTradesTable({ slug, initialData }: PrivateTradesTableProp
                   )}
                 </td>
                 <td className="px-4 py-3">
+                  {t.pit_grade ? <InsiderGradeBadge grade={t.pit_grade} /> : <span className="text-[#55556A]">—</span>}
+                </td>
+                <td className="px-4 py-3">
                   <Badge
                     variant="outline"
                     className={`text-xs font-mono ${
@@ -151,6 +162,9 @@ export function PrivateTradesTable({ slug, initialData }: PrivateTradesTableProp
                   >
                     {t.trade_type.toUpperCase()}
                   </Badge>
+                </td>
+                <td className="px-4 py-3">
+                  {!t.gated && (t as any).trade_grade ? <TradeGradeBadge grade={(t as any).trade_grade} /> : <span className="text-[#55556A]">—</span>}
                 </td>
                 <td className={`px-4 py-3 text-[#E8E8ED] ${t.gated ? "blur-[3px]" : ""}`}>{t.trade_date}</td>
                 <td className={`px-4 py-3 text-[#55556A] ${t.gated ? "blur-[3px]" : ""}`}>{t.filing_date}</td>

@@ -9,7 +9,7 @@ export const metadata = {
 import Link from "next/link";
 import { fetchAPIAuth } from "@/lib/auth";
 import { formatCurrency, formatPercent } from "@/lib/format";
-import { TierBadge } from "@/components/ui/tier-badge";
+import { InsiderGradeBadge } from "@/components/insider-grade-badge";
 import { Badge } from "@/components/ui/badge";
 import { TickerDisplay } from "@/components/ui/ticker-display";
 import { SignalBadges } from "@/components/signal-badge";
@@ -236,8 +236,7 @@ export default async function SignalsPage({ searchParams }: Props) {
                   >
                     {s.signal_label}
                   </span>
-                  {s.pit_grade && <TierBadge pitGrade={s.pit_grade} />}
-                  {!s.pit_grade && s.score_tier != null && <TierBadge tier={s.score_tier} />}
+                  {s.pit_grade && <InsiderGradeBadge grade={s.pit_grade} />}
                 </div>
                 <div className={`text-xs mt-1 ${gated ? "text-[#55556A]/40 blur-[3px]" : "text-[#55556A]"}`}>
                   {s.insider_name} · {s.title}

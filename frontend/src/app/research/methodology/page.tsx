@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { currentUser } from "@clerk/nextjs/server";
-import { TierBadge } from "@/components/ui/tier-badge";
+import { InsiderGradeBadge } from "@/components/insider-grade-badge";
 import { getUserTier } from "@/lib/subscription";
 
 export const metadata = {
@@ -47,10 +47,19 @@ const tradeFactors = [
 ];
 
 function StarDisplay({ count }: { count: number }) {
+  // Match the semantic palette used by TradeGradeBadge: 5=green, 4=blue, 3=slate, 2=amber, 1=red
+  const colorMap: Record<number, string> = {
+    5: "#22C55E",
+    4: "#3B82F6",
+    3: "#8888A0",
+    2: "#F59E0B",
+    1: "#EF4444",
+  };
+  const color = colorMap[count] || "#55556A";
   return (
-    <span className="font-mono text-[#F59E0B] tracking-wide">
-      {"*".repeat(count)}
-      <span className="text-[#2A2A3A]">{"*".repeat(5 - count)}</span>
+    <span className="font-mono tracking-wide" style={{ color }}>
+      {"★".repeat(count)}
+      <span className="opacity-30">{"☆".repeat(5 - count)}</span>
     </span>
   );
 }
@@ -136,7 +145,7 @@ export default async function ScoringPage() {
               {insiderGrades.map((g, i) => (
                 <tr key={g.grade} className={i < insiderGrades.length - 1 ? "border-b border-[#2A2A3A]/50" : ""}>
                   <td className="px-4 py-3 align-top">
-                    <TierBadge pitGrade={g.grade === "New" ? undefined : g.grade} />
+                    <InsiderGradeBadge grade={g.grade === "New" ? undefined : g.grade} />
                   </td>
                   {isAuthed && (
                     <td className="px-4 py-3 font-mono text-[#E8E8ED] align-top">{g.threshold}</td>

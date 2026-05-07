@@ -5,7 +5,7 @@ import { useAuth } from "@clerk/nextjs";
 import Link from "next/link";
 import { formatPercent } from "@/lib/format";
 import { formatTitle } from "@/lib/title-format";
-import { TierBadge } from "@/components/ui/tier-badge";
+import { InsiderGradeBadge } from "@/components/insider-grade-badge";
 import Sparkline from "@/components/sparkline";
 import { Pagination } from "@/components/pagination";
 import type { LeaderboardEntry, PaginatedResponse } from "@/lib/types";
@@ -142,7 +142,7 @@ export function LeaderboardTable({ filters, sort, order }: LeaderboardTableProps
                   {formatTitle(entry.primary_title) || "\u2014"}
                 </td>
                 <td className="px-3 md:px-4 py-3 text-center">
-                  <TierBadge pitGrade={entry.best_pit_grade} tier={entry.score_tier} compact />
+                  <InsiderGradeBadge grade={entry.best_pit_grade} compact />
                 </td>
                 <td className="px-3 md:px-4 py-3 text-right font-mono text-[#E8E8ED]">
                   {entry.buy_count}

@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { formatCurrency } from "@/lib/format";
 import { formatTitle } from "@/lib/title-format";
-import { TierBadge } from "@/components/ui/tier-badge";
+import { InsiderGradeBadge } from "@/components/insider-grade-badge";
 import { ProGate } from "@/components/pro-gate";
 import { Pagination } from "@/components/pagination";
 
@@ -50,7 +50,7 @@ export function InsiderRoster({ insiders, gated = false }: InsiderRosterProps) {
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 min-w-0">
                 <span className="font-medium text-blue-400 truncate">{ins.name}</span>
-                {(ins.pit_grade || ins.score_tier != null) && <TierBadge tier={ins.score_tier} pitGrade={ins.pit_grade} />}
+                {ins.pit_grade && <InsiderGradeBadge grade={ins.pit_grade} />}
               </div>
               <span className="font-mono text-sm text-[#E8E8ED] shrink-0">
                 {formatCurrency(ins.total_value)}
@@ -133,7 +133,7 @@ export function InsiderRoster({ insiders, gated = false }: InsiderRosterProps) {
                 </td>
                 <td className="px-4 py-3 text-center">
                   {ins.pit_grade || ins.score_tier != null ? (
-                    <TierBadge tier={ins.score_tier} pitGrade={ins.pit_grade} />
+                    <InsiderGradeBadge grade={ins.pit_grade} />
                   ) : (
                     <span className="text-[#55556A]">{"\u2014"}</span>
                   )}

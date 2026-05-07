@@ -61,26 +61,3 @@ export function formatRelativeTime(dateStr: string): string {
   return `${month} ${day}, ${year}`;
 }
 
-export function tierColor(tier: number): string {
-  switch (tier) {
-    case 3: return "#F59E0B";
-    case 2: return "#94A3B8";
-    case 1: return "#CD7F32";
-    default: return "#55556A";
-  }
-}
-
-export function tierLabel(tier: number): string {
-  return `T${tier}`;
-}
-
-export function pitGradeColor(grade: string): string {
-  switch (grade) {
-    case "A+": return "#D97706";
-    case "A": return "#F59E0B";
-    case "B": return "#94A3B8";
-    case "C": return "#CD7F32";
-    case "D": return "#55556A";
-    default: return "#55556A";
-  }
-}

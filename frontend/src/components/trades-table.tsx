@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@clerk/nextjs";
 import Link from "next/link";
 import { formatCurrency, formatPercent } from "@/lib/format";
-import { TierBadge } from "@/components/ui/tier-badge";
+import { InsiderGradeBadge } from "@/components/insider-grade-badge";
 import { Badge } from "@/components/ui/badge";
 import { ProGate } from "@/components/pro-gate";
 import { Pagination } from "@/components/pagination";
@@ -148,7 +148,7 @@ export function TradesTable({ ticker, initialData }: TradesTableProps) {
                     {t.insider_name}
                   </span>
                   {(t.score_tier ?? t.tier) != null && (
-                    <TierBadge tier={t.score_tier ?? t.tier} pitGrade={t.pit_grade} />
+                    <InsiderGradeBadge grade={t.pit_grade} showLabel />
                   )}
                 </div>
                 <Badge
@@ -236,7 +236,7 @@ export function TradesTable({ ticker, initialData }: TradesTableProps) {
                 </td>
                 <td className="hidden lg:table-cell px-3 py-3 text-center">
                   {(t.score_tier ?? t.tier) != null ? (
-                    <TierBadge tier={t.score_tier ?? t.tier} pitGrade={t.pit_grade} />
+                    <InsiderGradeBadge grade={t.pit_grade} showLabel />
                   ) : (
                     <span className="text-[#55556A]">{"\u2014"}</span>
                   )}

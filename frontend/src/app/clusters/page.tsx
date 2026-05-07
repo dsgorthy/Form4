@@ -9,7 +9,7 @@ export const metadata = {
 import Link from "next/link";
 import { fetchAPIAuth } from "@/lib/auth";
 import { formatCurrency, formatPercent } from "@/lib/format";
-import { TierBadge } from "@/components/ui/tier-badge";
+import { InsiderGradeBadge } from "@/components/insider-grade-badge";
 import { Badge } from "@/components/ui/badge";
 import { TickerDisplay } from "@/components/ui/ticker-display";
 import { ClusterTimeline } from "@/components/cluster-timeline";
@@ -237,7 +237,7 @@ export default async function ClustersPage({ searchParams }: Props) {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <span className={`text-sm truncate ${isGated ? "text-blue-400/40 blur-[3px]" : "text-blue-400"}`}>{ins.name}</span>
-                          {(ins as any).pit_grade != null || ins.score_tier != null ? <TierBadge pitGrade={(ins as any).pit_grade} tier={ins.score_tier} /> : null}
+                          {(ins as any).pit_grade != null ? <InsiderGradeBadge grade={(ins as any).pit_grade} /> : null}
                         </div>
                         <div className={`text-xs truncate mt-0.5 ${isGated ? "text-[#55556A]/40 blur-[3px]" : "text-[#55556A]"}`}>
                           {ins.title}

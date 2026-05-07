@@ -6,7 +6,7 @@ import Link from "next/link";
 import { formatCurrency, formatPercent, isReturnUnavailable, unavailableReason } from "@/lib/format";
 import { formatTitle } from "@/lib/title-format";
 import { RelativeTime } from "@/components/relative-time";
-import { TierBadge } from "@/components/ui/tier-badge";
+import { InsiderGradeBadge } from "@/components/insider-grade-badge";
 import { Badge } from "@/components/ui/badge";
 import { TickerDisplay } from "@/components/ui/ticker-display";
 import { SignalBadges } from "@/components/signal-badge";
@@ -235,7 +235,7 @@ export function FeedList({ initialTicker = "" }: FeedListProps) {
                     {f.insider_name}
                   </span>
                   {(f.score_tier ?? f.tier) != null && (
-                    <TierBadge tier={f.score_tier ?? f.tier} pitGrade={f.pit_grade} />
+                    <InsiderGradeBadge grade={f.pit_grade} showLabel />
                   )}
                   {(f as any).trade_grade && (
                     <TradeGradeBadge grade={(f as any).trade_grade} />

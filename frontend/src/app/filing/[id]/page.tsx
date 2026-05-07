@@ -5,7 +5,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { fetchAPI } from "@/lib/api";
 import { formatCurrency, formatPercent, isReturnUnavailable, unavailableReason } from "@/lib/format";
-import { TierBadge } from "@/components/ui/tier-badge";
+import { InsiderGradeBadge } from "@/components/insider-grade-badge";
 import { Badge } from "@/components/ui/badge";
 import { TickerDisplay, companyToSlug } from "@/components/ui/ticker-display";
 import { SignalBadges } from "@/components/signal-badge";
@@ -251,7 +251,7 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
           <InfoRow label="Title">{(filing.normalized_title || filing.title)?.replace(/;/g, ", ")}</InfoRow>
           <div className="flex items-center justify-between py-2 border-b border-[#2A2A3A]/50">
             <span className="text-[#8888A0] text-sm">PIT Grade</span>
-            <TierBadge tier={filing.tier} pitGrade={filing.pit_grade} />
+            <InsiderGradeBadge grade={filing.pit_grade} showLabel />
           </div>
           <InfoRow label="Score">{filing.score?.toFixed(2) ?? "\u2014"}</InfoRow>
           {filing.percentile != null && (

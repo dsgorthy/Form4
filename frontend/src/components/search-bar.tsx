@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { TierBadge } from "@/components/ui/tier-badge";
+import { InsiderGradeBadge } from "@/components/insider-grade-badge";
 import { formatCurrency } from "@/lib/format";
 
 interface TickerResult {
@@ -182,7 +182,7 @@ export function SearchBar() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-sm text-[#E8E8ED] truncate">{ins.name}</span>
-                      {(ins.best_pit_grade || ins.score_tier != null) && <TierBadge pitGrade={ins.best_pit_grade} tier={ins.score_tier} />}
+                      {ins.best_pit_grade && <InsiderGradeBadge grade={ins.best_pit_grade} />}
                     </div>
                     {ins.primary_title && (
                       <div className="text-[10px] text-[#55556A] truncate">

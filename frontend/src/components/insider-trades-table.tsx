@@ -7,6 +7,7 @@ import { formatCurrency, formatPercent, isReturnUnavailable, unavailableReason }
 import { Badge } from "@/components/ui/badge";
 import { SignalBadges } from "@/components/signal-badge";
 import { ContextFacts } from "@/components/context-facts";
+import { TradeGradeBadge } from "@/components/trade-grade-badge";
 import { TickerDisplay } from "@/components/ui/ticker-display";
 import { Pagination } from "@/components/pagination";
 import { TransCodeSelector } from "@/components/trans-code-selector";
@@ -117,6 +118,11 @@ export function InsiderTradesTable({ identifier, initialData }: InsiderTradesTab
                 {formatCurrency(t.value)}
               </span>
             </div>
+            {(t as any).trade_grade && (
+              <div className="mt-1.5">
+                <TradeGradeBadge grade={(t as any).trade_grade} />
+              </div>
+            )}
             <div className="flex items-center justify-between mt-1.5">
               <span className="text-xs text-[#8888A0]">{t.trade_date}</span>
               {t.return_7d != null ? (
@@ -149,6 +155,7 @@ export function InsiderTradesTable({ identifier, initialData }: InsiderTradesTab
             <tr className="border-b border-[#2A2A3A] bg-[#1A1A26]/50">
               <th className="px-4 py-3 text-left text-[#55556A] font-medium">Ticker</th>
               <th className="px-4 py-3 text-left text-[#55556A] font-medium">Type</th>
+              <th className="px-4 py-3 text-left text-[#55556A] font-medium">Trade Grade</th>
               <th className="px-4 py-3 text-left text-[#55556A] font-medium">Traded</th>
               <th className="px-4 py-3 text-left text-[#55556A] font-medium">Filed</th>
               <th className="px-4 py-3 text-right text-[#55556A] font-medium">Price</th>
@@ -190,6 +197,9 @@ export function InsiderTradesTable({ identifier, initialData }: InsiderTradesTab
                       ? (t.is_10b5_1 === 1 ? "SELL · 10b5-1" : "SELL · Routine")
                       : t.trade_type.toUpperCase()}
                   </Badge>
+                </td>
+                <td className="px-4 py-3">
+                  {(t as any).trade_grade ? <TradeGradeBadge grade={(t as any).trade_grade} /> : <span className="text-[#55556A]">—</span>}
                 </td>
                 <td className="px-4 py-3 text-[#E8E8ED]">{t.trade_date}</td>
                 <td className="px-4 py-3 text-[#55556A]">{t.filing_date}</td>

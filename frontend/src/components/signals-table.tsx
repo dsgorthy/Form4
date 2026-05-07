@@ -9,7 +9,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { TierBadge } from "@/components/ui/tier-badge";
+import { InsiderGradeBadge } from "@/components/insider-grade-badge";
+import { TradeGradeBadge } from "@/components/trade-grade-badge";
 import { Badge } from "@/components/ui/badge";
 import { TickerDisplay } from "@/components/ui/ticker-display";
 import { formatCurrency, formatPercent } from "@/lib/format";
@@ -40,7 +41,8 @@ export function SignalsTable({ filings }: SignalsTableProps) {
             <TableHead className="text-[#55556A]">Ticker</TableHead>
             <TableHead className="text-[#55556A]">Insider</TableHead>
             <TableHead className="text-[#55556A]">Type</TableHead>
-            <TableHead className="hidden md:table-cell text-[#55556A]">Tier</TableHead>
+            <TableHead className="hidden md:table-cell text-[#55556A]">Grade</TableHead>
+            <TableHead className="hidden md:table-cell text-[#55556A]">Trade Grade</TableHead>
             <TableHead className="text-[#55556A] text-right">Value</TableHead>
             <TableHead className="hidden md:table-cell text-[#55556A] text-right">7d Stock</TableHead>
             <TableHead className="hidden md:table-cell text-[#55556A] text-right">Filed</TableHead>
@@ -73,7 +75,10 @@ export function SignalsTable({ filings }: SignalsTableProps) {
                 </Badge>
               </TableCell>
               <TableCell className="hidden md:table-cell">
-                <TierBadge tier={f.score_tier ?? f.tier} pitGrade={f.pit_grade} compact />
+                <InsiderGradeBadge grade={f.pit_grade} compact />
+              </TableCell>
+              <TableCell className="hidden md:table-cell">
+                {(f as any).trade_grade ? <TradeGradeBadge grade={(f as any).trade_grade} /> : <span className="text-[#55556A]">—</span>}
               </TableCell>
               <TableCell className="text-right font-mono text-[#E8E8ED]">
                 {formatCurrency(f.value)}

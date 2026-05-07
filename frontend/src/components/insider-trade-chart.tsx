@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatCurrency, tierLabel } from "@/lib/format";
+import { formatCurrency } from "@/lib/format";
 
 interface TradeMarker {
   date: string;
@@ -351,12 +351,12 @@ export function InsiderTradeChart({ ticker }: InsiderTradeChartProps) {
                 </div>`;
               }
               const typeColor = t.trade_type === "buy" ? "#22C55E" : "#EF4444";
-              const tierStr = t.score_tier != null ? ` · ${tierLabel(t.score_tier)}` : "";
+              const gradeStr = (t as any).pit_grade ? ` · ${(t as any).pit_grade}` : "";
               return `<div style="margin-bottom:4px">
                 <div style="font-weight:500;color:#E8E8ED">${t.insider_name}</div>
                 <div style="color:#8888A0">
                   <span style="color:${typeColor};font-family:monospace;font-weight:600">${t.trade_type.toUpperCase()}</span>
-                  · $${t.price.toFixed(2)} · ${formatCurrency(t.value)}${tierStr}
+                  · $${t.price.toFixed(2)} · ${formatCurrency(t.value)}${gradeStr}
                 </div>
               </div>`;
             })

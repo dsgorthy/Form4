@@ -7,7 +7,7 @@ import { fetchAPI } from "@/lib/api";
 import { fetchAPIAuth } from "@/lib/auth";
 import { formatCurrency, formatPercent } from "@/lib/format";
 import { formatTitle } from "@/lib/title-format";
-import { TierBadge } from "@/components/ui/tier-badge";
+import { InsiderGradeBadge } from "@/components/insider-grade-badge";
 import { TradeOutcomeTimeline } from "@/components/trade-outcome-timeline";
 import { UpgradePrompt } from "@/components/upgrade-prompt";
 import { InsiderTradesTable } from "@/components/insider-trades-table";
@@ -155,9 +155,7 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
       <div className="flex items-center gap-4 mb-2">
         <h1 className="text-2xl font-bold text-[#E8E8ED]">{profile.name}</h1>
         {(profile as any).best_pit_grade ? (
-          <TierBadge pitGrade={(profile as any).best_pit_grade} bestTicker={(profile as any).best_pit_ticker} tickerCount={(profile as any).n_scored_tickers} />
-        ) : tr ? (
-          <TierBadge tier={tr.score_tier} />
+          <InsiderGradeBadge grade={(profile as any).best_pit_grade} bestTicker={(profile as any).best_pit_ticker} tickerCount={(profile as any).n_scored_tickers} />
         ) : null}
       </div>
       {(() => {
@@ -276,7 +274,7 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                   }`}
                 >
                   <div className="flex items-center gap-2 min-w-0">
-                    <TierBadge pitGrade={tg.grade} />
+                    <InsiderGradeBadge grade={tg.grade} />
                     <span className="text-sm font-mono text-[#E8E8ED] truncate">{tg.ticker}</span>
                   </div>
                   <span className="text-[10px] text-[#55556A] font-mono shrink-0 ml-2">
