@@ -6,7 +6,7 @@ const nextConfig: NextConfig = {
     return [
       {
         source: "/research/market-overview",
-        destination: "/admin/market-overview",
+        destination: "/research",
         permanent: true,
       },
     ];
