@@ -70,7 +70,6 @@ const exploreLinks = [
   { href: "/leaderboard", label: "Leaderboard" },
   { href: "/clusters", label: "Clusters" },
   { href: "/congress", label: "Congress" },
-  { href: "/signals", label: "Signals" },
 ];
 
 export function Nav() {

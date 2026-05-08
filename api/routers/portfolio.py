@@ -39,6 +39,8 @@ def _build_trade_row(r: dict, scale: float, gated: bool = False) -> dict:
         "execution_source": r.get("execution_source", "backtest"),
         "is_estimated": bool(r.get("is_estimated", True)),
         "company": r.get("company"),
+        "pit_grade": r.get("pit_grade"),
+        "career_grade": r.get("career_grade"),
         "gated": gated,
     }
     if gated:
@@ -51,6 +53,8 @@ def _build_trade_row(r: dict, scale: float, gated: bool = False) -> dict:
         row["insider_pit_wr"] = None
         row["signal_quality"] = None
         row["company"] = None
+        row["pit_grade"] = None
+        row["career_grade"] = None
     return row
 
 
@@ -184,20 +188,23 @@ def get_portfolio(
             ORDER BY year
         """, (strategy,)).fetchall()]
 
-        # Paginated trades
+        # Paginated trades — JOIN trades for the entry trade's pit_grade /
+        # career_grade so the frontend can display Career Grade per row.
         offset = (page - 1) * per_page
         trades = conn.execute("""
-            SELECT id, trade_id, ticker, trade_type, direction,
-                   entry_date, entry_price, exit_date, exit_price,
-                   hold_days, target_hold, stop_hit,
-                   pnl_pct, pnl_dollar, position_size,
-                   portfolio_value, equity_after,
-                   insider_name, insider_pit_n, insider_pit_wr, signal_quality,
-                   exit_reason, status,
-                   execution_source, is_estimated, company
-            FROM strategy_portfolio
-            WHERE strategy = ? AND COALESCE(is_live, false) = false
-            ORDER BY entry_date DESC
+            SELECT sp.id, sp.trade_id, sp.ticker, sp.trade_type, sp.direction,
+                   sp.entry_date, sp.entry_price, sp.exit_date, sp.exit_price,
+                   sp.hold_days, sp.target_hold, sp.stop_hit,
+                   sp.pnl_pct, sp.pnl_dollar, sp.position_size,
+                   sp.portfolio_value, sp.equity_after,
+                   sp.insider_name, sp.insider_pit_n, sp.insider_pit_wr, sp.signal_quality,
+                   sp.exit_reason, sp.status,
+                   sp.execution_source, sp.is_estimated, sp.company,
+                   t.pit_grade, t.career_grade
+            FROM strategy_portfolio sp
+            LEFT JOIN trades t ON t.trade_id = sp.trade_id
+            WHERE sp.strategy = ? AND COALESCE(sp.is_live, false) = false
+            ORDER BY sp.entry_date DESC
             LIMIT ? OFFSET ?
         """, (strategy, per_page, offset)).fetchall()
 

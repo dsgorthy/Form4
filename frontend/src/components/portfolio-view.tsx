@@ -12,6 +12,7 @@ registerForm4Theme();
 const ReactECharts = dynamic(() => import("echarts-for-react"), { ssr: false });
 import { isPro } from "@/lib/subscription";
 import { Badge } from "@/components/ui/badge";
+import { InsiderGradeBadge } from "@/components/insider-grade-badge";
 import { Pagination } from "@/components/pagination";
 
 const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
@@ -700,6 +701,7 @@ export function PortfolioView() {
               <tr className="border-b border-[#2A2A3A] bg-[#1A1A26]/50">
                 <th className="px-3 py-2.5 text-left text-[#55556A] font-medium">Ticker</th>
                 <th className="px-3 py-2.5 text-left text-[#55556A] font-medium">Insider</th>
+                <th className="hidden md:table-cell px-3 py-2.5 text-center text-[#55556A] font-medium">Career</th>
                 <th className="px-3 py-2.5 text-left text-[#55556A] font-medium">Entry</th>
                 <th className="px-3 py-2.5 text-right text-[#55556A] font-medium">Entry $</th>
                 <th className="px-3 py-2.5 text-left text-[#55556A] font-medium">Exit</th>
@@ -731,6 +733,15 @@ export function PortfolioView() {
                     </td>
                     <td className={`px-3 py-2 truncate max-w-[140px] ${gated ? "text-[#8888A0]/40 blur-[3px]" : "text-[#8888A0]"}`}>
                       {t.insider_name || "\u2014"}
+                    </td>
+                    <td className={`hidden md:table-cell px-3 py-2 text-center ${gated ? "blur-[3px]" : ""}`}>
+                      {!gated && (t as any).career_grade ? (
+                        <InsiderGradeBadge grade={(t as any).career_grade} compact tooltip={`Career: ${(t as any).career_grade}`} />
+                      ) : !gated && (t as any).pit_grade ? (
+                        <InsiderGradeBadge grade={(t as any).pit_grade} compact tooltip={`Recent Form: ${(t as any).pit_grade}`} />
+                      ) : (
+                        <span className="text-[#55556A]">\u2014</span>
+                      )}
                     </td>
                     <td className={`px-3 py-2 ${gated ? "text-[#E8E8ED]/40 blur-[3px]" : "text-[#E8E8ED]"}`}>{t.entry_date}</td>
                     <td className={`px-3 py-2 text-right font-mono ${gated ? "text-[#E8E8ED]/40 blur-[3px]" : "text-[#E8E8ED]"}`}>

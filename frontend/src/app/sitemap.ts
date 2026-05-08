@@ -8,7 +8,7 @@ const API = process.env.API_URL_INTERNAL || process.env.NEXT_PUBLIC_API_URL || "
 export const revalidate = 3600;
 
 const STATIC_PATHS = [
-  "/", "/feed", "/leaderboard", "/signals", "/clusters", "/congress",
+  "/", "/feed", "/leaderboard", "/clusters", "/congress",
   "/screener", "/pricing",
   "/research",
   ...RESEARCH_TYPES.map((t) => `/research/${t}`),

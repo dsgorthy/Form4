@@ -29,6 +29,11 @@ const nextConfig: NextConfig = {
         destination: "/feed?trade_type=sell",
         permanent: true,
       },
+      {
+        source: "/signals",
+        destination: "/feed",
+        permanent: true,
+      },
     ];
   },
 };
