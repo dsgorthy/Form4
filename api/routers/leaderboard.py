@@ -14,7 +14,11 @@ from api.pit_helpers import enrich_with_best_pit_grade
 router = APIRouter(prefix="/api/v1/leaderboard", tags=["leaderboard"])
 
 SORT_COLUMNS = {
-    "score": "itr.score",
+    # Default sort uses Career Grade score (PIT-correct, V3 scorer).
+    # itr.score (legacy global track-record score) is NOT PIT-correct and
+    # was producing rankings where a top-ranked insider could have a low
+    # current PIT grade. See audit 2026-05-07.
+    "score": "bc.best_career_score",
     "win_rate": "itr.buy_win_rate_7d",
     "alpha": "itr.buy_avg_abnormal_7d",
     "buy_count": "itr.buy_count",
@@ -36,8 +40,15 @@ def leaderboard(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> dict:
-    """Ranked insiders, sortable and filterable."""
-    conditions = ["itr.score IS NOT NULL"]
+    """Ranked insiders, sortable and filterable.
+
+    Default sort is by Career Grade (PIT-correct). The legacy itr.score sort
+    was a known PIT violation — it ranked by global all-time stats while the
+    UI displayed PIT grades, producing inconsistent rankings.
+    """
+    # Filter to insiders with a career score (PIT). Falls back to itr.score
+    # IS NOT NULL only if all sort modes other than "score" are selected.
+    conditions = ["bc.best_career_score IS NOT NULL"]
     params = []
 
     if min_trades is not None:
@@ -66,12 +77,32 @@ def leaderboard(
     sort_col = SORT_COLUMNS[sort_by]
     order_dir = order.upper()
 
+    # CTE: max Career Grade score per insider (PIT-correct via latest as_of_date
+    # per ticker, then MAX across tickers).
+    best_career_cte = """
+        WITH best_career AS (
+            SELECT its.insider_id,
+                   MAX(its.career_blended_score) AS best_career_score
+            FROM insider_ticker_scores its
+            WHERE its.as_of_date = (
+                SELECT MAX(its2.as_of_date)
+                FROM insider_ticker_scores its2
+                WHERE its2.insider_id = its.insider_id
+                  AND its2.ticker = its.ticker
+            )
+              AND its.career_blended_score IS NOT NULL
+            GROUP BY its.insider_id
+        )
+    """
+
     with get_db() as conn:
         total = conn.execute(
             f"""
+            {best_career_cte}
             SELECT COUNT(*) AS cnt
             FROM insider_track_records itr
             JOIN insiders i ON itr.insider_id = i.insider_id
+            JOIN best_career bc ON bc.insider_id = i.insider_id
             WHERE {where_clause}
             """,
             params,
@@ -79,10 +110,13 @@ def leaderboard(
 
         rows = conn.execute(
             f"""
+            {best_career_cte}
             SELECT
                 i.insider_id, COALESCE(i.display_name, i.name) AS name, i.cik,
                 COALESCE(i.is_entity, 0) as is_entity,
-                itr.score, itr.score_tier, itr.percentile,
+                bc.best_career_score AS score,
+                itr.score AS legacy_score,
+                itr.score_tier, itr.percentile,
                 itr.buy_count, itr.buy_win_rate_7d,
                 itr.buy_avg_return_7d, itr.buy_avg_abnormal_7d,
                 itr.sell_count, itr.sell_win_rate_7d,
@@ -91,8 +125,9 @@ def leaderboard(
                 itr.buy_last_date, itr.sell_last_date
             FROM insider_track_records itr
             JOIN insiders i ON itr.insider_id = i.insider_id
+            JOIN best_career bc ON bc.insider_id = i.insider_id
             WHERE {where_clause}
-            ORDER BY {sort_col} {order_dir}
+            ORDER BY {sort_col} {order_dir} NULLS LAST
             LIMIT ? OFFSET ?
             """,
             params + [limit, offset],
