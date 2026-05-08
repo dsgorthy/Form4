@@ -316,6 +316,150 @@ DEFAULT_SCORER = BayesianScorerV2()
 
 
 # ---------------------------------------------------------------------------
+# V3 — career-track-record scorer (validation only, not yet in production)
+# ---------------------------------------------------------------------------
+#
+# V3 keeps the same Bayesian shrinkage framework as V2 but addresses two
+# behaviors that produced false-negative grades in V2:
+#
+# 1. 5-year half-life (vs V2's 1.5y). Career insiders with multi-year gaps
+#    in activity don't collapse to D when their historical trades still
+#    carry signal. No academic basis for the aggressive 1.5y decay.
+# 2. Softer total_weight floor (0.01 vs V2's 0.1). Avoids the snap-to-zero
+#    behavior; the Bayesian prior takes over for small samples instead.
+#
+# All other parameters (Bayesian priors, window weights, role multipliers,
+# ticker/global blend) are identical to V2 by design — we're isolating one
+# change to test its effect on strategy backtests. See tasks #24-31.
+
+V3_RECENCY_HALF_LIFE_DAYS = 1825   # ~5 years
+V3_MIN_TOTAL_WEIGHT = 0.01
+
+
+def _recency_weight_v3(trade_date: str, as_of_date: str) -> float:
+    try:
+        days_ago = (datetime.strptime(as_of_date, "%Y-%m-%d") -
+                    datetime.strptime(trade_date, "%Y-%m-%d")).days
+        if days_ago <= 0:
+            return 1.0
+        return 2.0 ** (-days_ago / V3_RECENCY_HALF_LIFE_DAYS)
+    except (ValueError, TypeError):
+        return 1.0
+
+
+def _bayesian_window_quality_v3(
+    returns: list[tuple[str, float]],
+    as_of_date: str,
+) -> tuple[float, float | None, float | None, float]:
+    """V3 variant of _bayesian_window_quality. 5y half-life, softer floor."""
+    if not returns:
+        return 0.0, None, None, 0.0
+
+    weights = [_recency_weight_v3(td, as_of_date) for td, _ in returns]
+    total_weight = sum(weights)
+
+    if total_weight < V3_MIN_TOTAL_WEIGHT:
+        return 0.0, None, None, 0.0
+
+    weighted_wins = sum(w for (_, r), w in zip(returns, weights) if r > 0)
+    wr_posterior = (weighted_wins + PRIOR_ALPHA) / (total_weight + PRIOR_ALPHA + PRIOR_BETA)
+
+    weighted_sum = sum(r * w for (_, r), w in zip(returns, weights))
+    avg_abn = weighted_sum / total_weight
+    shrunk_abn = (avg_abn * total_weight + PRIOR_RETURN_MEAN * PRIOR_RETURN_N) / (total_weight + PRIOR_RETURN_N)
+
+    wr_component = max(0.0, wr_posterior - 0.50) * 4.0
+    ret_component = max(0.0, min(1.0, shrunk_abn * 10 + 0.3))
+
+    quality = wr_component * 0.45 + ret_component * 0.55
+    return quality, wr_posterior, shrunk_abn, total_weight
+
+
+class BayesianScorerV3(InsiderScorer):
+    """V3 scorer — career-track-record interpretation of insider grade.
+
+    Used in isolation for V3 backtest validation. Not yet wired into
+    production. See pit_scoring.py docstring above for design rationale.
+    """
+
+    @property
+    def method_name(self) -> str:
+        return "bayesian_v3"
+
+    def _blend_windows(self, q7, neff7, q30, neff30, q90, neff90):
+        windows = []
+        if neff7 > 0.01:
+            windows.append((q7, WINDOW_7D_WEIGHT))
+        if neff30 > 0.05:
+            windows.append((q30, WINDOW_30D_WEIGHT))
+        if neff90 > 0.05:
+            windows.append((q90, WINDOW_90D_WEIGHT))
+        if not windows:
+            return 0.0
+        total_w = sum(w for _, w in windows)
+        return sum(q * w / total_w for q, w in windows)
+
+    def score(self, ctx: ScoringContext) -> ScoringResult:
+        t_q7, t_wr7, t_avg7, t_neff7 = _bayesian_window_quality_v3(ctx.ticker_returns_7d, ctx.as_of_date)
+        t_q30, _, _, t_neff30 = _bayesian_window_quality_v3(ctx.ticker_returns_30d, ctx.as_of_date)
+        t_q90, _, _, t_neff90 = _bayesian_window_quality_v3(ctx.ticker_returns_90d, ctx.as_of_date)
+
+        ticker_quality = self._blend_windows(t_q7, t_neff7, t_q30, t_neff30, t_q90, t_neff90)
+        ticker_n_eff = t_neff7
+
+        g_q7, g_wr7, g_avg7, g_neff7 = _bayesian_window_quality_v3(ctx.global_returns_7d, ctx.as_of_date)
+        g_q30, _, _, g_neff30 = _bayesian_window_quality_v3(ctx.global_returns_30d, ctx.as_of_date)
+        g_q90, _, _, g_neff90 = _bayesian_window_quality_v3(ctx.global_returns_90d, ctx.as_of_date)
+
+        global_quality = self._blend_windows(g_q7, g_neff7, g_q30, g_neff30, g_q90, g_neff90)
+
+        ticker_w, global_w = _compute_blend_weights(ticker_n_eff)
+        base_quality = ticker_quality * ticker_w + global_quality * global_w
+
+        rw = _role_weight(ctx.role_at_ticker, ctx.is_primary_company)
+
+        blended = base_quality * rw * 2.7
+        blended = min(3.0, max(0.0, blended))
+
+        total_n = len(ctx.global_returns_7d)
+        sufficient = 1 if total_n >= 1 else 0
+
+        grade = pit_score_to_grade(blended) if sufficient else None
+
+        return ScoringResult(
+            insider_id=ctx.insider_id,
+            ticker=ctx.ticker,
+            as_of_date=ctx.as_of_date,
+            blended_score=round(blended, 4),
+            ticker_score=round(ticker_quality * 3.0, 4),
+            global_score=round(global_quality * 3.0, 4),
+            ticker_weight=round(ticker_w, 4),
+            global_weight=round(global_w, 4),
+            ticker_win_rate_7d=round(t_wr7, 4) if t_wr7 is not None else None,
+            ticker_avg_abnormal_7d=round(t_avg7, 6) if t_avg7 is not None else None,
+            global_win_rate_7d=round(g_wr7, 4) if g_wr7 is not None else None,
+            global_avg_abnormal_7d=round(g_avg7, 6) if g_avg7 is not None else None,
+            ticker_trade_count=len(ctx.ticker_returns_7d),
+            global_trade_count=len(ctx.global_returns_7d),
+            n_observable=total_n,
+            score_7d=round(t_q7 * 3.0, 4),
+            score_30d=round(t_q30 * 3.0, 4),
+            score_90d=round(t_q90 * 3.0, 4),
+            grade=grade,
+            role_weight=round(rw, 4),
+            role_at_ticker=ctx.role_at_ticker,
+            is_primary_company=1 if ctx.is_primary_company else 0,
+            sufficient_data=sufficient,
+            method=self.method_name,
+        )
+
+
+# V3 instance — used by V3 backfill/backtest scripts only.
+# DO NOT swap into DEFAULT_SCORER until V3 has been validated by backtest.
+SCORER_V3 = BayesianScorerV3()
+
+
+# ---------------------------------------------------------------------------
 # Standalone scoring from DB (used by backfill_live.py for new trades)
 # ---------------------------------------------------------------------------
 
@@ -328,12 +472,16 @@ def compute_insider_ticker_score(
     insider_id: int,
     ticker: str,
     as_of_date: str,
+    scorer: Optional[InsiderScorer] = None,
     **_kwargs,
 ) -> ScoringResult:
-    """Compute PIT score for one insider+ticker using BayesianScorerV2.
+    """Compute PIT score for one insider+ticker.
 
     Queries DB for observable returns with proper lag, then scores.
     Used by backfill_live.py for scoring newly-inserted trades.
+
+    `scorer` defaults to DEFAULT_SCORER (V2). V3 backfill scripts pass
+    SCORER_V3 to score against the new methodology in isolation.
     """
     def _get_returns(insider_id_val, ticker_val, window, lag):
         cutoff = (datetime.strptime(as_of_date, "%Y-%m-%d") - timedelta(days=lag)).strftime("%Y-%m-%d")
@@ -376,7 +524,7 @@ def compute_insider_ticker_score(
         role_at_ticker=role_at_ticker,
         is_primary_company=is_primary,
     )
-    return DEFAULT_SCORER.score(ctx)
+    return (scorer or DEFAULT_SCORER).score(ctx)
 
 
 def upsert_score(conn: object, score_data: dict | ScoringResult,

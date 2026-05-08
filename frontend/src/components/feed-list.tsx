@@ -235,7 +235,7 @@ export function FeedList({ initialTicker = "" }: FeedListProps) {
                     {f.insider_name}
                   </span>
                   {(f.score_tier ?? f.tier) != null && (
-                    <InsiderGradeBadge grade={f.pit_grade} showLabel />
+                    <InsiderGradeBadge grade={(f as any).career_grade ?? f.pit_grade} label="Insider" tooltip={(f as any).career_grade ? `Career Grade: ${(f as any).career_grade}` : `Recent Form: ${f.pit_grade}`} />
                   )}
                   {(f as any).trade_grade && (
                     <TradeGradeBadge grade={(f as any).trade_grade} />

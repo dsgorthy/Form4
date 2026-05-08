@@ -108,7 +108,7 @@ export function LeaderboardTable({ filters, sort, order }: LeaderboardTableProps
               <th className="px-3 md:px-4 py-3 text-left text-[#55556A] font-medium w-10">#</th>
               <th className="px-3 md:px-4 py-3 text-left text-[#55556A] font-medium">Insider</th>
               <th className="hidden md:table-cell px-4 py-3 text-left text-[#55556A] font-medium">Title</th>
-              <th className="px-3 md:px-4 py-3 text-center text-[#55556A] font-medium w-16">Grade</th>
+              <th className="px-3 md:px-4 py-3 text-center text-[#55556A] font-medium w-16">Career</th>
               <th className="px-3 md:px-4 py-3 text-right text-[#55556A] font-medium">Buys</th>
               <th className="hidden md:table-cell px-4 py-3 text-right text-[#55556A] font-medium">Win Rate</th>
               <th className="hidden md:table-cell px-4 py-3 text-right text-[#55556A] font-medium">Avg Alpha</th>
@@ -142,7 +142,13 @@ export function LeaderboardTable({ filters, sort, order }: LeaderboardTableProps
                   {formatTitle(entry.primary_title) || "\u2014"}
                 </td>
                 <td className="px-3 md:px-4 py-3 text-center">
-                  <InsiderGradeBadge grade={entry.best_pit_grade} compact />
+                  <InsiderGradeBadge
+                    grade={(entry as any).best_career_grade ?? entry.best_pit_grade}
+                    compact
+                    tooltip={(entry as any).best_career_grade
+                      ? `Career: ${(entry as any).best_career_grade}`
+                      : `Recent Form: ${entry.best_pit_grade}`}
+                  />
                 </td>
                 <td className="px-3 md:px-4 py-3 text-right font-mono text-[#E8E8ED]">
                   {entry.buy_count}

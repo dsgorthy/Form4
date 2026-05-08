@@ -406,7 +406,7 @@ def _build_thesis_query(thesis: dict, lookback_days: int) -> tuple[str, list]:
         clauses.append(f"t.signal_grade IN ({placeholders})")
         params.extend(allowed)
 
-    # PIT grade filter (e.g., ["A+", "A"])
+    # PIT grade filter — Recent Form (V2 scorer)
     if "pit_grade" in filters:
         grades = filters["pit_grade"]
         if isinstance(grades, list):
@@ -415,6 +415,17 @@ def _build_thesis_query(thesis: dict, lookback_days: int) -> tuple[str, list]:
             params.extend(grades)
         else:
             clauses.append("t.pit_grade = ?")
+            params.append(str(grades))
+
+    # Career Grade filter — V3 scorer, career-cumulative track record
+    if "career_grade" in filters:
+        grades = filters["career_grade"]
+        if isinstance(grades, list):
+            placeholders = ",".join("?" for _ in grades)
+            clauses.append(f"t.career_grade IN ({placeholders})")
+            params.extend(grades)
+        else:
+            clauses.append("t.career_grade = ?")
             params.append(str(grades))
 
     # 3-month dip threshold (e.g., -0.25)

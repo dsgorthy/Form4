@@ -1149,12 +1149,16 @@ def main():
             conn.commit()
             logger.info("Cleaned display names for %d new insiders", len(new_insiders))
 
-    # Update PIT scores for newly inserted trades
+    # Update PIT scores for newly inserted trades — compute BOTH grades:
+    #   - Recent Form (V2, default scorer): existing pit_grade column
+    #   - Career Grade (V3, SCORER_V3): new career_grade column
     if not args.dry_run and total_inserted > 0:
         try:
-            from pit_scoring import compute_insider_ticker_score, upsert_score
-            logger.info("Updating PIT scores for new trades...")
-            # Get the newly inserted trades
+            from pit_scoring import (
+                compute_insider_ticker_score, upsert_score,
+                pit_score_to_grade, SCORER_V3,
+            )
+            logger.info("Updating PIT scores (Recent Form + Career) for new trades...")
             new_trades = conn.execute("""
                 SELECT trade_id, insider_id, ticker, filing_date
                 FROM trades
@@ -1165,11 +1169,28 @@ def main():
             """, (args.start, args.end)).fetchall()
             pit_count = 0
             for trade_id, insider_id, ticker, filing_date in new_trades:
-                score = compute_insider_ticker_score(conn, insider_id, ticker, filing_date)
-                upsert_score(conn, score, trigger_trade_id=trade_id)
+                # Recent Form (V2)
+                v2 = compute_insider_ticker_score(conn, insider_id, ticker, filing_date)
+                upsert_score(conn, v2, trigger_trade_id=trade_id)
+                # Career Grade (V3) — write to career_* columns on same row
+                v3 = compute_insider_ticker_score(
+                    conn, insider_id, ticker, filing_date, scorer=SCORER_V3
+                )
+                career_grade = (
+                    pit_score_to_grade(v3.blended_score)
+                    if v3.sufficient_data else None
+                )
+                conn.execute("""
+                    UPDATE insider_ticker_scores
+                    SET career_blended_score = ?, career_grade = ?
+                    WHERE insider_id = ? AND ticker = ? AND as_of_date = ?
+                """, (v3.blended_score, career_grade, insider_id, ticker, filing_date))
+                conn.execute("""
+                    UPDATE trades SET career_grade = ? WHERE trade_id = ?
+                """, (career_grade, trade_id))
                 pit_count += 1
             conn.commit()
-            logger.info("Updated %d PIT scores", pit_count)
+            logger.info("Updated %d PIT scores (Recent Form + Career)", pit_count)
         except ImportError:
             logger.debug("pit_scoring not available, skipping PIT score update")
         except Exception as e:

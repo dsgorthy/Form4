@@ -152,11 +152,24 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
       </nav>
 
       {/* Header */}
-      <div className="flex items-center gap-4 mb-2">
+      <div className="flex items-center gap-4 mb-2 flex-wrap">
         <h1 className="text-2xl font-bold text-[#E8E8ED]">{profile.name}</h1>
-        {(profile as any).best_pit_grade ? (
-          <InsiderGradeBadge grade={(profile as any).best_pit_grade} bestTicker={(profile as any).best_pit_ticker} tickerCount={(profile as any).n_scored_tickers} />
-        ) : null}
+        {(profile as any).best_career_grade && (
+          <InsiderGradeBadge
+            grade={(profile as any).best_career_grade}
+            bestTicker={(profile as any).best_career_ticker}
+            tickerCount={(profile as any).n_scored_tickers}
+            label="Career"
+            tooltip={`Career Grade: ${(profile as any).best_career_grade} — career-cumulative track record across all observable trades.`}
+          />
+        )}
+        {(profile as any).best_pit_grade && (
+          <InsiderGradeBadge
+            grade={(profile as any).best_pit_grade}
+            label="Form"
+            tooltip={`Recent Form: ${(profile as any).best_pit_grade} — recency-weighted (1.5y half-life). Captures whether the insider is currently hitting.`}
+          />
+        )}
       </div>
       {(() => {
         const cos = companies.companies;
@@ -243,7 +256,7 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
         const sellCount = fc?.sell ?? tr.sell_count;
         return (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-            <StatBox label="Score" value={tr.score != null ? tr.score.toFixed(2) : "\u2014"} sub={tr.percentile != null ? `${(tr.percentile * 100).toFixed(0)}th percentile` : undefined} />
+            <StatBox label="Track Record" value={tr.score != null ? tr.score.toFixed(2) : "\u2014"} sub={tr.percentile != null ? `${tr.percentile.toFixed(0)}th percentile` : undefined} />
             <StatBox label="Best Window" value={tr.best_window || "\u2014"} />
             <StatBox label="Tickers Traded" value={String(tr.n_tickers)} />
             <StatBox
@@ -262,7 +275,7 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
             Grade by Ticker
           </h3>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-            {((profile as any).ticker_grades as { ticker: string; grade: string; score: number; trade_count: number }[]).map(
+            {((profile as any).ticker_grades as { ticker: string; grade: string | null; score: number | null; career_grade: string | null; career_score: number | null; trade_count: number }[]).map(
               (tg, i) => (
                 <Link
                   key={tg.ticker}
@@ -274,11 +287,16 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                   }`}
                 >
                   <div className="flex items-center gap-2 min-w-0">
-                    <InsiderGradeBadge grade={tg.grade} />
+                    {tg.career_grade && <InsiderGradeBadge grade={tg.career_grade} compact tooltip={`Career: ${tg.career_grade}`} />}
+                    {tg.grade && tg.grade !== tg.career_grade && (
+                      <span className="text-[9px] text-[#55556A] font-mono">
+                        Form&nbsp;<span style={{ color: "#8888A0" }}>{tg.grade}</span>
+                      </span>
+                    )}
                     <span className="text-sm font-mono text-[#E8E8ED] truncate">{tg.ticker}</span>
                   </div>
                   <span className="text-[10px] text-[#55556A] font-mono shrink-0 ml-2">
-                    {tg.trade_count} {tg.trade_count === 1 ? "trade" : "trades"}
+                    {tg.trade_count > 0 ? `${tg.trade_count} ${tg.trade_count === 1 ? "trade" : "trades"}` : "awaiting returns"}
                   </span>
                 </Link>
               ),

@@ -148,7 +148,7 @@ export function TradesTable({ ticker, initialData }: TradesTableProps) {
                     {t.insider_name}
                   </span>
                   {(t.score_tier ?? t.tier) != null && (
-                    <InsiderGradeBadge grade={t.pit_grade} showLabel />
+                    <InsiderGradeBadge grade={(t as any).career_grade ?? t.pit_grade} label="Insider" tooltip={(t as any).career_grade ? `Career Grade: ${(t as any).career_grade}` : `Recent Form: ${t.pit_grade}`} />
                   )}
                 </div>
                 <Badge
@@ -236,7 +236,7 @@ export function TradesTable({ ticker, initialData }: TradesTableProps) {
                 </td>
                 <td className="hidden lg:table-cell px-3 py-3 text-center">
                   {(t.score_tier ?? t.tier) != null ? (
-                    <InsiderGradeBadge grade={t.pit_grade} showLabel />
+                    <InsiderGradeBadge grade={(t as any).career_grade ?? t.pit_grade} label="Insider" tooltip={(t as any).career_grade ? `Career Grade: ${(t as any).career_grade}` : `Recent Form: ${t.pit_grade}`} />
                   ) : (
                     <span className="text-[#55556A]">{"\u2014"}</span>
                   )}

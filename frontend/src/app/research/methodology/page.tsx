@@ -6,11 +6,11 @@ import { getUserTier } from "@/lib/subscription";
 export const metadata = {
   title: "How Insider Trading Signals Are Scored — Form4.app",
   description:
-    "Form4 uses a two-tier grading system to rank SEC Form 4 insider trades. Insider Grade (A+ to D) measures the person's track record. Trade Grade (1-5 stars) scores each transaction on 13 factors. Built on Bayesian analysis of 196K+ trades.",
+    "Form4 grades insider trades on three independent signals: Career Grade (long-run track record, A+ to D), Recent Form (recency-weighted, A+ to D), and Trade Grade (per-trade quality, 1-5 stars). Built on Bayesian analysis of 196K+ insider trades.",
   openGraph: {
     title: "How Insider Trading Signals Are Scored — Form4.app",
     description:
-      "Two-tier grading system: Insider Grade scores the person, Trade Grade scores the transaction. Bayesian analysis across 196K+ insider trades.",
+      "Three-grade scoring: Career Grade scores the person's track record. Recent Form captures hot/cold streaks. Trade Grade scores each transaction. Bayesian analysis across 196K+ insider trades.",
   },
 };
 
@@ -104,32 +104,41 @@ export default async function ScoringPage() {
       {/* Page header — PUBLIC */}
       <h1 className="text-2xl font-bold text-[#E8E8ED] mb-2">How Scoring Works</h1>
       <p className="text-[#8888A0] mb-4 leading-relaxed">
-        Form4 uses a two-tier grading system to evaluate insider trading signals.
-        Each tier answers a different question:
+        Form4 uses three independent grades to evaluate insider trading signals.
+        Each answers a different question:
       </p>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-10">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-10">
         <div className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/40 p-4">
-          <p className="text-sm font-semibold text-[#E8E8ED] mb-1">Insider Grade</p>
+          <p className="text-sm font-semibold text-[#E8E8ED] mb-1">Career Grade</p>
           <p className="text-sm text-[#8888A0]">
-            Tells you <strong className="text-[#E8E8ED]">WHO</strong> is trading. Scores the person based on their historical track record.
+            <strong className="text-[#E8E8ED]">WHO</strong> they are. Insider&apos;s career-cumulative track record across all observable trades.
+          </p>
+        </div>
+        <div className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/40 p-4">
+          <p className="text-sm font-semibold text-[#E8E8ED] mb-1">Recent Form</p>
+          <p className="text-sm text-[#8888A0]">
+            <strong className="text-[#E8E8ED]">HOW THEY&apos;RE TRADING</strong> right now. Recency-weighted view (1.5y half-life) — captures hot/cold streaks.
           </p>
         </div>
         <div className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/40 p-4">
           <p className="text-sm font-semibold text-[#E8E8ED] mb-1">Trade Grade</p>
           <p className="text-sm text-[#8888A0]">
-            Tells you <strong className="text-[#E8E8ED]">HOW GOOD</strong> this specific trade looks. Scores the transaction based on 13 factors.
+            <strong className="text-[#E8E8ED]">HOW GOOD</strong> this specific transaction looks. 13 factors per trade.
           </p>
         </div>
       </div>
 
-      {/* ─── INSIDER GRADE ─── PUBLIC (thresholds gated to authed) */}
+      {/* ─── CAREER GRADE ─── PUBLIC (thresholds gated to authed) */}
       <section className="mb-14">
-        <h2 className="text-xl font-bold text-[#E8E8ED] mb-1">Insider Grade</h2>
+        <h2 className="text-xl font-bold text-[#E8E8ED] mb-1">Career Grade</h2>
         <p className="text-sm text-[#55556A] font-mono mb-4">A+ / A / B / C / D / New</p>
         <p className="text-sm text-[#8888A0] mb-6 leading-relaxed">
-          Every insider with historical buy trades receives a point-in-time (PIT)
-          quality score that measures their personal track record. The score only
-          uses data that was available at the time of each trade &mdash; no look-ahead bias.
+          Every insider with observable buy trades receives a point-in-time (PIT)
+          career score. It uses the full history of trades whose forward returns
+          are knowable as of the scoring date &mdash; no look-ahead bias. The score
+          uses a 5-year half-life decay, so old trades retain meaningful weight
+          and an insider who was strong historically doesn&apos;t lose grade just
+          because they&apos;ve been quiet recently.
         </p>
 
         <div className="overflow-x-auto rounded-lg border border-[#2A2A3A] mb-6">
@@ -158,7 +167,7 @@ export default async function ScoringPage() {
         </div>
 
         {/* Methodology — public shows headlines, authed shows specifics */}
-        <h3 className="text-sm font-semibold text-[#E8E8ED] mb-3">How the Insider Score is Calculated</h3>
+        <h3 className="text-sm font-semibold text-[#E8E8ED] mb-3">How the Career Score is Calculated</h3>
         <ul className="space-y-2.5 text-sm text-[#8888A0] leading-relaxed">
           <li className="flex items-start gap-2">
             <span className="text-[#3B82F6] mt-1 shrink-0">&bull;</span>
@@ -215,12 +224,36 @@ export default async function ScoringPage() {
         )}
       </section>
 
+      {/* ─── RECENT FORM ─── PUBLIC */}
+      <section className="mb-14">
+        <h2 className="text-xl font-bold text-[#E8E8ED] mb-1">Recent Form</h2>
+        <p className="text-sm text-[#55556A] font-mono mb-4">A+ / A / B / C / D / New</p>
+        <div className="space-y-3 text-sm text-[#8888A0] leading-relaxed">
+          <p>
+            Same Bayesian framework as Career Grade, but with a <strong className="text-[#E8E8ED]">1.5-year half-life</strong>.
+            Captures whether the insider is currently in form &mdash; their recent
+            trades dominate the score, older trades fade.
+          </p>
+          <p>
+            An insider who&apos;s been quiet for 4+ years can have <em>strong Career,
+            weak Recent Form</em>. An insider who&apos;s been hot lately but
+            historically mediocre is the opposite. The two grades together tell
+            you both the long-run skill and the short-run state.
+          </p>
+          <p>
+            Form4&apos;s strategies use whichever grade empirically performs best in
+            backtests for that specific signal. Quality-momentum and reversal-dip
+            filter on Career Grade; 10b5-1 surprise filters on Recent Form.
+          </p>
+        </div>
+      </section>
+
       {/* ─── PER-TICKER GRADES ─── PUBLIC */}
       <section className="mb-14">
         <h2 className="text-lg font-semibold text-[#E8E8ED] mb-2">Per-Ticker Grades</h2>
         <div className="space-y-3 text-sm text-[#8888A0] leading-relaxed">
           <p>
-            Insider Grades are computed <strong className="text-[#E8E8ED]">per ticker</strong> because
+            Career Grades are computed <strong className="text-[#E8E8ED]">per ticker</strong> because
             an insider&apos;s information advantage depends on which company they serve.
           </p>
           <p>

@@ -7,18 +7,25 @@ interface Props {
   tickerCount?: number;
   compact?: boolean;
   showLabel?: boolean;
+  label?: string;  // custom label override (e.g., "Career", "Form")
+  tooltip?: string; // custom tooltip override
 }
 
-export function InsiderGradeBadge({ grade, bestTicker, tickerCount, compact, showLabel }: Props) {
+export function InsiderGradeBadge({
+  grade, bestTicker, tickerCount, compact, showLabel, label, tooltip,
+}: Props) {
   if (!grade) {
     return <span className="text-[10px] text-[#55556A] font-mono">New</span>;
   }
+
+  const labelText = label || (showLabel ? "Insider" : null);
+  const tip = tooltip || (label ? `${label} Grade: ${grade}` : `Insider Grade: ${grade}`);
 
   const badge = (
     <Badge
       style={{ backgroundColor: insiderGradeColor(grade), color: "#fff" }}
       className="text-xs font-mono px-1.5 py-0.5 min-w-[28px] text-center inline-flex justify-center"
-      title={`Insider Grade: ${grade}`}
+      title={tip}
     >
       {grade}
     </Badge>
@@ -26,9 +33,9 @@ export function InsiderGradeBadge({ grade, bestTicker, tickerCount, compact, sho
 
   return (
     <span className="inline-flex items-center gap-1">
-      {showLabel && (
+      {labelText && (
         <span className="text-[9px] text-[#55556A] uppercase tracking-wide font-medium">
-          Insider
+          {labelText}
         </span>
       )}
       {badge}
