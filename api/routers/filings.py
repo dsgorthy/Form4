@@ -310,7 +310,8 @@ def get_related_trades(trade_id: str, limit: int = Query(default=5, ge=1, le=20)
                         MAX(t.insider_switch_rate) AS insider_switch_rate,
                     MAX(t.week52_proximity) AS week52_proximity,
                     MAX(t.pit_grade) AS pit_grade,
-                    MAX(t.pit_blended_score) AS pit_blended_score
+                    MAX(t.pit_blended_score) AS pit_blended_score,
+                    MAX(t.career_grade) AS career_grade
                 FROM trades t
                 WHERE t.insider_id = ?
                   {exclude_clause}
