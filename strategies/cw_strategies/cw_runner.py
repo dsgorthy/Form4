@@ -878,13 +878,40 @@ def execute_entries(
     soft_cap = config.get("soft_cap", max_concurrent)
     min_conv_above_soft = config.get("min_conviction_above_soft", 7.0)
 
+    # Capacity-stage audit (P2 day 3a). scan_signals captures dedup/pit_lookup/
+    # min_10b5_1/conviction decisions in trade_decision_audit. THIS function
+    # makes capacity-stage decisions (slot exhaustion, soft/hard cap, replace
+    # rules) that scan_signals can't see. Audit them here so the table tells
+    # the full per-candidate story end-to-end.
+    capacity_run_id = str(uuid.uuid4())
+    capacity_audit_buffer: list[tuple] = []
+
+    def _audit_capacity(c, passed: bool, reason: str, stage: str = "capacity"):
+        capacity_audit_buffer.append((
+            capacity_run_id,
+            strategy_name,
+            c.get("ticker"),
+            c.get("trade_id"),
+            c.get("filing_date"),
+            c.get("thesis_name"),
+            stage,
+            passed,
+            reason,
+            c.get("signal_grade"),  # pit_grade as written by scan_signals
+            c.get("conviction"),
+            None,  # feature_snapshot — already in scan_signals' conviction row
+        ))
+
     for c in candidates:
         if slots <= 0:
-            break
+            _audit_capacity(c, False, "slots_exhausted by higher-conviction earlier candidates")
+            continue
         ticker = c["ticker"]
         if ticker in held_tickers:
+            # Already audited as dedup-reject by scan_signals; skip silent
             continue
         if not ticker or ticker in ("NONE", ""):
+            _audit_capacity(c, False, f"invalid_ticker={ticker!r}")
             continue
 
         # Soft/hard cap logic
@@ -896,10 +923,15 @@ def execute_entries(
         if current_open >= max_concurrent:
             at_capacity_rule = config.get("at_capacity", "skip")
             if at_capacity_rule == "skip":
+                _audit_capacity(c, False,
+                    f"at_max_concurrent={max_concurrent}, rule=skip")
                 continue
 
             # For replace_weakest: require higher conviction than existing
             if at_capacity_rule == "replace_weakest" and conv < min_conv_at_hard:
+                _audit_capacity(c, False,
+                    f"at_max_concurrent={max_concurrent}, rule=replace_weakest "
+                    f"requires conv>={min_conv_at_hard}, got conv={conv:.1f}")
                 continue
 
             if at_capacity_rule == "replace_oldest" and not dry_run:
@@ -1019,6 +1051,9 @@ def execute_entries(
                 continue  # skip or dry run
         elif current_open >= soft_cap and conv < min_conv_above_soft:
             # Between soft and hard cap — only take high conviction
+            _audit_capacity(c, False,
+                f"between_soft_cap={soft_cap}_and_hard_cap={max_concurrent}, "
+                f"requires conv>={min_conv_above_soft}, got conv={conv:.1f}")
             continue
 
         dollar_amount = equity * size_pct
@@ -1032,6 +1067,7 @@ def execute_entries(
         )
 
         if dry_run:
+            _audit_capacity(c, True, "dry_run entry", stage="final")
             entered.append(c)
             held_tickers.add(ticker)
             slots -= 1
@@ -1041,11 +1077,14 @@ def execute_entries(
         current_price = _get_latest_price(alpaca, ticker)
         if not current_price or current_price <= 0:
             logger.warning("No valid price for %s, skipping", ticker)
+            _audit_capacity(c, False, f"no_valid_price ticker={ticker}")
             continue
 
         qty = math.floor(dollar_amount / current_price)
         if qty <= 0:
             logger.warning("Qty 0 for %s ($%.0f / $%.2f), skip", ticker, dollar_amount, current_price)
+            _audit_capacity(c, False,
+                f"qty_zero: dollar_amount={dollar_amount:.0f}/price={current_price:.2f}")
             continue
 
         # Hard guardrails — last line of defense before submission. A bug in
@@ -1068,6 +1107,7 @@ def execute_entries(
                 current_price=current_price, equity=equity,
             )
             logger.error("GUARDRAIL REJECT %s: %s", ticker, reason)
+            _audit_capacity(c, False, f"guardrail_reject: {reason}", stage="risk")
             continue
 
         # Strategy decision is canonical — entry_price is the data-API quote at
@@ -1253,10 +1293,33 @@ def execute_entries(
             prefix,
         )
 
+        _audit_capacity(c, True,
+            f"entered qty={qty} @ ${entry_price:.2f} (${qty*entry_price:.0f})",
+            stage="final")
         entered.append({**c, "entry_price": entry_price, "qty": qty})
         held_tickers.add(ticker)
         slots -= 1
 
+    # Flush capacity-stage audit rows. Best-effort — never raise from
+    # instrumentation. The trade_decision_audit table now has end-to-end
+    # coverage from scan_signals (dedup → conviction) through execute_entries
+    # (capacity → final).
+    if capacity_audit_buffer:
+        try:
+            conn.executemany(
+                """INSERT INTO trade_decision_audit
+                   (run_id, strategy, ticker, trade_id, filing_date, thesis,
+                    stage, passed, reason, pit_grade, conviction, feature_snapshot)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb)""",
+                capacity_audit_buffer,
+            )
+            conn.commit()
+        except Exception as e:
+            logger.warning("execute_entries audit write failed: %s "
+                           "(non-fatal — admin view will be incomplete)", e)
+
+    logger.info("execute_entries: %d entered, %d audit rows",
+                len(entered), len(capacity_audit_buffer))
     return entered
 
 
