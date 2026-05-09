@@ -6,8 +6,8 @@ Event-driven backtesting engine + strategy research platform + Form4.app product
 
 **ALWAYS check Claude memory for `reference_product_audit.md`, `reference_project_structure.md`, and `reference_signal_registry.md` before implementing any feature.** These contain the complete inventory of every page, component, API endpoint, shared utility, and scoring signal. Reuse or extend existing code instead of creating new files. Specifically:
 
-1. **Check if a component already exists** — 70+ components in `frontend/src/components/`. Don't create a new table when `trades-table.tsx` or `signals-table.tsx` already exists.
-2. **Check if an API endpoint already exists** — 13 routers with 40+ endpoints. The portfolio API already supports `?strategy=` param.
+1. **Check if a component already exists** — ~65 components in `frontend/src/components/`. Don't create a new table when `trades-table.tsx` or `signals-table.tsx` already exists.
+2. **Check if an API endpoint already exists** — 20 routers with 68 endpoints. The portfolio API already supports `?strategy=` param.
 3. **Follow existing patterns** — dark theme colors, table structure, gating logic, pagination, ID encoding all have established conventions.
 4. **The portfolio overlay already handles idle cash** — `portfolio-overlay.tsx` exists. Extend it, don't replace it.
 5. **Keep documentation current** — When adding, removing, or overhauling a feature, update `reference_product_audit.md` in Claude memory. This is a living document, not a snapshot. If you add a new page, component, or API endpoint, document it. If you remove or rename one, remove or update the entry.
@@ -28,7 +28,7 @@ frontend/                       # Form4.app — Next.js 15 + Clerk auth + Tailwi
 api/                            # FastAPI backend — serves /api/v1/*
   main.py                       # App entry, CORS, middleware
   routers/                      # Route modules (portfolio.py, signals.py, clusters.py, etc.)
-  db.py                         # SQLite connection to insiders.db
+  db.py                         # Postgres shim — re-exports get_connection/get_db from config.database (NOT SQLite)
   auth.py                       # Clerk JWT verification
   gating.py                     # Free/Pro tier gating logic
   rate_limit.py                 # slowapi rate limiting
@@ -72,7 +72,7 @@ pipelines/
 board/
   personas/                 # 5 evaluator prompts (quant, risk, trader, PM, skeptic)
 
-data/raw/{SYMBOL}/          # 28 symbols, 1-min Parquet bars (~1.2 GB)
+data/raw/{SYMBOL}/          # 26 symbols, 1-min Parquet bars (research-only, not refreshed)
 reports/                    # Board reports, backtest results, sweep CSVs
 ```
 
@@ -124,10 +124,12 @@ python3 strategies/cw_strategies/cw_runner.py --config strategies/cw_strategies/
 | Strategy | Status | Sharpe | Key Metric | Alpaca env prefix |
 |----------|--------|--------|------------|-------------------|
 | quality_momentum | LIVE paper | 1.18 | 68.7% WR, ~50 trades/yr, 42td hold | `_QUALITY_MOMENTUM` |
+| quality_momentum_live | LIVE money (pre-launch — plist not yet installed, $0 deployed) | — | $10k allocation, tighter guardrails (5 max concurrent, 10% circuit-breaker) | `_QUALITY_MOMENTUM_LIVE` |
 | reversal_dip | LIVE paper | 1.08 | ~20 trades/yr, 21td hold, contrarian dip entry | `_REVERSAL_DIP` |
 | tenb51_surprise | LIVE paper (experimental) | 0.68 | 10b5-1 scheduled sellers breaking pattern to buy | `_TENB51_SURPRISE` |
 | etf_gap_fill | Research | 0.59–0.88 | XLC/XLRE/RSP best |
 | spy_gap_fill | Research | — | 76.7% fill rate |
+| spy_intraday_momentum | Research (untracked, NOT yet board-reviewed) | — | 0DTE SPY ATM call/put on Gao-Han-Li-Zhou intraday-momentum signal; backtest shows implausible compounding — needs sizing review |
 
 **Constraint:** Never run multiple strategies through the same Alpaca config. Each trading strategy reads its own `ALPACA_API_KEY_{prefix}` / `ALPACA_API_SECRET_{prefix}` from `.env`, with the prefix declared in the strategy yaml as `alpaca_env_prefix`. Shared read-only credentials for bar-reading processes live in `ALPACA_DATA_API_KEY` / `ALPACA_DATA_API_SECRET`.
 
@@ -150,31 +152,32 @@ python3 strategies/cw_strategies/cw_runner.py --config strategies/cw_strategies/
 **Tables:**
 | Table | Rows | Description |
 |-------|------|-------------|
-| `trades` | ~119K buys, ~616K sells | All insider trades (2001–2026) |
-| `trade_returns` | ~725K | 7d/14d/30d/60d/90d forward returns + SPY benchmark |
-| `option_prices` | ~13M | EOD option OHLCV + bid/ask from ThetaData |
-| `option_pull_status` | ~85K | Per-event tracking of which events have options data |
+| `trades` | ~1.65M total | All insider trades (2001–2026); refreshed every 5 min by `insider-fetch` plist |
+| `trade_returns` | ~725K | 7d/14d/30d/60d/90d forward returns + SPY benchmark; nightly via `backfill-returns` |
+| `prices.option_prices` | ~23.5M | EOD option OHLCV + bid/ask from ThetaData; **DORMANT — see `pipeline_options_backfill.md`** |
+| `prices.option_pull_status` | ~314K | Per-event tracking of which events have options data |
 | `insiders` | — | Insider identity, CIK, entity flag |
-| `insider_ticker_scores` | — | PIT per-insider-per-ticker quality scores |
-| `score_history` | — | Score snapshots over time |
-| `derivative_trades` | ~1.16M | Derivative transaction data |
+| `insider_ticker_scores` | ~358K | PIT per-insider-per-ticker quality scores; daily 09:30 PT via `refresh-features` |
+| `score_history` | ~541K | Score snapshots over time |
+| `research.derivative_trades` | ~1.16M | Derivative transaction data (legacy; superseded by `trades.is_derivative=1`) |
 
 **Daily stock prices**: `pipelines/insider_study/data/prices/` — 5,733 tickers, 2016–2026
 
 **Key rules:**
-- All pipelines and analysis scripts should load events from `insiders.db`, not CSVs
-- Options pull (`options_pull.py --from-db`) reads events from `trades` table, writes results to `option_prices` + `option_pull_status`
-- `theta_cache.db` is a pull-layer cache only — structured data lives in `insiders.db`
-- ~26% of events will never have options data (OTC stocks, micro-caps without listed options)
+- All pipelines and analysis scripts must load events from PostgreSQL `form4`, not CSVs or SQLite. Use `from config.database import get_connection`.
+- Options pull (`options_pull.py --from-db`) reads events from `trades` table, writes results to `option_prices` + `option_pull_status`.
+- `theta_cache.db` was a pull-layer cache; the file is currently MISSING on Studio (data has been migrated to `option_prices`).
+- ~26% of events will never have options data (OTC stocks, micro-caps without listed options).
 
 ### ThetaData Options Pipeline
 
 Historical options EOD pricing for insider event backtesting. **Check `pipeline_options_backfill.md` in Claude memory for current backfill status before doing any options-related work.**
 
-- **ThetaData server**: Java process at `/Users/openclaw/thetadata/lib/202602131.jar` (creds: `/Users/openclaw/thetadata/creds.txt`)
-- **Pull script**: `pipelines/insider_study/options_pull.py --from-db` — reads events from DB, writes structured data to `option_prices` table
-- **Monitor**: `pipelines/insider_study/pull_monitor.sh` — Telegram alerts every 5 min, auto-restart on crash
-- **Cache**: `pipelines/insider_study/data/theta_cache.db` — pull-layer cache + checkpointing (not a data source)
+- **ThetaData server**: Java process at `/Users/derekg/thetadata/lib/202602131.jar` on Studio (creds: `/Users/derekg/thetadata/creds.txt`); listens on `127.0.0.1:25503` per `config.toml`. **Currently NOT running** — see `pipeline_options_backfill.md`.
+- **Pull script**: `pipelines/insider_study/options_pull.py --from-db` — reads events from DB, writes structured data to `option_prices` table. Variants: `options_pull_longdte.py`, `options_pull_targeted.py`.
+- **Monitor**: `pipelines/insider_study/pull_monitor.sh` is referenced in older docs but **the file does not currently exist** on Mini, Studio, or in the repo. Restore or remove the dependency before relaunching the pull.
+- **Cache**: `pipelines/insider_study/data/theta_cache.db` was the pull-layer cache; **the file is currently MISSING**. Resume relies entirely on PG `option_pull_status` for per-event dedup, not the cache.
+- **Pipeline status**: DORMANT since 2026-04-09. ~6-week freshness gap. Last `MAX(trade_date)=2026-03-27`. **Always check `pipeline_options_backfill.md` in Claude memory** before any options work.
 
 ## PIT (Point-in-Time) Validation — MANDATORY
 
