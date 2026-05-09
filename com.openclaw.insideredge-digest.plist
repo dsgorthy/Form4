@@ -9,12 +9,12 @@
     <key>ProgramArguments</key>
     <array>
         <string>/usr/bin/python3</string>
-        <string>/Users/openclaw/trading-framework/pipelines/notification_scanner.py</string>
+        <string>/Users/derekg/trading-framework/pipelines/notification_scanner.py</string>
         <string>--digest</string>
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/Users/openclaw/trading-framework</string>
+    <string>/Users/derekg/trading-framework</string>
 
     <key>StartCalendarInterval</key>
     <dict>
@@ -25,17 +25,17 @@
     </dict>
 
     <key>StandardOutPath</key>
-    <string>/Users/openclaw/trading-framework/logs/notification_digest.log</string>
+    <string>/Users/derekg/trading-framework/logs/notification_digest.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/Users/openclaw/trading-framework/logs/notification_digest.log</string>
+    <string>/Users/derekg/trading-framework/logs/notification_digest.log</string>
 
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
         <string>/usr/local/bin:/usr/bin:/bin</string>
         <key>PYTHONPATH</key>
-        <string>/Users/openclaw/trading-framework</string>
+        <string>/Users/derekg/trading-framework</string>
     </dict>
 </dict>
 </plist>

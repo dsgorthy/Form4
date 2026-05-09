@@ -6,12 +6,12 @@
 # Alpaca SIP data goes back to 2016-01-04, so we align EDGAR pull to that.
 # The bulk import already covers 2020+ solidly.
 #
-# Run from: /Users/openclaw/trading-framework
+# Run from: /Users/derekg/trading-framework
 # Expected runtime: 6-10 hours (EDGAR rate-limited to ~10 req/sec)
 
 set -e
 
-cd /Users/openclaw/trading-framework
+cd /Users/derekg/trading-framework
 LOG_DIR="pipelines/insider_study/data"
 LOG_FILE="${LOG_DIR}/overnight_backfill_$(date +%Y%m%d_%H%M%S).log"
 
@@ -27,16 +27,16 @@ for YEAR in 2016 2017 2018 2019; do
     echo "=== EDGAR Pull: ${YEAR} ===" | tee -a "$LOG_FILE"
     echo "Started: $(date)" | tee -a "$LOG_FILE"
 
-    cd /Users/openclaw/trading-framework/strategies/insider_catalog
+    cd /Users/derekg/trading-framework/strategies/insider_catalog
     python3 backfill_live.py \
         --start "${YEAR}-01-01" \
         --end "${YEAR}-12-31" \
-        2>&1 | tee -a "/Users/openclaw/trading-framework/$LOG_FILE"
+        2>&1 | tee -a "/Users/derekg/trading-framework/$LOG_FILE"
 
-    echo "Completed ${YEAR}: $(date)" | tee -a "/Users/openclaw/trading-framework/$LOG_FILE"
+    echo "Completed ${YEAR}: $(date)" | tee -a "/Users/derekg/trading-framework/$LOG_FILE"
 done
 
-cd /Users/openclaw/trading-framework
+cd /Users/derekg/trading-framework
 
 # ── Step 2: Normalize titles for all new trades ──────────────────────────
 echo "" | tee -a "$LOG_FILE"
@@ -52,10 +52,10 @@ echo "" | tee -a "$LOG_FILE"
 echo "=== Entity Resolution ===" | tee -a "$LOG_FILE"
 echo "Started: $(date)" | tee -a "$LOG_FILE"
 
-cd /Users/openclaw/trading-framework/strategies/insider_catalog
-INSIDER_DEDUP=1 python3 entity_resolution.py 2>&1 | tee -a "/Users/openclaw/trading-framework/$LOG_FILE"
+cd /Users/derekg/trading-framework/strategies/insider_catalog
+INSIDER_DEDUP=1 python3 entity_resolution.py 2>&1 | tee -a "/Users/derekg/trading-framework/$LOG_FILE"
 
-cd /Users/openclaw/trading-framework
+cd /Users/derekg/trading-framework
 
 # ── Step 4: Recompute track records ──────────────────────────────────────
 echo "" | tee -a "$LOG_FILE"

@@ -9,11 +9,11 @@
     <key>ProgramArguments</key>
     <array>
         <string>/usr/bin/python3</string>
-        <string>/Users/openclaw/trading-framework/pipelines/ceowatcher_reader.py</string>
+        <string>/Users/derekg/trading-framework/pipelines/ceowatcher_reader.py</string>
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/Users/openclaw/trading-framework</string>
+    <string>/Users/derekg/trading-framework</string>
 
     <!-- Run daily at 8:30 AM ET (before market open) -->
     <key>StartCalendarInterval</key>
@@ -25,17 +25,17 @@
     </dict>
 
     <key>StandardOutPath</key>
-    <string>/Users/openclaw/trading-framework/logs/ceowatcher_reader.log</string>
+    <string>/Users/derekg/trading-framework/logs/ceowatcher_reader.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/Users/openclaw/trading-framework/logs/ceowatcher_reader.log</string>
+    <string>/Users/derekg/trading-framework/logs/ceowatcher_reader.log</string>
 
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
         <string>/usr/local/bin:/usr/bin:/bin</string>
         <key>PYTHONPATH</key>
-        <string>/Users/openclaw/trading-framework</string>
+        <string>/Users/derekg/trading-framework</string>
     </dict>
 </dict>
 </plist>

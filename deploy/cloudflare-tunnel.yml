@@ -13,7 +13,7 @@
 #   8. sudo launchctl load /Library/LaunchDaemons/com.cloudflare.cloudflared.plist
 
 tunnel: TUNNEL_UUID
-credentials-file: /Users/openclaw/.cloudflared/TUNNEL_UUID.json
+credentials-file: /Users/derekg/.cloudflared/TUNNEL_UUID.json
 
 ingress:
   # All traffic → Caddy reverse proxy (running in Docker on port 80)

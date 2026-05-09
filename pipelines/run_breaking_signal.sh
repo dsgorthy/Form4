@@ -2,7 +2,7 @@
 # Breaking signal detector — runs every 30 min during market hours
 # Detects high-profile insider trades and generates content + assets
 # Copies output to Google Drive for immediate posting
-cd /Users/openclaw/trading-framework
+cd /Users/derekg/trading-framework
 set -a
 source .env 2>/dev/null
 set +a

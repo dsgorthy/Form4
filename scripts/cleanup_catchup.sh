@@ -6,4 +6,4 @@ rm -f ~/Library/LaunchAgents/com.openclaw.catchup-qm.plist
 rm -f ~/Library/LaunchAgents/com.openclaw.catchup-10b5.plist
 launchctl unload ~/Library/LaunchAgents/com.openclaw.catchup-cleanup.plist 2>/dev/null
 rm -f ~/Library/LaunchAgents/com.openclaw.catchup-cleanup.plist
-echo "$(date): Catchup plists cleaned up" >> /Users/openclaw/trading-framework/logs/catchup-cleanup.log
+echo "$(date): Catchup plists cleaned up" >> /Users/derekg/trading-framework/logs/catchup-cleanup.log

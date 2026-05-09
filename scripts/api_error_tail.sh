@@ -6,8 +6,8 @@
 set -uo pipefail
 
 CONTAINER="trading-framework-api-1"
-LOG_FILE="/Users/openclaw/trading-framework/logs/api-errors.log"
-ALERT_LOG="/Users/openclaw/trading-framework/logs/alerts.ndjson"
+LOG_FILE="/Users/derekg/trading-framework/logs/api-errors.log"
+ALERT_LOG="/Users/derekg/trading-framework/logs/alerts.ndjson"
 DEDUPE_DB="/tmp/form4-error-dedupe.txt"
 DEDUPE_WINDOW=300   # 5 minutes
 

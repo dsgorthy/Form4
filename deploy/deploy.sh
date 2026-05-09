@@ -22,7 +22,7 @@ set -euo pipefail
 # =============================================================================
 
 # Derive REPO_DIR from this script's location so the same checked-in code
-# works on every host (Mini at /Users/openclaw, Studio at /Users/derekg, CI, …).
+# works on every host (Mini and Studio both at /Users/derekg/, CI, …).
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOG_DIR="$REPO_DIR/logs"
 
@@ -220,7 +220,7 @@ if [ -x "$SMOKE_SCRIPT" ]; then
         log "Smoke test: FAIL — see endpoints above"
         # Append a critical alert to logs/alerts.ndjson — Derek picks it up
         # via dashboard / morning review (Telegram removed 2026-05-02).
-        ALERT_LOG="/Users/openclaw/trading-framework/logs/alerts.ndjson"
+        ALERT_LOG="$REPO_DIR/logs/alerts.ndjson"
         UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)
         MSG="[${LABEL}] Smoke test FAILED after deploy on ${DOMAIN}. Check ${LOG_FILE}."
         ESC_MSG=$(printf '%s' "$MSG" | python3 -c 'import sys, json; print(json.dumps(sys.stdin.read()))' 2>/dev/null) || ESC_MSG="\"smoke fail (escape error)\""

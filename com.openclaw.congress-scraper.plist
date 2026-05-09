@@ -7,22 +7,22 @@
     <key>ProgramArguments</key>
     <array>
         <string>/usr/bin/python3</string>
-        <string>/Users/openclaw/trading-framework/pipelines/congress_scraper/run_scraper.py</string>
+        <string>/Users/derekg/trading-framework/pipelines/congress_scraper/run_scraper.py</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>/Users/openclaw/trading-framework</string>
+    <string>/Users/derekg/trading-framework</string>
     <key>KeepAlive</key>
     <true/>
     <key>RunAtLoad</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>/Users/openclaw/trading-framework/logs/congress_scraper_stdout.log</string>
+    <string>/Users/derekg/trading-framework/logs/congress_scraper_stdout.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/openclaw/trading-framework/logs/congress_scraper_stderr.log</string>
+    <string>/Users/derekg/trading-framework/logs/congress_scraper_stderr.log</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PYTHONPATH</key>
-        <string>/Users/openclaw/trading-framework</string>
+        <string>/Users/derekg/trading-framework</string>
         <key>PYTHONUNBUFFERED</key>
         <string>1</string>
     </dict>

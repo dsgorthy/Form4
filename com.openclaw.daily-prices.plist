@@ -7,14 +7,14 @@
     <key>ProgramArguments</key>
     <array>
         <string>/usr/bin/python3</string>
-        <string>/Users/openclaw/trading-framework/pipelines/insider_study/update_daily_prices.py</string>
+        <string>/Users/derekg/trading-framework/pipelines/insider_study/update_daily_prices.py</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>/Users/openclaw/trading-framework</string>
+    <string>/Users/derekg/trading-framework</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PYTHONPATH</key>
-        <string>/Users/openclaw/trading-framework</string>
+        <string>/Users/derekg/trading-framework</string>
     </dict>
     <!-- Alpaca data credentials loaded from .env (ALPACA_DATA_API_KEY) via
          python-dotenv at script startup. Read-only data fetch — no orders. -->
@@ -54,9 +54,9 @@
     <key>KeepAlive</key>
     <false/>
     <key>StandardOutPath</key>
-    <string>/Users/openclaw/trading-framework/logs/daily-prices.log</string>
+    <string>/Users/derekg/trading-framework/logs/daily-prices.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/openclaw/trading-framework/logs/daily-prices.log</string>
+    <string>/Users/derekg/trading-framework/logs/daily-prices.log</string>
     <key>ProcessType</key>
     <string>Background</string>
     <key>LowPriorityIO</key>

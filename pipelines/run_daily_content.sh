@@ -9,7 +9,7 @@
 #   5. Copies everything to Google Drive
 #   6. Backs up old content from GDrive to local (>7 days)
 #
-cd /Users/openclaw/trading-framework
+cd /Users/derekg/trading-framework
 set -a
 source .env 2>/dev/null
 set +a
@@ -112,7 +112,7 @@ fi
 MSG="Form4 Content Ready — ${DATE}. ${CAROUSEL_SUMMARY}${WEEKLY_NOTE} Assets in Google Drive: form4-content/${DATE}/. Open slides.txt for copy + asset paths. Post to: IG, X, FB"
 
 # Append to logs/alerts.ndjson instead of Telegram (removed 2026-05-02).
-ALERT_LOG="/Users/openclaw/trading-framework/logs/alerts.ndjson"
+ALERT_LOG="/Users/derekg/trading-framework/logs/alerts.ndjson"
 UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 ESC_MSG=$(printf '%s' "$MSG" | python3 -c 'import sys, json; print(json.dumps(sys.stdin.read()))' 2>/dev/null) || ESC_MSG="\"content ready (escape error)\""
 mkdir -p "$(dirname "$ALERT_LOG")"

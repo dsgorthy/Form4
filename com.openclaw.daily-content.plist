@@ -7,10 +7,10 @@
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>/Users/openclaw/trading-framework/pipelines/run_daily_content.sh</string>
+        <string>/Users/derekg/trading-framework/pipelines/run_daily_content.sh</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>/Users/openclaw/trading-framework</string>
+    <string>/Users/derekg/trading-framework</string>
     <key>StartCalendarInterval</key>
     <dict>
         <key>Hour</key>
@@ -19,8 +19,8 @@
         <integer>0</integer>
     </dict>
     <key>StandardOutPath</key>
-    <string>/Users/openclaw/trading-framework/pipelines/data/content/daily_content.log</string>
+    <string>/Users/derekg/trading-framework/pipelines/data/content/daily_content.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/openclaw/trading-framework/pipelines/data/content/daily_content.log</string>
+    <string>/Users/derekg/trading-framework/pipelines/data/content/daily_content.log</string>
 </dict>
 </plist>

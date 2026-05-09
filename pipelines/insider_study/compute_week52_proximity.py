@@ -14,7 +14,7 @@ from collections import defaultdict
 
 from pathlib import Path as _Path
 
-DB_PATH = "/Users/openclaw/trading-framework/strategies/insider_catalog/insiders.db"
+DB_PATH = "/Users/derekg/trading-framework/strategies/insider_catalog/insiders.db"
 PRICES_DB = _Path(DB_PATH).parent / "prices.db"  # daily_prices, option_prices
 BATCH_SIZE = 50_000
 WINDOW = 252  # trading days in a year

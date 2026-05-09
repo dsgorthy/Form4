@@ -7,14 +7,14 @@
     <key>ProgramArguments</key>
     <array>
         <string>/usr/bin/python3</string>
-        <string>/Users/openclaw/trading-framework/pipelines/insider_study/compute_signals.py</string>
+        <string>/Users/derekg/trading-framework/pipelines/insider_study/compute_signals.py</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>/Users/openclaw/trading-framework</string>
+    <string>/Users/derekg/trading-framework</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PYTHONPATH</key>
-        <string>/Users/openclaw/trading-framework</string>
+        <string>/Users/derekg/trading-framework</string>
     </dict>
 
     <!-- Run weekdays at 5:45 PM PT — 15 min after daily-prices finishes,
@@ -52,9 +52,9 @@
     <key>KeepAlive</key>
     <false/>
     <key>StandardOutPath</key>
-    <string>/Users/openclaw/trading-framework/logs/compute-signals.log</string>
+    <string>/Users/derekg/trading-framework/logs/compute-signals.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/openclaw/trading-framework/logs/compute-signals.log</string>
+    <string>/Users/derekg/trading-framework/logs/compute-signals.log</string>
     <key>ProcessType</key>
     <string>Background</string>
     <key>LowPriorityIO</key>

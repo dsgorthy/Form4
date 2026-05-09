@@ -1,7 +1,7 @@
 #!/bin/bash
 # Full cleanup pipeline: wait for active backfill, clean names, rebuild aggregates, re-run 2018
 set -e
-cd /Users/openclaw/trading-framework/strategies/insider_catalog
+cd /Users/derekg/trading-framework/strategies/insider_catalog
 
 echo "$(date '+%H:%M:%S') === CLEANUP PIPELINE START ==="
 

@@ -9,13 +9,13 @@
     <key>ProgramArguments</key>
     <array>
         <string>/usr/bin/python3</string>
-        <string>/Users/openclaw/trading-framework/pipelines/insider_study/backfill_returns.py</string>
+        <string>/Users/derekg/trading-framework/pipelines/insider_study/backfill_returns.py</string>
         <string>--max-download</string>
         <string>500</string>
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/Users/openclaw/trading-framework</string>
+    <string>/Users/derekg/trading-framework</string>
 
     <!-- Run daily at 5 AM (after markets close, before morning review) -->
     <key>StartCalendarInterval</key>
@@ -27,17 +27,17 @@
     </dict>
 
     <key>StandardOutPath</key>
-    <string>/Users/openclaw/trading-framework/logs/backfill_returns.log</string>
+    <string>/Users/derekg/trading-framework/logs/backfill_returns.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/Users/openclaw/trading-framework/logs/backfill_returns.log</string>
+    <string>/Users/derekg/trading-framework/logs/backfill_returns.log</string>
 
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
         <string>/usr/local/bin:/usr/bin:/bin</string>
         <key>PYTHONPATH</key>
-        <string>/Users/openclaw/trading-framework</string>
+        <string>/Users/derekg/trading-framework</string>
     </dict>
 </dict>
 </plist>

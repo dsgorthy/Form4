@@ -8,8 +8,8 @@ set -uo pipefail
 BASE="https://form4.app"
 TIMEOUT=5
 STATE_FILE="/tmp/form4-uptime-state.json"
-LOG_FILE="/Users/openclaw/trading-framework/logs/uptime.log"
-ALERT_LOG="/Users/openclaw/trading-framework/logs/alerts.ndjson"
+LOG_FILE="/Users/derekg/trading-framework/logs/uptime.log"
+ALERT_LOG="/Users/derekg/trading-framework/logs/alerts.ndjson"
 ALERT_THRESHOLD=3   # consecutive failures before alerting
 
 # Critical endpoints — keep this list small (one ping every 60s × this many)

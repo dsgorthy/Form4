@@ -10,7 +10,7 @@ import sqlite3
 import time
 from collections import defaultdict
 
-DB_PATH = "/Users/openclaw/trading-framework/strategies/insider_catalog/insiders.db"
+DB_PATH = "/Users/derekg/trading-framework/strategies/insider_catalog/insiders.db"
 BATCH_SIZE = 50_000
 MIN_DATE = "2016-01-01"
 
