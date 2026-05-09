@@ -100,7 +100,66 @@ class TestDecisionExit:
         )
         assert d.action == "exit"
         assert d.stage == "exit"
-        # exit isn't in STAGES; should warn (we test that elsewhere)
+
+
+# ── Factory: advance ────────────────────────────────────────────────────────
+
+
+class TestDecisionAdvance:
+    """Decision.advance() — for intermediate-stage passes (V2 audit parity)."""
+
+    def test_advance_basic(self):
+        d = Decision.advance(
+            run_id="run-1",
+            strategy="quality_momentum",
+            strategy_version="abc:def",
+            trade_id=42,
+            ticker="AAPL",
+            filing_date="2026-05-08",
+            stage="dedup",
+        )
+        assert d.action == "enter"  # passed=true in audit
+        assert d.stage == "dedup"   # NOT 'final' — this is intermediate
+        assert d.reason is None
+        assert d.feature_snapshot == {}
+
+    def test_advance_with_pit_grade(self):
+        d = Decision.advance(
+            run_id="r", strategy="qm", strategy_version="v",
+            trade_id=1, ticker="AAPL", filing_date="2026-05-08",
+            stage="pit_lookup",
+            reason="score=1.234",
+            pit_grade="A",
+        )
+        assert d.stage == "pit_lookup"
+        assert d.pit_grade == "A"
+        assert d.reason == "score=1.234"
+
+    def test_advance_with_conviction(self):
+        d = Decision.advance(
+            run_id="r", strategy="qm", strategy_version="v",
+            trade_id=1, ticker="AAPL", filing_date="2026-05-08",
+            stage="conviction",
+            reason="conv=7.2 >= threshold 5.0",
+            pit_grade="A", conviction=7.2,
+            feature_snapshot={"role": "CEO"},
+        )
+        assert d.stage == "conviction"
+        assert d.conviction == 7.2
+        assert d.feature_snapshot == {"role": "CEO"}
+
+    def test_advance_distinct_from_enter(self):
+        """advance() and enter() differ only in stage; both have action='enter'."""
+        kw = dict(
+            run_id="r", strategy="qm", strategy_version="v",
+            trade_id=1, ticker="AAPL", filing_date="2026-05-08",
+        )
+        adv = Decision.advance(**kw, stage="dedup")
+        ent = Decision.enter(**kw, confidence=0.8, feature_snapshot={})
+        assert adv.action == "enter"
+        assert ent.action == "enter"
+        assert adv.stage == "dedup"
+        assert ent.stage == "final"  # the discriminator
 
 
 # ── Validation ──────────────────────────────────────────────────────────────

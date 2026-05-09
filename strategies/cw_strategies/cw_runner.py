@@ -457,7 +457,20 @@ def scan_signals(conn, config: dict) -> list[dict]:
     The pre-rebuild system silently produced 0 candidates on stale data; the
     new system makes the same end-result observably visible (caller sees [],
     operator sees a critical alert in logs/alerts.ndjson with full breach detail).
+
+    P2 day 3b: when env var OMS_V2 is truthy, dispatches to the V2 path
+    in framework.oms.runner.evaluate_candidates_v2. V2 is behaviorally
+    identical (same SQL, same audit rows) but uses Decision objects +
+    write_decisions instead of inline tuples. Defaults to V1 path; user
+    opts in via .env after burn-in verification.
     """
+    # OMS V2 dispatcher — gated by env var, default OFF
+    from framework.oms.runner import is_oms_v2_enabled
+    if is_oms_v2_enabled():
+        from framework.oms.runner import evaluate_candidates_v2
+        logger.info("[OMS_V2] dispatching scan_signals → evaluate_candidates_v2")
+        return evaluate_candidates_v2(conn, config)
+
     strategy_name = config["strategy_name"]
     lookback = config.get("filing_lookback_days", 2)
     theses = config.get("theses", [])

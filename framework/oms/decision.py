@@ -133,10 +133,12 @@ class Decision:
         thesis: Optional[str] = None,
         reason: Optional[str] = None,
     ) -> "Decision":
-        """Construct an enter Decision (passed every filter stage).
+        """Construct an enter Decision — candidate has passed every filter
+        stage and will be promoted to an OrderIntent (subject to pre-trade
+        risk checks).
 
-        action='enter' implies the candidate will be promoted to an
-        OrderIntent and submitted (subject to pre-trade risk checks).
+        Always uses stage='final'. For "passed an intermediate stage,
+        still being evaluated downstream", use Decision.advance() instead.
         """
         return cls(
             decision_id=str(uuid.uuid4()),
@@ -153,6 +155,57 @@ class Decision:
             pit_grade=pit_grade,
             conviction=conviction,
             feature_snapshot=feature_snapshot,
+            thesis=thesis,
+        )
+
+    @classmethod
+    def advance(
+        cls,
+        *,
+        run_id: str,
+        strategy: str,
+        strategy_version: str,
+        trade_id: Optional[int],
+        ticker: str,
+        filing_date: Optional[str],
+        stage: str,
+        reason: Optional[str] = None,
+        pit_grade: Optional[str] = None,
+        conviction: Optional[float] = None,
+        feature_snapshot: Optional[dict] = None,
+        thesis: Optional[str] = None,
+    ) -> "Decision":
+        """Construct an 'advance' Decision — candidate passed THIS stage and
+        is moving to the next. Mirrors V1's `_audit(stage, ..., passed=True)`
+        for intermediate filter stages (dedup, pit_lookup, min_10b5_1, etc.).
+
+        Audit-row equivalence: action='enter' so audit.write_decision sets
+        passed=True, but stage is the intermediate stage name (not 'final').
+        Use Decision.enter() only for the final-stage "ready to trade"
+        decision; use Decision.advance() for everything earlier in the
+        pipeline that produces a passed=True audit row.
+
+        The action='enter' overload is intentional: from the audit table's
+        perspective, "passed this stage" and "will be entered" are the same
+        passed=True row — what differs is the stage column. Strategy code
+        that consumes Decision objects (post-day-3c) should branch on
+        stage=='final' to find the actually-entered candidates.
+        """
+        return cls(
+            decision_id=str(uuid.uuid4()),
+            run_id=run_id,
+            strategy=strategy,
+            strategy_version=strategy_version,
+            trade_id=trade_id,
+            ticker=ticker,
+            filing_date=filing_date,
+            action="enter",
+            stage=stage,
+            reason=reason,
+            confidence=None,
+            pit_grade=pit_grade,
+            conviction=conviction,
+            feature_snapshot=feature_snapshot or {},
             thesis=thesis,
         )
 
