@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.openclaw.post-deploy-audit</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/python3</string>
+        <string>/Users/derekg/trading-framework/scripts/post_deploy_audit.py</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/derekg/trading-framework</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>PYTHONPATH</key>
+        <string>/Users/derekg/trading-framework</string>
+    </dict>
+    <!-- Fires once: Monday 2026-05-11 at 14:00 PT (= 21:00 UTC).
+         The full date triple (Year+Month+Day+Hour+Minute) means launchd
+         only fires when ALL match, so this is effectively one-shot.
+         After the run completes, this plist sits idle until the operator
+         removes it (no auto-cleanup is intentional — the local HTML/JSON
+         dump is in logs/ and the plist's runs counter is a tiny audit
+         trail of "did this fire?"). -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Year</key>
+        <integer>2026</integer>
+        <key>Month</key>
+        <integer>5</integer>
+        <key>Day</key>
+        <integer>11</integer>
+        <key>Hour</key>
+        <integer>14</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>KeepAlive</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>/Users/derekg/trading-framework/logs/post-deploy-audit-launchd.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/derekg/trading-framework/logs/post-deploy-audit-launchd.log</string>
+</dict>
+</plist>
