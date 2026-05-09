@@ -12,8 +12,23 @@
 #     description: str              # human-readable; for runbook clarity
 #     populated_by: str             # script/job that writes this column
 #
-# Contract review: bumped during the post-incident hardening (May 2026).
-# Tighten only after observing the new SLO holds for ≥ 30 days.
+# Contract review: 2026-05-08 (Phase 2 P0). Restored to original 26-30h
+# values. Phase 1 (2026-05-02) created this file but the paired item
+# ("compute pipelines write signal_freshness rows on completion") was
+# never implemented, so the fallback path in freshness.py:get_freshness()
+# always fired — and the fallback measured the wrong thing (MAX(filing_date)
+# interpreted as midnight UTC, structurally always 24h+ behind wallclock).
+#
+# Phase 2 P0 fixes the primary path: every compute pipeline writes a
+# signal_freshness row in the same transaction as its data write, atomic.
+# The fallback is removed — `get_freshness()` raises FreshnessUnknownError
+# if no signal_freshness row exists. The runner's meta-check distinguishes
+# "data is stale" (per-column StaleSignalError) from "the freshness system
+# itself is broken" (FreshnessSystemBrokenError, P0 alert).
+#
+# These SLAs assume the refresh-features chain runs daily ~09:30 PT and
+# completes within minutes. 26h gives ~2h margin past the natural 24h
+# cycle. Tighten further only after observing 30+ days of clean operation.
 
 # ── Trade-level analytical columns (populated by compute_cw_indicators) ──
 trades.dip_3mo:
@@ -76,6 +91,12 @@ trades.is_rare_reversal:
   description: "Boolean: insider broke ≥10-sell streak with this buy (PIT)"
   populated_by: pipelines/insider_study/compute_cw_indicators.py
 
+trades.pit_cluster_size:
+  max_staleness_hours: 26
+  required_for: ['*']
+  description: "Count of distinct other insiders filing same ticker+trans_code in prior 30 days (PIT)"
+  populated_by: pipelines/insider_study/compute_pit_clusters.py
+
 # ── PIT scoring (populated by build_pit_scores) ──
 trades.pit_grade:
   max_staleness_hours: 30
@@ -98,7 +119,7 @@ trades.filing_date:
 
 # ── Daily prices (populated by daily-prices) ──
 prices.daily_prices.date:
-  max_staleness_hours: 30
+  max_staleness_hours: 72
   required_for: ['*']
-  description: "Latest date in prices.daily_prices for SPY (proxy for full coverage)"
+  description: "Latest date in prices.daily_prices for SPY (proxy for full coverage). 72h covers weekends."
   populated_by: pipelines/insider_study/update_daily_prices.py

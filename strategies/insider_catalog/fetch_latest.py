@@ -303,6 +303,21 @@ def _run_fetch_inner(start_date: str, end_date: str, dry_run: bool) -> dict:
         len(new_filings), total_inserted, buys, sells, elapsed,
     )
 
+    # Freshness contract: trades.filing_date is now current.
+    # Write only on non-zero ingest — a 0-row run during off-hours is
+    # expected and shouldn't refresh the timestamp (the contract should
+    # legitimately catch a multi-day filing drought).
+    if not dry_run and total_inserted > 0:
+        from framework.contracts.freshness_writer import write_freshness
+        write_freshness(
+            conn,
+            table="trades",
+            column="filing_date",
+            n_rows_affected=total_inserted,
+            populated_by="strategies/insider_catalog/fetch_latest.py",
+        )
+        conn.commit()
+
     update_last_fetch_time(conn)
     conn.close()
     return stats

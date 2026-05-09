@@ -182,6 +182,19 @@ def main():
 
     max_date_row = conn.execute("SELECT MAX(date) AS d FROM daily_prices").fetchone()
     logger.info("daily_prices MAX(date) after update: %s", max_date_row["d"] if max_date_row else "unknown")
+
+    # Freshness contract: prices.daily_prices.date is now current.
+    if total_rows > 0:
+        from framework.contracts.freshness_writer import write_freshness
+        write_freshness(
+            conn,
+            table="prices.daily_prices",
+            column="date",
+            n_rows_affected=total_rows,
+            populated_by="pipelines/insider_study/update_daily_prices.py",
+        )
+        conn.commit()
+
     conn.close()
 
 

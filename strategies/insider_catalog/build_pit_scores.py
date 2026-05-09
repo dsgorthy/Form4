@@ -212,6 +212,20 @@ def build_walkforward_scores(
         scored, elapsed / 60, scored / max(elapsed, 1),
     )
 
+    # Freshness contract: write signal_freshness row so the runner's
+    # preflight check knows insider_ticker_scores.blended_score is current.
+    # Only on a successful non-zero run — see freshness_writer docstring.
+    if scored > 0:
+        from framework.contracts.freshness_writer import write_freshness
+        write_freshness(
+            conn,
+            table="insider_ticker_scores",
+            column="blended_score",
+            n_rows_affected=scored,
+            populated_by="strategies/insider_catalog/build_pit_scores.py",
+        )
+        conn.commit()
+
 
 def verify_no_leakage(conn: object):
     """Verify that no score uses future data."""

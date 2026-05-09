@@ -37,7 +37,11 @@ from typing import Iterable, Optional
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from framework.contracts.exceptions import StaleSignalError
+from framework.contracts.exceptions import (
+    StaleSignalError,
+    FreshnessUnknownError,
+    FreshnessSystemBrokenError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -131,78 +135,25 @@ def _lookup_signal_freshness(conn, table: str, column: str) -> Optional[datetime
     return None
 
 
-def _lookup_max_filing_date(conn, table: str, column: str) -> Optional[datetime]:
-    """Fallback: MAX(filing_date) WHERE column IS NOT NULL.
-
-    Only valid for columns on `trades`. Other tables fall back to None
-    (caller treats as "unknown freshness" → fails the contract).
-    """
-    if not table.endswith("trades"):
-        return None
-    with suppress(Exception):
-        row = conn.execute(
-            f"SELECT MAX(filing_date) FROM {table} WHERE {column} IS NOT NULL"
-        ).fetchone()
-        if row and row[0]:
-            # filing_date is text 'YYYY-MM-DD'
-            d = row[0]
-            if isinstance(d, str):
-                return datetime.fromisoformat(d).replace(tzinfo=timezone.utc)
-            if isinstance(d, datetime):
-                return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
-    return None
-
-
-def _lookup_max_score_as_of(conn) -> Optional[datetime]:
-    """Fallback for insider_ticker_scores.blended_score — uses as_of_date."""
-    with suppress(Exception):
-        row = conn.execute(
-            "SELECT MAX(as_of_date) FROM insider_ticker_scores"
-        ).fetchone()
-        if row and row[0]:
-            d = row[0]
-            if isinstance(d, str):
-                return datetime.fromisoformat(d).replace(tzinfo=timezone.utc)
-            if isinstance(d, datetime):
-                return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
-    return None
-
-
-def _lookup_max_price_date(conn, ticker: str = "SPY") -> Optional[datetime]:
-    """Fallback for prices.daily_prices — MAX(date) for SPY (proxy)."""
-    with suppress(Exception):
-        row = conn.execute(
-            "SELECT MAX(date) FROM prices.daily_prices WHERE ticker = ?",
-            (ticker,),
-        ).fetchone()
-        if row and row[0]:
-            d = row[0]
-            if isinstance(d, str):
-                return datetime.fromisoformat(d).replace(tzinfo=timezone.utc)
-            if isinstance(d, datetime):
-                return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
-    return None
-
-
 def get_freshness(
     conn,
     table: str,
     column: str,
 ) -> tuple[Optional[datetime], Optional[float]]:
-    """Look up (last_computed_at, age_hours).
+    """Look up (last_computed_at, age_hours) from signal_freshness.
 
-    Returns (None, None) if no freshness data is available — caller treats
-    this as a contract violation.
+    Phase 2 P0 (2026-05-08) removed the structurally-broken fallback paths
+    (MAX(filing_date) / MAX(as_of_date) / MAX(prices.date)) — they measured
+    "when the latest row landed" not "when the compute pipeline ran," and
+    that mismatch caused the false-positive halts the Phase 1 deploy left
+    behind.
+
+    Returns (None, None) if signal_freshness has no row for (table, column).
+    Caller raises FreshnessUnknownError on (None, None) — this is distinct
+    from StaleSignalError because it indicates the writer pipeline never
+    ran, not that the data has aged out.
     """
     ts = _lookup_signal_freshness(conn, table, column)
-    if ts is None:
-        # Fallback paths
-        if table == "insider_ticker_scores" and column == "blended_score":
-            ts = _lookup_max_score_as_of(conn)
-        elif table.endswith("daily_prices"):
-            ts = _lookup_max_price_date(conn)
-        else:
-            ts = _lookup_max_filing_date(conn, table, column)
     if ts is None:
         return None, None
     age_seconds = (datetime.now(timezone.utc) - ts).total_seconds()
@@ -238,11 +189,12 @@ def assert_fresh(
 
     ts, age_hours = get_freshness(conn, table, column)
     if ts is None or age_hours is None:
-        raise StaleSignalError(
+        # No signal_freshness row exists — distinct from "data is stale."
+        # This means the compute pipeline that should be writing this column
+        # has never written. Fail closed with a different runbook (R-002).
+        raise FreshnessUnknownError(
             table=table,
             column=column,
-            max_staleness_hours=contract.max_staleness_hours,
-            observed_age_hours=float("inf"),
             strategy=strategy,
         )
     if age_hours > contract.max_staleness_hours:
@@ -261,6 +213,39 @@ def assert_all_fresh_for_strategy(conn, strategy: str) -> None:
     for contract in registry.for_strategy(strategy):
         assert_fresh(conn, table=contract.table, column=contract.column,
                      strategy=strategy)
+
+
+def assert_freshness_system_healthy(conn, strategy: str) -> None:
+    """Meta-check: signal_freshness has at least one row for every contracted
+    column the strategy depends on.
+
+    Raised BEFORE per-column staleness checks. The distinction matters:
+
+      - `assert_all_fresh_for_strategy` answers "are the inputs fresh enough
+        for this scan?" Failure means a single nightly run lapsed (R-001).
+      - `assert_freshness_system_healthy` answers "is the writer pipeline
+        functional at all?" Failure means the writers have never run for
+        one or more columns. Fundamentally a different problem (R-003)
+        with a different remediation: run scripts/backfill_signal_freshness.py
+        to seed initial values, then verify each compute pipeline calls
+        write_freshness().
+
+    This guard is what would have caught the Phase 1 incomplete deployment
+    (signal_freshness schema landed, writes didn't): the meta-check would
+    have raised FreshnessSystemBrokenError on Day 1, not Day 6.
+    """
+    registry = FreshnessRegistry.get()
+    contracts = registry.for_strategy(strategy)
+    missing: list[str] = []
+    for c in contracts:
+        ts = _lookup_signal_freshness(conn, c.table, c.column)
+        if ts is None:
+            missing.append(f"{c.table}.{c.column}")
+    if missing:
+        raise FreshnessSystemBrokenError(
+            strategy=strategy,
+            missing_columns=missing,
+        )
 
 
 # ── CLI for inspection ──────────────────────────────────────────────────────

@@ -26,6 +26,10 @@ class StaleSignalError(ContractError):
     Raised by `freshness.assert_fresh()`. Strategy runners that catch this
     must HALT entries strategy-wide and emit a P0 alert. Exits and
     reconciliation are unaffected — the halt is on the entry path only.
+
+    Runbook: R-001 (compute pipeline ran but data is older than SLA — usually
+    means a single nightly run failed; refresh-features needs to be triggered
+    or a specific script needs investigation).
     """
 
     def __init__(
@@ -48,6 +52,62 @@ class StaleSignalError(ContractError):
         )
         if strategy:
             msg = f"[{strategy}] {msg}"
+        super().__init__(msg)
+
+
+class FreshnessUnknownError(ContractError):
+    """No signal_freshness row exists for this (table, column).
+
+    Distinct from StaleSignalError: we have NO measurement, not "we measured
+    stale." Raised when the compute pipeline that should be writing this
+    column to signal_freshness has never written. This is the signal that a
+    pipeline is misconfigured, not that data has aged out.
+
+    Runner action: same as StaleSignalError (halt entries) but the runbook
+    points at the writer pipeline, not the data.
+
+    Runbook: R-002 (signal_freshness has no row for a contracted column.
+    Either the compute pipeline is missing its write_freshness() call, or
+    the pipeline has never run since the column was added to the contracts).
+    """
+
+    def __init__(self, *, table: str, column: str, strategy: Optional[str] = None):
+        self.table = table
+        self.column = column
+        self.strategy = strategy
+        msg = (
+            f"{table}.{column} has no signal_freshness row — "
+            f"the compute pipeline that populates it has never written one"
+        )
+        if strategy:
+            msg = f"[{strategy}] {msg}"
+        super().__init__(msg)
+
+
+class FreshnessSystemBrokenError(ContractError):
+    """signal_freshness has no rows for ANY of the strategy's contracted columns.
+
+    Meta-failure: the safety net itself is non-functional. Distinguished from
+    per-column FreshnessUnknownError — that's a single misconfigured pipeline;
+    this is a system-wide writer outage (e.g., a deploy that broke the writer
+    helper, or a fresh DB without backfill applied).
+
+    Halts the strategy with a different runbook than per-column staleness so
+    operator response targets the writer pipeline (or backfill), not the data.
+
+    Runbook: R-003 (signal_freshness writer is broken. Run scripts/backfill_signal_freshness.py
+    to seed initial values, then verify compute pipelines are calling write_freshness()).
+    """
+
+    def __init__(self, *, strategy: str, missing_columns: list[str]):
+        self.strategy = strategy
+        self.missing_columns = list(missing_columns)
+        head = ", ".join(self.missing_columns[:5])
+        suffix = "" if len(missing_columns) <= 5 else f" (+{len(missing_columns)-5} more)"
+        msg = (
+            f"[{strategy}] FRESHNESS_SYSTEM_BROKEN: signal_freshness has no rows "
+            f"for {len(missing_columns)} contracted column(s): {head}{suffix}"
+        )
         super().__init__(msg)
 
 

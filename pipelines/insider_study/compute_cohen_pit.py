@@ -139,6 +139,18 @@ def compute_cohen_pit(conn: object, since: str | None = None) -> int:
         conn.commit()
         logger.info("  batch %d-%d written", i, min(i + BATCH_SIZE, len(updates)))
 
+    # Freshness contract for trades.cohen_routine
+    if updates:
+        from framework.contracts.freshness_writer import write_freshness
+        write_freshness(
+            conn,
+            table="trades",
+            column="cohen_routine",
+            n_rows_affected=len(updates),
+            populated_by="pipelines/insider_study/compute_cohen_pit.py",
+        )
+        conn.commit()
+
     elapsed = time.time() - t0
     logger.info(
         "Done: %d trades updated in %.1fs (%.1f%% routine, %.1f%% opportunistic)",

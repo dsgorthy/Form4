@@ -464,15 +464,59 @@ def scan_signals(conn, config: dict) -> list[dict]:
     all_candidates: list[dict] = []
     seen_trade_ids: set[int] = set()
 
-    # Pre-flight: refuse to operate on stale inputs. assert_all_fresh_for_strategy
-    # raises StaleSignalError on the first contract breach. Catch + alert + halt
-    # cleanly rather than letting the SQL filters silently match zero rows.
+    # Pre-flight: layered freshness checks. Each layer catches a different
+    # class of failure with a distinct runbook:
+    #
+    #   1. assert_freshness_system_healthy (R-003): signal_freshness has
+    #      no rows for one or more contracted columns. The writer pipeline
+    #      itself is broken — not the data. Caught FIRST so a system-wide
+    #      writer outage doesn't masquerade as per-column staleness.
+    #
+    #   2. assert_all_fresh_for_strategy raises:
+    #      - FreshnessUnknownError (R-002): a single column's compute
+    #        pipeline never wrote signal_freshness. Misconfigured pipeline.
+    #      - StaleSignalError (R-001): compute ran but data has aged out.
+    #
+    # All three halt strategy-wide; the runbook differs.
     try:
-        from framework.contracts.freshness import assert_all_fresh_for_strategy
-        from framework.contracts.exceptions import StaleSignalError
+        from framework.contracts.freshness import (
+            assert_all_fresh_for_strategy,
+            assert_freshness_system_healthy,
+        )
+        from framework.contracts.exceptions import (
+            StaleSignalError,
+            FreshnessUnknownError,
+            FreshnessSystemBrokenError,
+        )
         from framework.alerts.log import alert
         try:
+            assert_freshness_system_healthy(conn, strategy_name)
             assert_all_fresh_for_strategy(conn, strategy_name)
+        except FreshnessSystemBrokenError as e:
+            alert.critical(
+                f"cw_runner.{strategy_name}",
+                f"HALT — freshness system broken: {e}. "
+                f"Entries skipped. Runbook R-003. "
+                f"Run scripts/backfill_signal_freshness.py to seed.",
+                strategy=strategy_name,
+                breach=str(e),
+                missing_columns=list(e.missing_columns),
+            )
+            logger.error("[%s] FRESHNESS_SYSTEM_BROKEN — %s", strategy_name, e)
+            return []
+        except FreshnessUnknownError as e:
+            alert.critical(
+                f"cw_runner.{strategy_name}",
+                f"HALT — freshness unknown for {e.table}.{e.column}: "
+                f"compute pipeline never wrote signal_freshness. "
+                f"Entries skipped. Runbook R-002.",
+                strategy=strategy_name,
+                breach=str(e),
+                table=e.table,
+                column=e.column,
+            )
+            logger.error("[%s] FRESHNESS_UNKNOWN — %s", strategy_name, e)
+            return []
         except StaleSignalError as e:
             alert.critical(
                 f"cw_runner.{strategy_name}",

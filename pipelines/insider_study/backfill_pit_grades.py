@@ -114,6 +114,18 @@ def main():
         )
         db.commit()
 
+    # Freshness contract: trades.pit_grade is now current as of this run.
+    if matched > 0:
+        from framework.contracts.freshness_writer import write_freshness
+        write_freshness(
+            db,
+            table="trades",
+            column="pit_grade",
+            n_rows_affected=matched,
+            populated_by="pipelines/insider_study/backfill_pit_grades.py",
+        )
+        db.commit()
+
     elapsed = time.time() - t0
     print(f"\nDone in {elapsed:.1f}s", flush=True)
     print(f"  Processed: {processed:,}", flush=True)

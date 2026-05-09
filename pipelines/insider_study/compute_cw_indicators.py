@@ -501,6 +501,44 @@ INDICATOR_MAP = {
     "consecutive": compute_consecutive_sells,
 }
 
+# Maps each indicator to the columns it populates. Used to write
+# signal_freshness rows after each indicator completes — every contracted
+# column gets its own freshness timestamp reflecting when this script
+# last touched it.
+INDICATOR_TO_COLUMNS = {
+    "dip": ["dip_1mo", "dip_3mo"],
+    "sma": ["above_sma50", "above_sma200"],
+    "size": ["purchase_size_ratio", "is_largest_ever"],
+    "tax": ["is_tax_sale"],
+    "recurring": ["is_recurring"],
+    "consecutive": ["consecutive_sells_before", "is_rare_reversal", "is_10b5_1"],
+}
+
+
+def _write_freshness_for_indicator(conn, indicator: str) -> None:
+    """Write signal_freshness rows for every column the indicator populated.
+    Best-effort — n_rows_affected is recomputed from the trades table since
+    the indicator functions don't return their write counts uniformly."""
+    from framework.contracts.freshness_writer import write_freshness
+    cols = INDICATOR_TO_COLUMNS.get(indicator, [])
+    for col in cols:
+        try:
+            n = conn.execute(
+                f"SELECT COUNT(*) FROM trades WHERE {col} IS NOT NULL AND trade_date >= ?",
+                (MIN_DATE,),
+            ).fetchone()[0]
+        except Exception:
+            n = 0
+        if n > 0:
+            write_freshness(
+                conn,
+                table="trades",
+                column=col,
+                n_rows_affected=n,
+                populated_by="pipelines/insider_study/compute_cw_indicators.py",
+            )
+    conn.commit()
+
 
 def main():
     parser = argparse.ArgumentParser(description="Compute CW-inspired indicators on trades table")
@@ -524,9 +562,11 @@ def main():
 
     if args.indicator:
         INDICATOR_MAP[args.indicator](conn)
+        _write_freshness_for_indicator(conn, args.indicator)
     else:
         for name, fn in INDICATOR_MAP.items():
             fn(conn)
+            _write_freshness_for_indicator(conn, name)
 
     # Summary
     print("\n=== Summary ===")
