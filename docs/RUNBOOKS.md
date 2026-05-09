@@ -167,3 +167,58 @@ python3 scripts/daily_summary.py              # send live
 The stderr log should reveal the cause of any subsequent failure.
 
 **Escalation:** the daily summary is one of three independent "did the system run today" signals (heartbeat, alpaca-reconcile, daily-summary). Two consecutive failures of any signal = real concern. All three failing = halt and investigate.
+
+---
+
+## R-007 — Freshness unknown (compute pipeline never wrote)
+
+**Pattern:** SMS / email `[FORM4-CRIT] cw_runner.<strategy>: HALT — freshness unknown for <table>.<column>: compute pipeline never wrote signal_freshness. Runbook R-007.`
+
+Distinct from R-002 (stale): R-002 means the data WAS computed but is now older than its SLA. R-007 means **no compute pipeline has ever written a `signal_freshness` row for this column** — so we don't know if it's fresh or not. Fail-closed: halt entries until resolved.
+
+**Confirm:**
+```bash
+ssh derekg@100.78.9.66 'psql form4 -c "SELECT * FROM signal_freshness WHERE table_name=<table> AND column_name=<column> ORDER BY last_computed_at DESC LIMIT 5"'
+```
+If zero rows, R-007 is the right runbook. If rows exist but oldest is past SLA, this is actually R-002.
+
+**Common causes:**
+- A new column added to `config/freshness_contracts.yaml` but the corresponding compute pipeline doesn't have a `write_freshness()` call yet
+- A compute pipeline file was modified and the `write_freshness()` call was accidentally removed
+- A compute pipeline is failing every run before reaching its `write_freshness()` call (check the pipeline's launchd log)
+
+**Fix:**
+1. Look up the contract entry in `config/freshness_contracts.yaml` to find `populated_by` (e.g., `pipelines/insider_study/compute_cw_indicators.py`).
+2. Open that script and verify it calls `framework.contracts.freshness_writer.write_freshness(...)` for the affected column. If missing, add it. The pattern is at the end of the compute function, after the data write, in the same transaction.
+3. If the call is present, run the script manually with `--since 2026-04-08` (or appropriate window) and verify it writes a `signal_freshness` row.
+
+**Escalation:** if more than one column is affected, treat as system-wide writer outage — see R-008. Do not manually populate `signal_freshness` rows to "make the alert go away"; that defeats the safety net.
+
+---
+
+## R-008 — Freshness system broken (writer pipeline non-functional)
+
+**Pattern:** SMS / email `[FORM4-CRIT] cw_runner.<strategy>: HALT — freshness system broken: signal_freshness has no rows for N contracted column(s): <list>. Runbook R-008.`
+
+Meta-failure: the entire `signal_freshness` table has no rows for one or more contracted columns this strategy depends on. This typically fires after a deploy where the contracts schema landed but the writer code didn't (or after a fresh DB without backfill applied).
+
+The April 2026 21-day silent outage was the symptom; the May 2026 9-day false-positive halt was Phase 1's structural fix being half-implemented; **R-008 is the alert that catches both classes within hours instead of days/weeks**.
+
+**Confirm:**
+```bash
+ssh derekg@100.78.9.66 'psql form4 -c "SELECT COUNT(*), COUNT(DISTINCT (source, table_name, column_name)) FROM signal_freshness"'
+```
+If counts are 0 or low, R-008 is correct. If many rows exist, only specific columns are missing — see R-007.
+
+**Common causes:**
+- A fresh deploy of new freshness-related code where seed migration hasn't run
+- The `signal_freshness` table got truncated (don't do this)
+- All compute pipelines started failing simultaneously before reaching `write_freshness()` (rare; usually correlates with a Postgres outage or schema migration in flight)
+
+**Fix:**
+1. Run the seed: `ssh derekg@100.78.9.66 '/opt/homebrew/bin/python3 /Users/derekg/trading-framework/scripts/backfill_signal_freshness.py'`
+2. Trigger the refresh-features chain: `ssh derekg@100.78.9.66 '/Users/derekg/trading-framework/strategies/insider_catalog/refresh_features_daily.sh'`
+3. Run the freshness probe to verify: `ssh derekg@100.78.9.66 '/opt/homebrew/bin/python3 /Users/derekg/trading-framework/scripts/freshness_probe.py'`
+4. Restart the runners: `ssh derekg@100.78.9.66 'launchctl kickstart -k gui/$(id -u)/com.openclaw.<strategy>'`
+
+**Escalation:** if seeding doesn't resolve the alert within one full refresh-features cycle, treat as a Postgres-level issue. Check `psql form4 -c "\dt signal_freshness"` to confirm the table exists; check `\d signal_freshness` for schema drift; check Postgres logs for permission or replication issues.

@@ -27,7 +27,7 @@ class StaleSignalError(ContractError):
     must HALT entries strategy-wide and emit a P0 alert. Exits and
     reconciliation are unaffected — the halt is on the entry path only.
 
-    Runbook: R-001 (compute pipeline ran but data is older than SLA — usually
+    Runbook: R-002 (compute pipeline ran but data is older than SLA — usually
     means a single nightly run failed; refresh-features needs to be triggered
     or a specific script needs investigation).
     """
@@ -66,7 +66,7 @@ class FreshnessUnknownError(ContractError):
     Runner action: same as StaleSignalError (halt entries) but the runbook
     points at the writer pipeline, not the data.
 
-    Runbook: R-002 (signal_freshness has no row for a contracted column.
+    Runbook: R-007 (signal_freshness has no row for a contracted column.
     Either the compute pipeline is missing its write_freshness() call, or
     the pipeline has never run since the column was added to the contracts).
     """
@@ -95,7 +95,7 @@ class FreshnessSystemBrokenError(ContractError):
     Halts the strategy with a different runbook than per-column staleness so
     operator response targets the writer pipeline (or backfill), not the data.
 
-    Runbook: R-003 (signal_freshness writer is broken. Run scripts/backfill_signal_freshness.py
+    Runbook: R-008 (signal_freshness writer is broken. Run scripts/backfill_signal_freshness.py
     to seed initial values, then verify compute pipelines are calling write_freshness()).
     """
 

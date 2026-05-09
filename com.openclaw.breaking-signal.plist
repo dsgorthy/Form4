@@ -11,6 +11,11 @@
     </array>
     <key>WorkingDirectory</key>
     <string>/Users/derekg/trading-framework</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
     <key>StartInterval</key>
     <integer>1800</integer>
     <key>StandardOutPath</key>

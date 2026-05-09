@@ -467,15 +467,15 @@ def scan_signals(conn, config: dict) -> list[dict]:
     # Pre-flight: layered freshness checks. Each layer catches a different
     # class of failure with a distinct runbook:
     #
-    #   1. assert_freshness_system_healthy (R-003): signal_freshness has
+    #   1. assert_freshness_system_healthy (R-008): signal_freshness has
     #      no rows for one or more contracted columns. The writer pipeline
     #      itself is broken — not the data. Caught FIRST so a system-wide
     #      writer outage doesn't masquerade as per-column staleness.
     #
     #   2. assert_all_fresh_for_strategy raises:
-    #      - FreshnessUnknownError (R-002): a single column's compute
+    #      - FreshnessUnknownError (R-007): a single column's compute
     #        pipeline never wrote signal_freshness. Misconfigured pipeline.
-    #      - StaleSignalError (R-001): compute ran but data has aged out.
+    #      - StaleSignalError (R-002): compute ran but data has aged out.
     #
     # All three halt strategy-wide; the runbook differs.
     try:
@@ -496,7 +496,7 @@ def scan_signals(conn, config: dict) -> list[dict]:
             alert.critical(
                 f"cw_runner.{strategy_name}",
                 f"HALT — freshness system broken: {e}. "
-                f"Entries skipped. Runbook R-003. "
+                f"Entries skipped. Runbook R-008. "
                 f"Run scripts/backfill_signal_freshness.py to seed.",
                 strategy=strategy_name,
                 breach=str(e),
@@ -509,7 +509,7 @@ def scan_signals(conn, config: dict) -> list[dict]:
                 f"cw_runner.{strategy_name}",
                 f"HALT — freshness unknown for {e.table}.{e.column}: "
                 f"compute pipeline never wrote signal_freshness. "
-                f"Entries skipped. Runbook R-002.",
+                f"Entries skipped. Runbook R-007.",
                 strategy=strategy_name,
                 breach=str(e),
                 table=e.table,
@@ -521,7 +521,7 @@ def scan_signals(conn, config: dict) -> list[dict]:
             alert.critical(
                 f"cw_runner.{strategy_name}",
                 f"HALT — input freshness contract breached: {e}. "
-                f"Entries skipped this cycle. Runbook R-001.",
+                f"Entries skipped this cycle. Runbook R-002.",
                 strategy=strategy_name,
                 breach=str(e),
             )

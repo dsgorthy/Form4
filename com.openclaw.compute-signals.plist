@@ -6,13 +6,15 @@
     <string>com.openclaw.compute-signals</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/bin/python3</string>
+        <string>/opt/homebrew/bin/python3</string>
         <string>/Users/derekg/trading-framework/pipelines/insider_study/compute_signals.py</string>
     </array>
     <key>WorkingDirectory</key>
     <string>/Users/derekg/trading-framework</string>
     <key>EnvironmentVariables</key>
     <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
         <key>PYTHONPATH</key>
         <string>/Users/derekg/trading-framework</string>
     </dict>
