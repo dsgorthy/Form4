@@ -112,9 +112,9 @@ insider_ticker_scores.blended_score:
 
 # ── Raw ingest (populated by insider-fetch) ──
 trades.filing_date:
-  max_staleness_hours: 30
+  max_staleness_hours: 48
   required_for: ['*']
-  description: "Latest filing_date in trades — proxy for ingest freshness"
+  description: "Latest filing_date in trades — proxy for ingest freshness. 48h covers quiet weekends where insider-fetch runs every 5min but inserts 0 rows; only write_freshness fires on n_rows>0."
   populated_by: strategies/insider_catalog/fetch_latest.py
 
 # ── Daily prices (populated by daily-prices) ──
