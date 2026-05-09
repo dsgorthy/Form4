@@ -327,6 +327,12 @@ def evaluate_candidates_v2(conn, config: dict) -> list[dict]:
                 feature_snapshot=snapshot,
             ))
 
+            # Capture the conviction-stage advance Decision's id so
+            # downstream execute_entries_v2 can chain its OrderIntent
+            # off this decision (gives deterministic client_order_id
+            # via Order.from_intent → Alpaca-dedup-compatible).
+            final_decision_id = decisions[-1].decision_id
+
             seen_trade_ids.add(tid)
             all_candidates.append({
                 "trade_id": tid,
@@ -347,6 +353,11 @@ def evaluate_candidates_v2(conn, config: dict) -> list[dict]:
                 "pit_wr": r["pit_win_rate_7d"],
                 "thesis_name": thesis_name,
                 "exit_config": thesis["exit"],
+                # Day 3c plumbing — present only in V2 candidates
+                "decision_id": final_decision_id,
+                "strategy_version": strategy_version,
+                "feature_snapshot": snapshot,
+                "role": role,
             })
 
     # Sort by conviction (highest first) — matches V1

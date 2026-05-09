@@ -1129,7 +1129,41 @@ def execute_entries(
         # (decoupling, manual buy, prior session), the strategy still records
         # the entry and order_audit captures whatever Alpaca does or doesn't do.
         entry_price = current_price
-        order_id = str(uuid.uuid4())
+
+        # OMS V2 path (P2 day 3c): deterministic client_order_id from the
+        # candidate's decision_id (set by evaluate_candidates_v2). Uses
+        # framework.oms.{order_manager,audit} for audit writes via the
+        # state-machine + write_order pattern. V1 path uses random uuid +
+        # _record_order_decision/_record_alpaca_outcome helpers. The
+        # `order_v2` variable is None on the V1 path; threaded through
+        # the lifecycle below to dispatch audit writes.
+        from framework.oms.runner import is_oms_v2_enabled
+        order_v2 = None
+        if is_oms_v2_enabled() and c.get("decision_id"):
+            from framework.oms.order_manager import OrderIntent, Order, OrderState
+            from framework.oms.audit import write_order as _write_order_v2
+            intent_v2 = OrderIntent(
+                intent_id=str(uuid.uuid4()),
+                decision_id=c["decision_id"],
+                strategy=strategy_name,
+                strategy_version=c.get("strategy_version", ""),
+                ticker=ticker,
+                side="buy",
+                qty=float(qty),
+                order_type="market",
+                is_live=bool(config.get("live_money", False)),
+                estimated_value_usd=qty * entry_price,
+                pit_grade=c.get("signal_grade"),
+                conviction_score=c.get("conviction"),
+                decision_rationale=(
+                    f"thesis={c['thesis_name']} insider={c['insider_name']} "
+                    f"entry@${entry_price:.2f}"
+                ),
+            )
+            order_v2 = Order.from_intent(intent_v2)
+            order_id = order_v2.order_id  # deterministic — Alpaca dedups on this
+        else:
+            order_id = str(uuid.uuid4())
 
         # Build entry reasoning JSON
         signal_inputs = {
@@ -1207,22 +1241,35 @@ def execute_entries(
         conn.commit()
 
         # 2. Record decision-time order_audit row (carries order_id; Alpaca
-        #    outcome updated below).
-        _record_order_decision(
-            conn,
-            order_id=order_id,
-            strategy=strategy_name,
-            ticker=ticker,
-            side="buy",
-            qty=qty,
-            conviction=c.get("conviction"),
-            pit_grade=c.get("signal_grade"),
-            signal_inputs=signal_inputs,
-            is_live=is_live,
-            rationale=f"thesis={c['thesis_name']} insider={c['insider_name']} "
-                      f"entry@${entry_price:.2f}",
-            config_yaml_path=config.get("_yaml_path"),
-        )
+        #    outcome updated below). V2 uses framework.oms.audit.write_order
+        #    via the Order/OrderIntent state machine; V1 uses the inline helper.
+        if order_v2 is not None:
+            try:
+                _write_order_v2(
+                    conn, order_v2,
+                    config_version_sha=_git_head_sha(),
+                    config_yaml_sha=_yaml_sha(config.get("_yaml_path")),
+                    signal_inputs=signal_inputs,
+                )
+                conn.commit()
+            except Exception as exc:
+                logger.warning("V2 write_order (initial) failed: %s", exc)
+        else:
+            _record_order_decision(
+                conn,
+                order_id=order_id,
+                strategy=strategy_name,
+                ticker=ticker,
+                side="buy",
+                qty=qty,
+                conviction=c.get("conviction"),
+                pit_grade=c.get("signal_grade"),
+                signal_inputs=signal_inputs,
+                is_live=is_live,
+                rationale=f"thesis={c['thesis_name']} insider={c['insider_name']} "
+                          f"entry@${entry_price:.2f}",
+                config_yaml_path=config.get("_yaml_path"),
+            )
 
         # 3. Submit Alpaca order (best-effort side-channel). If the ticker is
         #    already held in Alpaca, skip submission to avoid stacking; the
@@ -1233,11 +1280,26 @@ def execute_entries(
                 "Alpaca already holds %s — strategy/Alpaca diverged, "
                 "skipping Alpaca submission to avoid stacking.", ticker,
             )
-            _record_alpaca_outcome(
-                conn, order_id=order_id, alpaca_order_id=None,
-                fill_status="skipped",
-                rejection_reason="alpaca_already_holds",
-            )
+            if order_v2 is not None:
+                # V2: state-machine semantics. "skipped" isn't a state, so
+                # we mark_rejected with a reason that makes it queryable.
+                order_v2.mark_rejected("alpaca_already_holds_skipped")
+                try:
+                    _write_order_v2(
+                        conn, order_v2,
+                        config_version_sha=_git_head_sha(),
+                        config_yaml_sha=_yaml_sha(config.get("_yaml_path")),
+                        signal_inputs=signal_inputs,
+                    )
+                    conn.commit()
+                except Exception as exc:
+                    logger.warning("V2 write_order (skipped) failed: %s", exc)
+            else:
+                _record_alpaca_outcome(
+                    conn, order_id=order_id, alpaca_order_id=None,
+                    fill_status="skipped",
+                    rejection_reason="alpaca_already_holds",
+                )
         else:
             try:
                 result = alpaca.submit_order(
@@ -1256,14 +1318,53 @@ def execute_entries(
                     # in unknown state.
                     result = alpaca.wait_for_fill(result.order_id, timeout=90)
                 fill_status = result.status if result.status != "pending" else "timeout"
-                _record_alpaca_outcome(
-                    conn,
-                    order_id=order_id,
-                    alpaca_order_id=result.order_id,
-                    fill_status=fill_status,
-                    fill_price=result.filled_price if fill_status == "filled" else None,
-                    fill_qty=qty if fill_status == "filled" else None,
-                )
+                if order_v2 is not None:
+                    # V2: drive the state machine. PENDING → SUBMITTED happens
+                    # immediately on submit; then ACCEPTED → {FILLED,REJECTED}
+                    # based on terminal status. "timeout" leaves us in SUBMITTED
+                    # with a rejection_reason for forensics.
+                    try:
+                        order_v2.mark_submitted(result.order_id)
+                    except Exception:
+                        pass  # already past SUBMITTED somehow — defensive
+                    if fill_status == "filled":
+                        try:
+                            order_v2.mark_accepted()
+                        except Exception:
+                            pass
+                        order_v2.mark_filled(
+                            fill_qty=float(qty),
+                            avg_price=float(result.filled_price or current_price),
+                        )
+                    elif fill_status == "rejected":
+                        order_v2.mark_rejected(
+                            getattr(result, "error", None) or "alpaca_rejected"
+                        )
+                    elif fill_status == "timeout":
+                        # Stay in SUBMITTED; rejection_reason captures forensic detail
+                        order_v2.rejection_reason = (
+                            f"timeout: alpaca_order_id={result.order_id} "
+                            f"in unknown state, manual verify needed"
+                        )
+                    try:
+                        _write_order_v2(
+                            conn, order_v2,
+                            config_version_sha=_git_head_sha(),
+                            config_yaml_sha=_yaml_sha(config.get("_yaml_path")),
+                            signal_inputs=signal_inputs,
+                        )
+                        conn.commit()
+                    except Exception as exc:
+                        logger.warning("V2 write_order (outcome) failed: %s", exc)
+                else:
+                    _record_alpaca_outcome(
+                        conn,
+                        order_id=order_id,
+                        alpaca_order_id=result.order_id,
+                        fill_status=fill_status,
+                        fill_price=result.filled_price if fill_status == "filled" else None,
+                        fill_qty=qty if fill_status == "filled" else None,
+                    )
                 if fill_status == "filled":
                     logger.info(
                         "Alpaca fill %s: %d @ $%.2f (strategy entry @ $%.2f)",
@@ -1287,10 +1388,23 @@ def execute_entries(
             except Exception as exc:
                 logger.error("Alpaca submission failed for %s: %s "
                              "(strategy state preserved)", ticker, exc)
-                _record_alpaca_outcome(
-                    conn, order_id=order_id, alpaca_order_id=None,
-                    fill_status="exception", rejection_reason=str(exc),
-                )
+                if order_v2 is not None:
+                    order_v2.mark_rejected(f"exception: {str(exc)[:200]}")
+                    try:
+                        _write_order_v2(
+                            conn, order_v2,
+                            config_version_sha=_git_head_sha(),
+                            config_yaml_sha=_yaml_sha(config.get("_yaml_path")),
+                            signal_inputs=signal_inputs,
+                        )
+                        conn.commit()
+                    except Exception as inner:
+                        logger.warning("V2 write_order (exception path) failed: %s", inner)
+                else:
+                    _record_alpaca_outcome(
+                        conn, order_id=order_id, alpaca_order_id=None,
+                        fill_status="exception", rejection_reason=str(exc),
+                    )
                 from framework.alerts.log import alert
                 alert.critical(
                     f"cw_runner.{strategy_name}.alpaca",
