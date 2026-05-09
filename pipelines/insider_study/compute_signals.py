@@ -448,7 +448,7 @@ def trend_reversal(conn: object, since: str | None = None) -> list[tuple]:
               SELECT 1 FROM trades t2
               WHERE t2.insider_id = t.insider_id AND t2.ticker = t.ticker
                 AND t2.trade_type = 'sell'
-                AND t2.trade_date BETWEEN date(t.trade_date, '-12 months') AND date(t.trade_date, '-1 day')
+                AND t2.trade_date BETWEEN (t.trade_date::date - INTERVAL '12 months') AND (t.trade_date::date - INTERVAL '1 day')
               GROUP BY t2.insider_id
               HAVING COUNT(*) >= 2
           )
@@ -456,7 +456,7 @@ def trend_reversal(conn: object, since: str | None = None) -> list[tuple]:
               SELECT 1 FROM trades t3
               WHERE t3.insider_id = t.insider_id AND t3.ticker = t.ticker
                 AND t3.trade_type = 'buy'
-                AND t3.trade_date BETWEEN date(t.trade_date, '-12 months') AND date(t.trade_date, '-1 day')
+                AND t3.trade_date BETWEEN (t.trade_date::date - INTERVAL '12 months') AND (t.trade_date::date - INTERVAL '1 day')
           )
     """).fetchall()
 
@@ -484,7 +484,7 @@ def trend_reversal(conn: object, since: str | None = None) -> list[tuple]:
               SELECT 1 FROM trades t2
               WHERE t2.insider_id = t.insider_id AND t2.ticker = t.ticker
                 AND t2.trade_type = 'buy'
-                AND t2.trade_date BETWEEN date(t.trade_date, '-12 months') AND date(t.trade_date, '-1 day')
+                AND t2.trade_date BETWEEN (t.trade_date::date - INTERVAL '12 months') AND (t.trade_date::date - INTERVAL '1 day')
               GROUP BY t2.insider_id
               HAVING COUNT(*) >= 2
           )
@@ -492,7 +492,7 @@ def trend_reversal(conn: object, since: str | None = None) -> list[tuple]:
               SELECT 1 FROM trades t3
               WHERE t3.insider_id = t.insider_id AND t3.ticker = t.ticker
                 AND t3.trade_type = 'sell'
-                AND t3.trade_date BETWEEN date(t.trade_date, '-12 months') AND date(t.trade_date, '-1 day')
+                AND t3.trade_date BETWEEN (t.trade_date::date - INTERVAL '12 months') AND (t.trade_date::date - INTERVAL '1 day')
           )
     """).fetchall()
 

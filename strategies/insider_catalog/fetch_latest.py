@@ -158,12 +158,20 @@ def _run_indicators():
             failures.append(f"{label}: exit {result.returncode}: {tail!r}")
             logger.error("%s failed (exit %d): %s", label, result.returncode, tail)
 
+    # --since limits the compute window to recent trades only — we just
+    # ingested filings from the last `days` days, the heavy SMA200/dip_3mo
+    # recompute over 1.5M+ historical trades isn't needed for incremental
+    # updates. Morning refresh-features at 06:00 PT does the broader scan
+    # with a 30-day window. Without --since this hit a 300s timeout every
+    # 5-min cycle and pager-stormed alerts.ndjson.
+    from datetime import timedelta as _td, date as _d
+    since_str = (_d.today() - _td(days=7)).isoformat()
     _run("CW indicators",
-         [python, str(script_dir / "compute_cw_indicators.py")],
-         timeout=300)
+         [python, str(script_dir / "compute_cw_indicators.py"), "--since", since_str],
+         timeout=600)
     _run("PIT grades",
-         [python, str(script_dir / "backfill_pit_grades.py")],
-         timeout=120)
+         [python, str(script_dir / "backfill_pit_grades.py"), "--since", since_str],
+         timeout=180)
 
     if failures:
         # Append to logs/alerts.ndjson before raising.

@@ -11,35 +11,42 @@
     </array>
     <key>WorkingDirectory</key>
     <string>/Users/derekg/trading-framework</string>
-    <!-- Runs at 05:30 ET / 09:30 UTC every weekday. insider-fetch fires before
-         and lands raw Form 4 trades; this populates the analytical columns
-         that the strategy runners (which scan at 06:25 ET) need. -->
+    <!-- Runs at 06:00 PT (09:00 ET) every weekday. Studio is in PT — launchd
+         StartCalendarInterval uses local time. The cw_runner strategies
+         wake at 09:25 ET (= 06:25 PT) — refresh-features must complete BEFORE
+         that wake or the runners halt at preflight with R-002 (stale data).
+         The chain takes ~30 sec for the 30-day --since window, so 25 min
+         margin is comfortable.
+
+         Previous schedule (09:30 PT = 12:30 ET) ran 3 HOURS AFTER the runner
+         wake; strategies halted every market morning until refresh finished
+         at 12:30+ ET. Phase 2 P1 fix: align so refresh completes BEFORE wake. -->
     <key>StartCalendarInterval</key>
     <array>
         <dict>
             <key>Weekday</key><integer>1</integer>
-            <key>Hour</key><integer>9</integer>
-            <key>Minute</key><integer>30</integer>
+            <key>Hour</key><integer>6</integer>
+            <key>Minute</key><integer>0</integer>
         </dict>
         <dict>
             <key>Weekday</key><integer>2</integer>
-            <key>Hour</key><integer>9</integer>
-            <key>Minute</key><integer>30</integer>
+            <key>Hour</key><integer>6</integer>
+            <key>Minute</key><integer>0</integer>
         </dict>
         <dict>
             <key>Weekday</key><integer>3</integer>
-            <key>Hour</key><integer>9</integer>
-            <key>Minute</key><integer>30</integer>
+            <key>Hour</key><integer>6</integer>
+            <key>Minute</key><integer>0</integer>
         </dict>
         <dict>
             <key>Weekday</key><integer>4</integer>
-            <key>Hour</key><integer>9</integer>
-            <key>Minute</key><integer>30</integer>
+            <key>Hour</key><integer>6</integer>
+            <key>Minute</key><integer>0</integer>
         </dict>
         <dict>
             <key>Weekday</key><integer>5</integer>
-            <key>Hour</key><integer>9</integer>
-            <key>Minute</key><integer>30</integer>
+            <key>Hour</key><integer>6</integer>
+            <key>Minute</key><integer>0</integer>
         </dict>
     </array>
     <key>RunAtLoad</key>
