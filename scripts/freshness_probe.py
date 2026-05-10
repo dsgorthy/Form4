@@ -33,10 +33,53 @@ from config.database import get_connection
 from framework.contracts.freshness import FreshnessRegistry, get_freshness
 from framework.alerts.log import alert
 
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:  # Python < 3.9 fallback (Studio is on 3.12 — this won't trip)
+    ZoneInfo = None
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
 STATE_FILE = REPO / "logs" / "freshness_state.json"
+
+
+def _in_quiet_window(now: datetime) -> bool:
+    """Return True if alerts should be suppressed (structurally-expected stale).
+
+    refresh-features.plist runs Mon-Fri only at 06:00 PT. SLAs in the
+    26-30h band naturally breach Saturday onwards because writers haven't
+    fired since Friday morning. These breaches are EXPECTED, not
+    actionable — alerting on them produces pager noise that operators
+    learn to ignore (which is itself a reliability failure).
+
+    Quiet window:
+      Saturday — all day in Pacific Time
+      Sunday — all day in Pacific Time
+      Monday — 00:00 PT through 07:00 PT (refresh-features runs at 06:00,
+               give it 60 min of completion + propagation buffer)
+
+    During the quiet window:
+      - Alert dispatch is skipped
+      - State file IS still updated (so transitions track correctly across
+        the weekend; a column that was OK Friday and is OK Monday morning
+        won't fire any alert at all)
+
+    The cw_runner's preflight check is the primary safety net — if Monday
+    morning refresh actually fails, the strategy runner halts with R-002
+    StaleSignalError immediately at 06:25 ET wake, BEFORE this probe's
+    quiet window even ends. So suppressing weekend probe alerts doesn't
+    create a real-failure blind spot.
+    """
+    if ZoneInfo is None:
+        return False  # don't suppress if tz support is missing
+    pt = now.astimezone(ZoneInfo("America/Los_Angeles"))
+    weekday = pt.weekday()  # 0=Mon, 5=Sat, 6=Sun
+    if weekday in (5, 6):
+        return True
+    if weekday == 0 and pt.hour < 7:
+        return True
+    return False
 
 
 def _load_state() -> dict:
@@ -62,13 +105,18 @@ def main():
     p.add_argument("--check", action="store_true",
                    help="Exit non-zero if any contract is stale")
     p.add_argument("--no-alert", action="store_true",
-                   help="Skip Telegram alerting (useful for ad-hoc inspection)")
+                   help="Skip alerting (useful for ad-hoc inspection)")
+    p.add_argument("--no-quiet-window", action="store_true",
+                   help="Disable weekend-quiet-window suppression (force alerts "
+                        "through for testing or manual diagnostics)")
     args = p.parse_args()
 
     registry = FreshnessRegistry.get()
     contracts = registry.all()
     state = _load_state()
-    now = datetime.now(timezone.utc).isoformat()
+    now_dt = datetime.now(timezone.utc)
+    now = now_dt.isoformat()
+    in_quiet = _in_quiet_window(now_dt) and not args.no_quiet_window
 
     conn = get_connection(readonly=True)
     results: list[dict] = []
@@ -113,7 +161,7 @@ def main():
         if r["status"] == "ok" and r["prev_status"] == "stale"
     ]
 
-    if transitioned_to_stale and not args.no_alert:
+    if transitioned_to_stale and not args.no_alert and not in_quiet:
         body = "\n".join(
             f"  • {r['table']}.{r['column']}: "
             f"age={r['observed_age_hours']}h > contract={r['max_staleness_hours']}h"
@@ -124,12 +172,26 @@ def main():
             f"{len(transitioned_to_stale)} contract(s) breached:\n{body}\n\nRunbook: R-001",
             breached=[f"{r['table']}.{r['column']}" for r in transitioned_to_stale],
         )
+    elif transitioned_to_stale and in_quiet:
+        # Log the suppression so it's visible in the probe's launchd log
+        # — operators can grep for "quiet_window" to confirm "yes, we
+        # noticed, we just didn't page anyone."
+        logger.info(
+            "quiet_window: suppressing %d stale-transition alert(s) "
+            "(weekend / pre-Monday-refresh window)",
+            len(transitioned_to_stale),
+        )
 
-    if transitioned_to_ok and not args.no_alert:
+    if transitioned_to_ok and not args.no_alert and not in_quiet:
         body = "\n".join(f"  • {r['table']}.{r['column']} recovered"
                          for r in transitioned_to_ok)
         alert.info("freshness_probe",
                    f"{len(transitioned_to_ok)} contract(s) recovered:\n{body}")
+    elif transitioned_to_ok and in_quiet:
+        logger.info(
+            "quiet_window: suppressing %d recovery notification(s)",
+            len(transitioned_to_ok),
+        )
 
     # Output
     n_stale = sum(1 for r in results if r["status"] == "stale")
