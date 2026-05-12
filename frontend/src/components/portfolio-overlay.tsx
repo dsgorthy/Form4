@@ -306,19 +306,12 @@ export function PortfolioOverlay({ strategy = "form4_insider", onDateRangeChange
 
   return (
     <div className="space-y-2">
-      {/* Section banner — makes it unmistakable this whole panel is BACKTEST,
-          not the live account above. Conflating the two was a reported UX bug. */}
-      <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-[#F59E0B]/10 border border-[#F59E0B]/30">
-        <span className="text-[10px] font-bold uppercase tracking-wider text-[#F59E0B]">Backtest Reference</span>
-        <span className="text-[10px] text-[#8888A0]">Simulated equity curve from {data.data[0]?.date} — separate from the Live Paper Account above.</span>
-      </div>
-
       {/* Header: selector + stats + range buttons */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex items-center gap-3">
           <div>
             <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A] mb-1">
-              Backtest — Idle Cash Vehicle
+              Idle Cash Vehicle
             </div>
             <select
               value={selectedBase}
@@ -349,12 +342,12 @@ export function PortfolioOverlay({ strategy = "form4_insider", onDateRangeChange
 
         <div className="flex gap-5 text-xs">
           <div>
-            <div className="text-[10px] text-[#55556A] uppercase">Backtest Portfolio Value</div>
+            <div className="text-[10px] text-[#55556A] uppercase">Strategy Equity</div>
             <div className="text-xl font-mono font-bold text-[#E8E8ED]">{formatCurrency(blendedFinal)}</div>
-            <div className="text-[#55556A]">from {formatCurrency(starting)} (simulated)</div>
+            <div className="text-[#55556A]">from {formatCurrency(starting)}</div>
           </div>
           <div className="text-center">
-            <div className="text-[10px] text-[#55556A] uppercase">Backtest CAGR</div>
+            <div className="text-[10px] text-[#55556A] uppercase">CAGR</div>
             <div className="text-lg font-mono font-bold text-[#22C55E]">{blendedCAGR.toFixed(1)}%</div>
             <div className="text-[#55556A]">Insider + {selectedBase}</div>
           </div>
@@ -383,8 +376,7 @@ export function PortfolioOverlay({ strategy = "form4_insider", onDateRangeChange
         return (
           <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] p-4">
             <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A] mb-2">
-              Simulated Backtest Allocation — as of {last.date}
-              <span className="ml-2 normal-case font-normal text-[#8888A0]">(not your live account)</span>
+              Current Allocation
             </div>
             <div className="flex items-center gap-1 mb-3 h-3 overflow-hidden rounded">
               <div

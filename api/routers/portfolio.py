@@ -145,10 +145,11 @@ def get_portfolio(
                         "equity": round(spy_equity, 2),
                     })
 
-        # Total trade count for pagination
+        # Total trade count for pagination — closed only, matches the list above.
         total_count = conn.execute("""
             SELECT COUNT(*) AS cnt FROM strategy_portfolio
             WHERE strategy = ? AND COALESCE(is_live, false) = false
+              AND status = 'closed'
         """, (strategy,)).fetchone()["cnt"]
 
         # Per-trade data for client-side filtering (lightweight: date, return, exit type)
@@ -191,6 +192,14 @@ def get_portfolio(
         # Paginated trades — JOIN trades for the entry trade's pit_grade /
         # career_grade so the frontend can display Career Grade per row.
         offset = (page - 1) * per_page
+        # Trade log: CLOSED trades only. We deliberately hide currently-open
+        # positions from this list because the "Current Allocation" panel
+        # in the overlay component already shows the live snapshot of what's
+        # in the strategy. Showing the same data twice — once as a row in
+        # this table with status=open and again in the allocation panel —
+        # created confusion about whether they reflected the same or
+        # different state. Closed-only here makes this list unambiguously
+        # "the historical track record."
         trades = conn.execute("""
             SELECT sp.id, sp.trade_id, sp.ticker, sp.trade_type, sp.direction,
                    sp.entry_date, sp.entry_price, sp.exit_date, sp.exit_price,
@@ -204,6 +213,7 @@ def get_portfolio(
             FROM strategy_portfolio sp
             LEFT JOIN trades t ON t.trade_id = sp.trade_id
             WHERE sp.strategy = ? AND COALESCE(sp.is_live, false) = false
+              AND sp.status = 'closed'
             ORDER BY sp.entry_date DESC
             LIMIT ? OFFSET ?
         """, (strategy, per_page, offset)).fetchall()

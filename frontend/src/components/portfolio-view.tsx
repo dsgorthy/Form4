@@ -431,10 +431,10 @@ export function PortfolioView() {
         </div>
       </div>
 
-      {/* Live account status */}
-      <LiveStatusPanel strategy={strategy} userIsPro={userIsPro} />
-
-      {/* Portfolio Performance — blended equity with idle cash in base ETF */}
+      {/* Strategy performance — single source of truth for equity, set by
+          the idle cash vehicle selector below. Removed the separate paper-
+          account panel because it created two competing equity numbers and
+          shipped "paper account" framing that should never have been public. */}
       <PortfolioOverlay strategy={strategy} onDateRangeChange={(from, to) => setDateRange({ from, to })} />
 
       {/* Everything below responds to the chart date range */}
