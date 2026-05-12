@@ -139,6 +139,7 @@ export default function AdminStrategiesPage() {
 
       <div className="mt-8 text-xs text-[#55556A]">
         <p>
+          <Link href="/admin/jobs" className="text-[#3B82F6] hover:underline font-semibold">→ System Jobs Monitor</Link>{" "}<br />
           See also: <Link href="/admin/strategies/quality_momentum" className="text-[#3B82F6] hover:underline">quality_momentum</Link>{" "}
           · <Link href="/admin/strategies/reversal_dip" className="text-[#3B82F6] hover:underline">reversal_dip</Link>{" "}
           · <Link href="/admin/strategies/tenb51_surprise" className="text-[#3B82F6] hover:underline">tenb51_surprise</Link>

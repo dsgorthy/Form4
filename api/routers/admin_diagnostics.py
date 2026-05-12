@@ -29,6 +29,42 @@ router = APIRouter(prefix="/api/v1/admin/diagnostics", tags=["admin-diagnostics"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ALERT_LOG_PATH = REPO_ROOT / "logs" / "alerts.ndjson"
 
+# Inside the API container, logs/ is mounted at /data/logs (read-only).
+# Outside the container (local dev) it resolves to <repo>/logs/.
+LOGS_DIR = Path("/data/logs") if Path("/data/logs").exists() else (REPO_ROOT / "logs")
+
+
+# Catalog of monitored launchd / cron jobs. (label, log_file, expected_cadence_seconds, description)
+# Used by /jobs endpoint to compute health from log mtime.
+JOB_CATALOG = [
+    # File ingestion + features
+    {"name": "insider-fetch",      "log": "insider-fetch.log",      "cadence_s": 5 * 60,
+     "label": "EDGAR Form 4 poll", "category": "ingestion"},
+    {"name": "refresh-features",   "log": "refresh-features.log",   "cadence_s": 26 * 3600,
+     "label": "Daily features refresh (06:00 PT)", "category": "ingestion"},
+    {"name": "daily-prices",       "log": "daily-prices.log",       "cadence_s": 30 * 3600,
+     "label": "Daily prices update (17:30 PT)", "category": "ingestion"},
+    {"name": "backfill-returns",   "log": "backfill_returns.log",   "cadence_s": 26 * 3600,
+     "label": "Forward returns backfill (05:00 PT)", "category": "ingestion"},
+    # Live runners (continuous)
+    {"name": "quality-momentum",   "log": "quality-momentum.log",   "cadence_s": 30 * 60,
+     "label": "QM cw_runner (live paper)", "category": "live_runner"},
+    {"name": "reversal-dip",       "log": "reversal-dip.log",       "cadence_s": 30 * 60,
+     "label": "RD cw_runner (live paper)", "category": "live_runner"},
+    {"name": "tenb51-surprise",    "log": "tenb51-surprise.log",    "cadence_s": 30 * 60,
+     "label": "10b5 cw_runner (live paper)", "category": "live_runner"},
+    # Simulated portfolio runners
+    {"name": "strategy-intraday",  "log": "strategy-intraday.log",  "cadence_s": 15 * 60,
+     "label": "Intraday simulated portfolio update", "category": "simulator"},
+    {"name": "strategy-simulator", "log": "strategy-simulator.log", "cadence_s": 26 * 3600,
+     "label": "Daily simulated portfolio rebuild (07:00 PT)", "category": "simulator"},
+    # Monitoring + alerts
+    {"name": "freshness-probe",    "log": "freshness-probe.log",    "cadence_s": 45 * 60,
+     "label": "Freshness contract probe (every 30 min)", "category": "monitoring"},
+    {"name": "alpaca-reconcile",   "log": "alpaca-reconcile.log",   "cadence_s": 26 * 3600,
+     "label": "Alpaca paper account reconcile (daily)", "category": "monitoring"},
+]
+
 # Source-of-truth strategy registry. Keep in sync with
 # api/routers/paper_trading.py:STRATEGIES if/when adding new strategies.
 STRATEGIES = [
@@ -473,4 +509,148 @@ def alerts_feed(
     return {
         "alert_log_path": str(ALERT_LOG_PATH),
         "alerts": _recent_alerts(limit, severity, component),
+    }
+
+
+# ── System-wide jobs monitor ─────────────────────────────────────────────
+
+def _tail_file(path: Path, n_lines: int = 5) -> list[str]:
+    """Return last n_lines of a text file. Empty list if missing."""
+    try:
+        with path.open("rb") as f:
+            # Seek backwards in chunks until we have enough newlines
+            f.seek(0, 2)
+            size = f.tell()
+            block = 4096
+            data = b""
+            while size > 0 and data.count(b"\n") < n_lines + 1:
+                read_size = min(block, size)
+                size -= read_size
+                f.seek(size)
+                data = f.read(read_size) + data
+            lines = data.decode("utf-8", errors="replace").splitlines()
+            return [ln for ln in lines[-n_lines:] if ln.strip()]
+    except Exception:
+        return []
+
+
+def _job_status(job: dict) -> dict:
+    """Compute status for one job from log file mtime + tail."""
+    log_path = LOGS_DIR / job["log"]
+    now = datetime.now(timezone.utc)
+
+    if not log_path.exists():
+        return {
+            "name": job["name"],
+            "label": job["label"],
+            "category": job["category"],
+            "log_file": str(log_path),
+            "exists": False,
+            "last_run_at": None,
+            "age_seconds": None,
+            "expected_cadence_seconds": job["cadence_s"],
+            "status": "missing",
+            "tail": [],
+        }
+
+    mtime = datetime.fromtimestamp(log_path.stat().st_mtime, tz=timezone.utc)
+    age_s = (now - mtime).total_seconds()
+    cadence_s = job["cadence_s"]
+
+    if age_s <= cadence_s:
+        status = "healthy"
+    elif age_s <= cadence_s * 2:
+        status = "lagging"
+    else:
+        status = "stale"
+
+    return {
+        "name": job["name"],
+        "label": job["label"],
+        "category": job["category"],
+        "log_file": str(log_path),
+        "exists": True,
+        "last_run_at": mtime.isoformat(),
+        "age_seconds": int(age_s),
+        "expected_cadence_seconds": cadence_s,
+        "status": status,
+        "tail": _tail_file(log_path, n_lines=5),
+    }
+
+
+@router.get("/jobs")
+def jobs_status(user: UserContext = Depends(require_admin)) -> dict:
+    """Real-time status of every monitored launchd job.
+
+    Status semantics:
+      - healthy: log mtime within expected cadence
+      - lagging: log mtime older than cadence but less than 2x cadence
+      - stale:   log mtime older than 2x cadence (or log missing for too long)
+      - missing: log file doesn't exist
+
+    Returns one entry per job in JOB_CATALOG with last-run timestamp,
+    age, expected cadence, and the last 5 lines of the log tail.
+    """
+    jobs = [_job_status(j) for j in JOB_CATALOG]
+    summary = {
+        "healthy": sum(1 for j in jobs if j["status"] == "healthy"),
+        "lagging": sum(1 for j in jobs if j["status"] == "lagging"),
+        "stale":   sum(1 for j in jobs if j["status"] == "stale"),
+        "missing": sum(1 for j in jobs if j["status"] == "missing"),
+        "total":   len(jobs),
+    }
+    return {
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "summary": summary,
+        "jobs": jobs,
+    }
+
+
+@router.get("/freshness")
+def system_freshness(user: UserContext = Depends(require_admin)) -> dict:
+    """All freshness contracts (table.column) and current state.
+
+    Reads from signal_freshness table, which is populated by the upstream
+    compute jobs. The probe at scripts/freshness_probe.py uses the same
+    data; this endpoint surfaces it for the admin dashboard.
+    """
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT source, table_name, column_name,
+                      MAX(last_computed_at) AS last_computed,
+                      MAX(n_rows_affected) AS last_n_rows,
+                      MAX(populated_by) AS last_populated_by
+               FROM signal_freshness
+               GROUP BY source, table_name, column_name
+               ORDER BY 1, 2, 3"""
+        ).fetchall()
+    now = datetime.now(timezone.utc)
+    contracts = []
+    for r in rows:
+        d = dict(r)
+        last = d.get("last_computed")
+        if last:
+            if isinstance(last, str):
+                try:
+                    last_dt = datetime.fromisoformat(last.replace("Z", "+00:00"))
+                except Exception:
+                    last_dt = None
+            else:
+                last_dt = last if hasattr(last, "tzinfo") else None
+            age_s = int((now - last_dt).total_seconds()) if last_dt else None
+        else:
+            age_s = None
+        contracts.append({
+            "source": d.get("source"),
+            "table": d.get("table_name"),
+            "column": d.get("column_name"),
+            "last_computed_at": last.isoformat() if hasattr(last, "isoformat") else last,
+            "age_seconds": age_s,
+            "last_n_rows_affected": int(d.get("last_n_rows") or 0),
+            "populated_by": d.get("last_populated_by"),
+        })
+    return {
+        "checked_at": now.isoformat(),
+        "n_contracts": len(contracts),
+        "contracts": contracts,
     }

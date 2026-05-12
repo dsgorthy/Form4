@@ -12,6 +12,10 @@ services:
       - ./data:/data/app_data:ro
       - ./pipelines/data:/data/runner:ro
       - ./strategies/cw_strategies/data:/data/cw_strategies:ro
+      # Read-only logs mount — powers /admin/diagnostics/jobs endpoint that
+      # surfaces last-run + recent activity for every launchd job to the
+      # admin dashboard.
+      - ./logs:/data/logs:ro
     networks:
       - internal
     expose:
