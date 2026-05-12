@@ -26,8 +26,8 @@ filing_lookback_days: 2
 
 soft_cap: 10
 min_conviction: 3.0
-min_conviction_above_soft: 7.0
-min_conviction_at_hard: 7.0
+min_conviction_above_soft: 4.5
+min_conviction_at_hard: 3.0   # was 7.0 — lowered to enable rotation (see at_capacity below)
 
 filters:
   is_rare_reversal: 1
@@ -43,7 +43,13 @@ exit:
   hold_days: 21  # mean reversion — take profit quickly, edge vanishes at 90d
   stop_loss_pct: null  # Grid search validated: stops degrade Sharpe by 18% (1.27 → 1.04). Short hold limits downside.
 
-at_capacity: skip
+# Rotation — when at max_concurrent and a higher-conviction signal arrives,
+# close the weakest held position and enter the new one. Backtest evidence
+# (rd_swap_test.py, 2026-05-12): SKIP baseline +$98,563 vs ROTATE +$111,740
+# over 145 candidates 2020-2026 (~+$2.1K/yr alpha, ~1.6 swaps/yr).
+# replacement_advantage=0.5 prevents thrashing on tied/near-tied conviction.
+at_capacity: replace_weakest
+replacement_advantage: 0.5
 
 circuit_breaker_dd_pct: 0.15
 

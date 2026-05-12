@@ -547,11 +547,15 @@ def scan_signals(conn, config: dict) -> list[dict]:
         logger.warning("[%s] freshness pre-flight unavailable, falling through: %s",
                        strategy_name, e)
 
-    # Tickers already open for this strategy
+    # Tickers already open for this strategy. Exclude simulated/backfill
+    # execution_sources — those represent counter-factual positions that
+    # never actually filled with Alpaca, and treating them as held would
+    # block live entries on those tickers and eat capacity slots.
     held_tickers = {
         r["ticker"]
         for r in conn.execute(
-            "SELECT ticker FROM strategy_portfolio WHERE strategy = ? AND status = 'open'",
+            "SELECT ticker FROM strategy_portfolio WHERE strategy = ? "
+            "AND status = 'open' AND execution_source IN ('paper', 'live')",
             (strategy_name,),
         ).fetchall()
     }
@@ -855,8 +859,12 @@ def execute_entries(
         )
         del _LAST_HALT_LOG[strategy_name]
 
+    # Capacity count — only live/paper positions consume slots. Backfill
+    # rows (execution_source='backtest' or 'backtest_v3') are counter-factual
+    # and must not block real entries.
     n_open = conn.execute(
-        "SELECT COUNT(*) FROM strategy_portfolio WHERE strategy = ? AND status = 'open'",
+        "SELECT COUNT(*) FROM strategy_portfolio WHERE strategy = ? "
+        "AND status = 'open' AND execution_source IN ('paper', 'live')",
         (strategy_name,),
     ).fetchone()[0]
     slots = max_concurrent - n_open
@@ -878,10 +886,12 @@ def execute_entries(
 
     portfolio_id = ensure_portfolio_row(conn, config)
     entered: list[dict] = []
+    # Second held_tickers query (in execute_entries) — same exclusion as line 554.
     held_tickers = {
         r["ticker"]
         for r in conn.execute(
-            "SELECT ticker FROM strategy_portfolio WHERE strategy = ? AND status = 'open'",
+            "SELECT ticker FROM strategy_portfolio WHERE strategy = ? "
+            "AND status = 'open' AND execution_source IN ('paper', 'live')",
             (strategy_name,),
         ).fetchall()
     }
@@ -948,11 +958,12 @@ def execute_entries(
                 continue
 
             if at_capacity_rule == "replace_oldest" and not dry_run:
-                # Find oldest open position by entry_date
+                # Find oldest open LIVE position (backfill rows don't count)
                 open_rows = conn.execute('''
                     SELECT id, ticker, entry_date, entry_reasoning
                     FROM strategy_portfolio
                     WHERE strategy = ? AND status = 'open'
+                      AND execution_source IN ('paper', 'live')
                     ORDER BY entry_date ASC
                     LIMIT 1
                 ''', (strategy_name,)).fetchall()
@@ -963,11 +974,12 @@ def execute_entries(
                 oldest_ticker = open_rows[0]["ticker"]
 
             elif at_capacity_rule == "replace_weakest" and not dry_run:
-                # Find weakest open position by conviction
+                # Find weakest open LIVE position (backfill rows don't count)
                 open_rows = conn.execute('''
                     SELECT id, ticker, entry_reasoning
                     FROM strategy_portfolio
                     WHERE strategy = ? AND status = 'open'
+                      AND execution_source IN ('paper', 'live')
                     ORDER BY id
                 ''', (strategy_name,)).fetchall()
 
@@ -1532,7 +1544,7 @@ def check_scheduled_exits(
     due_rows = conn.execute(
         """SELECT * FROM strategy_portfolio
            WHERE strategy = ? AND status = 'open'
-             AND execution_source != 'backtest'
+             AND execution_source IN ('paper', 'live')
              AND planned_exit_date IS NOT NULL
              AND planned_exit_date <= ?
            ORDER BY planned_exit_date""",
@@ -1634,7 +1646,8 @@ def check_exits(
     prefix = config.get("alert_prefix", "")
 
     open_rows = conn.execute(
-        "SELECT * FROM strategy_portfolio WHERE strategy = ? AND status = 'open' AND execution_source != 'backtest' ORDER BY entry_date",
+        "SELECT * FROM strategy_portfolio WHERE strategy = ? AND status = 'open' "
+        "AND execution_source IN ('paper', 'live') ORDER BY entry_date",
         (strategy_name,),
     ).fetchall()
 
@@ -1982,7 +1995,7 @@ def _send_weekly_digest(config: dict, prefix: str = "") -> None:
         ).fetchone()[0]
 
         n_open = conn.execute(
-            "SELECT COUNT(*) FROM strategy_portfolio WHERE strategy = ? AND status = 'open'",
+            "SELECT COUNT(*) FROM strategy_portfolio WHERE strategy = ? AND status = 'open' AND execution_source IN ('paper', 'live')",
             (strategy_name,),
         ).fetchone()[0]
 
@@ -2067,7 +2080,7 @@ def run_daily(config: dict, dry_run: bool = False) -> dict:
                     logger.info("Opened %d new positions", len(entered))
 
         n_open = conn.execute(
-            "SELECT COUNT(*) FROM strategy_portfolio WHERE strategy = ? AND status = 'open'",
+            "SELECT COUNT(*) FROM strategy_portfolio WHERE strategy = ? AND status = 'open' AND execution_source IN ('paper', 'live')",
             (config["strategy_name"],),
         ).fetchone()[0]
 
@@ -2206,7 +2219,7 @@ def run_daemon(config: dict) -> None:
             try:
                 conn = get_db(readonly=True)
                 n_open = conn.execute(
-                    "SELECT COUNT(*) FROM strategy_portfolio WHERE strategy = ? AND status = 'open'",
+                    "SELECT COUNT(*) FROM strategy_portfolio WHERE strategy = ? AND status = 'open' AND execution_source IN ('paper', 'live')",
                     (config["strategy_name"],),
                 ).fetchone()[0]
                 conn.close()
@@ -2231,7 +2244,7 @@ def run_daemon(config: dict) -> None:
                 conn = get_db(readonly=True)
                 try:
                     n_open = conn.execute(
-                        "SELECT COUNT(*) FROM strategy_portfolio WHERE strategy = ? AND status = 'open'",
+                        "SELECT COUNT(*) FROM strategy_portfolio WHERE strategy = ? AND status = 'open' AND execution_source IN ('paper', 'live')",
                         (strategy_name,),
                     ).fetchone()[0]
                     today_str = now.strftime("%Y-%m-%d")

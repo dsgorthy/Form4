@@ -122,7 +122,7 @@ def evaluate_filters(thesis_filters: dict, trade: dict) -> tuple[bool, list[str]
     if thesis_filters.get("is_largest_ever") and trade.get("is_largest_ever") != 1:
         failures.append(f"is_largest_ever={trade.get('is_largest_ever')} != 1")
 
-    # pit_grade in [...]
+    # pit_grade in [...]  (Recent Form, V2 scorer — 1.5y half-life)
     if "pit_grade" in thesis_filters:
         grades = thesis_filters["pit_grade"]
         if isinstance(grades, str):
@@ -130,6 +130,18 @@ def evaluate_filters(thesis_filters: dict, trade: dict) -> tuple[bool, list[str]
         if trade.get("pit_grade") not in grades:
             failures.append(
                 f"pit_grade={trade.get('pit_grade')!r} not in {grades}"
+            )
+
+    # career_grade in [...]  (Career Grade, V3 scorer — 5y half-life).
+    # QM swapped from pit_grade → career_grade on 2026-05-07. Mirrors
+    # cw_runner._build_thesis_query (lines 421-428).
+    if "career_grade" in thesis_filters:
+        grades = thesis_filters["career_grade"]
+        if isinstance(grades, str):
+            grades = [grades]
+        if trade.get("career_grade") not in grades:
+            failures.append(
+                f"career_grade={trade.get('career_grade')!r} not in {grades}"
             )
 
     # min_dip_3mo (e.g., -0.25 — actual dip must be ≤ this)
@@ -235,7 +247,7 @@ def simulate_strategy(
             t.above_sma50, t.above_sma200,
             t.is_csuite, t.is_largest_ever,
             t.is_10b5_1, t.is_recurring, t.is_tax_sale, t.cohen_routine,
-            t.pit_grade, t.signal_grade,
+            t.pit_grade, t.career_grade, t.signal_grade,
             t.pit_n_trades, t.pit_win_rate_7d
         FROM trades t
         JOIN insiders i ON t.insider_id = i.insider_id
