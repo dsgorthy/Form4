@@ -19,26 +19,43 @@
         <key>PYTHONPATH</key>
         <string>/Users/derekg/trading-framework</string>
     </dict>
-    <!-- Fires once: Monday 2026-05-11 at 14:00 PT (= 21:00 UTC).
-         The full date triple (Year+Month+Day+Hour+Minute) means launchd
-         only fires when ALL match, so this is effectively one-shot.
-         After the run completes, this plist sits idle until the operator
-         removes it (no auto-cleanup is intentional — the local HTML/JSON
-         dump is in logs/ and the plist's runs counter is a tiny audit
-         trail of "did this fire?"). -->
+    <!-- Originally one-shot Monday 2026-05-11 14:00 PT (post-deploy audit).
+         After the Monday run revealed daily-prices being orphaned from the
+         morning refresh chain (now fixed), extending to fire each weekday
+         14:00 PT this week (Tue 5/12, Wed 5/13, Thu 5/14, Fri 5/15) for
+         daily confirmation that the fix holds. Each StartCalendarInterval
+         entry is a separate date — launchd OR's across them. -->
     <key>StartCalendarInterval</key>
-    <dict>
-        <key>Year</key>
-        <integer>2026</integer>
-        <key>Month</key>
-        <integer>5</integer>
-        <key>Day</key>
-        <integer>11</integer>
-        <key>Hour</key>
-        <integer>14</integer>
-        <key>Minute</key>
-        <integer>0</integer>
-    </dict>
+    <array>
+        <dict>
+            <key>Year</key><integer>2026</integer>
+            <key>Month</key><integer>5</integer>
+            <key>Day</key><integer>12</integer>
+            <key>Hour</key><integer>14</integer>
+            <key>Minute</key><integer>0</integer>
+        </dict>
+        <dict>
+            <key>Year</key><integer>2026</integer>
+            <key>Month</key><integer>5</integer>
+            <key>Day</key><integer>13</integer>
+            <key>Hour</key><integer>14</integer>
+            <key>Minute</key><integer>0</integer>
+        </dict>
+        <dict>
+            <key>Year</key><integer>2026</integer>
+            <key>Month</key><integer>5</integer>
+            <key>Day</key><integer>14</integer>
+            <key>Hour</key><integer>14</integer>
+            <key>Minute</key><integer>0</integer>
+        </dict>
+        <dict>
+            <key>Year</key><integer>2026</integer>
+            <key>Month</key><integer>5</integer>
+            <key>Day</key><integer>15</integer>
+            <key>Hour</key><integer>14</integer>
+            <key>Minute</key><integer>0</integer>
+        </dict>
+    </array>
     <key>RunAtLoad</key>
     <false/>
     <key>KeepAlive</key>
