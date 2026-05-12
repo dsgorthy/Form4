@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.openclaw.pit-shadow</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/python3</string>
+        <string>/Users/derekg/trading-framework/scripts/pit_shadow_run.py</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/derekg/trading-framework</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>PYTHONPATH</key>
+        <string>/Users/derekg/trading-framework</string>
+    </dict>
+    <!-- 2-trading-day shadow validation. Fires after market close + after
+         backfill_returns + cw_runner have written their daily audit rows.
+         Wed 2026-05-13 18:00 PT and Thu 2026-05-14 18:00 PT.
+         After Thu, plist is exhausted — no further runs unless re-armed.
+         Goal: confirm action_diffs=0 over 2 production days before any
+         live-mode PIT engine cutover. -->
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict>
+            <key>Year</key><integer>2026</integer>
+            <key>Month</key><integer>5</integer>
+            <key>Day</key><integer>13</integer>
+            <key>Hour</key><integer>18</integer>
+            <key>Minute</key><integer>0</integer>
+        </dict>
+        <dict>
+            <key>Year</key><integer>2026</integer>
+            <key>Month</key><integer>5</integer>
+            <key>Day</key><integer>14</integer>
+            <key>Hour</key><integer>18</integer>
+            <key>Minute</key><integer>0</integer>
+        </dict>
+    </array>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>KeepAlive</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>/Users/derekg/trading-framework/logs/pit_shadow.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/derekg/trading-framework/logs/pit_shadow.log</string>
+</dict>
+</plist>
