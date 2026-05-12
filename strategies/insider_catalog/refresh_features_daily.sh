@@ -5,6 +5,10 @@
 # strategy runners can evaluate them.
 #
 # Order matters:
+#   0. Update daily_prices (write fresh signal_freshness row before strategies
+#      wake at 06:25 PT — separate weekday-only daily-prices plist at 17:30 PT
+#      leaves a structural gap on Monday mornings where the only available
+#      timestamp was Friday's, and seed-from-MAX(date) skews stale fast)
 #   1. Sync prices.db (SQLite) from PG so compute_cw_indicators sees fresh prices
 #   2. Compute CW indicators (writes to trades.dip_*, above_sma*, etc.)
 #   3. Build PIT scores (writes to insider_ticker_scores)
@@ -29,6 +33,9 @@ SINCE=$(date -v-30d +%Y-%m-%d)
 
 cd "$REPO"
 echo "===== refresh-features starting at $(date) (since=$SINCE) ====="
+
+echo "--- step 0/6: update_daily_prices (was the gap that halted strategies 2026-05-11) ---"
+PYTHONUNBUFFERED=1 $PY $REPO/pipelines/insider_study/update_daily_prices.py --max-tickers 2000
 
 echo "--- step 1/6: sync PG prices → SQLite cache ---"
 $PY $REPO/strategies/insider_catalog/sync_prices_sqlite.py --days 240
