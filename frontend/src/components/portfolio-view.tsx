@@ -204,7 +204,7 @@ function LiveStatusPanel({ strategy, userIsPro }: { strategy: string; userIsPro:
     return (
       <div className="space-y-3">
         <div className="flex items-center gap-2">
-          <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A]">Live Account</div>
+          <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A]">Live Paper Account · Alpaca</div>
           <span className="inline-block w-2 h-2 rounded-full bg-[#EF4444]" />
         </div>
         <div className="rounded-lg border border-[#EF4444]/30 bg-[#EF4444]/5 px-4 py-3 text-xs text-[#EF4444]">
@@ -224,7 +224,7 @@ function LiveStatusPanel({ strategy, userIsPro }: { strategy: string; userIsPro:
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
-        <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A]">Live Account</div>
+        <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A]">Live Paper Account · Alpaca</div>
         <span className="inline-block w-2 h-2 rounded-full bg-[#22C55E] animate-pulse" />
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
