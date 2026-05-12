@@ -486,14 +486,21 @@ def compute_insider_ticker_score(
     def _get_returns(insider_id_val, ticker_val, window, lag):
         cutoff = (datetime.strptime(as_of_date, "%Y-%m-%d") - timedelta(days=lag)).strftime("%Y-%m-%d")
         col = f"abnormal_{window}"
+        # PIT guard: two independent constraints. trade_date <= cutoff
+        # ensures the forward return endpoint is observable by as_of_date.
+        # filing_date <= as_of_date ensures we KNEW about the trade — without
+        # it, late-filed trades (filing_date >> trade_date) leak into earlier
+        # scores. ~5% of trades have filing_lag > 10 days.
         query = f"""
             SELECT t.trade_date, tr.{col}
             FROM trades t
             JOIN trade_returns tr ON t.trade_id = tr.trade_id
             WHERE t.insider_id = ? AND t.trade_type = 'buy'
-              AND t.trade_date <= ? AND tr.{col} IS NOT NULL
+              AND t.trade_date <= ?
+              AND t.filing_date <= ?
+              AND tr.{col} IS NOT NULL
         """
-        params = [insider_id_val, cutoff]
+        params = [insider_id_val, cutoff, as_of_date]
         if ticker_val:
             query += " AND t.ticker = ?"
             params.append(ticker_val)
