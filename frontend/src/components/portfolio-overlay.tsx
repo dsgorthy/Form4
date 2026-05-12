@@ -11,13 +11,19 @@ interface OverlayPoint {
   insider_equity: number;
   insider_alloc_pct: number;
   n_positions: number;
-  [key: string]: string | number;
+  // 2026-05-12 overlay-math fix: explicit insider/idle breakdown per asset.
+  // Total = insider_capital + idle_capital, always ≤ blended_<asset>.
+  insider_capital_dollars?: Record<string, number>;
+  idle_capital_dollars?: Record<string, number>;
+  [key: string]: string | number | Record<string, number> | undefined;
 }
 
 interface OverlayData {
   starting_capital: number;
   base_assets: string[];
   data: OverlayPoint[];
+  overlay_math?: string;
+  note?: string;
 }
 
 const ASSET_LABELS: Record<string, string> = {
@@ -359,6 +365,57 @@ export function PortfolioOverlay({ strategy = "form4_insider", onDateRangeChange
           </div>
         </div>
       </div>
+
+      {/* Current allocation breakdown — proves equity = insider + idle ≤ total */}
+      {last.insider_capital_dollars && last.idle_capital_dollars && (() => {
+        const insiderUSD = last.insider_capital_dollars[selectedBase] || 0;
+        const idleUSD = last.idle_capital_dollars[selectedBase] || 0;
+        const totalUSD = insiderUSD + idleUSD;
+        const insiderPctOfTotal = totalUSD > 0 ? (insiderUSD / totalUSD * 100) : 0;
+        const idlePctOfTotal = totalUSD > 0 ? (idleUSD / totalUSD * 100) : 0;
+        return (
+          <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] p-4">
+            <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A] mb-2">
+              Current Capital Breakdown — as of {last.date}
+            </div>
+            <div className="flex items-center gap-1 mb-3 h-3 overflow-hidden rounded">
+              <div
+                className="h-full"
+                style={{ width: `${insiderPctOfTotal}%`, backgroundColor: "#22C55E" }}
+                title={`Insider positions: ${formatCurrency(insiderUSD)}`}
+              />
+              <div
+                className="h-full"
+                style={{ width: `${idlePctOfTotal}%`, backgroundColor: baseColor }}
+                title={`Idle in ${selectedBase}: ${formatCurrency(idleUSD)}`}
+              />
+            </div>
+            <div className="grid grid-cols-3 gap-3 text-xs">
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-block w-2 h-2 rounded-sm" style={{ backgroundColor: "#22C55E" }} />
+                  <span className="text-[10px] uppercase tracking-wider text-[#55556A]">Insider positions</span>
+                </div>
+                <div className="text-[#E8E8ED] font-mono mt-0.5">{formatCurrency(insiderUSD)}</div>
+                <div className="text-[#55556A] text-[10px]">{insiderPctOfTotal.toFixed(1)}% · {last.n_positions} open</div>
+              </div>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-block w-2 h-2 rounded-sm" style={{ backgroundColor: baseColor }} />
+                  <span className="text-[10px] uppercase tracking-wider text-[#55556A]">Idle in {selectedBase}</span>
+                </div>
+                <div className="text-[#E8E8ED] font-mono mt-0.5">{formatCurrency(idleUSD)}</div>
+                <div className="text-[#55556A] text-[10px]">{idlePctOfTotal.toFixed(1)}%</div>
+              </div>
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-[#55556A]">Total equity</div>
+                <div className="text-[#E8E8ED] font-mono font-bold mt-0.5">{formatCurrency(totalUSD)}</div>
+                <div className="text-[#55556A] text-[10px]">100%</div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Equity chart */}
       <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] p-2 pt-3">

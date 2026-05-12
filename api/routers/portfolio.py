@@ -329,16 +329,21 @@ def get_portfolio_overlay(
         ).fetchone()
         starting = portfolio_row["starting_capital"] if portfolio_row else 100_000
 
-        # All trades
+        # Closed backtest trades only — exclude backtest_v3 (no portfolio-state
+        # tracking; their overlap with the original backtest pushed total
+        # allocation > 100%, double-counting equity). Paper/live similarly
+        # excluded — they have separate equity curves.
         trades = [dict(r) for r in conn.execute("""
-            SELECT entry_date, exit_date, position_size, pnl_dollar,
+            SELECT id, entry_date, exit_date, position_size, pnl_pct, pnl_dollar,
                    portfolio_value, dollar_amount, status
             FROM strategy_portfolio
-            WHERE strategy = ? AND COALESCE(is_live, false) = false
-            ORDER BY entry_date
+            WHERE strategy = ? AND execution_source = 'backtest'
+              AND status = 'closed' AND exit_date IS NOT NULL
+              AND pnl_pct IS NOT NULL
+            ORDER BY entry_date, id
         """, (strategy,)).fetchall()]
 
-        # All trading dates — start from first trade, not hardcoded 2016
+        # All trading dates — start from first trade
         first_trade_date = None
         if trades:
             first_trade_date = min(t["entry_date"] for t in trades if t["entry_date"])
@@ -359,102 +364,103 @@ def get_portfolio_overlay(
             ):
                 base_prices[asset][r["date"]] = r["close"]
 
-    # Build insider excess P&L per trade: trade_pnl minus what the base ETF
-    # would have returned on that same capital over the same hold period.
-    # excess = trade_pnl - (position_size * portfolio_value * base_return_during_hold)
-    closed_trades = [t for t in trades if t["status"] == "closed" and t["exit_date"]]
+    # Pre-bucket trades by entry/exit date for the simulation loop.
+    opens_by_date: dict[str, list[dict]] = {}
+    closes_by_date: dict[str, list[dict]] = {}
+    for t in trades:
+        opens_by_date.setdefault(t["entry_date"], []).append(t)
+        closes_by_date.setdefault(t["exit_date"], []).append(t)
 
-    # Precompute excess P&L by exit date for each base asset
-    excess_by_exit: dict[str, dict[str, float]] = {a: {} for a in BASE_ASSETS}
-    pnl_by_exit: dict[str, float] = {}
+    # ── Corrected overlay simulation ───────────────────────────────────
+    # At every moment, total equity = idle_capital + sum(insider_capital).
+    # Idle capital earns the base ETF's daily return.
+    # Insider capital earns the trade's pnl_pct on exit (no MTM during hold).
+    # If allocation tries to exceed 100% (legacy backtest overlap edge case),
+    # we admit positions in order and cap at available idle_cap — same as
+    # what cw_runner would do in live.
+    #
+    # Each BASE_ASSET runs its own independent simulation so the dashboard
+    # can show "what if idle was in SPY vs QQQ vs CASH" side-by-side.
 
-    for t in closed_trades:
-        entry_d = t["entry_date"]
-        exit_d = t["exit_date"]
-        raw_pnl = t["pnl_dollar"] or 0
-        cap = (t["position_size"] or 0.05) * (t["portfolio_value"] or starting)
-
-        pnl_by_exit.setdefault(exit_d, 0.0)
-        pnl_by_exit[exit_d] += raw_pnl
-
-        for asset in BASE_ASSETS:
-            excess_by_exit[asset].setdefault(exit_d, 0.0)
-            if asset == "CASH":
-                # vs cash, all P&L is excess
-                excess_by_exit[asset][exit_d] += raw_pnl
-            else:
-                entry_price = base_prices[asset].get(entry_d)
-                exit_price = base_prices[asset].get(exit_d)
-                if entry_price and exit_price and entry_price > 0:
-                    base_ret = (exit_price - entry_price) / entry_price
-                    base_pnl = cap * base_ret
-                    excess_by_exit[asset][exit_d] += raw_pnl - base_pnl
-                else:
-                    # No base price data for this period — treat all P&L as excess
-                    excess_by_exit[asset][exit_d] += raw_pnl
-
-    # Simulate day by day
-    # insider_equity: cash-drag version (insider P&L only, idle cash earns 0)
-    # blended: full portfolio in base ETF + insider excess return on top
-    # pure_base: 100% in base ETF
-    insider_equity = starting
-    blended: dict[str, float] = {a: starting for a in BASE_ASSETS}
+    insider_only_equity = starting           # legacy: insider P&L only, idle = 0
     pure_base: dict[str, float] = {a: starting for a in BASE_ASSETS}
+    blended_equity: dict[str, float] = {a: starting for a in BASE_ASSETS}
+    blended_idle: dict[str, float] = {a: starting for a in BASE_ASSETS}
+    blended_insider_caps: dict[str, dict] = {a: {} for a in BASE_ASSETS}
     prev_closes: dict[str, float | None] = {a: None for a in BASE_ASSETS if a != "CASH"}
 
     result_points: list[dict] = []
 
     for i, date in enumerate(dates):
-        open_pos = [t for t in trades
-                    if t["entry_date"] <= date
-                    and (t["exit_date"] is None or t["exit_date"] > date)
-                    and t["status"] in ("open", "closed")]  # include all
-
-        # For allocation display, only count closed trades (known hold periods)
-        # plus truly open positions. Cap at 100%.
-        closed_open = [t for t in open_pos if t["status"] == "closed"]
-        truly_open = [t for t in open_pos if t["status"] == "open" and t["entry_date"] <= date]
-        display_pos = closed_open + truly_open
-        alloc_pct = min(sum(t["position_size"] or 0.05 for t in display_pos), 1.0)
-
-        # Insider-only equity
-        if date in pnl_by_exit:
-            insider_equity += pnl_by_exit[date]
-
-        # Blended and pure base
+        # Daily base-asset return
+        daily_ret: dict[str, float] = {}
         for asset in BASE_ASSETS:
             if asset == "CASH":
-                blended["CASH"] = insider_equity
-                pure_base["CASH"] = starting
+                daily_ret["CASH"] = 0.0
             else:
                 close = base_prices[asset].get(date)
                 prev = prev_closes.get(asset)
-                if close and prev and prev > 0:
-                    daily_ret = (close - prev) / prev
-                    # Full portfolio gets base ETF return
-                    pure_base[asset] *= (1 + daily_ret)
-                    blended[asset] *= (1 + daily_ret)
+                daily_ret[asset] = (close - prev) / prev if close and prev and prev > 0 else 0.0
+                if close:
+                    prev_closes[asset] = close
+                # Pure base: 100% always in base asset
+                pure_base[asset] *= (1 + daily_ret[asset])
 
-                # Add insider EXCESS return (above base) on exit dates
-                ex = excess_by_exit[asset].get(date, 0)
-                if ex != 0:
-                    blended[asset] += ex
+        # Insider-only (cash-drag) — recognize lump P&L on exits
+        for t in closes_by_date.get(date, []):
+            insider_only_equity += t["pnl_dollar"] or 0
 
-        for asset in base_prices:
-            c = base_prices[asset].get(date)
-            if c:
-                prev_closes[asset] = c
+        # Blended sims (one per base asset)
+        for asset in BASE_ASSETS:
+            # 1) Realize exits — capital + P&L returns to idle
+            for t in closes_by_date.get(date, []):
+                tid = t["id"]
+                if tid in blended_insider_caps[asset]:
+                    entry_cap = blended_insider_caps[asset][tid]
+                    exit_value = entry_cap * (1 + (t["pnl_pct"] or 0))
+                    blended_idle[asset] += exit_value
+                    blended_equity[asset] += exit_value - entry_cap  # equity changes by P&L only
+                    del blended_insider_caps[asset][tid]
 
-        # Downsample to weekly (every 5th trading day) + always include last date
+            # 2) New entries — move capital from idle into insider
+            for t in opens_by_date.get(date, []):
+                target = (t["position_size"] or 0.10) * blended_equity[asset]
+                allocated = min(target, max(0.0, blended_idle[asset]))
+                if allocated > 0:
+                    blended_insider_caps[asset][t["id"]] = allocated
+                    blended_idle[asset] -= allocated
+                # else: capacity-skip (mirrors what would happen live)
+
+            # 3) Idle capital earns daily return
+            growth = blended_idle[asset] * daily_ret[asset]
+            blended_idle[asset] += growth
+            blended_equity[asset] += growth
+
+        # Downsample to weekly + always include last date
         if i % 5 == 0 or i == len(dates) - 1:
+            # Allocation snapshot (using SPY blend as reference; identical for others)
+            ref_caps = blended_insider_caps.get("SPY", {})
+            insider_cap_total = sum(ref_caps.values())
+            ref_equity = blended_equity.get("SPY", starting)
+            alloc_pct = (insider_cap_total / ref_equity * 100) if ref_equity > 0 else 0
+
             point: dict = {
                 "date": date,
-                "insider_equity": round(insider_equity, 0),
-                "insider_alloc_pct": round(alloc_pct * 100, 1),
-                "n_positions": len(open_pos),
+                "insider_equity": round(insider_only_equity, 0),
+                "insider_alloc_pct": round(alloc_pct, 1),
+                "n_positions": len(ref_caps),
+                # NEW — explicit insider/idle dollars per base asset (frontend
+                # uses these to show "Insider $X + Idle $Y = Total $Z").
+                "insider_capital_dollars": {
+                    a: round(sum(blended_insider_caps[a].values()), 0)
+                    for a in BASE_ASSETS
+                },
+                "idle_capital_dollars": {
+                    a: round(blended_idle[a], 0) for a in BASE_ASSETS
+                },
             }
             for asset in BASE_ASSETS:
-                point[f"blended_{asset}"] = round(blended[asset], 0)
+                point[f"blended_{asset}"] = round(blended_equity[asset], 0)
                 point[f"pure_{asset}"] = round(pure_base[asset], 0)
             result_points.append(point)
 
@@ -462,6 +468,11 @@ def get_portfolio_overlay(
         "starting_capital": starting,
         "base_assets": BASE_ASSETS,
         "data": result_points,
+        # NEW — surface the fix metadata for transparency
+        "overlay_math": "corrected_2026_05_12",
+        "note": ("Equity = insider_capital + idle_capital, both shown in "
+                 "insider_capital_dollars / idle_capital_dollars. Total "
+                 "allocation always ≤ 100% of equity."),
     }
 
 
