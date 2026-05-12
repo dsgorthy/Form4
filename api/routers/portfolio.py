@@ -334,17 +334,20 @@ def get_portfolio_overlay(
         ).fetchone()
         starting = portfolio_row["starting_capital"] if portfolio_row else 100_000
 
-        # Closed backtest trades only — exclude backtest_v3 (no portfolio-state
-        # tracking; their overlap with the original backtest pushed total
-        # allocation > 100%, double-counting equity). Paper/live similarly
-        # excluded — they have separate equity curves.
+        # Load simulated rows (closed + open). Open positions have NULL
+        # exit_date / pnl_pct; the simulator loop opens them on entry_date
+        # and never closes them, so they correctly stay in
+        # `blended_insider_caps` at the latest data point — that's how the
+        # dashboard's "Current Allocation" panel knows what's currently held.
         trades = [dict(r) for r in conn.execute("""
             SELECT id, entry_date, exit_date, position_size, pnl_pct, pnl_dollar,
                    portfolio_value, dollar_amount, status
             FROM strategy_portfolio
             WHERE strategy = ? AND execution_source = 'simulated'
-              AND status = 'closed' AND exit_date IS NOT NULL
-              AND pnl_pct IS NOT NULL
+              AND (
+                (status = 'closed' AND exit_date IS NOT NULL AND pnl_pct IS NOT NULL)
+                OR status = 'open'
+              )
             ORDER BY entry_date, id
         """, (strategy,)).fetchall()]
 
