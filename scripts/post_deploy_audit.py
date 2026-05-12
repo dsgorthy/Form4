@@ -149,41 +149,79 @@ def audit_freshness(conn) -> Section:
         s.findings.append(Finding("freshness_check", "fail", f"error: {e}"))
 
     # Did refresh-features run today at the new 06:00 PT time?
+    #
+    # NOTE: cannot use MAX(last_computed_at) on signal_freshness here —
+    # compute_cw_indicators.py is also called by fetch_latest._run_indicators
+    # every 5 min on insider-fetch cycles. Both writers populate the SAME
+    # signal_freshness rows, so MAX returns the LATER (fetch-driven) write
+    # and falsely reports "refresh-features ran at HH:MM" when it was
+    # actually fetch_latest. (This bug produced a misleading WARN in the
+    # 2026-05-11 audit.)
+    #
+    # Reliable approach: parse refresh-features.log for the start/done
+    # banner lines, which only refresh_features_daily.sh writes.
     try:
-        cur = conn.execute("""
-            SELECT MAX(last_computed_at) AS latest
-            FROM signal_freshness
-            WHERE source='public' AND table_name='trades' AND column_name='dip_3mo'
-        """)
-        row = cur.fetchone()
-        if row and row[0]:
-            latest = row[0]
-            if isinstance(latest, str):
-                latest = datetime.fromisoformat(latest.replace("Z", "+00:00"))
-            if latest.tzinfo is None:
-                latest = latest.replace(tzinfo=timezone.utc)
-            latest_pt = latest.astimezone(ZoneInfo("America/Los_Angeles"))
-            ran_today = latest_pt.date().isoformat() == TODAY_PT
-            target_hour = 6  # New schedule
-            actual_hour = latest_pt.hour
-            if ran_today and actual_hour < 8:  # Should be ~06:00 PT
+        log_path = REPO / "logs" / "refresh-features.log"
+        if not log_path.exists():
+            s.findings.append(Finding(
+                "refresh-features schedule", "fail",
+                "refresh-features.log not found",
+            ))
+        else:
+            text = log_path.read_text()
+            # Grab the most recent "===== refresh-features done at <ts> ====="
+            import re
+            matches = re.findall(
+                r"===== refresh-features done at (.+?) =====", text,
+            )
+            if not matches:
                 s.findings.append(Finding(
-                    "refresh-features new schedule",
-                    "pass",
-                    f"ran today at {latest_pt.strftime('%H:%M PT')} (target: ~06:00 PT)"
-                ))
-            elif ran_today:
-                s.findings.append(Finding(
-                    "refresh-features schedule",
-                    "warn",
-                    f"ran today but at {latest_pt.strftime('%H:%M PT')} — expected ~06:00 PT"
+                    "refresh-features schedule", "fail",
+                    "no completion banners in refresh-features.log",
                 ))
             else:
-                s.findings.append(Finding(
-                    "refresh-features schedule",
-                    "fail",
-                    f"did NOT run today; last run {latest_pt.isoformat()}"
-                ))
+                last_done_str = matches[-1].strip()
+                # Format example: "Mon May 11 06:03:24 PDT 2026"
+                try:
+                    last_done = datetime.strptime(
+                        last_done_str, "%a %b %d %H:%M:%S %Z %Y",
+                    )
+                    # %Z may not parse PDT correctly on Linux; manually set if PT
+                    if "PDT" in last_done_str or "PST" in last_done_str:
+                        last_done = last_done.replace(
+                            tzinfo=ZoneInfo("America/Los_Angeles"),
+                        )
+                except Exception:
+                    last_done = None
+                if last_done is None:
+                    s.findings.append(Finding(
+                        "refresh-features schedule", "warn",
+                        f"parse failed for: {last_done_str!r}",
+                    ))
+                else:
+                    last_done_pt = last_done.astimezone(
+                        ZoneInfo("America/Los_Angeles"),
+                    )
+                    ran_today = last_done_pt.date().isoformat() == TODAY_PT
+                    target_hour = 6  # 06:00 PT scheduled
+                    if ran_today and last_done_pt.hour < 8:
+                        s.findings.append(Finding(
+                            "refresh-features schedule", "pass",
+                            f"completed today at {last_done_pt.strftime('%H:%M PT')} "
+                            f"(target: ~06:00 PT)",
+                        ))
+                    elif ran_today:
+                        s.findings.append(Finding(
+                            "refresh-features schedule", "warn",
+                            f"completed today at {last_done_pt.strftime('%H:%M PT')} "
+                            f"— expected ~06:00 PT",
+                        ))
+                    else:
+                        s.findings.append(Finding(
+                            "refresh-features schedule", "fail",
+                            f"did NOT complete today; last completion "
+                            f"{last_done_pt.isoformat()}",
+                        ))
     except Exception as e:
         s.findings.append(Finding("refresh_features_schedule", "fail", str(e)))
 
