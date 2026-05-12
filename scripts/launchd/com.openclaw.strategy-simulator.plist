@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.openclaw.strategy-simulator</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/python3</string>
+        <string>-m</string>
+        <string>pipelines.insider_study.simulate_strategy_portfolio</string>
+        <string>--all</string>
+        <string>--extend</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/derekg/trading-framework</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>PYTHONPATH</key>
+        <string>/Users/derekg/trading-framework</string>
+    </dict>
+    <!-- Run at 07:00 PT daily (after refresh-features at 06:00, after
+         daily prices update at 06:10, after cw_runner morning cycle).
+         Rebuilds strategy_portfolio for QM, RD, 10b5 with the latest
+         filings rolled in. Open positions get updated, time exits fire,
+         stops hit if applicable. Roughly 60s per strategy. -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key><integer>7</integer>
+        <key>Minute</key><integer>0</integer>
+    </dict>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>KeepAlive</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>/Users/derekg/trading-framework/logs/strategy-simulator.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/derekg/trading-framework/logs/strategy-simulator.log</string>
+</dict>
+</plist>

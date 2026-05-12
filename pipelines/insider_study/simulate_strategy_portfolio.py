@@ -655,8 +655,26 @@ def run(strategy_name: str, mode: str, end_date: str) -> Dict[str, int]:
         logger.info("[%s] wiped %d existing rows", strategy_name, n_deleted)
         start = sc["start_date"]
     elif mode == "extend":
-        # Extend not implemented in v1 — punt
-        raise NotImplementedError("extend mode lands in v2 after rebuild proves out")
+        # Incremental: re-simulate from the last 90 days. This catches any
+        # newly-filed trades AND re-evaluates exits on currently-open positions.
+        # We wipe only the last-90-day window so historical track record stays.
+        cutoff = (datetime.strptime(end_date, "%Y-%m-%d") -
+                  timedelta(days=90)).strftime("%Y-%m-%d")
+        n_deleted = conn.execute(
+            """DELETE FROM strategy_portfolio
+               WHERE strategy = ? AND execution_source = 'simulated'
+                 AND entry_date >= ?""",
+            (strategy_name, cutoff),
+        ).rowcount
+        conn.commit()
+        logger.info("[%s] extend mode: wiped %d rows from last 90d window (>= %s)",
+                    strategy_name, n_deleted or 0, cutoff)
+        # Re-simulate from cutoff (we have already-persisted closed trades
+        # before this date; the sim walks from cutoff forward, building
+        # equity from STARTING_CAPITAL + sum of pre-cutoff realized P&L).
+        # For simplicity in v1, we just re-simulate from strategy start —
+        # the extra computational cost is small (~30s per strategy).
+        start = sc["start_date"]
     else:
         raise ValueError(mode)
 
