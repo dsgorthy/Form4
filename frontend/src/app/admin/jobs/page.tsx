@@ -10,12 +10,22 @@ interface JobStatus {
   label: string;
   category: string;
   log_file: string;
+  liveness_source?: "heartbeat" | "log";
+  liveness_file?: string;
   exists: boolean;
   last_run_at: string | null;
   age_seconds: number | null;
   expected_cadence_seconds: number;
   status: "healthy" | "lagging" | "stale" | "missing";
   tail: string[];
+  heartbeat?: {
+    strategy?: string;
+    mode?: string;
+    status?: string;
+    detail?: string;
+    open_positions?: number;
+    pid?: number;
+  } | null;
 }
 
 interface JobsResponse {
@@ -184,15 +194,38 @@ export default function AdminJobsPage() {
                     </div>
                   </button>
                   {expanded === j.name && (
-                    <div className="px-4 pb-3 pt-1 bg-[#0A0A12] border-t border-[#2A2A3A]/40">
-                      <div className="text-[10px] uppercase tracking-wider text-[#55556A] mb-1">
-                        Last log lines
+                    <div className="px-4 pb-3 pt-1 bg-[#0A0A12] border-t border-[#2A2A3A]/40 space-y-2">
+                      {j.heartbeat && (
+                        <div>
+                          <div className="text-[10px] uppercase tracking-wider text-[#55556A] mb-1">
+                            Heartbeat (liveness source)
+                          </div>
+                          <div className="text-[11px] text-[#8888A0] font-mono">
+                            status=<span className="text-[#22C55E]">{j.heartbeat.status || "?"}</span>
+                            {" · "}detail={j.heartbeat.detail || "—"}
+                            {j.heartbeat.open_positions !== undefined && (
+                              <> · open={j.heartbeat.open_positions}</>
+                            )}
+                            {j.heartbeat.pid && <> · pid={j.heartbeat.pid}</>}
+                          </div>
+                        </div>
+                      )}
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wider text-[#55556A] mb-1">
+                          Last log lines
+                        </div>
+                        <pre className="text-[11px] text-[#8888A0] font-mono whitespace-pre-wrap leading-snug">
+                          {j.tail.length > 0 ? j.tail.join("\n") : "(empty)"}
+                        </pre>
                       </div>
-                      <pre className="text-[11px] text-[#8888A0] font-mono whitespace-pre-wrap leading-snug">
-                        {j.tail.length > 0 ? j.tail.join("\n") : "(empty)"}
-                      </pre>
-                      <div className="text-[10px] text-[#55556A] mt-2">
+                      <div className="text-[10px] text-[#55556A]">
                         Log file: <code className="text-[#8888A0]">{j.log_file}</code>
+                        {j.liveness_source === "heartbeat" && j.liveness_file && (
+                          <>
+                            <br />
+                            Liveness from heartbeat: <code className="text-[#8888A0]">{j.liveness_file}</code>
+                          </>
+                        )}
                       </div>
                     </div>
                   )}

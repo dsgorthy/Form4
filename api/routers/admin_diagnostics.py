@@ -32,10 +32,17 @@ ALERT_LOG_PATH = REPO_ROOT / "logs" / "alerts.ndjson"
 # Inside the API container, logs/ is mounted at /data/logs (read-only).
 # Outside the container (local dev) it resolves to <repo>/logs/.
 LOGS_DIR = Path("/data/logs") if Path("/data/logs").exists() else (REPO_ROOT / "logs")
+CW_DATA_DIR = (Path("/data/cw_strategies") if Path("/data/cw_strategies").exists()
+               else REPO_ROOT / "strategies" / "cw_strategies" / "data")
 
 
-# Catalog of monitored launchd / cron jobs. (label, log_file, expected_cadence_seconds, description)
-# Used by /jobs endpoint to compute health from log mtime.
+# Catalog of monitored launchd / cron jobs.
+#   `log`: log file in LOGS_DIR — used for tail display + (default) liveness mtime
+#   `heartbeat`: optional path under CW_DATA_DIR — if present, use THIS file's
+#                mtime for liveness instead of the log file. Critical for the
+#                cw_runners, which only write to the log on real events (scans,
+#                entries, exits) but write to the heartbeat file every cycle.
+#   `cadence_s`: max age before status flips to lagging/stale
 JOB_CATALOG = [
     # File ingestion + features
     {"name": "insider-fetch",      "log": "insider-fetch.log",      "cadence_s": 5 * 60,
@@ -46,12 +53,15 @@ JOB_CATALOG = [
      "label": "Daily prices update (17:30 PT)", "category": "ingestion"},
     {"name": "backfill-returns",   "log": "backfill_returns.log",   "cadence_s": 26 * 3600,
      "label": "Forward returns backfill (05:00 PT)", "category": "ingestion"},
-    # Live runners (continuous)
-    {"name": "quality-momentum",   "log": "quality-momentum.log",   "cadence_s": 30 * 60,
+    # Live runners — heartbeat is the source of truth (log only updates on real events)
+    {"name": "quality-momentum",   "log": "quality-momentum.log",
+     "heartbeat": "quality_momentum_heartbeat.json", "cadence_s": 5 * 60,
      "label": "QM cw_runner (live paper)", "category": "live_runner"},
-    {"name": "reversal-dip",       "log": "reversal-dip.log",       "cadence_s": 30 * 60,
+    {"name": "reversal-dip",       "log": "reversal-dip.log",
+     "heartbeat": "reversal_dip_heartbeat.json", "cadence_s": 5 * 60,
      "label": "RD cw_runner (live paper)", "category": "live_runner"},
-    {"name": "tenb51-surprise",    "log": "tenb51-surprise.log",    "cadence_s": 30 * 60,
+    {"name": "tenb51-surprise",    "log": "tenb51-surprise.log",
+     "heartbeat": "tenb51_surprise_heartbeat.json", "cadence_s": 5 * 60,
      "label": "10b5 cw_runner (live paper)", "category": "live_runner"},
     # Simulated portfolio runners
     {"name": "strategy-intraday",  "log": "strategy-intraday.log",  "cadence_s": 15 * 60,
@@ -535,28 +545,48 @@ def _tail_file(path: Path, n_lines: int = 5) -> list[str]:
 
 
 def _job_status(job: dict) -> dict:
-    """Compute status for one job from log file mtime + tail."""
+    """Compute status for one job.
+
+    Liveness signal:
+      - If `heartbeat` is set: use heartbeat file mtime (and parse the JSON for
+        status fields like 'detail' / 'open_positions'). This is the source of
+        truth for cw_runners — they update the heartbeat every cycle even when
+        idle, but the log file only sees writes on real events (entries, exits,
+        scans), so log mtime gives false-stale readings.
+      - Otherwise: use log file mtime as the liveness signal.
+
+    Tail display always uses the log file (the heartbeat JSON has structured
+    data, not human-readable history).
+    """
     log_path = LOGS_DIR / job["log"]
     now = datetime.now(timezone.utc)
+    cadence_s = job["cadence_s"]
+    log_tail = _tail_file(log_path, n_lines=5) if log_path.exists() else []
 
-    if not log_path.exists():
+    # Pick liveness file: heartbeat if specified, else log
+    heartbeat_name = job.get("heartbeat")
+    liveness_path = CW_DATA_DIR / heartbeat_name if heartbeat_name else log_path
+    liveness_source = "heartbeat" if heartbeat_name else "log"
+
+    if not liveness_path.exists():
         return {
             "name": job["name"],
             "label": job["label"],
             "category": job["category"],
             "log_file": str(log_path),
+            "liveness_source": liveness_source,
+            "liveness_file": str(liveness_path),
             "exists": False,
             "last_run_at": None,
             "age_seconds": None,
-            "expected_cadence_seconds": job["cadence_s"],
+            "expected_cadence_seconds": cadence_s,
             "status": "missing",
-            "tail": [],
+            "tail": log_tail,
+            "heartbeat": None,
         }
 
-    mtime = datetime.fromtimestamp(log_path.stat().st_mtime, tz=timezone.utc)
+    mtime = datetime.fromtimestamp(liveness_path.stat().st_mtime, tz=timezone.utc)
     age_s = (now - mtime).total_seconds()
-    cadence_s = job["cadence_s"]
-
     if age_s <= cadence_s:
         status = "healthy"
     elif age_s <= cadence_s * 2:
@@ -564,17 +594,28 @@ def _job_status(job: dict) -> dict:
     else:
         status = "stale"
 
+    # Parse heartbeat JSON for status detail if present
+    heartbeat_data = None
+    if heartbeat_name:
+        try:
+            heartbeat_data = json.loads(liveness_path.read_text())
+        except Exception:
+            heartbeat_data = None
+
     return {
         "name": job["name"],
         "label": job["label"],
         "category": job["category"],
         "log_file": str(log_path),
+        "liveness_source": liveness_source,
+        "liveness_file": str(liveness_path),
         "exists": True,
         "last_run_at": mtime.isoformat(),
         "age_seconds": int(age_s),
         "expected_cadence_seconds": cadence_s,
         "status": status,
-        "tail": _tail_file(log_path, n_lines=5),
+        "tail": log_tail,
+        "heartbeat": heartbeat_data,
     }
 
 
