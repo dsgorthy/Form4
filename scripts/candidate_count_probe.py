@@ -157,38 +157,86 @@ def main():
     yesterday_key = (today - timedelta(days=1)).isoformat()
     prev_counts = history.get(yesterday_key, {}).get("counts", {})
 
+    # Tuned 2026-05-13 after Derek flagged daily noise from these alerts.
+    # Quiet markets legitimately produce 0 qualifying candidates per strategy;
+    # downgraded most cases from critical to warn. Only sustained silence
+    # (≥5 consecutive market days) still pages.
+    CRITICAL_STREAK_DAYS = 5
+
+    def _zero_streak_through_yesterday(strategy: str) -> int:
+        """Walk history backwards from yesterday, count consecutive market
+        days at zero. Non-market days (weekend/holiday) are skipped without
+        breaking the streak."""
+        streak = 0
+        d = today - timedelta(days=1)
+        for _ in range(30):
+            if not is_market_day(d):
+                d -= timedelta(days=1)
+                continue
+            key = d.isoformat()
+            day_counts = history.get(key, {}).get("counts", {})
+            if strategy not in day_counts:
+                break
+            if day_counts[strategy] == 0:
+                streak += 1
+                d -= timedelta(days=1)
+            else:
+                break
+        return streak
+
     new_zeros: list[str] = []
-    consecutive_zeros: list[str] = []
+    long_silence: list[tuple[str, int]] = []   # (strategy, days)
+    medium_silence: list[tuple[str, int]] = [] # (strategy, days)
     recovered: list[str] = []
+
     for strategy, count in results.items():
-        prev = prev_counts.get(strategy)
+        prev_count = prev_counts.get(strategy)
+        prev_streak = _zero_streak_through_yesterday(strategy)
+
         if count == 0 and market_day:
-            # First-day zero alert (transition from >0 or first observation)
-            if prev is None or prev > 0:
+            if prev_count is None or prev_count > 0:
+                # First-day zero — warn, doesn't page
                 new_zeros.append(strategy)
             else:
-                # 2+ consecutive trading days at zero → P0 escalation
-                consecutive_zeros.append(strategy)
-        elif count > 0 and prev == 0:
+                streak = prev_streak + 1
+                if streak >= CRITICAL_STREAK_DAYS:
+                    long_silence.append((strategy, streak))
+                else:
+                    medium_silence.append((strategy, streak))
+        elif count > 0 and prev_count == 0:
             recovered.append(strategy)
 
     if new_zeros and not args.no_alert:
         body = "\n".join(f"  • {s} produced 0 qualifying candidates today"
                          for s in new_zeros)
-        alert.critical(
+        alert.warn(
             "candidate_count_probe",
-            f"{len(new_zeros)} strategy(ies) silent today (1d):\n{body}\n\nRunbook: R-002",
+            f"{len(new_zeros)} strategy(ies) silent today (1d):\n{body}",
             silent_strategies=new_zeros,
         )
 
-    if consecutive_zeros and not args.no_alert:
-        body = "\n".join(f"  • {s} has been silent for ≥2 consecutive market days"
-                         for s in consecutive_zeros)
+    if medium_silence and not args.no_alert:
+        # 2-4 consecutive zero days — informational; doesn't page
+        body = "\n".join(f"  • {s} silent for {d} consecutive market days"
+                         for s, d in medium_silence)
+        alert.warn(
+            "candidate_count_probe",
+            f"{len(medium_silence)} strategy(ies) in extended quiet:\n{body}",
+            silent_strategies=[s for s, _ in medium_silence],
+            consecutive_days=max(d for _, d in medium_silence),
+        )
+
+    if long_silence and not args.no_alert:
+        # 5+ consecutive zero days — escalate to critical, this might be
+        # broken filters or upstream data missing, not just a quiet market
+        body = "\n".join(f"  • {s} silent for {d} consecutive market days"
+                         for s, d in long_silence)
         alert.critical(
             "candidate_count_probe",
-            f"P0 ESCALATION — {len(consecutive_zeros)} strategy(ies) sustained silence:\n{body}\n\nRunbook: R-002",
-            silent_strategies=consecutive_zeros,
-            consecutive_days=2,
+            f"P0 ESCALATION — {len(long_silence)} strategy(ies) silent ≥{CRITICAL_STREAK_DAYS} days:\n"
+            f"{body}\n\nRunbook: R-002",
+            silent_strategies=[s for s, _ in long_silence],
+            consecutive_days=max(d for _, d in long_silence),
         )
 
     if recovered and not args.no_alert:

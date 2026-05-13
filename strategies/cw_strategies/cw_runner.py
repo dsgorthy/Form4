@@ -1323,12 +1323,14 @@ def execute_entries(
                     client_order_id=order_id,
                 )
                 if result.status == "pending":
-                    # Up to 90s for terminal status. If still pending after,
-                    # we don't know if Alpaca filled or not — treat as timeout
-                    # and fire critical alert so the operator can verify by
-                    # hand. This is the worst case for live money: an order
-                    # in unknown state.
-                    result = alpaca.wait_for_fill(result.order_id, timeout=90)
+                    # Up to 300s for terminal status. Bumped from 90s on
+                    # 2026-05-13 after HUBS filled at +150s (90s timeout had
+                    # already fired the "manual verify" alert). The websocket
+                    # listener (framework/oms/alpaca_stream_listener.py) and
+                    # the intraday reconciler (scripts/alpaca_intraday_resolver.py)
+                    # both catch any orders that *still* time out at 300s, so
+                    # downstream state will self-heal without operator action.
+                    result = alpaca.wait_for_fill(result.order_id, timeout=300)
                 fill_status = result.status if result.status != "pending" else "timeout"
                 if order_v2 is not None:
                     # V2: drive the state machine. PENDING → SUBMITTED happens

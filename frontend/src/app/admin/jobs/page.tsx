@@ -124,10 +124,11 @@ export default function AdminJobsPage() {
     byCategory[j.category].push(j);
   }
 
-  const categoryOrder = ["ingestion", "live_runner", "simulator", "monitoring"];
+  const categoryOrder = ["ingestion", "live_runner", "fills", "simulator", "monitoring"];
   const categoryLabels: Record<string, string> = {
     ingestion: "Data Ingestion",
     live_runner: "Live Paper Trading Runners",
+    fills: "Order Fill Confirmation",
     simulator: "Simulated Portfolio",
     monitoring: "Monitoring & Reconciliation",
   };

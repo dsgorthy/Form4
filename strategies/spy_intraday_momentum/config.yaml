@@ -1,0 +1,26 @@
+strategy_name: spy_intraday_momentum
+display_name: "SPY Intraday Momentum (0DTE)"
+
+entry:
+  time: "15:30"              # engine uses this to load bars up to entry time
+  morning_cutoff: "10:00"    # end of morning window
+  entry_time: "15:30"        # enter position at 3:30 PM
+  min_morning_move_pct: 0.0  # minimum |morning return| to trade (0 = trade every day)
+
+exit:
+  time_stop: "15:55"         # exit 5 min before close
+  stop_pct: 0.50             # stop loss: 50% of premium
+  target_pct: 1.00           # target: 100% gain (double)
+
+filters:
+  min_vixy: 0.0
+  max_vixy: 100.0
+
+instrument:
+  type: option               # "equity" or "option"
+
+data:
+  primary_symbol: SPY
+  symbols:
+    - SPY
+    - VIXY

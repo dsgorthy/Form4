@@ -68,6 +68,13 @@ JOB_CATALOG = [
      "label": "Intraday simulated portfolio update", "category": "simulator"},
     {"name": "strategy-simulator", "log": "strategy-simulator.log", "cadence_s": 26 * 3600,
      "label": "Daily simulated portfolio rebuild (07:00 PT)", "category": "simulator"},
+    # Order fill resolution (event-driven + periodic backstop)
+    {"name": "alpaca-stream-listener", "log": "alpaca-stream-listener.log",
+     "heartbeat": "alpaca_stream_heartbeat.json", "cadence_s": 5 * 60,
+     "label": "Alpaca trade_updates WebSocket listener (continuous)", "category": "fills"},
+    {"name": "alpaca-intraday-resolver", "log": "alpaca-intraday-resolver.log",
+     "cadence_s": 10 * 60,
+     "label": "Intraday Alpaca order resolver (every 5 min, market hours)", "category": "fills"},
     # Monitoring + alerts
     {"name": "freshness-probe",    "log": "freshness-probe.log",    "cadence_s": 45 * 60,
      "label": "Freshness contract probe (every 30 min)", "category": "monitoring"},
