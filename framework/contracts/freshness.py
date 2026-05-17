@@ -228,6 +228,12 @@ class WriterRegistryEntry:
     required_for: tuple[str, ...]
     sla_hours: Optional[float] = None
     notes: str = ""
+    # When `recompute=False`, the column is set at INSERT-time (e.g. parsed
+    # from XML) and never recomputed. There's no canonical writer-of-record
+    # for signal_freshness rows in that case; the runtime writer-match check
+    # skips these. Staleness check (assert_fresh) still runs — freshness
+    # piggybacks on the ingest plist's filing_date row.
+    recompute: bool = True
 
     def applies_to(self, strategy: str) -> bool:
         return "*" in self.required_for or strategy in self.required_for
@@ -262,6 +268,7 @@ class WriterRegistry:
                 required_for=tuple(spec.get("required_for") or ()),
                 sla_hours=spec.get("sla_hours"),
                 notes=spec.get("notes", "") or "",
+                recompute=bool(spec.get("recompute", True)),
             )
 
     def lookup(self, column_key: str) -> Optional[WriterRegistryEntry]:
@@ -320,6 +327,11 @@ def assert_writer_wired(
     if entry is None or not entry.script:
         return  # not yet registered — skip
     if strategy and not entry.applies_to(strategy):
+        return
+    if not entry.recompute:
+        # Parse-time column (set at INSERT, never re-stamped). No canonical
+        # writer-of-record for signal_freshness; staleness check piggybacks
+        # on the ingest plist's filing_date row.
         return
 
     observed = _lookup_populated_by(conn, table, column)

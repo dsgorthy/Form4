@@ -79,12 +79,11 @@ trades.cohen_routine:
   description: "Boolean: trade is part of routine plan per Cohen et al."
   populated_by: pipelines/insider_study/compute_cohen_pit.py
 
-trades.is_10b5_1:
-  max_staleness_hours: 48
-  required_for: [reversal_dip, tenb51_surprise]
-  description: "Boolean: trade was filed under a Rule 10b5-1 plan. Parse-time field from Form 4 XML; never recomputed."
-  populated_by: strategies/insider_catalog/fetch_latest.py
-  notes: "No dedicated write_freshness call — column is set at INSERT, freshness piggybacks on trades.filing_date (same writer, same plist). Was mislabeled until 2026-05-17 audit."
+# trades.is_10b5_1: contract dropped 2026-05-17. Parse-time field from
+# Form 4 XML set at INSERT in fetch_latest.py — no compute step, no
+# canonical write_freshness writer. Strategies still read the column; its
+# staleness piggybacks on trades.filing_date (same ingest writer, same plist),
+# which IS contracted at 48h.
 
 trades.is_rare_reversal:
   max_staleness_hours: 26

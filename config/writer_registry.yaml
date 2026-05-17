@@ -223,8 +223,9 @@ writers:
     plists: [com.openclaw.insider-fetch]
     schedule: "every 5 min (XML parse-time)"
     sla_hours: 48
-    required_for: [reversal_dip, tenb51_surprise]
-    notes: "Parse-time field from Form 4 XML — set at INSERT time, never recomputed. Previously mislabeled in freshness_contracts.yaml as populated_by=compute_cw_indicators.py. No write_freshness call exists for this column; the contract piggybacks on trades.filing_date freshness (same writer, same plist)."
+    required_for: []   # informational; staleness piggybacks on trades.filing_date
+    recompute: false   # set at INSERT, never re-stamped
+    notes: "Parse-time field from Form 4 XML — set at INSERT time, never recomputed. Strategies still read it; freshness piggybacks on trades.filing_date contract. The 2026-05-17 audit removed this from freshness_contracts.yaml because no canonical write_freshness writer exists, but kept the registry entry for documentation (strategies depend on the column being correctly set at parse time)."
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Daily prices — pipelines/insider_study/update_daily_prices.py

@@ -268,25 +268,23 @@ def check_write_freshness_calls(registry: list[dict]) -> CheckResult:
       - Grep fallback: script contains both `write_freshness` and `"X"` literal
         (for dict-driven writers where column comes through a variable)
 
-    Some columns have no recompute step (e.g. trades.is_10b5_1 is XML-parse-time,
-    trades.filing_date is INSERT-time). Those entries carry `notes:` that
-    mention "parse-time" or "INSERT" — we accept them without a freshness call.
+    Columns with `recompute: false` are exempt — they're set at INSERT (e.g.
+    XML-parse-time fields like is_10b5_1) and have no compute-step writer.
+    Their freshness piggybacks on the ingest plist's filing_date row.
     """
     name = "2. Scripts call write_freshness for their column"
     findings: list[str] = []
     for entry in registry:
         column = entry.get("column", "<unknown>")
         script_rel = entry.get("script", "")
-        notes = entry.get("notes") or ""
         if not script_rel:
             continue  # Caught by check #1
         script_path = REPO / script_rel
         if not script_path.exists():
             continue  # Caught by check #1
 
-        # Parse-time / INSERT-time columns don't have a write_freshness call;
-        # their freshness piggybacks on filing_date or a related ingest field.
-        if "parse-time" in notes.lower() or "INSERT" in notes:
+        # Parse-time columns explicitly opt out of the write_freshness contract.
+        if entry.get("recompute", True) is False:
             continue
 
         column_basename = column.rsplit(".", 1)[-1]
@@ -303,8 +301,8 @@ def check_write_freshness_calls(registry: list[dict]) -> CheckResult:
         name=name, passed=not findings, findings=findings,
         details=("Every registered writer must actually call write_freshness for "
                  "its column, otherwise the freshness contract reports green forever. "
-                 "This is the structural defense against the is_rare_reversal mislabel "
-                 "class of bug."),
+                 "Use `recompute: false` for parse-time columns. This is the "
+                 "structural defense against the is_rare_reversal mislabel class of bug."),
     )
 
 
