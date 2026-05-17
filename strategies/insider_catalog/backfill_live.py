@@ -1180,11 +1180,12 @@ def main():
                     pit_score_to_grade(v3.blended_score)
                     if v3.sufficient_data else None
                 )
+                career_blended = v3.blended_score if v3.sufficient_data else None
                 conn.execute("""
                     UPDATE insider_ticker_scores
                     SET career_blended_score = ?, career_grade = ?
                     WHERE insider_id = ? AND ticker = ? AND as_of_date = ?
-                """, (v3.blended_score, career_grade, insider_id, ticker, filing_date))
+                """, (career_blended, career_grade, insider_id, ticker, filing_date))
                 conn.execute("""
                     UPDATE trades SET career_grade = ? WHERE trade_id = ?
                 """, (career_grade, trade_id))

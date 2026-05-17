@@ -1,172 +1,163 @@
 #!/usr/bin/env python3
-"""
-Compute insider_switch_rate and is_rare_reversal for all trades >= 2016.
+"""Compute insider_switch_rate and is_rare_reversal — PostgreSQL recurring writer.
 
-Point-in-time: for each trade event, only considers the insider's prior trades.
-Groups by filing_key to avoid counting lot-splits as separate events.
-"""
+Replaces the old SQLite implementation that was hard-pinned to
+`strategies/insider_catalog/insiders.db`. That file was the only writer for
+`is_rare_reversal`, and it stopped running once the data layer moved to PG —
+silently silenced `reversal_dip` for ~8 weeks until the 2026-05-16 audit.
 
-import sqlite3
+Point-in-time: for each trade event, only considers the insider's PRIOR
+events. Groups by filing_key to avoid counting lot-splits as separate events.
+
+Window discipline: the count walks the FULL event history per insider
+(required for correct switch_rate and is_rare_reversal). Only UPDATEs
+trades whose filing_date >= --since.
+
+Usage:
+    python3 pipelines/insider_study/compute_switch_rate.py --since 2026-04-01
+"""
+from __future__ import annotations
+
+import argparse
+import logging
+import sys
 import time
 from collections import defaultdict
+from pathlib import Path
 
-DB_PATH = "/Users/derekg/trading-framework/strategies/insider_catalog/insiders.db"
-BATCH_SIZE = 50_000
-MIN_DATE = "2016-01-01"
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from config.database import get_connection  # noqa: E402
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+    datefmt="%H:%M:%S",
+)
+logger = logging.getLogger(__name__)
+
+BATCH_SIZE = 5000
+DEFAULT_SINCE = "2016-01-01"
+RARE_REVERSAL_STREAK = 5  # 5+ same-direction events, then opposite
 
 
-def main():
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA cache_size=-200000")  # 200MB cache
-    cur = conn.cursor()
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--since", default=DEFAULT_SINCE,
+                        help="Only UPDATE trades with filing_date >= this date (YYYY-MM-DD)")
+    args = parser.parse_args()
 
-    # Add columns if not exist
-    existing = {r[1] for r in cur.execute("PRAGMA table_info(trades)").fetchall()}
-    if "insider_switch_rate" not in existing:
-        cur.execute("ALTER TABLE trades ADD COLUMN insider_switch_rate REAL")
-        print("Added column: insider_switch_rate")
-    if "is_rare_reversal" not in existing:
-        cur.execute("ALTER TABLE trades ADD COLUMN is_rare_reversal INTEGER DEFAULT 0")
-        print("Added column: is_rare_reversal")
-    conn.commit()
+    conn = get_connection()
 
-    # Load all trades grouped by insider, ordered by filing_date
-    # We need: trade_id, insider_id, trade_type, filing_date, filing_key
-    print("Loading trades...")
+    logger.info("Loading full trade history (PIT counting needs full prior set)...")
     t0 = time.time()
-    cur.execute("""
+    rows = conn.execute("""
         SELECT trade_id, insider_id, trade_type, filing_date, filing_key
-        FROM trades
-        WHERE filing_date >= ?
-        ORDER BY insider_id, filing_date, trade_id
-    """, (MIN_DATE,))
-    all_trades = cur.fetchall()
-    print(f"Loaded {len(all_trades):,} trades in {time.time()-t0:.1f}s")
+          FROM trades
+         WHERE filing_date >= ?
+         ORDER BY insider_id, filing_date, trade_id
+    """, (DEFAULT_SINCE,)).fetchall()
+    logger.info("Loaded %d trades in %.1fs", len(rows), time.time() - t0)
 
-    # Group by insider
-    insider_trades = defaultdict(list)
-    for row in all_trades:
-        trade_id, insider_id, trade_type, filing_date, filing_key = row
-        insider_trades[insider_id].append(row)
-    print(f"Unique insiders: {len(insider_trades):,}")
+    by_insider: dict[int, list[tuple]] = defaultdict(list)
+    for row in rows:
+        by_insider[row[1]].append(row)
+    logger.info("Unique insiders: %d", len(by_insider))
 
-    # Compute switch_rate and rare_reversal for each trade
-    updates = []  # (switch_rate, is_rare_reversal, trade_id)
+    updates: list[tuple] = []  # (switch_rate, is_rare_reversal, trade_id)
     processed = 0
+    rare_count = 0
     t0 = time.time()
 
-    for insider_id, trades in insider_trades.items():
-        # Deduplicate by filing_key to get events (not lots)
-        # For each event, take the first trade's direction
-        seen_keys = {}  # filing_key -> (direction, filing_date)
-        events_order = []  # list of (filing_key, direction, filing_date)
-        trade_to_event_idx = {}  # trade_id -> index into events_order at time of that trade
-
-        # First pass: identify unique events in order
+    for insider_id, trades in by_insider.items():
+        # 1) Dedupe by filing_key to derive events_order
+        seen: dict[str, tuple[str, str]] = {}
+        events_order: list[tuple[str, str, str]] = []
         for trade_id, _, trade_type, filing_date, filing_key in trades:
             key = filing_key if filing_key else f"_nofk_{trade_id}"
-            if key not in seen_keys:
+            if key not in seen:
                 direction = "buy" if trade_type == "buy" else "sell"
-                seen_keys[key] = (direction, filing_date)
+                seen[key] = (direction, filing_date)
                 events_order.append((key, direction, filing_date))
 
-        # Second pass: for each trade, compute PIT metrics
-        # Build event list incrementally
-        event_idx = 0
-        key_to_event_idx = {}
-        for i, (key, direction, fdate) in enumerate(events_order):
-            key_to_event_idx[key] = i
+        key_to_idx = {k: i for i, (k, _, _) in enumerate(events_order)}
 
+        # 2) PIT walk
         for trade_id, _, trade_type, filing_date, filing_key in trades:
+            if filing_date < args.since:
+                continue  # Out of UPDATE window
             key = filing_key if filing_key else f"_nofk_{trade_id}"
-            current_event_idx = key_to_event_idx[key]
-            current_direction = "buy" if trade_type == "buy" else "sell"
+            event_idx = key_to_idx[key]
+            current_dir = "buy" if trade_type == "buy" else "sell"
+            prior = events_order[:event_idx]
 
-            # PIT: only events before this one
-            prior_events = events_order[:current_event_idx]
-
-            if len(prior_events) < 1:
-                # No prior history
+            if not prior:
                 updates.append((None, 0, trade_id))
+                processed += 1
+                continue
+
+            prior_dirs = [d for _, d, _ in prior]
+            n = len(prior_dirs)
+            if n < 2:
+                switch_rate = 0.0
             else:
-                # Compute switch rate: count direction changes / (n_events - 1)
-                prior_directions = [d for _, d, _ in prior_events]
-                n_prior = len(prior_directions)
+                switches = sum(
+                    1 for i in range(1, n) if prior_dirs[i] != prior_dirs[i - 1]
+                )
+                switch_rate = switches / (n - 1)
 
-                if n_prior < 2:
-                    switch_rate = 0.0
-                else:
-                    switches = sum(
-                        1 for i in range(1, n_prior)
-                        if prior_directions[i] != prior_directions[i - 1]
-                    )
-                    switch_rate = switches / (n_prior - 1)
+            is_rare = 0
+            if n >= RARE_REVERSAL_STREAK:
+                last_dir = prior_dirs[-1]
+                streak = 0
+                for d in reversed(prior_dirs):
+                    if d == last_dir:
+                        streak += 1
+                    else:
+                        break
+                if streak >= RARE_REVERSAL_STREAK and current_dir != last_dir:
+                    is_rare = 1
+                    rare_count += 1
 
-                # Rare reversal: last 5+ events all same direction, this trade is opposite
-                is_rare = 0
-                if n_prior >= 5:
-                    last_dir = prior_directions[-1]
-                    # Count consecutive same-direction events from the end
-                    streak = 0
-                    for d in reversed(prior_directions):
-                        if d == last_dir:
-                            streak += 1
-                        else:
-                            break
-                    if streak >= 5 and current_direction != last_dir:
-                        is_rare = 1
-
-                updates.append((switch_rate, is_rare, trade_id))
-
+            updates.append((switch_rate, is_rare, trade_id))
             processed += 1
-            if processed % 200_000 == 0:
-                elapsed = time.time() - t0
-                print(f"  Computed {processed:,} trades ({elapsed:.1f}s)")
 
-    print(f"Computed all {processed:,} trades in {time.time()-t0:.1f}s")
+        if len(updates) >= BATCH_SIZE * 4:
+            _flush(conn, updates)
+            updates = []
 
-    # Batch update
-    print("Writing updates to database...")
-    t0 = time.time()
-    for i in range(0, len(updates), BATCH_SIZE):
-        batch = updates[i : i + BATCH_SIZE]
-        cur.executemany(
-            "UPDATE trades SET insider_switch_rate = ?, is_rare_reversal = ? WHERE trade_id = ?",
-            batch,
+    _flush(conn, updates)
+    logger.info("Computed and wrote %d trades in %.1fs (rare_reversal=%d)",
+                processed, time.time() - t0, rare_count)
+
+    try:
+        from framework.contracts.freshness_writer import write_freshness
+        write_freshness(
+            conn, table="trades", column="is_rare_reversal",
+            n_rows_affected=processed,
+            populated_by="pipelines/insider_study/compute_switch_rate.py",
+        )
+        write_freshness(
+            conn, table="trades", column="insider_switch_rate",
+            n_rows_affected=processed,
+            populated_by="pipelines/insider_study/compute_switch_rate.py",
         )
         conn.commit()
-        print(f"  Written {min(i + BATCH_SIZE, len(updates)):,} / {len(updates):,}")
-
-    elapsed = time.time() - t0
-    print(f"All updates written in {elapsed:.1f}s")
-
-    # Stats
-    cur.execute("SELECT COUNT(*) FROM trades WHERE insider_switch_rate IS NOT NULL")
-    print(f"\nTrades with switch_rate: {cur.fetchone()[0]:,}")
-    cur.execute("SELECT AVG(insider_switch_rate) FROM trades WHERE insider_switch_rate IS NOT NULL")
-    print(f"Mean switch_rate: {cur.fetchone()[0]:.4f}")
-    cur.execute("SELECT COUNT(*) FROM trades WHERE is_rare_reversal = 1")
-    print(f"Rare reversals: {cur.fetchone()[0]:,}")
-    cur.execute("""
-        SELECT
-            CASE WHEN insider_switch_rate < 0.1 THEN '0.0-0.1'
-                 WHEN insider_switch_rate < 0.2 THEN '0.1-0.2'
-                 WHEN insider_switch_rate < 0.3 THEN '0.2-0.3'
-                 WHEN insider_switch_rate < 0.5 THEN '0.3-0.5'
-                 ELSE '0.5+' END AS bucket,
-            COUNT(*)
-        FROM trades
-        WHERE insider_switch_rate IS NOT NULL
-        GROUP BY bucket ORDER BY bucket
-    """)
-    print("\nSwitch rate distribution:")
-    for row in cur.fetchall():
-        print(f"  {row[0]}: {row[1]:,}")
+    except Exception as e:
+        logger.warning("freshness write failed: %s", e)
 
     conn.close()
-    print("\nDone.")
+    return 0
+
+
+def _flush(conn, updates: list[tuple]) -> None:
+    if not updates:
+        return
+    conn.executemany(
+        "UPDATE trades SET insider_switch_rate = ?, is_rare_reversal = ? WHERE trade_id = ?",
+        updates,
+    )
+    conn.commit()
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

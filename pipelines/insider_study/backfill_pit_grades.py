@@ -31,11 +31,16 @@ def main():
     db = get_connection()
 
     # Build PIT score lookup: (insider_id, ticker) -> sorted list of (as_of_date, blended_score)
+    # sufficient_data=1 excludes degenerate rows (role-change days when an
+    # insider has 0 prior trades in the new role); those rows carry
+    # blended_score=NULL post-fix but were historically 0.0, which would
+    # otherwise propagate as a fake D grade onto trades.pit_grade.
     print("Loading insider_ticker_scores...", flush=True)
     t0 = time.time()
     rows = db.execute("""
         SELECT insider_id, ticker, as_of_date, blended_score
         FROM insider_ticker_scores
+        WHERE sufficient_data = 1
         ORDER BY insider_id, ticker, as_of_date
     """).fetchall()
 

@@ -448,29 +448,41 @@ def compute_recurring_purchase(conn) -> int:
 
 def compute_consecutive_sells(conn) -> int:
     """For each P-code buy, count consecutive S-code sells immediately prior
-    by the same insider at the same ticker. Enhances reversal detection."""
+    by the same insider at the same ticker.
+
+    Counting requires the *full* prior-trade history per (insider, ticker),
+    so we always load every trade regardless of `--since`. We only emit
+    UPDATEs for rows whose trade_date >= MIN_DATE — this keeps daily refresh
+    cheap while making the count correct.
+
+    Previously the load query was also gated by `WHERE trade_date >= MIN_DATE`,
+    which truncated the prior-trade window when running with `--since 30d`
+    and collapsed `consecutive_sells_before` (max dropped from 176 in March
+    to 4 in May — the bug that silenced reversal_dip for 8 weeks)."""
     print("\n=== Consecutive Sells Before Buy ===")
     t0 = time.time()
 
-    # Load all trades by insider+ticker, ordered by date
+    # Load ALL trades for accurate counting. UPDATE filter happens below.
     rows = conn.execute("""
         SELECT trade_id, insider_id, ticker, trade_type, trade_date
         FROM trades
-        WHERE trade_date >= ?
         ORDER BY insider_id, ticker, trade_date, trade_id
-    """, (MIN_DATE,)).fetchall()
-    print(f"  Loaded {len(rows):,} trades")
+    """).fetchall()
+    print(f"  Loaded {len(rows):,} trades (full history)")
 
     groups = defaultdict(list)
     for trade_id, insider_id, ticker, trade_type, trade_date in rows:
-        groups[(insider_id, ticker)].append((trade_id, trade_type))
+        groups[(insider_id, ticker)].append((trade_id, trade_type, trade_date))
 
     updates = []
     for key, trades in groups.items():
-        for idx, (trade_id, trade_type) in enumerate(trades):
+        for idx, (trade_id, trade_type, trade_date) in enumerate(trades):
             if trade_type != "buy":
                 continue
-            # Count consecutive sells immediately before this buy
+            # Only update recent trades — the count uses the full prior list
+            # but writes only roll forward.
+            if trade_date < MIN_DATE:
+                continue
             count = 0
             for j in range(idx - 1, -1, -1):
                 if trades[j][1] == "sell":
@@ -511,7 +523,10 @@ INDICATOR_TO_COLUMNS = {
     "size": ["purchase_size_ratio", "is_largest_ever"],
     "tax": ["is_tax_sale"],
     "recurring": ["is_recurring"],
-    "consecutive": ["consecutive_sells_before", "is_rare_reversal", "is_10b5_1"],
+    # Note: compute_consecutive_sells only writes `consecutive_sells_before`.
+    # `is_rare_reversal` is written by compute_switch_rate.py (separate step).
+    # `is_10b5_1` is set during Form 4 ingestion, not by this script.
+    "consecutive": ["consecutive_sells_before"],
 }
 
 

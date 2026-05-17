@@ -13,6 +13,12 @@
 #   2. Compute CW indicators (writes to trades.dip_*, above_sma*, etc.)
 #   3. Build PIT scores (writes to insider_ticker_scores)
 #   4. Map PIT scores onto trades.pit_grade column
+#   4b. Compute V3 career_grade (snapshot on insider_ticker_scores and trades).
+#       Was orphaned — only writer was inside backfill_live.main(), which
+#       insider-fetch doesn't invoke. QM died on 2026-05-12 because of this.
+#   4c. Compute insider_switch_rate + is_rare_reversal. Was orphaned even
+#       longer — old SQLite-only file never re-pointed at PG. RD silenced
+#       ~8 weeks from 2026-03-25 until the 2026-05-16 audit.
 #   5. Compute PIT cluster sizes (was orphaned 37+ days; same outage pattern
 #      as the April 2026 silent halt — see docs/postmortems/)
 #   6. Compute Cohen routine flags (10b5-1-style monthly patterns)
@@ -52,6 +58,12 @@ PYTHONUNBUFFERED=1 $PY -m strategies.insider_catalog.build_pit_scores \
 echo "--- step 4/6: backfill_pit_grades --since $SINCE ---"
 PYTHONUNBUFFERED=1 $PY $REPO/pipelines/insider_study/backfill_pit_grades.py --since "$SINCE"
 
+echo "--- step 4b/6: compute_career_grades --since $SINCE ---"
+PYTHONUNBUFFERED=1 $PY $REPO/pipelines/insider_study/compute_career_grades.py --since "$SINCE"
+
+echo "--- step 4c/6: compute_switch_rate --since $SINCE (is_rare_reversal — RD signal) ---"
+PYTHONUNBUFFERED=1 $PY $REPO/pipelines/insider_study/compute_switch_rate.py --since "$SINCE"
+
 echo "--- step 5/6: compute_pit_clusters --since $SINCE ---"
 PYTHONUNBUFFERED=1 $PY $REPO/pipelines/insider_study/compute_pit_clusters.py --since "$SINCE"
 
@@ -63,6 +75,7 @@ echo "--- staleness check ---"
 SELECT 'data_freshness',
   MAX(filing_date) AS max_filing,
   MAX(filing_date) FILTER (WHERE pit_grade IN ('A+','A')) AS max_pit_a,
+  MAX(filing_date) FILTER (WHERE career_grade IN ('A+','A')) AS max_career_a,
   MAX(filing_date) FILTER (WHERE above_sma50 = 1) AS max_sma50_yes,
   MAX(filing_date) FILTER (WHERE pit_cluster_size IS NOT NULL) AS max_cluster_size
   FROM trades WHERE trans_code = 'P';

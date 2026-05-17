@@ -557,6 +557,9 @@ def upsert_score(conn: object, score_data: dict | ScoringResult,
     else:
         d = score_data
 
+    if not d.get("sufficient_data"):
+        d["blended_score"] = None
+
     conn.execute("""
         INSERT INTO insider_ticker_scores
             (insider_id, ticker, as_of_date,

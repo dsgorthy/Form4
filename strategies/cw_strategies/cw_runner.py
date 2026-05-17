@@ -641,10 +641,15 @@ def scan_signals(conn, config: dict) -> list[dict]:
             _audit("dedup", ticker, tid, r["filing_date"], True)
 
             # Stage: PIT lookup
+            # `sufficient_data = 1` excludes degenerate rows (e.g., role-change
+            # day for a long-tenured insider, where the new-role row has 0
+            # prior trades). Without the filter we'd pick a row whose
+            # blended_score is meaningless and produce a wrong grade.
             pit_row = conn.execute('''
                 SELECT blended_score FROM insider_ticker_scores
                 WHERE insider_id = (SELECT insider_id FROM trades WHERE trade_id = ?)
                   AND ticker = ? AND as_of_date <= ?
+                  AND sufficient_data = 1
                 ORDER BY as_of_date DESC LIMIT 1
             ''', (tid, ticker, r["filing_date"])).fetchone()
 
