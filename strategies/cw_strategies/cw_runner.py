@@ -511,14 +511,14 @@ def _scan_signals_engine(
             enters.append(d)
 
     # Fetch supplemental trade-row fields execute_entries reads (filed_at,
-    # price, signal_quality, insider_name, etc.) for the entering set only.
+    # price, insider_name, etc.) for the entering set only.
     candidates: list[dict] = []
     if enters:
         tids = [int(d.trade_id) for d in enters]
         placeholders = ",".join("?" * len(tids))
         rows = conn.execute(
-            f"""SELECT t.trade_id, t.filed_at, t.price, t.signal_quality,
-                       t.pit_n_trades, t.pit_win_rate_7d, t.is_rare_reversal,
+            f"""SELECT t.trade_id, t.filed_at, t.price,
+                       t.is_rare_reversal,
                        t.consecutive_sells_before, t.dip_1mo, t.title,
                        t.company,
                        COALESCE(i.display_name, i.name) AS insider_name
@@ -544,7 +544,6 @@ def _scan_signals_engine(
                 ),
                 "company": (r["company"] if r else None) or snap.get("company"),
                 "title": (r["title"] if r else None) or snap.get("insider_title"),
-                "signal_quality": (r["signal_quality"] if r else None),
                 "signal_grade": d.pit_grade or "C",
                 "conviction": d.conviction,
                 "is_rare_reversal": bool(
@@ -556,8 +555,6 @@ def _scan_signals_engine(
                     if r is not None else snap.get("consecutive_sells_before")
                 ),
                 "dip_1mo": (r["dip_1mo"] if r else None) or snap.get("dip_1mo"),
-                "pit_n": (r["pit_n_trades"] if r else None),
-                "pit_wr": (r["pit_win_rate_7d"] if r else None),
                 "thesis_name": thesis_name,
                 "exit_config": exit_cfg,
             })
@@ -851,7 +848,6 @@ def scan_signals(conn, config: dict) -> list[dict]:
                 COALESCE(i.display_name, i.name) AS insider_name,
                 t.company,
                 t.title,
-                t.signal_quality,
                 t.signal_grade,
                 t.is_rare_reversal,
                 t.consecutive_sells_before,
@@ -860,9 +856,7 @@ def scan_signals(conn, config: dict) -> list[dict]:
                 t.above_sma50,
                 t.above_sma200,
                 t.is_csuite,
-                t.is_largest_ever,
-                t.pit_n_trades,
-                t.pit_win_rate_7d
+                t.is_largest_ever
             FROM trades t
             JOIN insiders i ON t.insider_id = i.insider_id
             {join_clause}
@@ -1001,14 +995,11 @@ def scan_signals(conn, config: dict) -> list[dict]:
                 "insider_name": r["insider_name"],
                 "company": r["company"],
                 "title": r["title"],
-                "signal_quality": r["signal_quality"],
                 "signal_grade": pit_grade,
                 "conviction": conv,
                 "is_rare_reversal": bool(r["is_rare_reversal"]),
                 "consecutive_sells_before": r["consecutive_sells_before"],
                 "dip_1mo": r["dip_1mo"],
-                "pit_n": r["pit_n_trades"],
-                "pit_wr": r["pit_win_rate_7d"],
                 "thesis_name": thesis_name,
                 "exit_config": thesis["exit"],
             })
@@ -1446,14 +1437,11 @@ def execute_entries(
             "filing_date": c["filing_date"],
             "filed_at": c.get("filed_at"),
             "entry_type": entry_type,
-            "signal_quality": c.get("signal_quality"),
             "signal_grade": c.get("signal_grade"),
             "conviction": c.get("conviction"),
             "is_rare_reversal": c.get("is_rare_reversal"),
             "consecutive_sells_before": c.get("consecutive_sells_before"),
             "dip_1mo": c.get("dip_1mo"),
-            "pit_n": c.get("pit_n"),
-            "pit_wr": c.get("pit_wr"),
         }
         reasoning = json.dumps(signal_inputs, default=str)
 
@@ -1473,13 +1461,16 @@ def execute_entries(
         # 1. Insert canonical strategy state (decoupled from Alpaca outcome)
         is_live = bool(config.get("live_money", False))
         execution_source = "live" if is_live else "paper"
+        # Note: insider_pit_n / insider_pit_wr / signal_quality columns left
+        # NULL going forward (2026-05-17 cleanup — they were vestigial telemetry
+        # never gated on by any strategy; existing rows preserved for legacy
+        # backtest queries but no new writes).
         conn.execute(
             """INSERT INTO strategy_portfolio (
                 strategy, portfolio_id, trade_id, ticker, trade_type, direction,
                 entry_date, entry_price, target_hold, stop_pct,
                 position_size, portfolio_value,
-                insider_name, insider_pit_n, insider_pit_wr,
-                signal_quality, status,
+                insider_name, status,
                 execution_source, is_estimated, actual_fill_price,
                 entry_reasoning,
                 company, insider_title, filing_date, trade_date,
@@ -1488,7 +1479,6 @@ def execute_entries(
             ) VALUES (?, ?, ?, ?, 'buy_stock', 'long',
                       ?, ?, ?, ?,
                       ?, ?,
-                      ?, ?, ?,
                       ?, 'open',
                       ?, 0, ?,
                       ?,
@@ -1500,8 +1490,7 @@ def execute_entries(
                 c["trade_id"], ticker,
                 today, round(entry_price, 4), target_hold, stop_pct or -0.15,
                 size_pct, equity,
-                c["insider_name"], c.get("pit_n"), c.get("pit_wr"),
-                c.get("signal_quality"),
+                c["insider_name"],
                 execution_source,
                 round(entry_price, 4),
                 reasoning,
@@ -2313,9 +2302,10 @@ def run_daily(config: dict, dry_run: bool = False) -> dict:
         logger.info("Found %d candidates", len(candidates))
         for c in candidates:
             logger.info(
-                "  %s: %s thesis=%s quality=%s insider=%s",
+                "  %s: %s thesis=%s grade=%s conv=%.2f insider=%s",
                 c["ticker"], c["filing_date"], c["thesis_name"],
-                c.get("signal_quality", "?"), c["insider_name"],
+                c.get("signal_grade", "?"), c.get("conviction", 0) or 0,
+                c["insider_name"],
             )
 
         # 2. Check exits (frees up slots)

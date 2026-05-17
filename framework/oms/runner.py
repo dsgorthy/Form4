@@ -185,7 +185,6 @@ def evaluate_candidates_v2(conn, config: dict) -> list[dict]:
                 COALESCE(i.display_name, i.name) AS insider_name,
                 t.company,
                 t.title,
-                t.signal_quality,
                 t.signal_grade,
                 t.is_rare_reversal,
                 t.consecutive_sells_before,
@@ -194,9 +193,7 @@ def evaluate_candidates_v2(conn, config: dict) -> list[dict]:
                 t.above_sma50,
                 t.above_sma200,
                 t.is_csuite,
-                t.is_largest_ever,
-                t.pit_n_trades,
-                t.pit_win_rate_7d
+                t.is_largest_ever
             FROM trades t
             JOIN insiders i ON t.insider_id = i.insider_id
             {join_clause}
@@ -343,14 +340,11 @@ def evaluate_candidates_v2(conn, config: dict) -> list[dict]:
                 "insider_name": r["insider_name"],
                 "company": r["company"],
                 "title": r["title"],
-                "signal_quality": r["signal_quality"],
                 "signal_grade": pit_grade,
                 "conviction": conv,
                 "is_rare_reversal": bool(r["is_rare_reversal"]),
                 "consecutive_sells_before": r["consecutive_sells_before"],
                 "dip_1mo": r["dip_1mo"],
-                "pit_n": r["pit_n_trades"],
-                "pit_wr": r["pit_win_rate_7d"],
                 "thesis_name": thesis_name,
                 "exit_config": thesis["exit"],
                 # Day 3c plumbing — present only in V2 candidates

@@ -48,7 +48,7 @@ def conn():
             title TEXT,
             company TEXT,
             price REAL,
-            signal_quality TEXT,
+            -- signal_quality TEXT,  -- removed 2026-05-17 (P1.11)
             signal_grade TEXT,
             pit_grade TEXT,
             career_grade TEXT,
@@ -65,8 +65,8 @@ def conn():
             is_recurring INTEGER,
             is_tax_sale INTEGER,
             cohen_routine INTEGER,
-            pit_n_trades INTEGER,
-            pit_win_rate_7d REAL,
+            -- pit_n_trades INTEGER,    -- removed 2026-05-17 (P1.9)
+            -- pit_win_rate_7d REAL,    -- removed 2026-05-17 (P1.9)
             is_duplicate INTEGER DEFAULT 0
         )
     """)
@@ -160,20 +160,20 @@ def _seed_one_qm_event(conn, *, trade_id=2000, ticker="AAPL", filing_date=None):
         INSERT INTO trades(
             trade_id, insider_id, ticker, trade_date, filing_date, filed_at,
             trade_type, trans_code, title, company, price,
-            signal_quality, signal_grade,
+            signal_grade,
             pit_grade, career_grade, pit_blended_score, is_csuite,
             consecutive_sells_before, dip_1mo, dip_3mo,
             above_sma50, above_sma200, is_largest_ever,
             is_rare_reversal, is_10b5_1, is_recurring, is_tax_sale,
-            cohen_routine, pit_n_trades, pit_win_rate_7d, is_duplicate
+            cohen_routine, is_duplicate
         ) VALUES (?, 500, ?, ?, ?, '2026-05-15T10:00:00', 'buy', 'P',
                   'CEO', 'Apple Inc.', 195.5,
-                  'good', 'A',
+                  'A',
                   'A', 'A+', 2.8, 1,
                   0, 0.03, 0.05,
                   1, 1, 1,
                   0, 0, 0, 0,
-                  0, 12, 0.62, 0)
+                  0, 0)
     """, (trade_id, ticker, fd, fd))
     conn.commit()
 
@@ -230,9 +230,9 @@ def test_engine_scan_returns_dict_with_required_keys(conn, monkeypatch):
     c = candidates[0]
     required_keys = {
         "trade_id", "ticker", "filing_date", "filed_at", "price",
-        "insider_name", "company", "title", "signal_quality", "signal_grade",
+        "insider_name", "company", "title", "signal_grade",
         "conviction", "is_rare_reversal", "consecutive_sells_before",
-        "dip_1mo", "pit_n", "pit_wr", "thesis_name", "exit_config",
+        "dip_1mo", "thesis_name", "exit_config",
     }
     assert required_keys.issubset(c.keys()), \
         f"missing keys: {required_keys - c.keys()}"
