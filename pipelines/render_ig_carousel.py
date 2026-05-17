@@ -69,9 +69,6 @@ def load_trades(conn: sqlite3.Connection, target_date: str) -> list[dict]:
             SUM(t.value) AS total_value,
             SUM(t.qty) AS total_qty,
             t.signal_grade, t.is_rare_reversal, t.is_csuite,
-            -- Use live track record if PIT columns not backfilled
-            COALESCE(t.pit_win_rate_7d, itr.buy_win_rate_7d) AS pit_win_rate_7d,
-            COALESCE(t.pit_n_trades, itr.buy_count) AS pit_n_trades,
             t.insider_switch_rate,
             t.week52_proximity, t.cohen_routine, t.is_10b5_1,
             MAX(CASE WHEN t.direct_indirect = 'D' OR t.direct_indirect IS NULL
@@ -79,7 +76,6 @@ def load_trades(conn: sqlite3.Connection, target_date: str) -> list[dict]:
             t.filing_key, t.txn_group_id
         FROM trades t
         JOIN insiders i ON t.insider_id = i.insider_id
-        LEFT JOIN insider_track_records itr ON t.insider_id = itr.insider_id
         WHERE t.filing_date = ?
           AND t.trans_code IN ('P', 'S')
           AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)

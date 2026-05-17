@@ -37,13 +37,36 @@ SCORING_FILES = [
     "pipelines/insider_study/compute_cw_indicators.py",
 ]
 
+# Per-trade request-path files migrated off insider_track_records in P1.6.
+# These read the per-trade `pit_grade` / `pit_blended_score` columns instead
+# (those columns ARE point-in-time, populated by backfill_pit_grades.py).
+# Adding a fresh `insider_track_records` SELECT to any of these files would
+# re-introduce a non-PIT dependency — fail the build to prevent regression.
+# Entity-level routers (insiders, leaderboard, search, sitemap) are NOT in
+# this list — those intentionally read cached career aggregates from itr.
+REQUEST_PATH_FILES = [
+    "api/routers/clusters.py",
+    "api/routers/dashboard.py",
+    "api/routers/companies.py",
+    "api/routers/filings.py",
+    "api/routers/export.py",
+    "api/routers/signals.py",
+    "api/routers/private_companies.py",
+    "pipelines/notification_scanner.py",
+    "pipelines/generate_breaking_signal.py",
+    "pipelines/render_ig_carousel.py",
+    "pipelines/generate_daily_content.py",
+    "pipelines/generate_weekly_snapshot.py",
+    "pipelines/insider_study/compute_context.py",
+]
+
 
 class TestNoTrackRecordsInScoring:
     """Ensure scoring code never references the non-PIT insider_track_records table."""
 
-    @pytest.mark.parametrize("filepath", SCORING_FILES)
+    @pytest.mark.parametrize("filepath", SCORING_FILES + REQUEST_PATH_FILES)
     def test_no_insider_track_records_reference(self, filepath):
-        """Scoring files must not READ from insider_track_records for scoring decisions."""
+        """Scoring + per-trade request-path files must not READ from insider_track_records."""
         full_path = PROJECT_ROOT / filepath
         if not full_path.exists():
             pytest.skip(f"{filepath} does not exist")

@@ -71,9 +71,8 @@ def list_clusters(
                     MAX(t.trade_date) AS last_trade,
                     MAX(t.filing_date) AS latest_filing,
                     MAX(t.is_csuite) AS has_csuite,
-                    AVG(itr.score) AS avg_score
+                    AVG(t.pit_blended_score) AS avg_score
                 FROM trades t
-                LEFT JOIN insider_track_records itr ON t.insider_id = itr.insider_id
                 WHERE t.filing_date >= {window_start}
                   AND t.filing_date <= ?
                   AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
@@ -121,7 +120,6 @@ def list_clusters(
                 f"""
                 SELECT
                     t.insider_id, MAX(COALESCE(i.display_name, i.name)) AS name, MAX(i.cik) AS cik,
-                    MAX(itr.score) AS score, MAX(itr.score_tier) AS score_tier,
                     MAX(t.pit_grade) AS pit_grade,
                     MAX(t.pit_blended_score) AS pit_blended_score,
                     SUM(t.value) AS trade_value,
@@ -131,7 +129,6 @@ def list_clusters(
                     COUNT(*) AS n_trades
                 FROM trades t
                 JOIN insiders i ON t.insider_id = i.insider_id
-                LEFT JOIN insider_track_records itr ON t.insider_id = itr.insider_id
                 WHERE t.ticker = ? AND t.trade_type = ?
                   AND t.filing_date >= {window_start}
                   AND t.filing_date <= ?
@@ -151,7 +148,7 @@ def list_clusters(
                 raw_list,
                 value_key="trade_value",
                 date_key="last_trade_date",
-                identity_keys=("insider_id", "name", "cik", "score", "score_tier", "title"),
+                identity_keys=("insider_id", "name", "cik", "pit_blended_score", "pit_grade", "title"),
             )
             ins_list = [dict(ir) for ir in insider_rows]
             if not user.is_pro:
@@ -232,8 +229,6 @@ def get_cluster_detail(
             f"""
             SELECT
                 t.insider_id, MAX(COALESCE(i.display_name, i.name)) AS name, MAX(i.cik) AS cik,
-                MAX(itr.score) AS score, MAX(itr.score_tier) AS score_tier, MAX(itr.percentile) AS percentile,
-                MAX(itr.buy_count) AS buy_count, MAX(itr.buy_win_rate_7d) AS buy_win_rate_7d, MAX(itr.buy_avg_return_7d) AS buy_avg_return_7d,
                 MAX(t.pit_grade) AS pit_grade,
                 MAX(t.pit_blended_score) AS pit_blended_score,
                 SUM(t.value) AS trade_value, MAX(t.title) AS title,
@@ -241,7 +236,6 @@ def get_cluster_detail(
                 MAX(t.trade_date) AS last_trade_date, COUNT(*) AS n_trades, 1 AS n_filers
             FROM trades t
             JOIN insiders i ON t.insider_id = i.insider_id
-            LEFT JOIN insider_track_records itr ON t.insider_id = itr.insider_id
             WHERE t.ticker = ? AND t.trade_type = ?
               AND t.filing_date >= {window_start}
               AND t.filing_date <= ?
@@ -260,7 +254,7 @@ def get_cluster_detail(
             raw_list,
             value_key="trade_value",
             date_key="last_trade_date",
-            identity_keys=("insider_id", "name", "cik", "score", "score_tier", "title"),
+            identity_keys=("insider_id", "name", "cik", "pit_blended_score", "pit_grade", "title"),
         )
         if not user.is_pro:
             ins_list = null_items_track_records(ins_list)
@@ -281,7 +275,6 @@ def get_cluster_detail(
                 agg.is_csuite,
                 agg.pit_grade, agg.pit_blended_score,
                 COALESCE(i.display_name, i.name) AS insider_name, i.cik,
-                itr.score, itr.score_tier,
                 tr.return_7d, tr.return_30d, tr.return_90d,
                 tr.abnormal_7d, tr.abnormal_30d, tr.abnormal_90d
             FROM (
@@ -306,7 +299,6 @@ def get_cluster_detail(
                 GROUP BY t.insider_id, t.trade_type, CASE WHEN t.accession IS NOT NULL THEN t.accession ELSE t.trade_date END
             ) agg
             LEFT JOIN insiders i ON agg.insider_id = i.insider_id
-            LEFT JOIN insider_track_records itr ON agg.insider_id = itr.insider_id
             LEFT JOIN trade_returns tr ON agg.trade_id = tr.trade_id
             ORDER BY agg.trade_date DESC
             """,

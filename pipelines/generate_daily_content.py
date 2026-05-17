@@ -111,12 +111,9 @@ def get_top_trades(conn: object, target_date: str, limit: int = 8) -> list[dict]
             MAX(t.is_csuite) AS is_csuite,
             MAX(t.shares_owned_after) AS shares_after,
             SUM(t.qty) AS total_qty,
-            MAX(COALESCE(t.pit_win_rate_7d, itr.buy_win_rate_7d)) AS pit_win_rate_7d,
-            MAX(COALESCE(t.pit_n_trades, itr.buy_count)) AS pit_n_trades,
             MAX(t.insider_switch_rate) AS insider_switch_rate
         FROM trades t
         JOIN insiders i ON t.insider_id = i.insider_id
-        LEFT JOIN insider_track_records itr ON t.insider_id = itr.insider_id
         WHERE t.filing_date = ?
           AND t.trans_code IN ('P', 'S')
           AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)

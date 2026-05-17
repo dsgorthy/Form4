@@ -151,8 +151,6 @@ def list_filings(
                 agg.pit_grade, agg.pit_blended_score, agg.career_grade,
                 agg.n_filers, agg.n_filings, agg.is_amendment, agg.document_type,
                 COALESCE(i.display_name, i.name) AS insider_name, i.cik,
-                itr.score, itr.score_tier, itr.percentile, itr.sell_win_rate_7d,
-                itr.buy_win_rate_7d, itr.buy_avg_return_7d, itr.buy_avg_abnormal_7d,
                 tr.return_7d, tr.return_30d, tr.return_90d,
                 tr.abnormal_7d, tr.abnormal_30d, tr.abnormal_90d
             FROM (
@@ -204,7 +202,6 @@ def list_filings(
                     LIMIT ? OFFSET ?
             ) agg
             LEFT JOIN insiders i ON agg.best_insider_id = i.insider_id
-            LEFT JOIN insider_track_records itr ON agg.best_insider_id = itr.insider_id
             LEFT JOIN trade_returns tr ON agg.trade_id = tr.trade_id
             ORDER BY COALESCE(agg.filed_at, agg.filing_date) DESC, agg.value DESC
             """,
@@ -284,8 +281,6 @@ def get_related_trades(trade_id: str, limit: int = Query(default=5, ge=1, le=20)
                 agg.cohen_routine, agg.shares_owned_after, agg.is_rare_reversal, agg.insider_switch_rate, agg.week52_proximity,
                 agg.pit_grade, agg.pit_blended_score, agg.career_grade,
                 COALESCE(i.display_name, i.name) AS insider_name, i.cik,
-                itr.score, itr.score_tier, itr.percentile, itr.sell_win_rate_7d,
-                itr.buy_win_rate_7d, itr.buy_avg_return_7d, itr.buy_avg_abnormal_7d,
                 tr.return_7d, tr.return_30d, tr.return_90d,
                 tr.abnormal_7d, tr.abnormal_30d, tr.abnormal_90d
             FROM (
@@ -321,7 +316,6 @@ def get_related_trades(trade_id: str, limit: int = Query(default=5, ge=1, le=20)
                 GROUP BY t.insider_id, t.ticker, t.trade_type, {_fgb}
             ) agg
             LEFT JOIN insiders i ON agg.insider_id = i.insider_id
-            LEFT JOIN insider_track_records itr ON agg.insider_id = itr.insider_id
             LEFT JOIN trade_returns tr ON agg.trade_id = tr.trade_id
             ORDER BY agg.filing_date DESC
             LIMIT ?
@@ -361,17 +355,12 @@ def get_filing(trade_id: str, user: UserContext = Depends(get_current_user)) -> 
                 t.is_amendment, t.document_type, t.date_of_orig_sub,
                 COALESCE(i.is_entity, 0) as is_entity,
                 COALESCE(i.display_name, i.name) AS insider_name, i.cik,
-                itr.score, itr.score_tier, itr.percentile,
-                itr.buy_count, itr.buy_win_rate_7d, itr.buy_avg_return_7d,
-                itr.buy_avg_abnormal_7d, itr.sell_count, itr.sell_win_rate_7d,
-                itr.primary_title, itr.primary_ticker,
                 tr.entry_price,
                 tr.return_7d, tr.return_30d, tr.return_90d,
                 tr.spy_return_7d, tr.spy_return_30d, tr.spy_return_90d,
                 tr.abnormal_7d, tr.abnormal_30d, tr.abnormal_90d
             FROM trades t
             LEFT JOIN insiders i ON t.insider_id = i.insider_id
-            LEFT JOIN insider_track_records itr ON t.insider_id = itr.insider_id
             LEFT JOIN trade_returns tr ON t.trade_id = tr.trade_id
             WHERE t.trade_id = ?
             """,

@@ -73,14 +73,11 @@ def sell_cessation(
                 COUNT(*) AS sell_count_12m,
                 SUM(t.value) AS sell_value_12m,
                 MAX(t.trade_date) AS last_sell_date,
-                MAX(itr.score) AS score,
-                MAX(itr.score_tier) AS score_tier,
                 MAX(t.pit_grade) AS pit_grade,
                 MAX(t.pit_blended_score) AS pit_blended_score,
                 GROUP_CONCAT(DISTINCT t.ticker) AS tickers
             FROM trades t
             JOIN insiders i ON t.insider_id = i.insider_id
-            LEFT JOIN insider_track_records itr ON t.insider_id = itr.insider_id
             WHERE t.trade_type = 'sell'
               AND t.trans_code = 'S'
               AND t.superseded_by IS NULL
@@ -129,7 +126,7 @@ def sell_cessation(
             items,
             value_key="sell_value_12m",
             date_key="last_sell_date",
-            identity_keys=("insider_id", "name", "cik", "score", "score_tier"),
+            identity_keys=("insider_id", "name", "cik", "pit_blended_score", "pit_grade"),
         )
 
         enrich_with_best_pit_grade(conn, items)
@@ -215,13 +212,11 @@ def tagged_signals(
                 t.price, t.qty, t.value, t.is_csuite,
                 t.pit_grade, t.pit_blended_score,
                 COALESCE(i.display_name, i.name) AS insider_name, i.cik,
-                itr.score, itr.score_tier, itr.percentile,
                 tr.return_7d, tr.return_30d, tr.return_90d,
                 tr.abnormal_7d, tr.abnormal_30d, tr.abnormal_90d
             FROM trade_signals ts
             JOIN trades t ON ts.trade_id = t.trade_id
             LEFT JOIN insiders i ON t.insider_id = i.insider_id
-            LEFT JOIN insider_track_records itr ON t.insider_id = itr.insider_id
             LEFT JOIN trade_returns tr ON t.trade_id = tr.trade_id
             WHERE {where_clause}
             ORDER BY t.trade_date DESC, ts.confidence DESC

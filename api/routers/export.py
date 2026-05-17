@@ -63,12 +63,10 @@ def export_filings(
                 t.price, t.qty, t.value,
                 t.pit_grade, t.pit_blended_score,
                 COALESCE(i.display_name, i.name) AS insider_name, i.cik,
-                itr.score, itr.score_tier, itr.percentile,
                 tr.return_7d, tr.return_30d, tr.return_90d,
                 tr.abnormal_7d, tr.abnormal_30d, tr.abnormal_90d
             FROM trades t
             LEFT JOIN insiders i ON t.insider_id = i.insider_id
-            LEFT JOIN insider_track_records itr ON t.insider_id = itr.insider_id
             LEFT JOIN trade_returns tr ON t.trade_id = tr.trade_id
             WHERE {where}
             ORDER BY t.filing_date DESC
@@ -84,7 +82,6 @@ def export_filings(
             "ticker", "company", "trade_type", "trans_code", "trade_date", "filing_date",
             "price", "qty", "value", "pit_grade", "pit_blended_score",
             "insider_name", "cik",
-            "score", "score_tier", "percentile",
             "return_7d", "return_30d", "return_90d",
             "abnormal_7d", "abnormal_30d", "abnormal_90d",
         ]

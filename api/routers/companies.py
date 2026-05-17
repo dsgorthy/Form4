@@ -60,13 +60,11 @@ def get_company(ticker: str, user: UserContext = Depends(get_current_user)) -> d
                    AND t.normalized_title IS NOT NULL AND t.normalized_title != ''
                  ORDER BY t.trade_date DESC LIMIT 1) as normalized_title,
                 ic.trade_count, ic.total_value,
-                ic.first_trade, ic.last_trade,
-                itr.score, itr.score_tier, itr.percentile
+                ic.first_trade, ic.last_trade
             FROM insider_companies ic
             JOIN insiders i ON ic.insider_id = i.insider_id
-            LEFT JOIN insider_track_records itr ON ic.insider_id = itr.insider_id
             WHERE ic.ticker = ?
-            ORDER BY itr.score DESC
+            ORDER BY ic.total_value DESC
             """,
             (ticker,),
         ).fetchall()
@@ -163,7 +161,6 @@ def get_company_trades(
                 agg.is_10b5_1, agg.is_routine, agg.cohen_routine, agg.shares_owned_after, agg.is_rare_reversal, agg.week52_proximity,
                 agg.pit_grade, agg.pit_blended_score,
                 COALESCE(i.display_name, i.name) AS insider_name, i.cik,
-                itr.score, itr.score_tier, itr.sell_win_rate_7d,
                 tr.return_7d, tr.return_30d, tr.return_90d, tr.return_180d, tr.return_365d,
                 tr.abnormal_7d, tr.abnormal_30d, tr.abnormal_90d, tr.abnormal_180d, tr.abnormal_365d
             FROM (
@@ -196,7 +193,6 @@ def get_company_trades(
                 LIMIT ? OFFSET ?
             ) agg
             LEFT JOIN insiders i ON agg.insider_id = i.insider_id
-            LEFT JOIN insider_track_records itr ON agg.insider_id = itr.insider_id
             LEFT JOIN trade_returns tr ON agg.trade_id = tr.trade_id
             ORDER BY agg.trade_date DESC
             """,
@@ -208,7 +204,7 @@ def get_company_trades(
         raw_list,
         value_key="value",
         date_key="last_trade_date",
-        identity_keys=("insider_id", "insider_name", "cik", "score", "score_tier", "title"),
+        identity_keys=("insider_id", "insider_name", "cik", "pit_blended_score", "pit_grade", "title"),
     )
 
     # Enrich with trade grade
@@ -257,20 +253,20 @@ def get_company_price_history(ticker: str, user: UserContext = Depends(get_curre
                 agg.trade_type,
                 agg.value,
                 COALESCE(i.display_name, i.name) AS insider_name,
-                itr.score_tier
+                agg.pit_grade
             FROM (
                 SELECT
                     t.insider_id,
                     t.trade_type,
                     t.trade_date,
                     ROUND(SUM(t.value) / NULLIF(SUM(t.qty), 0), 2) AS price,
-                    SUM(t.value) AS value
+                    SUM(t.value) AS value,
+                    MAX(t.pit_grade) AS pit_grade
                 FROM trades t
                 WHERE {where_clause}
                 GROUP BY t.insider_id, t.trade_type, t.trade_date
             ) agg
             JOIN insiders i ON agg.insider_id = i.insider_id
-            LEFT JOIN insider_track_records itr ON agg.insider_id = itr.insider_id
             ORDER BY agg.trade_date ASC
             """,
             params_list,
@@ -363,21 +359,21 @@ def get_chart_data(
                 agg.trade_type,
                 agg.value,
                 COALESCE(i.display_name, i.name) AS insider_name,
-                itr.score_tier
+                agg.pit_grade
             FROM (
                 SELECT
                     t.insider_id,
                     t.trade_type,
                     t.trade_date,
                     ROUND(SUM(t.value) / NULLIF(SUM(t.qty), 0), 2) AS price,
-                    SUM(t.value) AS value
+                    SUM(t.value) AS value,
+                    MAX(t.pit_grade) AS pit_grade
                 FROM trades t
                 WHERE {where_clause}
                 GROUP BY t.insider_id, t.trade_type, t.trade_date
             ) agg
             JOIN insiders i ON agg.insider_id = i.insider_id
-            LEFT JOIN insider_track_records itr ON agg.insider_id = itr.insider_id
-            {"WHERE itr.score_tier >= 2" if top_performer is True else ""}
+            {"WHERE agg.pit_grade IN ('A+','A','B')" if top_performer is True else ""}
             ORDER BY agg.trade_date ASC
         """
         rows = conn.execute(query, params).fetchall()

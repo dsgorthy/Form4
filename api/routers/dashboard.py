@@ -188,8 +188,6 @@ def dashboard_highlights(user: UserContext = Depends(get_current_user)) -> dict:
                 agg.is_csuite, agg.accession,
                 agg.pit_grade, agg.pit_blended_score,
                 COALESCE(i.display_name, i.name) AS insider_name, i.cik,
-                itr.score, itr.score_tier, itr.percentile,
-                itr.buy_win_rate_7d, itr.buy_avg_return_7d, itr.buy_avg_abnormal_7d,
                 tr.return_7d, tr.return_30d, tr.return_90d,
                 tr.abnormal_7d, tr.abnormal_30d, tr.abnormal_90d
             FROM (
@@ -217,7 +215,6 @@ def dashboard_highlights(user: UserContext = Depends(get_current_user)) -> dict:
                 HAVING SUM(t.value) >= 100000
             ) agg
             LEFT JOIN insiders i ON agg.insider_id = i.insider_id
-            LEFT JOIN insider_track_records itr ON agg.insider_id = itr.insider_id
             LEFT JOIN trade_returns tr ON agg.trade_id = tr.trade_id
             ORDER BY agg.filing_date DESC, agg.value DESC
             LIMIT 5
@@ -235,8 +232,6 @@ def dashboard_highlights(user: UserContext = Depends(get_current_user)) -> dict:
                 agg.is_csuite, agg.accession,
                 agg.pit_grade, agg.pit_blended_score,
                 COALESCE(i.display_name, i.name) AS insider_name, i.cik,
-                itr.score, itr.score_tier, itr.percentile,
-                itr.buy_win_rate_7d, itr.buy_avg_return_7d, itr.buy_avg_abnormal_7d,
                 tr.return_7d, tr.return_30d, tr.return_90d,
                 tr.abnormal_7d, tr.abnormal_30d, tr.abnormal_90d
             FROM (
@@ -262,7 +257,6 @@ def dashboard_highlights(user: UserContext = Depends(get_current_user)) -> dict:
                 HAVING SUM(t.value) >= 1000000
             ) agg
             LEFT JOIN insiders i ON agg.insider_id = i.insider_id
-            LEFT JOIN insider_track_records itr ON agg.insider_id = itr.insider_id
             LEFT JOIN trade_returns tr ON agg.trade_id = tr.trade_id
             ORDER BY agg.filing_date DESC, agg.value DESC
             LIMIT 5
@@ -284,11 +278,10 @@ def dashboard_highlights(user: UserContext = Depends(get_current_user)) -> dict:
                 MAX(t.filing_date) AS latest_filing,
                 COUNT(*) AS trade_count,
                 SUM(CASE WHEN t.is_csuite = 1 THEN 1 ELSE 0 END) AS csuite_count,
-                AVG(itr.score) AS avg_score,
+                AVG(t.pit_blended_score) AS avg_score,
                 MAX(t.pit_grade) AS pit_grade,
                 AVG(t.pit_blended_score) AS avg_pit_blended_score
             FROM trades t
-            LEFT JOIN insider_track_records itr ON t.insider_id = itr.insider_id
             WHERE t.filing_date >= date(?, '-7 days')
               AND t.filing_date <= ?
               AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
@@ -313,7 +306,7 @@ def dashboard_highlights(user: UserContext = Depends(get_current_user)) -> dict:
             _lst,
             value_key="value",
             date_key="trade_date",
-            identity_keys=("insider_id", "insider_name", "cik", "score", "score_tier", "title"),
+            identity_keys=("insider_id", "insider_name", "cik", "pit_blended_score", "pit_grade", "title"),
         )
 
     if not user.is_pro:

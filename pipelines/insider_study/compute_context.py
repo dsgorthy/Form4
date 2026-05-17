@@ -430,10 +430,8 @@ def conflicting_activity(conn: object, since: str | None = None) -> list[tuple]:
         # Find opposing discretionary activity in 30d window
         opposing = conn.execute("""
             SELECT COUNT(DISTINCT t2.insider_id) AS n_opposing,
-                   SUM(t2.value) AS opposing_value,
-                   AVG(itr.sell_win_rate_7d) AS avg_sell_acc
+                   SUM(t2.value) AS opposing_value
             FROM trades t2
-            LEFT JOIN insider_track_records itr ON t2.insider_id = itr.insider_id
             WHERE t2.ticker = ? AND t2.trans_code = ?
               AND t2.trade_date BETWEEN date(?, '-30 days') AND date(?, '+7 days')
               AND t2.insider_id != ?
@@ -444,19 +442,15 @@ def conflicting_activity(conn: object, since: str | None = None) -> list[tuple]:
 
         n_opp = opposing["n_opposing"] if opposing else 0
         opp_val = opposing["opposing_value"] if opposing else 0
-        avg_acc = opposing["avg_sell_acc"] if opposing else None
 
         if n_opp < 2 or not opp_val or opp_val < 100000:
             continue
 
-        # Build the context text
+        # Build the context text — avg sell accuracy column dropped with
+        # insider_track_records migration (P1.6); display generic text only
         if r["trade_type"] == "buy":
-            if avg_acc and avg_acc >= 0.55:
-                text = f"{n_opp} proven sellers ({avg_acc:.0%} accuracy) also selling this stock"
-                sort = 0  # high priority — show first
-            else:
-                text = f"{n_opp} insiders selling while this insider is buying"
-                sort = 4
+            text = f"{n_opp} insiders selling while this insider is buying"
+            sort = 4
         else:
             text = f"{n_opp} insiders buying while this insider is selling"
             sort = 4
@@ -465,7 +459,6 @@ def conflicting_activity(conn: object, since: str | None = None) -> list[tuple]:
             "n_opposing": n_opp,
             "opposing_value": round(opp_val),
             "opposing_direction": opposite,
-            "avg_sell_accuracy": round(avg_acc, 3) if avg_acc else None,
         })
         results.append((r["trade_id"], "conflicting_activity", text, sort, metadata))
 

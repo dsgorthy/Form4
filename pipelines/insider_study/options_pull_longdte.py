@@ -58,6 +58,12 @@ def get_proven_seller_events(min_acc: float = 0.60) -> list[dict]:
     conn = sqlite3.connect(str(INSIDERS_DB))
     conn.row_factory = sqlite3.Row
 
+    # P1.6 NOTE: ThetaData options pipeline is DORMANT (see CLAUDE.md memory
+    # `pipeline_options_backfill.md`). This itr.sell_win_rate_7d filter is the
+    # only remaining per-trade reader of insider_track_records outside the
+    # entity-level endpoints. If/when the pipeline revives, migrate this to a
+    # PIT-correct sell win rate (insider_ticker_scores with as_of_date <=
+    # filing_date) before running. Left in place to avoid churn on dormant code.
     rows = conn.execute("""
         SELECT DISTINCT t.ticker, t.filing_date, t.trade_date, t.value,
                MIN(t.trade_id) AS trade_id

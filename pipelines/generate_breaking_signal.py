@@ -115,12 +115,9 @@ def detect_breaking_signals(conn, target_date: str) -> list[dict]:
             MAX(t.is_10b5_1) AS is_10b5_1,
             MAX(t.shares_owned_after) AS shares_owned_after,
             t.filing_key,
-            MAX(COALESCE(t.pit_win_rate_7d, itr.buy_win_rate_7d)) AS pit_win_rate_7d,
-            MAX(COALESCE(t.pit_n_trades, itr.buy_count)) AS pit_n_trades,
             MAX(t.insider_switch_rate) AS insider_switch_rate
         FROM trades t
         JOIN insiders i ON t.insider_id = i.insider_id
-        LEFT JOIN insider_track_records itr ON t.insider_id = itr.insider_id
         WHERE t.filing_date = ?
           AND t.trans_code IN ('P', 'S')
           AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)

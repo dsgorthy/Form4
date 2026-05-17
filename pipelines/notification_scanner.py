@@ -210,27 +210,32 @@ def scan_high_value_filings(iconn: ConnectionWrapper, nconn: ConnectionWrapper, 
                   MAX(t.title) AS title, t.trade_type, t.trade_date,
                   MAX(t.filing_date) AS filing_date,
                   SUM(t.value) AS total_value,
-                  MAX(itr.score_tier) AS score_tier
+                  MAX(t.pit_grade) AS pit_grade
            FROM trades t
            JOIN insiders i ON t.insider_id = i.insider_id
-           LEFT JOIN insider_track_records itr ON t.insider_id = itr.insider_id
            WHERE t.filing_date > ? AND t.filing_date <= ?
              AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
-             AND itr.score_tier >= 2
+             AND t.pit_grade IN ('A+', 'A', 'B')
            GROUP BY t.insider_id, t.ticker, t.trade_type, t.trade_date
            ORDER BY total_value DESC""",
         (watermark, latest),
     ).fetchall()
+
+    # Map PIT grade to integer tier for user min_insider_tier comparison
+    # (preserves legacy tier-based notification preferences):
+    #   A+, A => tier 3 ("elite"); B => tier 2 ("top"); other => tier 1
+    _GRADE_TO_TIER = {"A+": 3, "A": 3, "B": 2}
 
     count = 0
     users = _get_subscribed_users(nconn, "high_value_filing")
 
     for row in rows:
         r = dict(row)
+        r_tier = _GRADE_TO_TIER.get(r.get("pit_grade"), 1)
         for user in users:
             if r["total_value"] < user["min_trade_value"]:
                 continue
-            if r["score_tier"] < user["min_insider_tier"]:
+            if r_tier < user["min_insider_tier"]:
                 continue
 
             title_str = r["title"] or "Insider"

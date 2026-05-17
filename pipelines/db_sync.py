@@ -64,8 +64,10 @@ ENV_PATHS = {
 BACKUP_DIR = BASE / "data" / "db-backups"
 
 # Tables that are safe to snapshot (populated by pipelines, not user actions)
+# insider_track_records removed in P1.6 — per-trade consumers migrated to
+# the PIT pit_grade/pit_blended_score columns on trades.
 READ_ONLY_TABLES = [
-    "trades", "insiders", "insider_track_records", "insider_ticker_scores",
+    "trades", "insiders", "insider_ticker_scores",
     "score_history", "trade_signals", "trade_returns",
     "derivative_trades", "nonderiv_holdings",
 ]

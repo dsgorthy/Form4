@@ -105,13 +105,10 @@ def load_weekly_signals(conn: sqlite3.Connection, window_start: date, window_end
             t.title,
             tr.return_7d,
             tr.return_30d,
-            COALESCE(t.pit_win_rate_7d, itr.buy_win_rate_7d) AS pit_win_rate_7d,
-            COALESCE(t.pit_n_trades, itr.buy_count) AS pit_n_trades,
             t.insider_switch_rate,
             t.is_rare_reversal
         FROM trades t
         LEFT JOIN trade_returns tr ON t.trade_id = tr.trade_id
-        LEFT JOIN insider_track_records itr ON t.insider_id = itr.insider_id
         WHERE t.filing_date BETWEEN ? AND ?
           AND t.trans_code IN ('P', 'S')
           AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)

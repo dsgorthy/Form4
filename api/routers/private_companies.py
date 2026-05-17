@@ -145,11 +145,9 @@ def get_private_company(slug: str, user: UserContext = Depends(get_current_user)
                 COUNT(*) AS trade_count,
                 SUM(t.value) AS total_value,
                 MIN(t.trade_date) AS first_trade,
-                MAX(t.trade_date) AS last_trade,
-                MAX(itr.score) AS score, MAX(itr.score_tier) AS score_tier, MAX(itr.percentile) AS percentile
+                MAX(t.trade_date) AS last_trade
             FROM trades t
             JOIN insiders i ON t.insider_id = i.insider_id
-            LEFT JOIN insider_track_records itr ON t.insider_id = itr.insider_id
             WHERE t.ticker = 'NONE'
               AND t.company = ?
               AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
@@ -157,7 +155,7 @@ def get_private_company(slug: str, user: UserContext = Depends(get_current_user)
               AND t.is_derivative = 0
               AND t.trans_code IN ('P', 'S')
             GROUP BY t.insider_id
-            ORDER BY itr.score DESC
+            ORDER BY SUM(t.value) DESC
             """,
             (company_name, company_name),
         ).fetchall()
@@ -258,8 +256,7 @@ def get_private_company_trades(
                 agg.price, agg.qty, agg.value, agg.lot_count,
                 agg.is_csuite,
                 agg.pit_grade, agg.pit_blended_score,
-                COALESCE(i.display_name, i.name) AS insider_name, i.cik,
-                itr.score, itr.score_tier
+                COALESCE(i.display_name, i.name) AS insider_name, i.cik
             FROM (
                 SELECT
                     MIN(t.trade_id) AS trade_id,
@@ -278,7 +275,6 @@ def get_private_company_trades(
                 GROUP BY t.insider_id, t.trade_type, t.trade_date
             ) agg
             LEFT JOIN insiders i ON agg.insider_id = i.insider_id
-            LEFT JOIN insider_track_records itr ON agg.insider_id = itr.insider_id
             ORDER BY agg.trade_date DESC
             LIMIT ? OFFSET ?
             """,
