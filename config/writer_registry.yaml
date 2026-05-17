@@ -232,6 +232,14 @@ writers:
 # daily-prices plist, weekdays 17:30 PT.
 # ─────────────────────────────────────────────────────────────────────────────
 
+  - column: trades.week52_proximity
+    script: pipelines/insider_study/compute_week52_proximity.py
+    plists: [com.openclaw.refresh-features]
+    schedule: "daily 06:00 PT (step 4d of refresh-features)"
+    sla_hours: 48
+    required_for: []
+    notes: "Was SQLite-only until 2026-05-17 PG port. Consumed by api/trade_grade.py + breaking-signal + daily-content (silent product degradation since 2026-04-09)."
+
   - column: trade_signals.top_trade
     script: pipelines/insider_study/compute_signals.py
     plists: [com.openclaw.compute-signals]

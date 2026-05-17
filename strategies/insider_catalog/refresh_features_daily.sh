@@ -19,6 +19,9 @@
 #   4c. Compute insider_switch_rate + is_rare_reversal. Was orphaned even
 #       longer — old SQLite-only file never re-pointed at PG. RD silenced
 #       ~8 weeks from 2026-03-25 until the 2026-05-16 audit.
+#   4d. Compute trades.week52_proximity. Was SQLite-only until 2026-05-17 —
+#       consumed by api/trade_grade.py, breaking-signal, daily-content
+#       (silent product degradation since the 2026-04-09 PG migration).
 #   5. Compute PIT cluster sizes (was orphaned 37+ days; same outage pattern
 #      as the April 2026 silent halt — see docs/postmortems/)
 #   6. Compute Cohen routine flags (10b5-1-style monthly patterns)
@@ -63,6 +66,9 @@ PYTHONUNBUFFERED=1 $PY $REPO/pipelines/insider_study/compute_career_grades.py --
 
 echo "--- step 4c/6: compute_switch_rate --since $SINCE (is_rare_reversal — RD signal) ---"
 PYTHONUNBUFFERED=1 $PY $REPO/pipelines/insider_study/compute_switch_rate.py --since "$SINCE"
+
+echo "--- step 4d/6: compute_week52_proximity --since $SINCE (trade_grade input) ---"
+PYTHONUNBUFFERED=1 $PY $REPO/pipelines/insider_study/compute_week52_proximity.py --since "$SINCE"
 
 echo "--- step 5/6: compute_pit_clusters --since $SINCE ---"
 PYTHONUNBUFFERED=1 $PY $REPO/pipelines/insider_study/compute_pit_clusters.py --since "$SINCE"

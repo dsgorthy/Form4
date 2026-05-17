@@ -112,6 +112,13 @@ trades.pit_grade:
   description: "PIT-derived grade A+/A/B/C/D from insider_ticker_scores (V2 Bayesian scorer)"
   populated_by: pipelines/insider_study/backfill_pit_grades.py
 
+trades.week52_proximity:
+  max_staleness_hours: 48
+  required_for: []  # informational — used by api/trade_grade.py and content pipelines, not strategy gating
+  description: "Where current price sits in 52-week range: 0=at low, 1=at high. Input to api/trade_grade.py (+/-3 stars), breaking-signal scoring, daily-content gating."
+  populated_by: pipelines/insider_study/compute_week52_proximity.py
+  notes: "Was SQLite-only until 2026-05-17 PG port. 0% populated for April-May 2026 prior to fix."
+
 trades.career_grade:
   max_staleness_hours: 30
   required_for: [quality_momentum]
