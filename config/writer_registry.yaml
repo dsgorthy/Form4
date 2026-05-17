@@ -240,6 +240,14 @@ writers:
     required_for: []
     notes: "Was SQLite-only until 2026-05-17 PG port. Consumed by api/trade_grade.py + breaking-signal + daily-content (silent product degradation since 2026-04-09)."
 
+  - column: insider_track_records.score
+    script: strategies/insider_catalog/pit_scoring.py
+    plists: [com.openclaw.refresh-features]
+    schedule: "daily 06:00 PT (step 7 of refresh-features)"
+    sla_hours: 48
+    required_for: []
+    notes: "Entity-level cache. Refreshed via sync_to_track_records() which derives score/tier/percentile from insider_ticker_scores career data and buy/sell aggregates from trades. P1.6 step 1 — closes 53-day-stale gap. Per-trade reads being migrated off the table in P1.6 steps 2-6."
+
   - column: trade_signals.top_trade
     script: pipelines/insider_study/compute_signals.py
     plists: [com.openclaw.compute-signals]

@@ -144,6 +144,13 @@ trades.filing_date:
 # no contract here — they're observability-only (visible in daily summary email,
 # not gating any live strategy). Add a contract for any signal a strategy
 # starts depending on via require_cluster, signal_type joins, etc.
+insider_track_records.score:
+  max_staleness_hours: 48
+  required_for: []  # entity-level display cache, not strategy gating
+  description: "Entity-level career score cache for insider profile pages, leaderboard, search. Refreshed daily from insider_ticker_scores (career window, sufficient_data=1)."
+  populated_by: strategies/insider_catalog/pit_scoring.py
+  notes: "Was orphaned 53 days (2026-03-24 → 2026-05-17) before P1.6 wire-up. Per-trade PIT-sensitive reads (signals, dashboard, etc.) are being migrated off this table — P1.6 steps 2-6."
+
 trade_signals.top_trade:
   max_staleness_hours: 72
   required_for: ['*']

@@ -25,6 +25,9 @@
 #   5. Compute PIT cluster sizes (was orphaned 37+ days; same outage pattern
 #      as the April 2026 silent halt — see docs/postmortems/)
 #   6. Compute Cohen routine flags (10b5-1-style monthly patterns)
+#   7. Sync insider_track_records (entity-level display cache for 14 routers).
+#      Added 2026-05-17 — was orphaned for 53 days, all three writers were
+#      orphan one-shots. P1.6 step 1 of the deprecation plan.
 #
 # Each script writes a signal_freshness row in the same transaction as its
 # data write, so the runner's preflight knows when each column was last
@@ -75,6 +78,9 @@ PYTHONUNBUFFERED=1 $PY $REPO/pipelines/insider_study/compute_pit_clusters.py --s
 
 echo "--- step 6/6: compute_cohen_pit --since $SINCE ---"
 PYTHONUNBUFFERED=1 $PY $REPO/pipelines/insider_study/compute_cohen_pit.py --since "$SINCE"
+
+echo "--- step 7/7: sync_insider_track_records (insider profile/leaderboard cache) ---"
+PYTHONUNBUFFERED=1 $PY $REPO/pipelines/insider_study/sync_insider_track_records.py
 
 echo "--- staleness check ---"
 /opt/homebrew/bin/psql form4 -At -F"|" <<SQL

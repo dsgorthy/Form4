@@ -605,39 +605,150 @@ def upsert_score(conn: object, score_data: dict | ScoringResult,
     ))
 
 
-def sync_to_track_records(conn: object):
-    """Backward compat: sync latest PIT scores to insider_track_records."""
-    logger.info("Syncing PIT scores to insider_track_records...")
-    rows = conn.execute("""
+def sync_to_track_records(conn: object) -> int:
+    """Refresh `insider_track_records` from the canonical PIT data.
+
+    Recurring writer (wired into `refresh_features_daily.sh` step 7,
+    2026-05-17). Closes the 53-day-stale gap that frozen `insider_track_
+    records` produced — 14 API routers + 5 pipelines read the table for
+    display/leaderboard/sort context (the per-trade PIT-sensitive reads
+    are being migrated to `t.pit_grade` / `t.pit_blended_score` in P1.6
+    steps 2-6).
+
+    Per-insider rebuild:
+      - score / score_tier / percentile: derived from latest
+        `insider_ticker_scores` (career window, sufficient_data=1),
+        weighted-average `blended_score` across an insider's tickers,
+        ranked into percentile then bucketed.
+      - buy_count / sell_count / buy_first_date / buy_last_date /
+        sell_first_date / sell_last_date / n_tickers / primary_title /
+        primary_ticker: derived from `trades` (post-2026-05-17 fix
+        excludes duplicate + future-dated rows).
+      - computed_at: NOW() so the freshness probe sees a fresh write.
+
+    Returns the row count for the freshness contract writer.
+    """
+    logger.info("Syncing insider_track_records from PIT data + trades...")
+
+    # 1) Score / tier / percentile from insider_ticker_scores
+    score_rows = conn.execute("""
         SELECT insider_id,
-               SUM(blended_score * ticker_trade_count) / SUM(ticker_trade_count) as weighted_score,
-               MAX(blended_score) as best_score,
-               SUM(ticker_trade_count) as total_trades
+               SUM(blended_score * ticker_trade_count) / NULLIF(SUM(ticker_trade_count), 0) as weighted_score
         FROM insider_ticker_scores its
         WHERE as_of_date = (
             SELECT MAX(as_of_date) FROM insider_ticker_scores its2
             WHERE its2.insider_id = its.insider_id AND its2.ticker = its.ticker
         )
         AND sufficient_data = 1
+        AND blended_score IS NOT NULL
         GROUP BY insider_id
     """).fetchall()
-    if not rows:
-        logger.info("No PIT scores to sync")
-        return
-    scores = [(r[0], r[1]) for r in rows]
-    scores.sort(key=lambda x: x[1])
-    n = len(scores)
-    updated = 0
-    for rank, (insider_id, weighted_score) in enumerate(scores):
-        percentile = (rank + 1) / n * 100
-        score = min(3.0, max(0.0, weighted_score))
-        tier = 3 if percentile >= 93 else 2 if percentile >= 80 else 1 if percentile >= 67 else 0
+
+    score_by_insider: dict[int, tuple[float, int, float]] = {}
+    if score_rows:
+        scored = [(r[0], r[1]) for r in score_rows if r[1] is not None]
+        scored.sort(key=lambda x: x[1])
+        n = len(scored)
+        for rank, (insider_id, weighted_score) in enumerate(scored):
+            percentile = (rank + 1) / n * 100
+            score = min(3.0, max(0.0, float(weighted_score)))
+            tier = 3 if percentile >= 93 else 2 if percentile >= 80 else 1 if percentile >= 67 else 0
+            score_by_insider[insider_id] = (round(score, 4), tier, round(percentile, 2))
+    logger.info("  PIT score data for %d insider(s)", len(score_by_insider))
+
+    # 2) Trade-derived aggregates (buy/sell counts, dates, n_tickers,
+    #    primary_title, primary_ticker). Excludes duplicates + future dates.
+    agg_rows = conn.execute("""
+        WITH agg AS (
+            SELECT
+                insider_id,
+                COUNT(*) FILTER (WHERE trade_type='buy')  AS buy_count,
+                COUNT(*) FILTER (WHERE trade_type='sell') AS sell_count,
+                MIN(trade_date) FILTER (WHERE trade_type='buy')  AS buy_first_date,
+                MAX(trade_date) FILTER (WHERE trade_type='buy')  AS buy_last_date,
+                MIN(trade_date) FILTER (WHERE trade_type='sell') AS sell_first_date,
+                MAX(trade_date) FILTER (WHERE trade_type='sell') AS sell_last_date,
+                COUNT(DISTINCT ticker)                          AS n_tickers
+            FROM trades
+            WHERE trans_code IN ('P','S')
+              AND (is_duplicate = 0 OR is_duplicate IS NULL)
+              AND trade_date <= CURRENT_DATE::text
+            GROUP BY insider_id
+        )
+        SELECT * FROM agg
+    """).fetchall()
+
+    # Primary title/ticker per insider = highest-trade-count ticker
+    primary_rows = conn.execute("""
+        SELECT DISTINCT ON (ic.insider_id)
+               ic.insider_id, ic.ticker AS primary_ticker, ic.title AS primary_title
+          FROM insider_companies ic
+         ORDER BY ic.insider_id, ic.trade_count DESC NULLS LAST
+    """).fetchall()
+    primary_by_insider = {r[0]: (r[1], r[2]) for r in primary_rows}
+    logger.info("  Trade aggregates for %d insider(s); primary ticker for %d",
+                len(agg_rows), len(primary_by_insider))
+
+    # 3) UPSERT — INSERT ... ON CONFLICT(insider_id) DO UPDATE. The PK is
+    #    insider_id so this is atomic; no read-modify-write race.
+    rowcount = 0
+    for agg in agg_rows:
+        insider_id = agg[0]
+        buy_count, sell_count = agg[1], agg[2]
+        buy_first, buy_last = agg[3], agg[4]
+        sell_first, sell_last = agg[5], agg[6]
+        n_tickers = agg[7]
+        primary_ticker, primary_title = primary_by_insider.get(insider_id, (None, None))
+        score_data = score_by_insider.get(insider_id, (None, None, None))
+        score, tier, percentile = score_data
+
         conn.execute(
-            "UPDATE insider_track_records SET score=?, score_tier=?, percentile=? WHERE insider_id=?",
-            (round(score, 4), tier, round(percentile, 2), insider_id))
-        updated += 1
+            """INSERT INTO insider_track_records
+                   (insider_id, score, score_tier, percentile,
+                    buy_count, sell_count,
+                    buy_first_date, buy_last_date,
+                    sell_first_date, sell_last_date,
+                    n_tickers, primary_title, primary_ticker,
+                    computed_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW()::text)
+               ON CONFLICT (insider_id) DO UPDATE SET
+                   score          = EXCLUDED.score,
+                   score_tier     = EXCLUDED.score_tier,
+                   percentile     = EXCLUDED.percentile,
+                   buy_count      = EXCLUDED.buy_count,
+                   sell_count     = EXCLUDED.sell_count,
+                   buy_first_date = EXCLUDED.buy_first_date,
+                   buy_last_date  = EXCLUDED.buy_last_date,
+                   sell_first_date = EXCLUDED.sell_first_date,
+                   sell_last_date  = EXCLUDED.sell_last_date,
+                   n_tickers       = EXCLUDED.n_tickers,
+                   primary_title   = COALESCE(EXCLUDED.primary_title, insider_track_records.primary_title),
+                   primary_ticker  = COALESCE(EXCLUDED.primary_ticker, insider_track_records.primary_ticker),
+                   computed_at     = EXCLUDED.computed_at""",
+            (insider_id, score, tier, percentile,
+             buy_count, sell_count,
+             buy_first, buy_last, sell_first, sell_last,
+             n_tickers, primary_title, primary_ticker),
+        )
+        rowcount += 1
     conn.commit()
-    logger.info("Synced %d insiders", updated)
+
+    updated = inserted = 0  # opaque under UPSERT; kept for log compatibility
+    logger.info("Synced insider_track_records: %d row(s) upserted", rowcount)
+
+    # Freshness contract: insider_track_records is current as of this run.
+    try:
+        from framework.contracts.freshness_writer import write_freshness
+        write_freshness(
+            conn, table="insider_track_records", column="score",
+            n_rows_affected=rowcount,
+            populated_by="strategies/insider_catalog/pit_scoring.py",
+        )
+        conn.commit()
+    except Exception as exc:
+        logger.warning("write_freshness for insider_track_records.score failed: %s", exc)
+
+    return rowcount
 
 
 def get_pit_score(conn: object, insider_id: int, ticker: str,
