@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.openclaw.monday-paper-monitor</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/python3</string>
+        <string>/Users/derekg/trading-framework/scripts/monday_paper_monitor.py</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/derekg/trading-framework</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>PYTHONPATH</key>
+        <string>/Users/derekg/trading-framework</string>
+    </dict>
+    <!-- Mon 07:30 PT (14:30 UTC). Runs ~1h after the 06:25 PT cw_runner
+         pre-market wake and the 06:00 PT refresh-features chain. Verifies
+         the weekend's pipelines fired cleanly and the live runners are
+         ready for the trading day. Alerts routed to logs/alerts.ndjson
+         under component=monday_paper_monitor; the 14:30 PT daily-summary
+         plist picks them up and surfaces them in the daily email.
+
+         Weekly (every Monday) by design — cheap insurance that catches
+         regressions on future weekend deploys. Drop the StartCalendarInterval
+         to one-shot or disable if it becomes redundant. -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Weekday</key><integer>1</integer>
+        <key>Hour</key><integer>7</integer>
+        <key>Minute</key><integer>30</integer>
+    </dict>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>KeepAlive</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>/Users/derekg/trading-framework/logs/monday-paper-monitor.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/derekg/trading-framework/logs/monday-paper-monitor.log</string>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>LowPriorityIO</key>
+    <true/>
+    <key>Nice</key>
+    <integer>10</integer>
+</dict>
+</plist>

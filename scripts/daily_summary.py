@@ -311,15 +311,55 @@ def render_html(activity: list[dict], perf: list[dict], spy: dict,
                       f"<th align='left'>Reason</th></tr></thead>"
                       f"<tbody>{u_rows}</tbody></table>")
 
-    # Alerts summary
+    # Monday paper-monitor — dedicated section, only when alerts present
+    # from the most-recent run (within 24h). On Mondays the monitor fires
+    # at 07:30 PT; the daily summary fires at 14:30 PT, so Monday's email
+    # always shows the current week's findings.
+    monday_monitor_html = ""
+    monday_alerts = [a for a in alerts if a.get("component") == "monday_paper_monitor"]
+    if monday_alerts:
+        # Sort by severity (critical > warn > info), then by check name
+        sev_rank = {"critical": 0, "error": 1, "warn": 2, "info": 3}
+        monday_alerts.sort(key=lambda a: (sev_rank.get(a.get("severity"), 9),
+                                          (a.get("extra") or {}).get("check", "")))
+        mon_rows = ""
+        for a in monday_alerts:
+            sev = a.get("severity", "info")
+            sev_color = {"critical": "#EF4444", "warn": "#F59E0B",
+                         "info": "#22C55E"}.get(sev, "#55556A")
+            check = (a.get("extra") or {}).get("check", "?")
+            msg = a.get("message", "")
+            mon_rows += (
+                f"<tr><td style='color:{sev_color}; font-weight:600; "
+                f"font-size:11px; text-transform:uppercase'>{sev}</td>"
+                f"<td><code style='font-size:12px'>{check}</code></td>"
+                f"<td style='font-size:12px; color:#C0C0CC'>{msg[:160]}</td></tr>"
+            )
+        n_fail = sum(1 for a in monday_alerts if a.get("severity") in ("critical", "warn", "error"))
+        n_pass = len(monday_alerts) - n_fail
+        header_color = "#22C55E" if n_fail == 0 else ("#EF4444" if any(a.get("severity") == "critical" for a in monday_alerts) else "#F59E0B")
+        monday_monitor_html = (
+            f"<h3 style='color:{header_color}; margin-top:20px'>"
+            f"📅 Monday paper monitor — {n_pass} pass · {n_fail} fail</h3>"
+            f"<table style='width:100%; font-size:13px; border-collapse:collapse'>"
+            f"<tbody>{mon_rows}</tbody></table>"
+        )
+
+    # Alerts summary — strip monday_paper_monitor from the count (rendered
+    # in its own section above) so it doesn't double-count.
+    non_monitor_alerts = [a for a in alerts if a.get("component") != "monday_paper_monitor"]
+    non_monitor_sev = {"info": 0, "warn": 0, "error": 0, "critical": 0}
+    for a in non_monitor_alerts:
+        s = a.get("severity", "info")
+        non_monitor_sev[s] = non_monitor_sev.get(s, 0) + 1
     alerts_html = ""
-    if any(sev_count.values()):
+    if any(non_monitor_sev.values()):
         alerts_html = (f"<p style='color:#8888A0; font-size:13px'>"
                        f"<b>Alerts (24h):</b> "
-                       f"<span style='color:#EF4444'>{sev_count['critical']} critical</span> · "
-                       f"<span style='color:#F59E0B'>{sev_count['error']} error</span> · "
-                       f"<span style='color:#FBBF24'>{sev_count['warn']} warn</span> · "
-                       f"<span style='color:#55556A'>{sev_count['info']} info</span></p>")
+                       f"<span style='color:#EF4444'>{non_monitor_sev['critical']} critical</span> · "
+                       f"<span style='color:#F59E0B'>{non_monitor_sev['error']} error</span> · "
+                       f"<span style='color:#FBBF24'>{non_monitor_sev['warn']} warn</span> · "
+                       f"<span style='color:#55556A'>{non_monitor_sev['info']} info</span></p>")
 
     return f"""
     <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
@@ -363,6 +403,7 @@ def render_html(activity: list[dict], perf: list[dict], spy: dict,
 
         {div_html}
         {unres_html}
+        {monday_monitor_html}
         {alerts_html}
       </div>
 
