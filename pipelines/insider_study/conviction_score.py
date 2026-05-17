@@ -17,7 +17,11 @@ Derived from empirical return analysis (2020-2026):
 from __future__ import annotations
 
 REVERSAL_THESES = frozenset({"reversal", "reversal_dip"})
-COMPOSITE_THESES = frozenset({"dip_cluster", "momentum_largest", "quality_momentum", "tenb51_surprise"})
+COMPOSITE_THESES = frozenset({
+    "dip_cluster", "momentum_largest",
+    "quality_momentum", "quality_momentum_live",
+    "tenb51_surprise",
+})
 VALID_THESES = REVERSAL_THESES | COMPOSITE_THESES
 
 

@@ -147,14 +147,22 @@ def load_config(path: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def get_alpaca(config: dict) -> PaperBackend:
-    """Load the dedicated per-strategy trading credentials.
+    """Load the dedicated per-strategy trading credentials and return the
+    appropriate execution backend.
 
     Strategy yaml must declare `alpaca_env_prefix: QUALITY_MOMENTUM` (or similar).
-    Paper mode (default): reads ALPACA_API_KEY_{prefix} / ALPACA_API_SECRET_{prefix}.
+    Paper mode (default): reads ALPACA_API_KEY_{prefix} / ALPACA_API_SECRET_{prefix},
+    returns PaperBackend.
     Live mode (yaml: live_money: true): reads ALPACA_API_KEY_{prefix}_LIVE /
-    ALPACA_API_SECRET_{prefix}_LIVE and routes orders to api.alpaca.markets
-    instead of paper-api.alpaca.markets. The two account types use separate
+    ALPACA_API_SECRET_{prefix}_LIVE, returns LiveBackend with the
+    enable_live=True safety flag set. The two account types use separate
     credentials by Alpaca design — paper key won't authenticate against live.
+
+    The dedicated `LiveBackend` class (rather than `PaperBackend` with a
+    swapped base_url, the pre-2026-05-17 pattern) ensures the
+    enable_live=True per-instantiation safety guard fires AND the
+    instantiation-time WARNING log surfaces. Anyone tempted to construct a
+    live backend somewhere else in the codebase has to opt in.
 
     Never uses ALPACA_DATA_API_KEY — those are read-only data credentials.
     """
@@ -177,15 +185,19 @@ def get_alpaca(config: dict) -> PaperBackend:
             f"{key_var} / {secret_var} not set in .env "
             f"(live_money={is_live})"
         )
-    from framework.execution.paper import LIVE_API_BASE, PAPER_API_BASE
-    base_url = LIVE_API_BASE if is_live else PAPER_API_BASE
-    backend = PaperBackend(api_key, api_secret, base_url=base_url)
     if is_live:
+        from framework.execution.live import LiveBackend
+        # enable_live=True is the explicit per-instantiation safety opt-in.
+        # LiveBackend's __init__ logs a WARNING on construction so the live
+        # mode is surfaced loudly in every cw_runner log; downstream code
+        # uses the same submit_order / get_position interface as PaperBackend.
+        backend = LiveBackend(api_key, api_secret, enable_live=True)
         logger.warning(
-            "[%s] LIVE TRADING ENABLED — orders route to %s",
-            config.get("strategy_name"), LIVE_API_BASE,
+            "[%s] LIVE TRADING ENABLED — using LiveBackend (real-money orders)",
+            config.get("strategy_name"),
         )
-    return backend
+        return backend
+    return PaperBackend(api_key, api_secret)
 
 
 def _data_api_headers() -> dict:
@@ -1397,10 +1409,12 @@ def execute_entries(
         # OMS V2 path (P2 day 3c): deterministic client_order_id from the
         # candidate's decision_id (set by evaluate_candidates_v2). Uses
         # framework.oms.{order_manager,audit} for audit writes via the
-        # state-machine + write_order pattern. V1 path uses random uuid +
-        # _record_order_decision/_record_alpaca_outcome helpers. The
-        # `order_v2` variable is None on the V1 path; threaded through
-        # the lifecycle below to dispatch audit writes.
+        # state-machine + write_order pattern. V1 path: deterministic
+        # client_order_id from (strategy, trade_id, today_PT) so Alpaca's
+        # server-side dedup catches accidental dual-host or retry double-
+        # submissions; uses _record_order_decision/_record_alpaca_outcome
+        # helpers. The `order_v2` variable is None on the V1 path; threaded
+        # through the lifecycle below to dispatch audit writes.
         from framework.oms.runner import is_oms_v2_enabled
         order_v2 = None
         if is_oms_v2_enabled() and c.get("decision_id"):
@@ -1427,7 +1441,13 @@ def execute_entries(
             order_v2 = Order.from_intent(intent_v2)
             order_id = order_v2.order_id  # deterministic — Alpaca dedups on this
         else:
-            order_id = str(uuid.uuid4())
+            # Format: cw-{strategy}-{trade_id}-{YYYYMMDD_PT}. Same trade on
+            # the same day always produces the same client_order_id, so
+            # Alpaca's server-side dedup rejects a second submission. A
+            # *different* trade or the next day produces a different id
+            # and Alpaca accepts. Max length ~39 chars (Alpaca allows 48+).
+            today_pt = _now_et().strftime("%Y%m%d")
+            order_id = f"cw-{strategy_name}-{c['trade_id']}-{today_pt}"
 
         # Build entry reasoning JSON
         signal_inputs = {
@@ -2542,11 +2562,79 @@ def run_daemon(config: dict) -> None:
 # CLI
 # ---------------------------------------------------------------------------
 
+def smoke_test(config: dict) -> dict:
+    """Live-mode smoke test — exercise the full live code path EXCEPT
+    order submission. Validates that:
+      - The right backend instantiates (LiveBackend for live_money: true,
+        with enable_live=True and the startup-warning log)
+      - Credentials authenticate (hits Alpaca /v2/account)
+      - scan_signals' freshness preflight and SQL queries run cleanly
+      - The candidate set is produced
+
+    Never calls submit_order. Safe to run at $0 funding to validate
+    infrastructure before the first real trade.
+
+    Returns a dict summarising backend, account state, and candidate count.
+    """
+    logger.info("=" * 60)
+    logger.info("[smoke-test] %s (live_money=%s)",
+                config["strategy_name"], bool(config.get("live_money")))
+    logger.info("=" * 60)
+
+    alpaca = get_alpaca(config)
+    backend_class = type(alpaca).__name__
+    base_url = getattr(alpaca, "_base_url", "?")
+    logger.info("[smoke-test] backend=%s base_url=%s", backend_class, base_url)
+
+    # Hit /v2/account to validate creds end-to-end. PaperBackend exposes
+    # get_account; LiveBackend inherits it.
+    account = alpaca.get_account()
+    equity = float(account.get("equity") or 0)
+    cash = float(account.get("cash") or 0)
+    status = account.get("status", "?")
+    logger.info("[smoke-test] account equity=$%.2f cash=$%.2f status=%s",
+                equity, cash, status)
+
+    # Exercise scan_signals end-to-end (freshness preflight + decision SQL +
+    # PIT engine path). No write_freshness or execute_entries.
+    conn = get_db(readonly=True)
+    try:
+        candidates = scan_signals(conn, config)
+        logger.info("[smoke-test] scan_signals returned %d candidate(s)", len(candidates))
+        # Trim candidate dicts to a summary for logs
+        for c in candidates[:5]:
+            logger.info("  - %s conv=%.2f grade=%s thesis=%s",
+                        c.get("ticker"), c.get("conviction") or 0,
+                        c.get("signal_grade"), c.get("thesis_name"))
+    finally:
+        conn.close()
+
+    logger.info("=" * 60)
+    logger.info("[smoke-test] PASS — no orders submitted")
+    logger.info("=" * 60)
+    return {
+        "strategy": config["strategy_name"],
+        "backend": backend_class,
+        "base_url": base_url,
+        "account_equity": equity,
+        "account_cash": cash,
+        "account_status": status,
+        "n_candidates": len(candidates),
+        "ok": True,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="CW Paper Trading Daemon")
     parser.add_argument("--config", required=True, help="Path to YAML config file")
     parser.add_argument("--dry-run", action="store_true", help="Scan and log, no orders")
     parser.add_argument("--once", action="store_true", help="Run one daily cycle and exit")
+    parser.add_argument(
+        "--smoke-test", action="store_true",
+        help="Exercise the full live code path (LiveBackend instantiation, "
+             "/v2/account fetch, scan_signals) without submitting any orders. "
+             "Use to validate live-money infrastructure before first real trade.",
+    )
     parser.add_argument(
         "--catchup", type=int, default=None, metavar="DAYS",
         help="One-time run with wider lookback (e.g. --catchup 30) to recover missed signals",
@@ -2567,7 +2655,10 @@ def main() -> None:
         logger.info("CATCHUP MODE: lookback widened to %d days", args.catchup)
     logger.info("Loaded config: %s (%d theses)", config["strategy_name"], len(config.get("theses", [])))
 
-    if args.once or args.dry_run or args.catchup:
+    if args.smoke_test:
+        result = smoke_test(config)
+        print(json.dumps(result, indent=2))
+    elif args.once or args.dry_run or args.catchup:
         result = run_daily(config, dry_run=args.dry_run)
         print(json.dumps(result, indent=2))
     else:

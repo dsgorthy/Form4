@@ -1,6 +1,15 @@
-strategy_name: quality_momentum
+strategy_name: quality_momentum_live
 display_name: "Form4 Quality + Momentum (LIVE)"
 alert_prefix: "[QM-LIVE]"
+# strategy_name distinct from the paper variant (`quality_momentum`) so:
+#   - strategy_portfolio.strategy / order_audit.strategy cleanly separate
+#     paper vs live entries (no need for is_live JOIN to disambiguate)
+#   - state file (`{strategy}_state.json`) and heartbeat file don't collide
+#     when paper + live runners coexist on Studio
+#   - WebSocket listener's ACCOUNTS[name=quality_momentum_live] queries
+#     align with the matching strategy_portfolio rows
+# Pre-2026-05-17 this read `quality_momentum`; the collision was caught by
+# Phase 2 P2.5 of the data-flow audit before live money launched.
 # Real-money Alpaca account — reads ALPACA_API_KEY_QUALITY_MOMENTUM_LIVE /
 # _SECRET_QUALITY_MOMENTUM_LIVE from .env. The live_money flag also routes
 # orders to api.alpaca.markets instead of paper-api.alpaca.markets.

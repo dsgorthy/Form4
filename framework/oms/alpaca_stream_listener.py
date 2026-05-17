@@ -67,11 +67,17 @@ PAPER_URL = "wss://paper-api.alpaca.markets/stream"
 LIVE_URL = "wss://api.alpaca.markets/stream"
 
 # Account registry — one entry per Alpaca account we listen on.
+# `env_prefix` resolves to ALPACA_API_KEY_{prefix} for paper accounts and
+# ALPACA_API_KEY_{prefix}_LIVE for live accounts (suffix added in
+# listen_account based on `live`). If the credentials env vars aren't set
+# the per-account task logs "credentials not in env — skipping" and exits
+# cleanly; the other accounts keep listening. Safe to pre-add live entries
+# before the creds are provisioned.
 ACCOUNTS = [
-    {"name": "quality_momentum", "env_prefix": "QUALITY_MOMENTUM", "live": False},
-    {"name": "reversal_dip",     "env_prefix": "REVERSAL_DIP",     "live": False},
-    {"name": "tenb51_surprise",  "env_prefix": "TENB51_SURPRISE",  "live": False},
-    # When live_money launches 2026-06-04 add quality_momentum_live here.
+    {"name": "quality_momentum",      "env_prefix": "QUALITY_MOMENTUM", "live": False},
+    {"name": "reversal_dip",          "env_prefix": "REVERSAL_DIP",     "live": False},
+    {"name": "tenb51_surprise",       "env_prefix": "TENB51_SURPRISE",  "live": False},
+    {"name": "quality_momentum_live", "env_prefix": "QUALITY_MOMENTUM", "live": True},
 ]
 
 HEARTBEAT_PATH = REPO / "strategies/cw_strategies/data/alpaca_stream_heartbeat.json"
@@ -105,9 +111,17 @@ def _update_strategy_portfolio_fill(conn, strategy: str, alpaca_order_id: str,
                                     order: dict) -> int:
     """Sync strategy_portfolio with actual fill data. Returns rowcount.
 
-    The strategy_portfolio row was written at order-submit time with the
-    *intended* entry_price (the limit / current_price we computed). The
-    actual fill may differ — update entry_price and shares to match.
+    Writes the Alpaca fill into `actual_fill_price` and updates `shares`
+    to the actually-filled qty. **Does NOT overwrite `entry_price`** — the
+    cw_runner contract is that entry_price is the data-API quote at
+    decision time (the strategy's intent), not the broker fill (slippage-
+    inclusive). P&L calculation that wants the slippage-adjusted basis
+    reads `actual_fill_price`; P&L vs intent reads `entry_price`.
+
+    Pre-2026-05-17 this function overwrote entry_price too — harmless on
+    paper (paper Alpaca fills exactly at the quote ~always) but a real
+    divergence on live with slippage, where the strategy's intended
+    entry would be silently rewritten to the broker's actual fill.
     """
     filled_qty = order.get("filled_qty")
     filled_avg_price = order.get("filled_avg_price")
@@ -116,15 +130,14 @@ def _update_strategy_portfolio_fill(conn, strategy: str, alpaca_order_id: str,
         return 0
     return conn.execute(
         """UPDATE strategy_portfolio
-           SET entry_price = ?,
-               shares = ?,
+           SET shares = ?,
                actual_fill_price = ?
            WHERE strategy = ? AND ticker = ?
              AND status = 'open'
              AND execution_source IN ('paper', 'live')
              AND (actual_fill_price IS NULL OR ABS(actual_fill_price - ?) > 0.0001)""",
         (
-            float(filled_avg_price), int(float(filled_qty)),
+            int(float(filled_qty)),
             float(filled_avg_price),
             strategy, ticker, float(filled_avg_price),
         ),
@@ -225,13 +238,21 @@ async def handle_event(account: dict, data: dict, dry_run: bool):
 # ── Per-account loop ─────────────────────────────────────────────────────
 
 async def listen_account(account: dict, dry_run: bool):
+    # Live accounts read ALPACA_API_KEY_{prefix}_LIVE — paper-mode reads
+    # ALPACA_API_KEY_{prefix}. Mirrors cw_runner.get_alpaca's lookup.
     url = LIVE_URL if account["live"] else PAPER_URL
-    key = os.environ.get(f"ALPACA_API_KEY_{account['env_prefix']}")
-    secret = os.environ.get(f"ALPACA_API_SECRET_{account['env_prefix']}")
+    suffix = "_LIVE" if account["live"] else ""
+    key_var = f"ALPACA_API_KEY_{account['env_prefix']}{suffix}"
+    secret_var = f"ALPACA_API_SECRET_{account['env_prefix']}{suffix}"
+    key = os.environ.get(key_var)
+    secret = os.environ.get(secret_var)
     if not (key and secret):
-        logger.error("[%s] credentials not in env (ALPACA_API_KEY_%s) — skipping",
-                     account["name"], account["env_prefix"])
+        logger.error("[%s] credentials not in env (%s) — skipping (account remains unmonitored)",
+                     account["name"], key_var)
         return
+    if account["live"]:
+        logger.warning("[%s] LIVE account — listening on %s with real-money creds",
+                       account["name"], url)
 
     backoff = 5
     while True:

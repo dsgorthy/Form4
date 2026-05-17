@@ -51,10 +51,14 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+# `env_prefix` resolves to ALPACA_API_KEY_{prefix} for paper, _{prefix}_LIVE
+# for live. Missing creds = "skip this account" log + skip; other accounts
+# still get resolved. Safe to pre-list a live account before its creds land.
 ACCOUNTS = [
-    {"name": "quality_momentum", "env_prefix": "QUALITY_MOMENTUM", "live": False},
-    {"name": "reversal_dip",     "env_prefix": "REVERSAL_DIP",     "live": False},
-    {"name": "tenb51_surprise",  "env_prefix": "TENB51_SURPRISE",  "live": False},
+    {"name": "quality_momentum",      "env_prefix": "QUALITY_MOMENTUM", "live": False},
+    {"name": "reversal_dip",          "env_prefix": "REVERSAL_DIP",     "live": False},
+    {"name": "tenb51_surprise",       "env_prefix": "TENB51_SURPRISE",  "live": False},
+    {"name": "quality_momentum_live", "env_prefix": "QUALITY_MOMENTUM", "live": True},
 ]
 
 # Statuses we want to resolve. Anything in 'filled', 'rejected', 'canceled'
@@ -75,10 +79,24 @@ def is_market_open() -> bool:
 
 
 def get_alpaca(account: dict) -> PaperBackend:
-    key = os.environ[f"ALPACA_API_KEY_{account['env_prefix']}"]
-    secret = os.environ[f"ALPACA_API_SECRET_{account['env_prefix']}"]
-    base = LIVE_API_BASE if account["live"] else PAPER_API_BASE
-    return PaperBackend(api_key=key, api_secret=secret, base_url=base)
+    # Live accounts read ALPACA_API_KEY_{prefix}_LIVE. Mirrors
+    # cw_runner.get_alpaca and the WebSocket listener.
+    suffix = "_LIVE" if account["live"] else ""
+    key_var = f"ALPACA_API_KEY_{account['env_prefix']}{suffix}"
+    secret_var = f"ALPACA_API_SECRET_{account['env_prefix']}{suffix}"
+    key = os.environ.get(key_var)
+    secret = os.environ.get(secret_var)
+    if not (key and secret):
+        raise KeyError(
+            f"{key_var}/{secret_var} not set in .env — cannot resolve "
+            f"{account['name']} (live={account['live']}) orders"
+        )
+    if account["live"]:
+        # Real money — use LiveBackend so the enable_live=True safety
+        # guard fires and the WARNING log surfaces in the resolver log.
+        from framework.execution.live import LiveBackend
+        return LiveBackend(api_key=key, api_secret=secret, enable_live=True)
+    return PaperBackend(api_key=key, api_secret=secret, base_url=PAPER_API_BASE)
 
 
 def fetch_pending_orders(conn, strategy: str, hours: int = LOOKBACK_HOURS) -> list[dict]:
