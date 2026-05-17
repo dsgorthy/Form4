@@ -375,6 +375,8 @@ def _rebuild_insider_companies(conn: sqlite3.Connection):
             MIN(t.trade_date),
             MAX(t.trade_date)
         FROM trades t
+        WHERE t.trade_date <= CURRENT_DATE::text
+          AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
         GROUP BY t.insider_id, t.ticker
     """)
     conn.commit()

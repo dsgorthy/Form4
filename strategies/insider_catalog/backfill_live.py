@@ -772,8 +772,24 @@ def parse_form4_xml_full(
 
 def insert_trades(conn, trades: List[dict], accession: str, filed_at: Optional[str] = None) -> int:
     """Insert parsed trades into insiders.db. Returns count of new rows."""
+    from datetime import date as _date
+    today = _date.today().isoformat()
     inserted = 0
+    rejected_future = 0
     for t in trades:
+        # Fetch-time guard against issuer year-typo bugs (P1.12, 2026-05-17).
+        # Form 4 filings occasionally have transaction dates years in the
+        # future (5-digit-year roll, decade typos). These poison
+        # insider_companies aggregates (last_trade=2029-05-04 etc.) and
+        # bypass any "recent" date filters. Skip + log; surface via metrics.
+        td = t.get("trade_date") or ""
+        if td > today:
+            logger.warning(
+                "REJECTED future-dated trade: %s %s trade_date=%s filing_date=%s accession=%s",
+                t.get("ticker"), t.get("insider_name"), td, t.get("filing_date"), accession,
+            )
+            rejected_future += 1
+            continue
         insider_id = get_or_create_insider(conn, t["insider_name"], t["cik"])
 
         # Flag entity insiders on insert
@@ -827,6 +843,10 @@ def insert_trades(conn, trades: List[dict], accession: str, filed_at: Optional[s
             inserted += 1
         except Exception:
             pass  # duplicate
+    if rejected_future:
+        logger.warning(
+            "insert_trades(%s): %d future-dated row(s) rejected", accession, rejected_future
+        )
     return inserted
 
 

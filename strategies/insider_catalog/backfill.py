@@ -976,6 +976,8 @@ def _build_insider_companies(conn: sqlite3.Connection):
             MAX(t.trade_date)
         FROM trades t
         WHERE t.trans_code IN ('P', 'S')
+          AND t.trade_date <= CURRENT_DATE::text
+          AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
         GROUP BY t.insider_id, t.ticker
     """)
     conn.commit()

@@ -110,9 +110,25 @@ def validate_entry_order(
 
 
 def _count_orders_today(conn, strategy: str, side: str) -> int:
-    """Best-effort: count today's order_audit rows for this (strategy, side).
-    Returns 0 if the table doesn't exist yet (so guardrail doesn't break
-    on a fresh DB)."""
+    """Count today's order activity for (strategy, side).
+
+    Defense in depth: takes MAX of two sources because each is incomplete on
+    its own:
+
+      - `order_audit` is the canonical decision-time log, but only populated
+        since 2026-05-02 (migration `2026-05-02_002_order_audit.sql`) and
+        depends on `_record_order_decision` / `write_order` actually firing —
+        both are wrapped in try/except so a silent write failure would
+        otherwise reduce the count to 0 and make the daily cap unenforceable.
+
+      - `strategy_portfolio` is the canonical position state — every
+        successful entry lands here even when order_audit write fails. Used
+        as the fallback floor. Only counts paper/live (not simulated) for
+        the `buy` side; `sell` has no equivalent same-day-fired counter on
+        strategy_portfolio, so falls back to order_audit alone.
+    """
+    audit_count = 0
+    portfolio_count = 0
     try:
         row = conn.execute(
             """SELECT COUNT(*) AS n FROM order_audit
@@ -121,10 +137,23 @@ def _count_orders_today(conn, strategy: str, side: str) -> int:
                   AND decided_at::date = CURRENT_DATE""",
             (strategy, side),
         ).fetchone()
+        if row:
+            audit_count = int((row["n"] if hasattr(row, "keys") else row[0]) or 0)
     except Exception:
-        return 0
-    if not row:
-        return 0
-    if hasattr(row, "keys"):
-        return int(row["n"] or 0)
-    return int(row[0] or 0)
+        pass
+
+    if side == "buy":
+        try:
+            row = conn.execute(
+                """SELECT COUNT(*) AS n FROM strategy_portfolio
+                    WHERE strategy = ?
+                      AND entry_date = CURRENT_DATE::text
+                      AND execution_source IN ('paper', 'live')""",
+                (strategy,),
+            ).fetchone()
+            if row:
+                portfolio_count = int((row["n"] if hasattr(row, "keys") else row[0]) or 0)
+        except Exception:
+            pass
+
+    return max(audit_count, portfolio_count)

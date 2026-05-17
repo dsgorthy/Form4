@@ -215,6 +215,7 @@ def rebuild_aggregates(conn: sqlite3.Connection):
         FROM trades t
         WHERE (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
           AND t.is_derivative = 0
+          AND t.trade_date <= CURRENT_DATE::text
         GROUP BY t.insider_id, t.ticker
     """)
     conn.commit()
