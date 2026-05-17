@@ -363,6 +363,223 @@ def get_theoretical_equity(conn, config: dict) -> float:
 # Signal scanner
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# PIT engine integration (Phase 3 cutover, 2026-05-17)
+# ---------------------------------------------------------------------------
+#
+# Decision logic — filter + conviction — lives in `framework/pit/strategies/`
+# as PITStrategy subclasses, shared by the backtest engine and live runner.
+# `_scan_signals_engine` replaces the per-thesis SQL filter + inline
+# conviction calc that previously lived in scan_signals. The downstream
+# `execute_entries` is unchanged (Phase 4 lift).
+#
+# Fallback: set `PIT_ENGINE_LEGACY=1` in .env to use the V1 SQL path again.
+# Logic invariant: post-Tier-1 fixes (2026-05-16), V1 and engine produce the
+# same decisions; the env var exists for emergency rollback only.
+
+_PIT_STRATEGY_CLASSES: dict[str, Any] = {}
+
+
+def _get_pit_strategy_class(strategy_name: str):
+    """Resolve strategy_name → PITStrategy class. Lazy-imported."""
+    global _PIT_STRATEGY_CLASSES
+    if not _PIT_STRATEGY_CLASSES:
+        from framework.pit.strategies.quality_momentum import QualityMomentumStrategy
+        from framework.pit.strategies.reversal_dip import ReversalDipStrategy
+        from framework.pit.strategies.tenb51_surprise import Tenb51SurpriseStrategy
+        _PIT_STRATEGY_CLASSES = {
+            "quality_momentum": QualityMomentumStrategy,
+            # Live-money variant uses identical decision logic; only the
+            # capital + guardrails differ (handled by execute_entries).
+            "quality_momentum_live": QualityMomentumStrategy,
+            "reversal_dip": ReversalDipStrategy,
+            "tenb51_surprise": Tenb51SurpriseStrategy,
+        }
+    cls = _PIT_STRATEGY_CLASSES.get(strategy_name)
+    if cls is None:
+        raise ValueError(
+            f"No PIT strategy class registered for strategy_name={strategy_name!r}. "
+            f"Add it to _PIT_STRATEGY_CLASSES in cw_runner.py or set "
+            f"PIT_ENGINE_LEGACY=1 to use the V1 SQL path."
+        )
+    return cls
+
+
+def _is_pit_engine_enabled() -> bool:
+    """PIT engine is default-on after 2026-05-17 cutover. Disable with
+    `PIT_ENGINE_LEGACY=1` in .env for emergency rollback."""
+    return os.getenv("PIT_ENGINE_LEGACY", "").strip().lower() not in (
+        "1", "true", "yes", "on"
+    )
+
+
+def _scan_signals_engine(
+    conn, config: dict,
+    used_trade_ids: set[int],
+    held_tickers: set[str],
+) -> list[dict]:
+    """Engine-driven scan_signals.
+
+    Produces the same `list[dict]` shape that execute_entries consumes, so the
+    downstream Alpaca submission and DB-write logic is unchanged. The
+    strategy decision logic (filter + conviction) is delegated to the
+    `PITStrategy` class for this strategy_name.
+
+    Auditing matches V1 semantics:
+      - dedup pass/fail (per event that survives the strategy filter)
+      - conviction pass/fail (per event that survives dedup)
+      - Filter-stage rejects are NOT audited (V1 didn't see them because the
+        SQL pre-filter excluded them; we keep the audit volume comparable).
+    """
+    from framework.pit.live import PITLiveEngine
+
+    strategy_name = config["strategy_name"]
+    lookback = int(config.get("filing_lookback_days", 2))
+    theses = config.get("theses") or [{"name": strategy_name,
+                                       "exit": config.get("exit")}]
+    primary_thesis = theses[0]
+    thesis_name = primary_thesis.get("name", strategy_name)
+    exit_cfg = primary_thesis.get("exit") or config.get("exit")
+
+    strategy_cls = _get_pit_strategy_class(strategy_name)
+    pit_strategy = strategy_cls(config)
+    engine = PITLiveEngine(conn, pit_strategy, config)
+
+    # Mirror the V1 SQL window (`filing_date >= date('now', '-N days')`):
+    # walk the same calendar-day range and aggregate decisions.
+    today = _now_et().date()
+    dates = [
+        (today - timedelta(days=i)).strftime("%Y-%m-%d")
+        for i in range(lookback + 1)
+    ]
+
+    all_decisions = []
+    for d in dates:
+        try:
+            all_decisions.extend(engine.scan_and_decide(as_of_date=d))
+        except Exception as exc:
+            logger.warning("engine.scan_and_decide(%s) failed: %s", d, exc)
+
+    run_id = str(uuid.uuid4())
+    audit_buffer: list[tuple] = []
+    seen_trade_ids: set[int] = set()
+    enters: list = []  # list[Decision]
+
+    for d in all_decisions:
+        if d.trade_id in seen_trade_ids:
+            continue
+        seen_trade_ids.add(d.trade_id)
+
+        # Strategy filter rejects: V1 didn't see these (SQL filtered them
+        # out); skip audit to keep volume comparable.
+        if d.stage == "filter" and not d.passed:
+            continue
+
+        # Dedup (post-filter, pre-conviction). Matches V1 ordering.
+        if d.trade_id in used_trade_ids:
+            audit_buffer.append((
+                run_id, strategy_name, d.ticker, d.trade_id, d.filing_date,
+                thesis_name, "dedup", False,
+                "trade_id already seen this strategy",
+                None, None, None,
+            ))
+            continue
+        if d.ticker in held_tickers:
+            audit_buffer.append((
+                run_id, strategy_name, d.ticker, d.trade_id, d.filing_date,
+                thesis_name, "dedup", False, "ticker has open position",
+                None, None, None,
+            ))
+            continue
+        audit_buffer.append((
+            run_id, strategy_name, d.ticker, d.trade_id, d.filing_date,
+            thesis_name, "dedup", True, None, None, None, None,
+        ))
+
+        # Conviction-stage audit (engine produced this Decision).
+        audit_buffer.append((
+            run_id, strategy_name, d.ticker, d.trade_id, d.filing_date,
+            thesis_name, d.stage, d.passed, d.reason,
+            d.pit_grade, d.conviction,
+            json.dumps(d.snapshot, default=str) if d.snapshot else None,
+        ))
+
+        if d.action == "enter":
+            enters.append(d)
+
+    # Fetch supplemental trade-row fields execute_entries reads (filed_at,
+    # price, signal_quality, insider_name, etc.) for the entering set only.
+    candidates: list[dict] = []
+    if enters:
+        tids = [int(d.trade_id) for d in enters]
+        placeholders = ",".join("?" * len(tids))
+        rows = conn.execute(
+            f"""SELECT t.trade_id, t.filed_at, t.price, t.signal_quality,
+                       t.pit_n_trades, t.pit_win_rate_7d, t.is_rare_reversal,
+                       t.consecutive_sells_before, t.dip_1mo, t.title,
+                       t.company,
+                       COALESCE(i.display_name, i.name) AS insider_name
+                  FROM trades t
+                  LEFT JOIN insiders i ON t.insider_id = i.insider_id
+                 WHERE t.trade_id IN ({placeholders})""",
+            tuple(tids),
+        ).fetchall()
+        by_tid = {int(r["trade_id"]): r for r in rows}
+
+        for d in enters:
+            r = by_tid.get(d.trade_id)
+            snap = d.snapshot or {}
+            candidates.append({
+                "trade_id": d.trade_id,
+                "ticker": d.ticker,
+                "filing_date": d.filing_date,
+                "filed_at": (r["filed_at"] if r else None),
+                "price": (r["price"] if r else None),
+                "insider_name": (
+                    (r["insider_name"] if r else None)
+                    or snap.get("insider_name")
+                ),
+                "company": (r["company"] if r else None) or snap.get("company"),
+                "title": (r["title"] if r else None) or snap.get("insider_title"),
+                "signal_quality": (r["signal_quality"] if r else None),
+                "signal_grade": d.pit_grade or "C",
+                "conviction": d.conviction,
+                "is_rare_reversal": bool(
+                    (r["is_rare_reversal"] if r else None)
+                    or snap.get("is_rare_reversal")
+                ),
+                "consecutive_sells_before": (
+                    (r["consecutive_sells_before"] if r else None)
+                    if r is not None else snap.get("consecutive_sells_before")
+                ),
+                "dip_1mo": (r["dip_1mo"] if r else None) or snap.get("dip_1mo"),
+                "pit_n": (r["pit_n_trades"] if r else None),
+                "pit_wr": (r["pit_win_rate_7d"] if r else None),
+                "thesis_name": thesis_name,
+                "exit_config": exit_cfg,
+            })
+
+    candidates.sort(key=lambda c: c.get("conviction", 0) or 0, reverse=True)
+
+    if audit_buffer:
+        try:
+            conn.executemany(
+                """INSERT INTO trade_decision_audit
+                   (run_id, strategy, ticker, trade_id, filing_date, thesis,
+                    stage, passed, reason, pit_grade, conviction, feature_snapshot)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb)""",
+                audit_buffer,
+            )
+            conn.commit()
+        except Exception as e:
+            logger.warning("trade_decision_audit write failed: %s "
+                           "(non-fatal — admin view will be incomplete)", e)
+
+    logger.info("scan_signals[engine]: %d candidates across %d theses (audit rows: %d)",
+                len(candidates), len(theses), len(audit_buffer))
+    return candidates
+
+
 def _build_thesis_query(thesis: dict, lookback_days: int) -> tuple[str, list]:
     """Build WHERE clauses and params for a single thesis filter set."""
     filters = thesis.get("filters", {})
@@ -568,6 +785,17 @@ def scan_signals(conn, config: dict) -> list[dict]:
         ).fetchall()
         if r["trade_id"] is not None
     }
+
+    # PIT engine path (Phase 3 cutover, 2026-05-17, default-on).
+    # Filter + conviction decisions come from the PITStrategy class instead
+    # of inline SQL + compute_conviction; dedup and audit semantics preserved.
+    # Disable via .env: PIT_ENGINE_LEGACY=1
+    if _is_pit_engine_enabled():
+        try:
+            return _scan_signals_engine(conn, config, used_trade_ids, held_tickers)
+        except Exception as exc:
+            logger.exception("PIT engine scan failed, falling back to V1 SQL path: %s", exc)
+            # Fall through to V1 — never silently halt entries on engine bug
 
     # One audit batch per scan_signals invocation, shared across theses.
     # Every candidate evaluation below writes one row per filter stage to
