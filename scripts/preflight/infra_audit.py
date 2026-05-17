@@ -381,8 +381,12 @@ def check_runner_strategy_columns_have_contracts() -> CheckResult:
         "min_dollar_value", "max_dollar_value", "min_shares", "max_shares",
         "lookback_days", "filing_lookback_days", "value", "trade_value",
         "is_csuite", "title_match", "exclude_routine", "include_private",
-        # Strategy-specific knobs
-        "signal_grade", "pit_grade", "career_grade", "conviction_score",
+        # Strategy-specific knobs (NOT data columns — these are config knobs
+        # that share names with column-y things). `career_grade` was on
+        # this list as an escape hatch until 2026-05-17 — that exemption
+        # let QM's primary filter rot for 5 weeks. Removed; both pit_grade
+        # and career_grade now MUST have contracts.
+        "signal_grade", "conviction_score",
         "concurrent_positions", "concurrent", "hold_days",
         # Booleans that map to contracted columns differently
         "cluster", "10b5_1", "rare_reversal",
@@ -474,6 +478,44 @@ def check_freshness_contracts_have_writers() -> CheckResult:
 
 # ── Runner ──────────────────────────────────────────────────────────────────
 
+def check_writer_registry() -> CheckResult:
+    """Check #7: writer_registry.yaml is consistent and verified.
+
+    Delegates to scripts/preflight/writer_registry_audit.py — runs its 7
+    sub-checks (scripts exist, write_freshness calls match, plists invoke
+    scripts, contracts↔registry consistent, no mislabels). Failures here
+    surface the orphan/mislabel failure class structurally before deploy.
+    """
+    name = "7. Writer registry consistent and verified"
+    try:
+        # Lazy-import — registry audit module is in the same package
+        from scripts.preflight.writer_registry_audit import run_all_checks as _registry_checks
+    except ImportError:
+        sys.path.insert(0, str(REPO))
+        try:
+            from scripts.preflight.writer_registry_audit import run_all_checks as _registry_checks
+        except Exception as exc:
+            return CheckResult(
+                name=name, passed=False,
+                findings=[f"could not import writer_registry_audit: {exc}"],
+                details="check that scripts/preflight/writer_registry_audit.py exists",
+            )
+
+    sub_results = _registry_checks()
+    findings: list[str] = []
+    for sr in sub_results:
+        if sr.passed:
+            continue
+        for f in sr.findings:
+            findings.append(f"[registry/{sr.name}] {f}")
+    return CheckResult(
+        name=name, passed=not findings, findings=findings,
+        details=("The writer registry is the source of truth for who writes which "
+                 "column on which cron. Run `scripts/preflight/writer_registry_audit.py` "
+                 "directly for the per-sub-check breakdown."),
+    )
+
+
 CHECKS = [
     ("1", check_no_legacy_paths),
     ("2", check_plist_path_env),
@@ -481,6 +523,7 @@ CHECKS = [
     ("4", check_no_orphan_insiders_db_reads),
     ("5", check_runner_strategy_columns_have_contracts),
     ("6", check_freshness_contracts_have_writers),
+    ("7", check_writer_registry),
 ]
 
 

@@ -705,25 +705,34 @@ def scan_signals(conn, config: dict) -> list[dict]:
     #      itself is broken — not the data. Caught FIRST so a system-wide
     #      writer outage doesn't masquerade as per-column staleness.
     #
-    #   2. assert_all_fresh_for_strategy raises:
+    #   2. assert_all_writers_wired_for_strategy (R-009): the most-recent
+    #      signal_freshness row for a column was written by a script other
+    #      than the one declared in writer_registry.yaml. Catches the
+    #      mislabel/orphan-writer class that silently rotted is_rare_reversal
+    #      for 8 weeks pre-2026-05-16.
+    #
+    #   3. assert_all_fresh_for_strategy raises:
     #      - FreshnessUnknownError (R-007): a single column's compute
     #        pipeline never wrote signal_freshness. Misconfigured pipeline.
     #      - StaleSignalError (R-002): compute ran but data has aged out.
     #
-    # All three halt strategy-wide; the runbook differs.
+    # All four halt strategy-wide; the runbook differs.
     try:
         from framework.contracts.freshness import (
             assert_all_fresh_for_strategy,
+            assert_all_writers_wired_for_strategy,
             assert_freshness_system_healthy,
         )
         from framework.contracts.exceptions import (
             StaleSignalError,
             FreshnessUnknownError,
             FreshnessSystemBrokenError,
+            WriterMismatchError,
         )
         from framework.alerts.log import alert
         try:
             assert_freshness_system_healthy(conn, strategy_name)
+            assert_all_writers_wired_for_strategy(conn, strategy_name)
             assert_all_fresh_for_strategy(conn, strategy_name)
         except FreshnessSystemBrokenError as e:
             alert.critical(
@@ -736,6 +745,22 @@ def scan_signals(conn, config: dict) -> list[dict]:
                 missing_columns=list(e.missing_columns),
             )
             logger.error("[%s] FRESHNESS_SYSTEM_BROKEN — %s", strategy_name, e)
+            return []
+        except WriterMismatchError as e:
+            alert.critical(
+                f"cw_runner.{strategy_name}",
+                f"HALT — writer mismatch on {e.table}.{e.column}: "
+                f"registry says {e.registered_script!r}, signal_freshness most-recent "
+                f"row was populated_by {e.observed_populated_by!r}. Entries skipped. "
+                f"Runbook R-009.",
+                strategy=strategy_name,
+                breach=str(e),
+                table=e.table,
+                column=e.column,
+                registered_script=e.registered_script,
+                observed_populated_by=e.observed_populated_by,
+            )
+            logger.error("[%s] WRITER_MISMATCH — %s", strategy_name, e)
             return []
         except FreshnessUnknownError as e:
             alert.critical(

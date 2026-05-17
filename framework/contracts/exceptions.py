@@ -111,6 +111,39 @@ class FreshnessSystemBrokenError(ContractError):
         super().__init__(msg)
 
 
+class WriterMismatchError(ContractError):
+    """The most recent signal_freshness row for a column was written by a
+    script other than the one declared in `config/writer_registry.yaml`.
+
+    This catches the mislabel failure mode that hid the `is_rare_reversal`
+    8-week silence: the freshness contract claimed `populated_by=script_A`
+    while the actual data was being written (or not written) by `script_B`,
+    and signal_freshness rows from script_A on unrelated columns kept the
+    column timestamp green.
+
+    Runbook: R-009 (writer registry mismatch — confirm which script is
+    actually canonical for this column; reconcile writer_registry.yaml,
+    freshness_contracts.yaml.populated_by, and the script's
+    `write_freshness(populated_by=...)` call. They must all agree).
+    """
+
+    def __init__(self, *, table: str, column: str,
+                 registered_script: str, observed_populated_by: str,
+                 strategy: Optional[str] = None):
+        self.table = table
+        self.column = column
+        self.registered_script = registered_script
+        self.observed_populated_by = observed_populated_by
+        self.strategy = strategy
+        msg = (
+            f"WRITER_MISMATCH on {table}.{column}: registry says "
+            f"{registered_script!r}, but signal_freshness most-recent row "
+            f"was populated_by {observed_populated_by!r}. One of these is "
+            f"wrong; fix before resuming."
+        )
+        super().__init__(msg)
+
+
 class DataQualityHaltError(ContractError):
     """Aggregate data-quality violation — too many NULL inputs in a single scan.
 

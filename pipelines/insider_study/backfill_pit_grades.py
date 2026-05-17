@@ -119,16 +119,19 @@ def main():
         )
         db.commit()
 
-    # Freshness contract: trades.pit_grade is now current as of this run.
+    # Freshness contract: trades.pit_grade + pit_blended_score are now current.
+    # Both columns are co-written by the UPDATE above; surface both in
+    # signal_freshness so the writer registry can verify each independently.
     if matched > 0:
         from framework.contracts.freshness_writer import write_freshness
-        write_freshness(
-            db,
-            table="trades",
-            column="pit_grade",
-            n_rows_affected=matched,
-            populated_by="pipelines/insider_study/backfill_pit_grades.py",
-        )
+        for col in ("pit_grade", "pit_blended_score"):
+            write_freshness(
+                db,
+                table="trades",
+                column=col,
+                n_rows_affected=matched,
+                populated_by="pipelines/insider_study/backfill_pit_grades.py",
+            )
         db.commit()
 
     elapsed = time.time() - t0

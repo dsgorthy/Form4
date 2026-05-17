@@ -82,14 +82,16 @@ trades.cohen_routine:
 trades.is_10b5_1:
   max_staleness_hours: 48
   required_for: [reversal_dip, tenb51_surprise]
-  description: "Boolean: trade was filed under a Rule 10b5-1 plan"
-  populated_by: pipelines/insider_study/compute_cw_indicators.py
+  description: "Boolean: trade was filed under a Rule 10b5-1 plan. Parse-time field from Form 4 XML; never recomputed."
+  populated_by: strategies/insider_catalog/fetch_latest.py
+  notes: "No dedicated write_freshness call — column is set at INSERT, freshness piggybacks on trades.filing_date (same writer, same plist). Was mislabeled until 2026-05-17 audit."
 
 trades.is_rare_reversal:
   max_staleness_hours: 26
   required_for: [reversal_dip]
-  description: "Boolean: insider broke ≥10-sell streak with this buy (PIT)"
-  populated_by: pipelines/insider_study/compute_cw_indicators.py
+  description: "Boolean: insider broke ≥5-event same-direction streak with this opposite-direction trade (PIT)"
+  populated_by: pipelines/insider_study/compute_switch_rate.py
+  notes: "Was mislabeled as compute_cw_indicators.py until 2026-05-17 audit — compute_cw_indicators' INDICATOR_TO_COLUMNS['consecutive'] used to claim is_rare_reversal but never wrote it. RD silenced 8 weeks under that green-for-wrong-reasons contract."
 
 trades.pit_cluster_size:
   max_staleness_hours: 26
@@ -97,12 +99,26 @@ trades.pit_cluster_size:
   description: "Count of distinct other insiders filing same ticker+trans_code in prior 30 days (PIT)"
   populated_by: pipelines/insider_study/compute_pit_clusters.py
 
+# ── Conviction-input columns (used by compute_conviction, not gating filters) ──
+trades.is_largest_ever:
+  max_staleness_hours: 48
+  required_for: ['*']
+  description: "Boolean: this buy is the largest ever for the (insider, ticker). Adds +0.5 to conviction score. Multi-lot Form 4 marks only one row=1."
+  populated_by: pipelines/insider_study/compute_cw_indicators.py
+
 # ── PIT scoring (populated by build_pit_scores) ──
 trades.pit_grade:
   max_staleness_hours: 30
-  required_for: [quality_momentum]
-  description: "PIT-derived grade A+/A/B/C/D from insider_ticker_scores"
+  required_for: [quality_momentum, reversal_dip, tenb51_surprise]
+  description: "PIT-derived grade A+/A/B/C/D from insider_ticker_scores (V2 Bayesian scorer)"
   populated_by: pipelines/insider_study/backfill_pit_grades.py
+
+trades.career_grade:
+  max_staleness_hours: 30
+  required_for: [quality_momentum]
+  description: "PIT-derived grade A+/A/B/C/D from V3 career-track-record scorer (5y half-life vs V2's 1.5y). QM's primary admission filter."
+  populated_by: pipelines/insider_study/compute_career_grades.py
+  notes: "Added 2026-05-17. Was orphaned 2026-04-09 → 2026-05-16 — QM produced 0 candidates for 5 trading days because the V3 block lived only inside backfill_live.main() which insider-fetch doesn't invoke."
 
 insider_ticker_scores.blended_score:
   max_staleness_hours: 30

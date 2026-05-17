@@ -41,12 +41,14 @@ from framework.contracts.exceptions import (
     StaleSignalError,
     FreshnessUnknownError,
     FreshnessSystemBrokenError,
+    WriterMismatchError,
 )
 
 logger = logging.getLogger(__name__)
 
 
 CONTRACTS_PATH = Path(__file__).resolve().parents[2] / "config" / "freshness_contracts.yaml"
+REGISTRY_PATH = Path(__file__).resolve().parents[2] / "config" / "writer_registry.yaml"
 
 
 @dataclass(frozen=True)
@@ -213,6 +215,138 @@ def assert_all_fresh_for_strategy(conn, strategy: str) -> None:
     for contract in registry.for_strategy(strategy):
         assert_fresh(conn, table=contract.table, column=contract.column,
                      strategy=strategy)
+
+
+# ── Writer registry (one source of truth for "who writes which column") ────
+
+
+@dataclass(frozen=True)
+class WriterRegistryEntry:
+    column: str            # "table.column" format
+    script: str            # path relative to repo root
+    plists: tuple[str, ...]
+    required_for: tuple[str, ...]
+    sla_hours: Optional[float] = None
+    notes: str = ""
+
+    def applies_to(self, strategy: str) -> bool:
+        return "*" in self.required_for or strategy in self.required_for
+
+
+class WriterRegistry:
+    """Loads writer_registry.yaml. Singleton-style."""
+
+    _instance: Optional["WriterRegistry"] = None
+
+    @classmethod
+    def get(cls) -> "WriterRegistry":
+        if cls._instance is None:
+            cls._instance = cls(REGISTRY_PATH)
+        return cls._instance
+
+    def __init__(self, path: Path):
+        self._by_column: dict[str, WriterRegistryEntry] = {}
+        if not path.exists():
+            # Registry is optional during the rollout window — log and continue
+            logger.warning("Writer registry missing: %s (assert_writer_wired will no-op)", path)
+            return
+        raw = yaml.safe_load(path.read_text()) or {}
+        for spec in raw.get("writers", []):
+            col = spec.get("column")
+            if not col:
+                continue
+            self._by_column[col] = WriterRegistryEntry(
+                column=col,
+                script=spec.get("script", ""),
+                plists=tuple(spec.get("plists") or ()),
+                required_for=tuple(spec.get("required_for") or ()),
+                sla_hours=spec.get("sla_hours"),
+                notes=spec.get("notes", "") or "",
+            )
+
+    def lookup(self, column_key: str) -> Optional[WriterRegistryEntry]:
+        """`column_key` is the full 'table.column' (or 'schema.table.column') string."""
+        return self._by_column.get(column_key)
+
+    def for_strategy(self, strategy: str) -> list[WriterRegistryEntry]:
+        return [e for e in self._by_column.values() if e.applies_to(strategy)]
+
+
+def _lookup_populated_by(conn, table: str, column: str) -> Optional[str]:
+    """Most-recent `populated_by` value in signal_freshness for (table, column)."""
+    with suppress(Exception):
+        if "." in table:
+            schema, table_name = table.split(".", 1)
+        else:
+            schema, table_name = "public", table
+        row = conn.execute(
+            """
+            SELECT populated_by FROM signal_freshness
+             WHERE source = ? AND table_name = ? AND column_name = ?
+             ORDER BY last_computed_at DESC LIMIT 1
+            """,
+            (schema, table_name, column),
+        ).fetchone()
+        if row and row[0]:
+            return str(row[0])
+    return None
+
+
+def assert_writer_wired(
+    conn,
+    *,
+    table: str,
+    column: str,
+    strategy: Optional[str] = None,
+) -> None:
+    """Raise WriterMismatchError if the most-recent signal_freshness row for
+    `(table, column)` was written by a script different from the one declared
+    in `config/writer_registry.yaml`.
+
+    Catches the mislabel failure mode: a contract claims script_A is the
+    writer, the column gets stamped fresh because script_A happens to call
+    write_freshness for some unrelated work, but the REAL writer is script_B
+    (which silently stopped running). is_rare_reversal was this exact case
+    for 8 weeks pre-2026-05-16.
+
+    If the registry has no entry for this column, no-op (during rollout we
+    accept partial coverage). Once every contracted column has a registry
+    entry, the writer_registry_audit check #4 will reject any contract
+    without one.
+    """
+    registry = WriterRegistry.get()
+    column_key = f"{table}.{column}"
+    entry = registry.lookup(column_key)
+    if entry is None or not entry.script:
+        return  # not yet registered — skip
+    if strategy and not entry.applies_to(strategy):
+        return
+
+    observed = _lookup_populated_by(conn, table, column)
+    if observed is None:
+        # No signal_freshness row at all — that's FreshnessUnknownError territory
+        # (handled by assert_fresh), not a mismatch. Skip here.
+        return
+    if observed != entry.script:
+        raise WriterMismatchError(
+            table=table,
+            column=column,
+            registered_script=entry.script,
+            observed_populated_by=observed,
+            strategy=strategy,
+        )
+
+
+def assert_all_writers_wired_for_strategy(conn, strategy: str) -> None:
+    """Raise on the first writer mismatch for `strategy`. Use at scan start
+    after `assert_freshness_system_healthy` and before `assert_all_fresh_for_strategy`."""
+    registry = WriterRegistry.get()
+    for entry in registry.for_strategy(strategy):
+        if "." in entry.column:
+            table, column = entry.column.rsplit(".", 1)
+        else:
+            continue
+        assert_writer_wired(conn, table=table, column=column, strategy=strategy)
 
 
 def assert_freshness_system_healthy(conn, strategy: str) -> None:

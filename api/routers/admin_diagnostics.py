@@ -80,6 +80,22 @@ JOB_CATALOG = [
      "label": "Freshness contract probe (every 30 min)", "category": "monitoring"},
     {"name": "alpaca-reconcile",   "log": "alpaca-reconcile.log",   "cadence_s": 26 * 3600,
      "label": "Alpaca paper account reconcile (daily)", "category": "monitoring"},
+    {"name": "candidate-count-probe", "log": "candidate-count-probe.log", "cadence_s": 26 * 3600,
+     "label": "Per-strategy candidate-count probe (18:00 ET daily)", "category": "monitoring"},
+    {"name": "post-deploy-audit",  "log": "post-deploy-audit.log",  "cadence_s": 48 * 3600,
+     "label": "Post-deploy audit (alerts since deploy, plist coverage)", "category": "monitoring"},
+    {"name": "heartbeat-probe",    "log": "heartbeat-probe.log",    "cadence_s": 30 * 60,
+     "label": "cw_runner heartbeat freshness probe", "category": "monitoring"},
+    {"name": "strategy-health",    "log": "strategy-health.log",    "cadence_s": 6 * 3600,
+     "label": "Strategy health (P&L drift, position aging)", "category": "monitoring"},
+    {"name": "thesis-monitor",     "log": "thesis-monitor.log",     "cadence_s": 26 * 3600,
+     "label": "Thesis-level position tracker (daily)", "category": "monitoring"},
+    {"name": "compute-signals",    "log": "compute-signals.log",    "cadence_s": 26 * 3600,
+     "label": "Insider signal compute (21 detectors, daily)", "category": "ingestion"},
+    {"name": "daily-summary",      "log": "daily-summary.log",      "cadence_s": 26 * 3600,
+     "label": "Daily summary email (17:30 ET, includes alert aggregate)", "category": "monitoring"},
+    {"name": "pit-shadow",         "log": "pit_shadow.log",         "cadence_s": 7 * 24 * 3600,
+     "label": "PIT engine shadow validator (one-shot windows)", "category": "monitoring"},
 ]
 
 # Source-of-truth strategy registry. Keep in sync with

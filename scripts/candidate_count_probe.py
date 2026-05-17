@@ -253,7 +253,8 @@ def main():
             "lookback_days": args.lookback_days,
             "counts": results,
             "new_zeros": new_zeros,
-            "consecutive_zeros": consecutive_zeros,
+            "medium_silence": [s for s, _ in medium_silence],
+            "long_silence": [s for s, _ in long_silence],
             "recovered": recovered,
         }, indent=2))
     else:
@@ -265,8 +266,10 @@ def main():
             print(f"  {mark} {strategy:22s} {count:>4}  (yesterday: {prev})")
         if new_zeros:
             print(f"\n🚨 {len(new_zeros)} new zero-candidate alert(s) → alert log")
-        if consecutive_zeros:
-            print(f"\n🆘 {len(consecutive_zeros)} ESCALATION (≥2 days) → alert log")
+        if medium_silence:
+            print(f"\n⚠️  {len(medium_silence)} strategy(ies) in extended quiet (2–4d) → alert log")
+        if long_silence:
+            print(f"\n🆘 {len(long_silence)} P0 ESCALATION (≥{CRITICAL_STREAK_DAYS}d) → alert log")
         if recovered:
             print(f"\n✅ {len(recovered)} recovery notification(s) → alert log")
 

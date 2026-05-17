@@ -1,0 +1,240 @@
+# Writer Registry — single source of truth for "which script writes which
+# column on which schedule." Augments `freshness_contracts.yaml`:
+#
+#   - freshness_contracts.yaml answers: how fresh must X be, who needs it?
+#   - writer_registry.yaml      answers: who writes X, on what cron?
+#
+# Verified at multiple layers:
+#
+#   1. Preflight (CI / pre-deploy): scripts/preflight/writer_registry_audit.py
+#      AST-checks that the declared `script` actually contains a
+#      `write_freshness(column=...)` call for the declared column. Cross-checks
+#      that the declared plist's ProgramArguments references the script.
+#
+#   2. Runtime (cw_runner.scan_signals preflight): assert_writer_wired(column)
+#      verifies the most-recent signal_freshness row for `column` was
+#      `populated_by` the registered script, not some other script that
+#      happens to also call write_freshness(column=X) (the mislabel that
+#      hid the is_rare_reversal silence for 8 weeks).
+#
+# When you add, remove, rename, or move a column's writer: update this file
+# in the same PR. The preflight will fail otherwise.
+#
+# Schema per entry:
+#
+#   - column: <table>.<col>           # always required
+#     script: path/relative/to/repo   # canonical writer
+#     write_function: name            # function inside the script (informational)
+#     plists:                         # launchd plists that schedule the script
+#       - com.openclaw.<name>
+#     schedule: human-readable        # informational; "daily 06:00 PT", etc.
+#     sla_hours: float                # SLO; should match freshness_contracts entry
+#     required_for: [strategy ...]    # which strategies depend on this column
+#     notes: free-text                # known issues, exemptions, history
+
+writers:
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CW indicator family — pipelines/insider_study/compute_cw_indicators.py
+# refresh-features step 2/6, run daily 06:00 PT Mon–Fri.
+# Also invoked by fetch_latest._run_indicators every 5 min (subprocess) with
+# the same --since window. Writes freshness via _write_freshness_for_indicator.
+# ─────────────────────────────────────────────────────────────────────────────
+
+  - column: trades.dip_1mo
+    script: pipelines/insider_study/compute_cw_indicators.py
+    write_function: compute_dip_indicators
+    plists: [com.openclaw.refresh-features, com.openclaw.insider-fetch]
+    schedule: "daily 06:00 PT (refresh-features) + every 5 min (insider-fetch)"
+    sla_hours: 26
+    required_for: [reversal_dip]
+
+  - column: trades.dip_3mo
+    script: pipelines/insider_study/compute_cw_indicators.py
+    write_function: compute_dip_indicators
+    plists: [com.openclaw.refresh-features, com.openclaw.insider-fetch]
+    schedule: "daily 06:00 PT + every 5 min"
+    sla_hours: 26
+    required_for: [reversal_dip]
+
+  - column: trades.above_sma50
+    script: pipelines/insider_study/compute_cw_indicators.py
+    write_function: compute_sma_context
+    plists: [com.openclaw.refresh-features, com.openclaw.insider-fetch]
+    schedule: "daily 06:00 PT + every 5 min"
+    sla_hours: 26
+    required_for: [quality_momentum]
+
+  - column: trades.above_sma200
+    script: pipelines/insider_study/compute_cw_indicators.py
+    write_function: compute_sma_context
+    plists: [com.openclaw.refresh-features, com.openclaw.insider-fetch]
+    schedule: "daily 06:00 PT + every 5 min"
+    sla_hours: 26
+    required_for: [quality_momentum]
+
+  - column: trades.is_largest_ever
+    script: pipelines/insider_study/compute_cw_indicators.py
+    write_function: compute_purchase_size_metrics
+    plists: [com.openclaw.refresh-features, com.openclaw.insider-fetch]
+    schedule: "daily 06:00 PT + every 5 min"
+    sla_hours: 48
+    required_for: ['*']
+    notes: "Used by compute_conviction (+0.5 bonus). Currently uncontracted in freshness_contracts.yaml; should be added."
+
+  - column: trades.is_tax_sale
+    script: pipelines/insider_study/compute_cw_indicators.py
+    write_function: compute_tax_sale_flag
+    plists: [com.openclaw.refresh-features, com.openclaw.insider-fetch]
+    schedule: "daily 06:00 PT + every 5 min"
+    sla_hours: 48
+    required_for: ['*']
+
+  - column: trades.is_recurring
+    script: pipelines/insider_study/compute_cw_indicators.py
+    write_function: compute_recurring_purchase
+    plists: [com.openclaw.refresh-features, com.openclaw.insider-fetch]
+    schedule: "daily 06:00 PT + every 5 min"
+    sla_hours: 48
+    required_for: ['*']
+
+  - column: trades.consecutive_sells_before
+    script: pipelines/insider_study/compute_cw_indicators.py
+    write_function: compute_consecutive_sells
+    plists: [com.openclaw.refresh-features, com.openclaw.insider-fetch]
+    schedule: "daily 06:00 PT + every 5 min"
+    sla_hours: 26
+    required_for: [reversal_dip]
+    notes: "Loads FULL prior history regardless of --since window (2026-05-16 fix). Only UPDATEs rows in --since; counter requires complete history per (insider, ticker)."
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Cohen routine — pipelines/insider_study/compute_cohen_pit.py
+# refresh-features step 6/6, run daily 06:00 PT Mon–Fri.
+# ─────────────────────────────────────────────────────────────────────────────
+
+  - column: trades.cohen_routine
+    script: pipelines/insider_study/compute_cohen_pit.py
+    plists: [com.openclaw.refresh-features]
+    schedule: "daily 06:00 PT (step 6 of refresh-features)"
+    sla_hours: 48
+    required_for: [reversal_dip]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Switch rate / rare reversal — pipelines/insider_study/compute_switch_rate.py
+# refresh-features step 4c/6, run daily 06:00 PT Mon–Fri.
+# WAS ORPHANED — only writer was the SQLite-only legacy script until
+# 2026-05-16 rewrite for PG. RD silenced 8 weeks (2026-03-25 → 2026-05-16).
+# ─────────────────────────────────────────────────────────────────────────────
+
+  - column: trades.is_rare_reversal
+    script: pipelines/insider_study/compute_switch_rate.py
+    plists: [com.openclaw.refresh-features]
+    schedule: "daily 06:00 PT (step 4c of refresh-features)"
+    sla_hours: 26
+    required_for: [reversal_dip]
+    notes: "Mislabeled in freshness_contracts.yaml as populated_by=compute_cw_indicators.py until 2026-05-17. compute_cw_indicators' INDICATOR_TO_COLUMNS['consecutive'] claim is now corrected to omit is_rare_reversal."
+
+  - column: trades.insider_switch_rate
+    script: pipelines/insider_study/compute_switch_rate.py
+    plists: [com.openclaw.refresh-features]
+    schedule: "daily 06:00 PT (step 4c of refresh-features)"
+    sla_hours: 48
+    required_for: []   # informational; not gating
+    notes: "Co-written with is_rare_reversal."
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Cluster sizes — pipelines/insider_study/compute_pit_clusters.py
+# refresh-features step 5/6.
+# ─────────────────────────────────────────────────────────────────────────────
+
+  - column: trades.pit_cluster_size
+    script: pipelines/insider_study/compute_pit_clusters.py
+    plists: [com.openclaw.refresh-features]
+    schedule: "daily 06:00 PT (step 5 of refresh-features)"
+    sla_hours: 26
+    required_for: ['*']
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PIT score snapshots on trades — pipelines/insider_study/backfill_pit_grades.py
+# refresh-features step 4/6.
+# ─────────────────────────────────────────────────────────────────────────────
+
+  - column: trades.pit_grade
+    script: pipelines/insider_study/backfill_pit_grades.py
+    plists: [com.openclaw.refresh-features]
+    schedule: "daily 06:00 PT (step 4 of refresh-features)"
+    sla_hours: 30
+    required_for: [quality_momentum, reversal_dip, tenb51_surprise]
+    notes: "Reads insider_ticker_scores WHERE sufficient_data=1 (2026-05-16 fix) so degenerate role-change rows don't propagate."
+
+  - column: trades.pit_blended_score
+    script: pipelines/insider_study/backfill_pit_grades.py
+    plists: [com.openclaw.refresh-features]
+    schedule: "daily 06:00 PT (step 4 of refresh-features)"
+    sla_hours: 30
+    required_for: []
+    notes: "Co-written with pit_grade."
+
+# ─────────────────────────────────────────────────────────────────────────────
+# V3 career grade — pipelines/insider_study/compute_career_grades.py
+# refresh-features step 4b/6. ADDED 2026-05-16 — was orphan until then;
+# QM died 2026-05-12 → 2026-05-16 because the V3 block lived only inside
+# backfill_live.main() which insider-fetch doesn't invoke.
+# ─────────────────────────────────────────────────────────────────────────────
+
+  - column: trades.career_grade
+    script: pipelines/insider_study/compute_career_grades.py
+    plists: [com.openclaw.refresh-features]
+    schedule: "daily 06:00 PT (step 4b of refresh-features)"
+    sla_hours: 30
+    required_for: [quality_momentum]
+    notes: "QM's primary filter. Was deliberately exempted in infra_audit.py:NON_CONTRACT_COLS before 2026-05-17 — escape hatch removed."
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PIT scoring table — strategies/insider_catalog/build_pit_scores.py
+# refresh-features step 3/6.
+# ─────────────────────────────────────────────────────────────────────────────
+
+  - column: insider_ticker_scores.blended_score
+    script: strategies/insider_catalog/build_pit_scores.py
+    plists: [com.openclaw.refresh-features]
+    schedule: "daily 06:00 PT (step 3 of refresh-features)"
+    sla_hours: 30
+    required_for: ['*']
+    notes: "Walk-forward PIT Bayesian-shrinkage score per (insider, ticker, as_of_date)."
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Raw ingest — strategies/insider_catalog/fetch_latest.py
+# insider-fetch plist, every 5 min.
+# Writes signal_freshness ONLY on n_rows>0 inserts; the 48h SLA covers
+# quiet weekends where every 5-min run inserts 0 rows.
+# ─────────────────────────────────────────────────────────────────────────────
+
+  - column: trades.filing_date
+    script: strategies/insider_catalog/fetch_latest.py
+    plists: [com.openclaw.insider-fetch]
+    schedule: "every 5 min"
+    sla_hours: 48
+    required_for: ['*']
+    notes: "Proxy for ingest freshness. write_freshness only fires on non-zero inserts."
+
+  - column: trades.is_10b5_1
+    script: strategies/insider_catalog/fetch_latest.py
+    plists: [com.openclaw.insider-fetch]
+    schedule: "every 5 min (XML parse-time)"
+    sla_hours: 48
+    required_for: [reversal_dip, tenb51_surprise]
+    notes: "Parse-time field from Form 4 XML — set at INSERT time, never recomputed. Previously mislabeled in freshness_contracts.yaml as populated_by=compute_cw_indicators.py. No write_freshness call exists for this column; the contract piggybacks on trades.filing_date freshness (same writer, same plist)."
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Daily prices — pipelines/insider_study/update_daily_prices.py
+# daily-prices plist, weekdays 17:30 PT.
+# ─────────────────────────────────────────────────────────────────────────────
+
+  - column: prices.daily_prices.date
+    script: pipelines/insider_study/update_daily_prices.py
+    plists: [com.openclaw.daily-prices]
+    schedule: "weekdays 17:30 PT"
+    sla_hours: 72
+    required_for: ['*']
+    notes: "72h SLA covers weekend gap. write_freshness only fires when total_rows > 0."
