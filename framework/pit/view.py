@@ -243,6 +243,9 @@ class PITDataView:
             raise ValueError(
                 f"events_filed_on({date}) called on clock with as_of={self.clock.as_of_date}"
             )
+        # `is_duplicate` filters lot-split rows from the same Form 4 filing
+        # so the strategy sees one event per economic transaction (mirrors
+        # cw_runner.scan_signals' `is_duplicate = 0 OR NULL` clause).
         sql = """
             SELECT t.trade_id, t.insider_id, t.ticker,
                    t.trade_date::text, t.filing_date::text,
@@ -256,6 +259,7 @@ class PITDataView:
             FROM trades t
             WHERE t.filing_date = ?
               AND t.trade_type = ?
+              AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
             ORDER BY t.trade_id
         """
         rows = self.conn.execute(sql, (date, trade_type)).fetchall()

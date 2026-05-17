@@ -60,7 +60,8 @@ def populated_conn():
             pit_grade TEXT,
             career_grade TEXT,
             pit_blended_score REAL,
-            company TEXT
+            company TEXT,
+            is_duplicate INTEGER DEFAULT 0
         )
     """)
     db.execute("""
