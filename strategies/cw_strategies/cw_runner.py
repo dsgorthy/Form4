@@ -23,7 +23,7 @@ import subprocess
 import sys
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
@@ -446,8 +446,11 @@ def _scan_signals_engine(
     engine = PITLiveEngine(conn, pit_strategy, config)
 
     # Mirror the V1 SQL window (`filing_date >= date('now', '-N days')`):
-    # walk the same calendar-day range and aggregate decisions.
-    today = _now_et().date()
+    # walk the same calendar-day range and aggregate decisions. V1's SQL
+    # uses PG CURRENT_DATE which is server-local (PT on Studio); we match
+    # that with `date.today()` so V1 and engine see the same lookback even
+    # for ad-hoc runs after midnight ET.
+    today = date.today()
     dates = [
         (today - timedelta(days=i)).strftime("%Y-%m-%d")
         for i in range(lookback + 1)
