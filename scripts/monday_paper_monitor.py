@@ -280,7 +280,8 @@ def check_qm_scan_today() -> CheckResult:
                       COUNT(*) FILTER (WHERE passed AND stage = 'conviction') AS n_passed_conviction
                  FROM trade_decision_audit
                 WHERE strategy = ?
-                  AND created_at::date = CURRENT_DATE""",
+                  AND ts::date = CURRENT_DATE
+                  AND source IN ('live', 'simulation')""",
             ("quality_momentum",),
         ).fetchone()
         if row is None:
