@@ -158,19 +158,27 @@ def translate_sql(sql: str) -> tuple[str, bool]:
     result = sql
 
     # SQLite date/time functions → PG equivalents (BEFORE ? → %s so date(?, ...) is matched)
-    # Cast to TEXT since date columns are stored as TEXT in this schema
+    # Cast to TEXT since date columns are stored as TEXT in this schema.
+    #
+    # CRITICAL: `(CURRENT_DATE + INTERVAL '-N days')` yields a TIMESTAMP, and
+    # `::text` formats it as 'YYYY-MM-DD HH:MM:SS'. Comparing 'YYYY-MM-DD'
+    # (the column) >= 'YYYY-MM-DD HH:MM:SS' is a STRING comparison that
+    # evaluates FALSE when the date parts are equal (the shorter string is
+    # the prefix), causing an off-by-one in lookback windows. Always cast
+    # the intermediate result to ::date first, then ::text, so the final
+    # value is exactly 'YYYY-MM-DD'.
     result = _RE_DATETIME_NOW.sub("NOW()::text", result)
     result = _RE_DATE_NOW_OFFSET.sub(
-        lambda m: f"(CURRENT_DATE + INTERVAL '{m.group(1)} {m.group(2)}')::text",
+        lambda m: f"((CURRENT_DATE + INTERVAL '{m.group(1)} {m.group(2)}')::date)::text",
         result,
     )
     result = _RE_DATE_PARAM_OFFSET.sub(
-        lambda m: f"(?::date + INTERVAL '{m.group(1)} {m.group(2)}')::text",
+        lambda m: f"((?::date + INTERVAL '{m.group(1)} {m.group(2)}')::date)::text",
         result,
     )
-    # Dynamic offset: date(?, '-' || ? || ' days') → (?::date - ? * interval '1 day')::text
+    # Dynamic offset: date(?, '-' || ? || ' days') → ((?::date - ? * interval '1 day')::date)::text
     result = _RE_DATE_PARAM_DYNAMIC_OFFSET.sub(
-        lambda m: f"(?::date {m.group(1)} ? * interval '1 day')::text",
+        lambda m: f"((?::date {m.group(1)} ? * interval '1 day')::date)::text",
         result,
     )
     result = _RE_DATE_NOW.sub('CURRENT_DATE::text', result)
