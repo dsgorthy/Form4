@@ -232,6 +232,19 @@ writers:
 # daily-prices plist, weekdays 17:30 PT.
 # ─────────────────────────────────────────────────────────────────────────────
 
+  - column: trade_signals.top_trade
+    script: pipelines/insider_study/compute_signals.py
+    plists: [com.openclaw.compute-signals]
+    schedule: "weekdays 17:45 PT"
+    sla_hours: 72
+    required_for: ['*']
+    dynamic_columns: true   # compute_signals writes signal_freshness for ALL
+                            # 24 detectors via a loop over the daily summary.
+                            # The column name (signal_type) comes from a DB
+                            # query, not a literal. Audit check #2 skips the
+                            # write_freshness column-literal check.
+    notes: "joined by cw_runner.scan_signals when require_cluster: true. compute_signals.py:main() writes one signal_freshness row per detector at the end of each run."
+
   - column: prices.daily_prices.date
     script: pipelines/insider_study/update_daily_prices.py
     plists: [com.openclaw.daily-prices]

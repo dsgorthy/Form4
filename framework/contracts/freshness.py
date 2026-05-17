@@ -234,6 +234,11 @@ class WriterRegistryEntry:
     # skips these. Staleness check (assert_fresh) still runs — freshness
     # piggybacks on the ingest plist's filing_date row.
     recompute: bool = True
+    # When `dynamic_columns=True`, the script writes signal_freshness rows
+    # via a loop over many columns (e.g. compute_signals.py, 24 detectors).
+    # The audit can't AST-extract literal column names, and the runtime
+    # writer-match still works because populated_by IS uniformly the script.
+    dynamic_columns: bool = False
 
     def applies_to(self, strategy: str) -> bool:
         return "*" in self.required_for or strategy in self.required_for
@@ -269,6 +274,7 @@ class WriterRegistry:
                 sla_hours=spec.get("sla_hours"),
                 notes=spec.get("notes", "") or "",
                 recompute=bool(spec.get("recompute", True)),
+                dynamic_columns=bool(spec.get("dynamic_columns", False)),
             )
 
     def lookup(self, column_key: str) -> Optional[WriterRegistryEntry]:

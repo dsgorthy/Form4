@@ -75,6 +75,7 @@ STUDIO_ONLY_PLISTS = {
     "com.openclaw.candidate-count-probe",
     "com.openclaw.freshness-probe",
     "com.openclaw.post-deploy-audit",
+    "com.openclaw.compute-signals",
 }
 
 
@@ -285,6 +286,18 @@ def check_write_freshness_calls(registry: list[dict]) -> CheckResult:
 
         # Parse-time columns explicitly opt out of the write_freshness contract.
         if entry.get("recompute", True) is False:
+            continue
+
+        # Dynamic-columns writers (compute_signals.py style) call
+        # write_freshness in a loop with `column=variable`. Require only that
+        # the script contains a write_freshness call somewhere; trust the
+        # author that it covers the declared column.
+        if entry.get("dynamic_columns", False) is True:
+            if "write_freshness" not in script_path.read_text(errors="ignore"):
+                findings.append(
+                    f"{column}: declared dynamic_columns=true but {script_rel} "
+                    f"contains no write_freshness call at all"
+                )
             continue
 
         column_basename = column.rsplit(".", 1)[-1]

@@ -1362,6 +1362,28 @@ def main():
         logger.info("  %-25s %-10s %d", row["signal_type"], row["signal_class"], row["cnt"])
     logger.info("Total signals computed: %d", total)
 
+    # Freshness contract: each `signal_type` in trade_signals is now current.
+    # Writes one row per detector to signal_freshness. The writer registry
+    # tracks each as `public.trade_signals.<signal_type>`. Strategy-critical
+    # signals (top_trade — required for require_cluster: true) have
+    # contracts in freshness_contracts.yaml; others are tracked here as
+    # observability-only (visible in the daily summary; not gating).
+    try:
+        from framework.contracts.freshness_writer import write_freshness
+        for row in summary:
+            sig_type = row["signal_type"]
+            cnt = int(row["cnt"] or 0)
+            write_freshness(
+                conn,
+                table="trade_signals",
+                column=sig_type,
+                n_rows_affected=cnt,
+                populated_by="pipelines/insider_study/compute_signals.py",
+            )
+        conn.commit()
+    except Exception as exc:
+        logger.warning("write_freshness for trade_signals.* failed: %s", exc)
+
     conn.close()
 
 

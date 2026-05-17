@@ -132,6 +132,17 @@ trades.filing_date:
   description: "Latest filing_date in trades — proxy for ingest freshness. 48h covers quiet weekends where insider-fetch runs every 5min but inserts 0 rows; only write_freshness fires on n_rows>0."
   populated_by: strategies/insider_catalog/fetch_latest.py
 
+# ── Compute_signals detectors (24 total; only strategy-critical contracted) ──
+# Other detectors get signal_freshness rows from compute_signals.py:main() but
+# no contract here — they're observability-only (visible in daily summary email,
+# not gating any live strategy). Add a contract for any signal a strategy
+# starts depending on via require_cluster, signal_type joins, etc.
+trade_signals.top_trade:
+  max_staleness_hours: 72
+  required_for: ['*']
+  description: "Top-trade flag joined by cw_runner when require_cluster: true (cw_runner.py:584). Compute_signals.top_trade detector, runs Mon-Fri 17:45 PT."
+  populated_by: pipelines/insider_study/compute_signals.py
+
 # ── Daily prices (populated by daily-prices) ──
 prices.daily_prices.date:
   max_staleness_hours: 72
