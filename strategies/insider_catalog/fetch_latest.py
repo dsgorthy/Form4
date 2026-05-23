@@ -337,7 +337,16 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="Report without inserting")
     args = parser.parse_args()
 
-    run_fetch(days=args.days, dry_run=args.dry_run)
+    from framework.observability import pipeline_run
+
+    with pipeline_run(
+        "insider_fetch",
+        log_path="/Users/derekg/trading-framework/logs/insider-fetch.log",
+    ) as prun:
+        stats = run_fetch(days=args.days, dry_run=args.dry_run)
+        prun.set_rows_written(int(stats.get("inserted", 0) or 0))
+        prun.set_metadata({"args": {"days": args.days, "dry_run": args.dry_run},
+                           "stats": stats})
 
 
 if __name__ == "__main__":

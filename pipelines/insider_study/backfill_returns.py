@@ -207,6 +207,16 @@ def main():
     parser.add_argument("--db", default=str(DB_PATH), help="Path to insiders.db")
     args = parser.parse_args()
 
+    from framework.observability import pipeline_run
+
+    with pipeline_run(
+        "backfill_returns",
+        log_path="/Users/derekg/trading-framework/logs/backfill-returns.log",
+    ) as prun:
+        _do_backfill(args, prun)
+
+
+def _do_backfill(args, prun):
     conn = get_connection()
 
     # Step 1: Find tickers needing price data
@@ -245,6 +255,12 @@ def main():
     """).fetchone()
     logger.info("Remaining trades without returns: %d", remaining["cnt"])
 
+    prun.set_metadata({
+        "missing_tickers": len(missing),
+        "remaining_trades_without_returns": int(remaining["cnt"] or 0),
+        "skip_download": args.skip_download,
+        "max_download": args.max_download,
+    })
     conn.close()
 
 

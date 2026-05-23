@@ -126,6 +126,16 @@ def main():
     )
     args = parser.parse_args()
 
+    from framework.observability import pipeline_run
+
+    with pipeline_run(
+        "daily_prices",
+        log_path="/Users/derekg/trading-framework/logs/daily-prices.log",
+    ) as prun:
+        _result = _do_update(args, prun)
+
+
+def _do_update(args, prun):
     since = args.since or (date.today() - timedelta(days=30)).isoformat()
     end = date.today().isoformat()
 
@@ -195,6 +205,16 @@ def main():
         )
         conn.commit()
 
+    prun.set_rows_written(total_rows)
+    prun.set_metadata({
+        "n_tickers": len(tickers),
+        "updated": updated,
+        "skipped_current": skipped_current,
+        "failed": len(failed),
+        "since": since,
+        "end": end,
+        "feed": args.feed,
+    })
     conn.close()
 
 
