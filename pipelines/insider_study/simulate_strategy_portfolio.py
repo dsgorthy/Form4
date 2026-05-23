@@ -71,15 +71,15 @@ logger = logging.getLogger(__name__)
 STRATEGY_CONFIG = {
     "quality_momentum": {
         "yaml": REPO / "strategies/cw_strategies/configs/quality_momentum.yaml",
-        "start_date": "2020-03-06",
+        "start_date": "2026-01-01",
     },
     "reversal_dip": {
         "yaml": REPO / "strategies/cw_strategies/configs/reversal_dip.yaml",
-        "start_date": "2020-03-06",
+        "start_date": "2026-01-01",
     },
     "tenb51_surprise": {
         "yaml": REPO / "strategies/cw_strategies/configs/tenb51_surprise.yaml",
-        "start_date": "2023-01-01",
+        "start_date": "2026-01-01",
     },
 }
 
@@ -109,6 +109,8 @@ class OpenPosition:
     is_csuite: bool
     is_rare_reversal: bool
     days_held: int = 0
+    last_seen_close: Optional[float] = None  # for stale-exit fallback (set as we walk)
+    last_seen_date: Optional[str] = None
 
 
 @dataclass
@@ -357,18 +359,21 @@ def simulate_one_strategy(
         kept = []
         for pos in held:
             close_today = prices.get((pos.ticker, d))
-            if close_today is None:
-                # Carry forward, walk back up to 5 days for last seen price
-                last_known = pos.entry_price
-                for back in range(1, 6):
-                    bi = cal_idx - back
-                    if bi < 0:
-                        break
-                    c_back = prices.get((pos.ticker, cal[bi]))
-                    if c_back is not None:
-                        last_known = c_back
-                        break
-                close_today = last_known
+            exit_was_stale = False
+            if close_today is not None:
+                pos.last_seen_close = close_today
+                pos.last_seen_date = d
+            else:
+                # Today's close is missing. Prefer the most recent close we
+                # have seen since entry; only as a last resort fall back to
+                # entry_price (which silently zeroes the trade). Flag stale
+                # exits so the UI can mark them.
+                if pos.last_seen_close is not None:
+                    close_today = pos.last_seen_close
+                    exit_was_stale = True
+                else:
+                    close_today = pos.entry_price
+                    exit_was_stale = True
 
             # Stop hit?
             if close_today <= pos.stop_price:
@@ -384,7 +389,8 @@ def simulate_one_strategy(
                     entry_date=pos.entry_date, entry_price=pos.entry_price,
                     capital_at_entry=pos.capital_at_entry,
                     exit_date=d, exit_price=close_today,
-                    exit_reason="stop", hold_days=hold_days_actual,
+                    exit_reason=("stop_stale" if exit_was_stale else "stop"),
+                    hold_days=hold_days_actual,
                     pnl_pct=pnl_pct, pnl_dollar=pnl_dollar,
                     pit_grade=pos.pit_grade, career_grade=pos.career_grade,
                     conviction=pos.conviction,
@@ -407,13 +413,20 @@ def simulate_one_strategy(
                     entry_date=pos.entry_date, entry_price=pos.entry_price,
                     capital_at_entry=pos.capital_at_entry,
                     exit_date=d, exit_price=close_today,
-                    exit_reason="time", hold_days=hold_days_actual,
+                    exit_reason=("time_stale" if exit_was_stale else "time"),
+                    hold_days=hold_days_actual,
                     pnl_pct=pnl_pct, pnl_dollar=pnl_dollar,
                     pit_grade=pos.pit_grade, career_grade=pos.career_grade,
                     conviction=pos.conviction,
                     is_csuite=pos.is_csuite, is_rare_reversal=pos.is_rare_reversal,
                     equity_after=equity,
                 ))
+                if exit_was_stale:
+                    logger.warning(
+                        "[%s] STALE exit for %s on %s — used last-seen close %.4f from %s (data gap)",
+                        strategy_name, pos.ticker, d, close_today,
+                        pos.last_seen_date or "ENTRY",
+                    )
                 continue
 
             pos.days_held += 1
@@ -655,25 +668,19 @@ def run(strategy_name: str, mode: str, end_date: str) -> Dict[str, int]:
         logger.info("[%s] wiped %d existing rows", strategy_name, n_deleted)
         start = sc["start_date"]
     elif mode == "extend":
-        # Incremental: re-simulate from the last 90 days. This catches any
-        # newly-filed trades AND re-evaluates exits on currently-open positions.
-        # We wipe only the last-90-day window so historical track record stays.
-        cutoff = (datetime.strptime(end_date, "%Y-%m-%d") -
-                  timedelta(days=90)).strftime("%Y-%m-%d")
+        # Full wipe of every simulated row for this strategy, then re-run from
+        # start_date. The previous 90d-window DELETE left pre-cutoff rows in
+        # place and the re-sim re-inserted them, causing daily duplicate
+        # accumulation (audited 2026-05-22). Full wipe costs ~30s/strategy
+        # which is fine for a daily job.
         n_deleted = conn.execute(
             """DELETE FROM strategy_portfolio
-               WHERE strategy = ? AND execution_source = 'simulated'
-                 AND entry_date >= ?""",
-            (strategy_name, cutoff),
+               WHERE strategy = ? AND execution_source = 'simulated'""",
+            (strategy_name,),
         ).rowcount
         conn.commit()
-        logger.info("[%s] extend mode: wiped %d rows from last 90d window (>= %s)",
-                    strategy_name, n_deleted or 0, cutoff)
-        # Re-simulate from cutoff (we have already-persisted closed trades
-        # before this date; the sim walks from cutoff forward, building
-        # equity from STARTING_CAPITAL + sum of pre-cutoff realized P&L).
-        # For simplicity in v1, we just re-simulate from strategy start —
-        # the extra computational cost is small (~30s per strategy).
+        logger.info("[%s] extend mode: wiped %d simulated rows",
+                    strategy_name, n_deleted or 0)
         start = sc["start_date"]
     else:
         raise ValueError(mode)
@@ -707,7 +714,7 @@ def main():
     p.add_argument("--rebuild", action="store_true",
                    help="Wipe + re-simulate from scratch (one-shot)")
     p.add_argument("--extend", action="store_true",
-                   help="Walk forward from latest known state to today (NOT IMPLEMENTED IN V1)")
+                   help="Daily incremental: wipe all simulated rows for the strategy and re-run from start_date")
     p.add_argument("--end", default=None,
                    help="End date (default: today)")
     args = p.parse_args()
