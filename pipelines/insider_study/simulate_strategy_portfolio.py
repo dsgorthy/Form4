@@ -139,65 +139,11 @@ class ClosedPosition:
     equity_after: float
 
 
-# ── Filter evaluation (mirrors simulate_decision_audit.evaluate_filters) ─
-
-def evaluate_filters(thesis_filters: dict, trade: dict) -> Tuple[bool, list]:
-    """Return (passed, failure_reasons). Mirrors cw_runner._build_thesis_query
-    EXACTLY. Identical to simulate_decision_audit.evaluate_filters."""
-    failures = []
-
-    if trade.get("is_duplicate"):
-        failures.append("is_duplicate=1")
-
-    if thesis_filters.get("is_rare_reversal") and not trade.get("is_rare_reversal"):
-        failures.append("is_rare_reversal != 1")
-
-    if "min_consecutive_sells" in thesis_filters:
-        v = trade.get("consecutive_sells_before")
-        threshold = int(thesis_filters["min_consecutive_sells"])
-        if v is None or v < threshold:
-            failures.append(f"consec_sells={v} < {threshold}")
-
-    if "max_dip_1mo" in thesis_filters:
-        v = trade.get("dip_1mo")
-        threshold = float(thesis_filters["max_dip_1mo"])
-        if v is None or v > threshold:
-            failures.append(f"dip_1mo={v} > {threshold}")
-
-    if thesis_filters.get("above_sma50") and trade.get("above_sma50") != 1:
-        failures.append("above_sma50 != 1")
-
-    if thesis_filters.get("above_sma200") and trade.get("above_sma200") != 1:
-        failures.append("above_sma200 != 1")
-
-    if thesis_filters.get("is_largest_ever") and trade.get("is_largest_ever") != 1:
-        failures.append("is_largest_ever != 1")
-
-    # pit_grade and career_grade are both supported filter keys
-    for grade_key in ("pit_grade", "career_grade"):
-        if grade_key in thesis_filters:
-            wanted = thesis_filters[grade_key]
-            if isinstance(wanted, str):
-                wanted = [wanted]
-            if trade.get(grade_key) not in wanted:
-                failures.append(f"{grade_key}={trade.get(grade_key)!r} not in {wanted}")
-
-    if "min_dip_3mo" in thesis_filters:
-        v = trade.get("dip_3mo")
-        threshold = float(thesis_filters["min_dip_3mo"])
-        if v is None or v > threshold:
-            failures.append(f"dip_3mo={v} > {threshold}")
-
-    if thesis_filters.get("exclude_10b5_1") and trade.get("is_10b5_1"):
-        failures.append("is_10b5_1=1")
-    if thesis_filters.get("exclude_recurring") and trade.get("is_recurring"):
-        failures.append("is_recurring=1")
-    if thesis_filters.get("exclude_tax_sales") and trade.get("is_tax_sale"):
-        failures.append("is_tax_sale=1")
-    if thesis_filters.get("exclude_routine") and trade.get("cohen_routine"):
-        failures.append("cohen_routine=1")
-
-    return len(failures) == 0, failures
+# ── Filter evaluation ────────────────────────────────────────────────────
+# Moved to framework.decision.filters as part of Stage 3 (shared engine).
+# Re-exported here so callers that imported from this module keep working
+# during the migration window.
+from framework.decision.filters import evaluate_filters  # noqa: F401
 
 
 def count_prior_10b5_1_sells(conn, insider_id, ticker, as_of):
