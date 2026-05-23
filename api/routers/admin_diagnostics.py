@@ -718,3 +718,76 @@ def system_freshness(user: UserContext = Depends(require_admin)) -> dict:
         "n_contracts": len(contracts),
         "contracts": contracts,
     }
+
+
+# ── Pipeline runs (Stage 2.5 — structured batch-job telemetry) ──────────────
+
+
+@router.get("/pipelines")
+def pipelines_status(
+    limit: int = Query(default=200, ge=1, le=1000),
+    service: Optional[str] = Query(default=None),
+    user: UserContext = Depends(require_admin),
+) -> dict:
+    """Structured pipeline run history from the pipeline_runs table.
+
+    Distinct from /jobs (which infers status from launchd log mtimes —
+    fragile). A service starts logging here as soon as it adopts
+    `framework.observability.pipeline_run()`; until then, its history is
+    empty here and /jobs is still the source of truth.
+
+    Returns:
+        - per-service summary: last run, last success, recent failure count,
+          24h run count, last duration
+        - recent runs (most recent N across all services)
+    """
+    where = "WHERE service = ?" if service else ""
+    params = (service,) if service else ()
+
+    with get_db() as conn:
+        # Per-service summary
+        summary_rows = conn.execute(
+            f"""WITH ranked AS (
+                    SELECT service, started_at, ended_at, status, duration_ms,
+                           rows_written, error_message,
+                           ROW_NUMBER() OVER (PARTITION BY service ORDER BY started_at DESC) AS rn
+                    FROM pipeline_runs
+                    {where}
+                )
+                SELECT
+                    service,
+                    MAX(started_at)                                    AS last_run,
+                    MAX(started_at) FILTER (WHERE status = 'ok')       AS last_success,
+                    MAX(started_at) FILTER (WHERE status = 'failed')   AS last_failure,
+                    COUNT(*) FILTER (WHERE started_at > NOW() - INTERVAL '24 hours')                       AS runs_24h,
+                    COUNT(*) FILTER (WHERE started_at > NOW() - INTERVAL '24 hours' AND status = 'failed') AS failures_24h,
+                    MAX(duration_ms)  FILTER (WHERE rn = 1)            AS last_duration_ms,
+                    MAX(status)       FILTER (WHERE rn = 1)            AS last_status,
+                    MAX(rows_written) FILTER (WHERE rn = 1)            AS last_rows_written,
+                    MAX(error_message) FILTER (WHERE rn = 1)           AS last_error
+                FROM ranked
+                GROUP BY service
+                ORDER BY MAX(started_at) DESC""",
+            params,
+        ).fetchall()
+
+        recent_rows = conn.execute(
+            f"""SELECT id, service, started_at, ended_at, duration_ms, status,
+                       exit_code, rows_written, rows_deleted, error_message,
+                       metadata, host, log_path, run_uuid::text AS run_uuid
+                FROM pipeline_runs
+                {where}
+                ORDER BY started_at DESC
+                LIMIT ?""",
+            params + (limit,),
+        ).fetchall()
+
+    services = [dict(r) for r in summary_rows]
+    runs = [dict(r) for r in recent_rows]
+    return {
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "n_services": len(services),
+        "services": services,
+        "n_runs": len(runs),
+        "runs": runs,
+    }

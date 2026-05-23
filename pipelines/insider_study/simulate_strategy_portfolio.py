@@ -728,18 +728,35 @@ def main():
     end_date = args.end or date.today().isoformat()
 
     strategies = list(STRATEGY_CONFIG) if args.all else [args.strategy]
-    results = {}
-    for s in strategies:
+
+    from framework.observability import pipeline_run
+
+    with pipeline_run(
+        "strategy_simulator",
+        log_path="/Users/derekg/trading-framework/logs/strategy-simulator.log",
+    ) as prun:
+        results = {}
+        for s in strategies:
+            logger.info("=" * 60)
+            results[s] = run(s, mode, end_date)
         logger.info("=" * 60)
-        results[s] = run(s, mode, end_date)
-    logger.info("=" * 60)
-    logger.info("Summary:")
-    for s, r in results.items():
-        logger.info(
-            "  %s: closed=%d, open=%d, final=$%s (%s%% total return)",
-            s, r["n_closed"], r["n_open"], f"{r['final_equity']:,.0f}",
-            f"{'+' if r['total_return_pct'] >= 0 else ''}{r['total_return_pct']:.1f}",
-        )
+        logger.info("Summary:")
+        for s, r in results.items():
+            logger.info(
+                "  %s: closed=%d, open=%d, final=$%s (%s%% total return)",
+                s, r["n_closed"], r["n_open"], f"{r['final_equity']:,.0f}",
+                f"{'+' if r['total_return_pct'] >= 0 else ''}{r['total_return_pct']:.1f}",
+            )
+
+        # Record telemetry: per-strategy closed/open counts + sum of rows touched.
+        total_rows = sum(r["n_closed"] + r["n_open"] for r in results.values())
+        prun.set_rows_written(total_rows)
+        prun.set_metadata({
+            "mode": mode,
+            "end_date": end_date,
+            "strategies": list(strategies),
+            "results": results,
+        })
 
 
 if __name__ == "__main__":
