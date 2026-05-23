@@ -137,9 +137,13 @@ export default function AdminStrategiesPage() {
         ))}
       </div>
 
-      <div className="mt-8 text-xs text-[#55556A]">
+      <div className="mt-8 text-xs text-[#55556A] space-y-1">
         <p>
-          <Link href="/admin/jobs" className="text-[#3B82F6] hover:underline font-semibold">→ System Jobs Monitor</Link>{" "}<br />
+          <Link href="/admin/jobs" className="text-[#3B82F6] hover:underline font-semibold">→ System Jobs Monitor</Link>{" "}·{" "}
+          <Link href="/admin/pipelines" className="text-[#3B82F6] hover:underline font-semibold">→ Pipelines</Link>{" "}·{" "}
+          <Link href="/admin/drift" className="text-[#3B82F6] hover:underline font-semibold">→ Sim vs Paper Drift</Link>
+        </p>
+        <p>
           See also: <Link href="/admin/strategies/quality_momentum" className="text-[#3B82F6] hover:underline">quality_momentum</Link>{" "}
           · <Link href="/admin/strategies/reversal_dip" className="text-[#3B82F6] hover:underline">reversal_dip</Link>{" "}
           · <Link href="/admin/strategies/tenb51_surprise" className="text-[#3B82F6] hover:underline">tenb51_surprise</Link>

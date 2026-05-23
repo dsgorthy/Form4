@@ -44,8 +44,16 @@ framework/
     calendar.py             # Trading day calendar + FOMC dates (2020–2026)
     alpaca_client.py        # Alpaca Data API v2 wrapper
   execution/
+    base.py                 # ExecutionBackend ABC + OrderResult
     backtest_backend.py     # Simulated fills for backtests
     paper.py                # Alpaca paper trading
+    live.py                 # Alpaca live trading
+    service.py              # ExecutionService (Stage 4) — consumes TradeIntent → broker → Fill (NOT YET WIRED into cw_runner)
+  decision/                 # Stage 3 — pure decision engine (NO I/O, NO DB)
+    types.py                # CandidateFact, PositionState, StrategyConfig, TradeIntent, ExitIntent
+    filters.py              # evaluate_filters (shared between sim + live)
+  observability/            # Stage 2.5 — pipeline run telemetry
+    pipeline_runner.py      # pipeline_run() context manager — records to pipeline_runs table
   pricing/
     black_scholes.py        # BS option pricing
     vol_engine.py           # IV estimation from VIXY
@@ -74,7 +82,36 @@ board/
 
 data/raw/{SYMBOL}/          # 26 symbols, 1-min Parquet bars (research-only, not refreshed)
 reports/                    # Board reports, backtest results, sweep CSVs
+migrations/                  # SQL migrations (applied via psql -f, NOT auto-run)
 ```
+
+## Architecture in flight (2026-05-22 refactor)
+
+The codebase is mid-refactor. Read `project_2026-05-22_architectural_refactor.md`
+in Claude memory for the full plan. Snapshot:
+
+- **Stages 0-1**: ✅ done. Daily simulator no longer dups rows; ingestion isolation verified.
+- **Stage 2 (foundation done, cutover deferred)**: `sim_portfolio`, `paper_trades`,
+  `live_trades`, `backtest_archive` tables created and backfilled. Old
+  `strategy_portfolio` still authoritative for now — every writer/reader
+  must continue to use it until cutover. New tables are advisory.
+- **Stage 2.5**: ✅ `pipeline_runs` table + `framework.observability.pipeline_run()`
+  context manager. New batch jobs should wrap their entry point in it; over time,
+  retrofit existing services. Surfaces at `/admin/pipelines`.
+- **Stage 3 (scaffold)**: `framework/decision/` exists with shared `evaluate_filters`
+  + dataclass contracts. cw_runner has NOT been migrated yet — it still has
+  inline SQL filter logic. New decision logic SHOULD go in `framework/decision/`.
+- **Stage 4 (scaffold)**: `framework/execution/service.py` exists with the
+  ExecutionService contract + deterministic client_order_id. cw_runner has NOT
+  been refactored to use it — it still calls Alpaca inline.
+- **Stage 5**: ✅ `scripts/drift_detector.py` runs daily at 08:00 PT,
+  compares sim_portfolio vs paper trades, writes to `strategy_drift_audit`.
+  Surfaces at `/admin/drift`.
+- **Stage 6**: ✅ frontend pages live for `/admin/pipelines` and `/admin/drift`.
+
+When touching cw_runner or simulate_strategy_portfolio, prefer to extract
+shared logic into `framework/decision/` rather than reimplementing in place —
+that's how the remaining drift surfaces get closed.
 
 ## Commands
 
