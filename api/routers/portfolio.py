@@ -105,7 +105,12 @@ def get_portfolio(
             WHERE strategy = ? AND COALESCE(is_live, false) = false AND status = 'closed'
         """, (strategy,)).fetchone()
 
-        # Equity curve — rebuild from P&L to avoid snapshot artifacts
+        # Equity curve — rebuild from P&L to avoid snapshot artifacts.
+        # We anchor the curve at the strategy's earliest activity (first
+        # entry_date, open or closed) so the chart spans the full simulation
+        # period instead of starting at the first exit. Open positions are
+        # marked-to-market with the latest available close so the curve
+        # extends through "today" rather than ending at the last closed exit.
         curve_raw = conn.execute("""
             SELECT exit_date, pnl_dollar, ticker, exit_reason
             FROM strategy_portfolio
@@ -113,9 +118,51 @@ def get_portfolio(
             ORDER BY exit_date
         """, (strategy,)).fetchall()
 
-        # Rebuild running equity from starting capital + cumulative P&L
+        # Earliest activity date (open or closed) — anchor point for the curve
+        anchor_row = conn.execute("""
+            SELECT MIN(entry_date) AS earliest
+            FROM strategy_portfolio
+            WHERE strategy = ? AND COALESCE(is_live, false) = false
+        """, (strategy,)).fetchone()
+        anchor_date = anchor_row["earliest"] if anchor_row else None
+
+        # Open positions for mark-to-market
+        open_positions = conn.execute("""
+            SELECT ticker, entry_date, entry_price, dollar_amount, position_size
+            FROM strategy_portfolio
+            WHERE strategy = ? AND COALESCE(is_live, false) = false
+              AND status = 'open' AND entry_price > 0
+        """, (strategy,)).fetchall()
+
+        # Bulk-fetch the latest close per ticker we need
+        open_tickers = sorted({p["ticker"] for p in open_positions})
+        latest_closes: dict[str, tuple[str, float]] = {}
+        if open_tickers:
+            placeholders = ",".join(["?"] * len(open_tickers))
+            for r in conn.execute(f"""
+                SELECT dp.ticker, dp.date::text AS date, dp.close
+                FROM prices.daily_prices dp
+                JOIN (
+                    SELECT ticker, MAX(date) AS max_date
+                    FROM prices.daily_prices
+                    WHERE ticker IN ({placeholders})
+                    GROUP BY ticker
+                ) latest USING (ticker)
+                WHERE dp.date = latest.max_date
+            """, tuple(open_tickers)).fetchall():
+                latest_closes[r["ticker"]] = (r["date"], float(r["close"]))
+
+        # Build curve: anchor → each closed exit → mark-to-market today
         running_equity = starting
         curve = []
+        if anchor_date:
+            curve.append({
+                "exit_date": anchor_date,
+                "equity_after": round(running_equity, 2),
+                "pnl_dollar": 0.0,
+                "ticker": None,
+                "exit_reason": "anchor",
+            })
         for r in curve_raw:
             scaled_pnl = (r["pnl_dollar"] or 0) * scale
             running_equity += scaled_pnl
@@ -125,6 +172,29 @@ def get_portfolio(
                 "pnl_dollar": round(scaled_pnl, 2),
                 "ticker": r["ticker"],
                 "exit_reason": r["exit_reason"],
+            })
+
+        # Append today's mark-to-market for open positions
+        open_unrealized = 0.0
+        for p in open_positions:
+            ticker = p["ticker"]
+            entry_price = p["entry_price"] or 0
+            capital = p["dollar_amount"] or 0
+            if entry_price <= 0 or capital <= 0:
+                continue
+            lc = latest_closes.get(ticker)
+            if not lc:
+                continue
+            _last_date, last_close = lc
+            open_unrealized += capital * ((last_close - entry_price) / entry_price)
+        if open_positions:
+            today_str = datetime.utcnow().strftime("%Y-%m-%d")
+            curve.append({
+                "exit_date": today_str,
+                "equity_after": round(running_equity + open_unrealized, 2),
+                "pnl_dollar": round(open_unrealized, 2),
+                "ticker": None,
+                "exit_reason": "mark_to_market",
             })
 
         # SPY benchmark: normalized to same starting capital
