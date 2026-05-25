@@ -82,17 +82,30 @@ def pipeline_run(
     t0 = time.monotonic()
     try:
         yield state
-    except Exception as exc:
-        # Capture before re-raising so the row reflects the failure.
+    except BaseException as exc:
+        # Catch BaseException (not just Exception) so SystemExit / KeyboardInterrupt
+        # also get recorded — important for the wrap.py launchd helper which
+        # propagates a wrapped command's nonzero exit via SystemExit.
         duration_ms = int((time.monotonic() - t0) * 1000)
-        err_msg = f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"
+        # SystemExit's "code" is the exit code; preserve it where possible.
+        exit_code = getattr(exc, "code", 1)
+        if not isinstance(exit_code, int):
+            exit_code = 1
+        if exit_code == 0:
+            # SystemExit(0) is a normal clean exit — record as ok.
+            status = "ok"
+            err_msg = None
+        else:
+            status = "failed"
+            err_msg = f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"
         conn.execute(
             """UPDATE pipeline_runs
-               SET ended_at = NOW(), status = 'failed', exit_code = 1,
+               SET ended_at = NOW(), status = ?, exit_code = ?,
                    duration_ms = ?, error_message = ?,
                    rows_written = ?, rows_deleted = ?, metadata = ?::jsonb
                WHERE id = ?""",
-            (duration_ms, err_msg[:4000],
+            (status, exit_code, duration_ms,
+             err_msg[:4000] if err_msg else None,
              state.rows_written, state.rows_deleted,
              json.dumps(state.metadata or {}),
              state.run_id),
