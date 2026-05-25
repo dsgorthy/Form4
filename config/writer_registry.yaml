@@ -268,3 +268,19 @@ writers:
     sla_hours: 72
     required_for: ['*']
     notes: "72h SLA covers weekend gap. write_freshness only fires when total_rows > 0."
+
+  - column: trades.net_buyer_flow_90d
+    script: pipelines/insider_study/compute_company_net_flow.py
+    plists: [com.openclaw.refresh-features]
+    schedule: "daily 06:00 PT (after compute_cw_indicators)"
+    sla_hours: 26
+    required_for: ['*']
+    notes: "CEO Watcher experiment. PIT company-level net-flow vs 3y baseline."
+
+  - column: trades.industry_buy_pct_90d
+    script: pipelines/insider_study/compute_industry_net_flow.py
+    plists: [com.openclaw.refresh-features]
+    schedule: "daily 06:00 PT (after refresh_ticker_metadata + company net-flow)"
+    sla_hours: 26
+    required_for: ['*']
+    notes: "Depends on ticker_metadata. Refresh sectors weekly via com.openclaw.refresh-ticker-metadata (Sundays 09:00 PT)."

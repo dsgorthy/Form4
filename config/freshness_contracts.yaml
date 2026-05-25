@@ -163,3 +163,18 @@ prices.daily_prices.date:
   required_for: ['*']
   description: "Latest date in prices.daily_prices for SPY (proxy for full coverage). 72h covers weekends."
   populated_by: pipelines/insider_study/update_daily_prices.py
+
+# ── Net-flow signals (CEO Watcher experiment, 2026-05-24) ──
+trades.net_buyer_flow_90d:
+  max_staleness_hours: 26
+  required_for: ['*']
+  description: "PIT company-level net insider buying signal: (buyers - sellers in [F-90d, F)) minus trailing-3y rolling-90d median for ticker. Observational; no strategy depends on it yet."
+  populated_by: pipelines/insider_study/compute_company_net_flow.py
+  notes: "NULL means insufficient ticker history (<3y) — correct PIT semantics."
+
+trades.industry_buy_pct_90d:
+  max_staleness_hours: 26
+  required_for: ['*']
+  description: "PIT industry-level signal: % of sector peers with >=1 unscheduled buy in [F-90d, F) minus trailing-3y median. NULL if ticker has no sector classification."
+  populated_by: pipelines/insider_study/compute_industry_net_flow.py
+  notes: "Depends on ticker_metadata being populated. Sector classification is a snapshot — see TestNoFutureDataInTickerMetadata for the PIT contract."

@@ -35,6 +35,9 @@ SCORING_FILES = [
     "pipelines/insider_study/conviction_score.py",
     "pipelines/insider_study/compute_pit_clusters.py",
     "pipelines/insider_study/compute_cw_indicators.py",
+    # CEO Watcher net-flow signals — added 2026-05-24, must remain PIT-clean
+    "pipelines/insider_study/compute_company_net_flow.py",
+    "pipelines/insider_study/compute_industry_net_flow.py",
 ]
 
 # Per-trade request-path files migrated off insider_track_records in P1.6.
@@ -297,3 +300,129 @@ class TestTopTradeSignalPIT:
         assert "insider_ticker_scores" in func_text, (
             "top_trade signal should query insider_ticker_scores for PIT scores"
         )
+
+
+# ---------------------------------------------------------------------------
+# Net-flow signals (CEO Watcher validation experiment, 2026-05-24)
+# ---------------------------------------------------------------------------
+
+NET_FLOW_FILES = [
+    "pipelines/insider_study/compute_company_net_flow.py",
+    "pipelines/insider_study/compute_industry_net_flow.py",
+]
+
+
+class TestNetFlowSignalsPIT:
+    """Enforce the strict-less-than window semantics for the two net-flow
+    backfills. Any drift toward `<= filing_date` would include the current
+    trade in its own signal — a textbook PIT leak."""
+
+    @pytest.mark.parametrize("filepath", NET_FLOW_FILES)
+    def test_uses_strict_less_than_anchor(self, filepath):
+        """Window calculations must use STRICT `<` against the upper bound
+        (current trade's filing_date / anchor date). Any `<=` against
+        filing_date / q_date / anchor would include same-day filings — PIT leak.
+
+        Algorithm-agnostic: forbids the `<=` pattern in any form. Two
+        accepted implementations: bisect_left (industry script) or pointer
+        sweep with `<` comparison (company script).
+        """
+        source = (PROJECT_ROOT / filepath).read_text()
+        forbidden_patterns = [
+            "filing_date <=",
+            "<= filing_date",
+            "<= q_date",
+            "<= anchor",
+            "<= F)",                # forbids `<= F)` in window comparators
+            "bisect_right",         # would shift to <= semantics
+        ]
+        for pat in forbidden_patterns:
+            assert pat not in source, (
+                f"{filepath}: forbidden pattern '{pat}' would allow same-day "
+                f"filings into the window — PIT leak"
+            )
+        # Confirm at least one strict-less-than reference exists (sanity check
+        # the strictness invariant is explicitly asserted somewhere in the file).
+        assert "< q_date" in source or "bisect_left" in source or "< F" in source, (
+            f"{filepath}: no obvious strict-< comparator against the anchor — "
+            f"hard to verify the PIT contract is enforced"
+        )
+
+    @pytest.mark.parametrize("filepath", NET_FLOW_FILES)
+    def test_anchor_strictly_before_filing_date(self, filepath):
+        """_anchor_dates must produce anchors strictly < filing_date.
+
+        compute_company_net_flow's _last_quarter_end_before uses `< d`
+        comparison; _previous_quarter_end only walks backward. compute_
+        industry_net_flow imports both helpers from the company script.
+
+        This test ALSO runs the function on quarter-end edge cases at
+        test time to catch logic bugs (a 2026-05-25 fix corrected an
+        infinite loop and a non-monotonic step-back bug).
+        """
+        source = (PROJECT_ROOT / filepath).read_text()
+        if filepath.endswith("compute_company_net_flow.py"):
+            # Structural check: the strict < comparator in _last_quarter_end_before
+            assert "date(d.year, m, day) < d" in source, (
+                f"{filepath}: _last_quarter_end_before must use strict < "
+                f"against filing_date"
+            )
+            # Behavioral check: actually call _anchor_dates on the edge cases
+            from pipelines.insider_study.compute_company_net_flow import _anchor_dates
+            from datetime import date
+            for d in (date(2026, 3, 31), date(2026, 6, 30), date(2026, 12, 31),
+                      date(2026, 4, 1), date(2026, 1, 2)):
+                anchors = _anchor_dates(d)
+                assert all(a < d for a in anchors), (
+                    f"{filepath}: _anchor_dates({d}) returned {anchors!r}; "
+                    f"some not strictly < filing_date"
+                )
+                assert all(anchors[i] > anchors[i + 1]
+                           for i in range(len(anchors) - 1)), (
+                    f"{filepath}: _anchor_dates({d}) not monotonically "
+                    f"decreasing: {anchors!r}"
+                )
+
+    @pytest.mark.parametrize("filepath", NET_FLOW_FILES)
+    def test_no_insider_track_records_reference(self, filepath):
+        """Net-flow backfills must not touch the non-PIT global aggregates."""
+        source = (PROJECT_ROOT / filepath).read_text()
+        assert "insider_track_records" not in source, (
+            f"{filepath}: insider_track_records is non-PIT — forbidden here"
+        )
+
+    @pytest.mark.parametrize("filepath", NET_FLOW_FILES)
+    def test_no_forward_looking_timedelta(self, filepath):
+        """Walking the window forward (timedelta(days=+N) added to filing_date
+        when querying past trades) would peek at future filings. Sanity-check
+        no obvious forward arithmetic on filing_date."""
+        source = (PROJECT_ROOT / filepath).read_text()
+        forbidden = [
+            "filing_date + timedelta",
+            "F + timedelta",
+            "anchor + timedelta",
+        ]
+        for pat in forbidden:
+            assert pat not in source, (
+                f"{filepath}: '{pat}' suggests forward-looking window arithmetic"
+            )
+
+
+class TestNoFutureDataInTickerMetadata:
+    """ticker_metadata is a snapshot table — last_refreshed is for staleness
+    only. It MUST NOT be used as a temporal anchor in any scoring path, since
+    its value reflects when WE refreshed sector data, not when the sector
+    assignment was true."""
+
+    @pytest.mark.parametrize("filepath",
+        SCORING_FILES + ["api/trade_grade.py",
+                         "pipelines/insider_study/conviction_score.py"])
+    def test_no_last_refreshed_temporal_use(self, filepath):
+        source = (PROJECT_ROOT / filepath).read_text()
+        # Allow mentions in comments / docstrings; forbid as an SQL filter
+        for pat in ["last_refreshed <", "last_refreshed >", "last_refreshed =",
+                    "last_refreshed BETWEEN"]:
+            assert pat not in source, (
+                f"{filepath}: ticker_metadata.last_refreshed used as a "
+                f"temporal filter ('{pat}') — that's not its purpose."
+            )

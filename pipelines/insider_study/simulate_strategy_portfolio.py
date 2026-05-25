@@ -240,7 +240,8 @@ def simulate_one_strategy(
                   t.dip_1mo, t.dip_3mo,
                   t.above_sma50, t.above_sma200, t.is_largest_ever,
                   t.is_10b5_1, t.is_recurring, t.is_tax_sale, t.cohen_routine,
-                  t.pit_grade, t.career_grade
+                  t.pit_grade, t.career_grade,
+                  t.net_buyer_flow_90d, t.industry_buy_pct_90d
            FROM trades t
            JOIN insiders i ON t.insider_id = i.insider_id
            WHERE t.trans_code = 'P'

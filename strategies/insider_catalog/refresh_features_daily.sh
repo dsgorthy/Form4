@@ -82,6 +82,12 @@ PYTHONUNBUFFERED=1 $PY $REPO/pipelines/insider_study/compute_cohen_pit.py --sinc
 echo "--- step 7/7: sync_insider_track_records (insider profile/leaderboard cache) ---"
 PYTHONUNBUFFERED=1 $PY $REPO/pipelines/insider_study/sync_insider_track_records.py
 
+echo "--- step 8/9: compute_company_net_flow --since $SINCE (CEO Watcher experiment) ---"
+PYTHONUNBUFFERED=1 $PY -m pipelines.insider_study.compute_company_net_flow --since "$SINCE"
+
+echo "--- step 9/9: compute_industry_net_flow --since $SINCE (CEO Watcher experiment) ---"
+PYTHONUNBUFFERED=1 $PY -m pipelines.insider_study.compute_industry_net_flow --since "$SINCE"
+
 echo "--- staleness check ---"
 /opt/homebrew/bin/psql form4 -At -F"|" <<SQL
 SELECT 'data_freshness',
