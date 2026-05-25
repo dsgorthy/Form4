@@ -8,6 +8,10 @@ position_size_pct: 0.10
 max_concurrent: 10
 filing_lookback_days: 2
 
+# Decision sink: 'paper' | 'live' | 'alert_only'.
+# alert_only — see quality_momentum.yaml for full semantics.
+execution_mode: alert_only
+
 # Validated thesis: persistent seller (10+ consecutive sells) reverses into a deep dip
 # Mean-reversion play — stock is depressed, insider who was selling suddenly buys
 #

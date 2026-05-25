@@ -809,7 +809,7 @@ def scan_signals(conn, config: dict) -> list[dict]:
         r["ticker"]
         for r in conn.execute(
             "SELECT ticker FROM strategy_portfolio WHERE strategy = ? "
-            "AND status = 'open' AND execution_source IN ('paper', 'live')",
+            "AND status = 'open' AND execution_source IN ('paper', 'live', 'alert')",
             (strategy_name,),
         ).fetchall()
     }
@@ -1128,7 +1128,7 @@ def execute_entries(
     # and must not block real entries.
     n_open = conn.execute(
         "SELECT COUNT(*) FROM strategy_portfolio WHERE strategy = ? "
-        "AND status = 'open' AND execution_source IN ('paper', 'live')",
+        "AND status = 'open' AND execution_source IN ('paper', 'live', 'alert')",
         (strategy_name,),
     ).fetchone()[0]
     slots = max_concurrent - n_open
@@ -1155,7 +1155,7 @@ def execute_entries(
         r["ticker"]
         for r in conn.execute(
             "SELECT ticker FROM strategy_portfolio WHERE strategy = ? "
-            "AND status = 'open' AND execution_source IN ('paper', 'live')",
+            "AND status = 'open' AND execution_source IN ('paper', 'live', 'alert')",
             (strategy_name,),
         ).fetchall()
     }
@@ -1478,9 +1478,21 @@ def execute_entries(
         _cal = MarketCalendar()
         planned_exit = _cal.add_trading_days(today, target_hold).isoformat()
 
-        # 1. Insert canonical strategy state (decoupled from Alpaca outcome)
+        # 1. Insert canonical strategy state (decoupled from Alpaca outcome).
+        # execution_mode (config, default 'paper'):
+        #   'paper'      → submit to Alpaca paper account, source='paper'
+        #   'live'       → submit to Alpaca live account, source='live'
+        #   'alert_only' → push iOS notification (ntfy.sh), NO Alpaca submit,
+        #                  source='alert' for dedup + capacity tracking. Row
+        #                  represents a "would-have-entered" virtual position.
         is_live = bool(config.get("live_money", False))
-        execution_source = "live" if is_live else "paper"
+        execution_mode = config.get("execution_mode", "live" if is_live else "paper")
+        if execution_mode == "alert_only":
+            execution_source = "alert"
+        elif is_live:
+            execution_source = "live"
+        else:
+            execution_source = "paper"
         # Note: insider_pit_n / insider_pit_wr / signal_quality columns left
         # NULL going forward (2026-05-17 cleanup — they were vestigial telemetry
         # never gated on by any strategy; existing rows preserved for legacy
@@ -1553,9 +1565,42 @@ def execute_entries(
                 config_yaml_path=config.get("_yaml_path"),
             )
 
-        # 3. Submit Alpaca order (best-effort side-channel). If the ticker is
-        #    already held in Alpaca, skip submission to avoid stacking; the
-        #    strategy_portfolio row is already canonical regardless of fill.
+        # 3. Alert-only mode: push iOS notification and skip Alpaca entirely.
+        #    The strategy_portfolio row above carries execution_source='alert'
+        #    so dedup + capacity counting work for subsequent scans.
+        if execution_mode == "alert_only":
+            try:
+                from framework.alerts.trade_alert import send_entry_alert
+                send_entry_alert(
+                    prefix=prefix,
+                    ticker=ticker,
+                    entry_price=entry_price,
+                    qty=qty,
+                    dollar_amount=qty * entry_price,
+                    target_hold=target_hold,
+                    stop_pct=stop_pct,
+                    conviction=c.get("conviction"),
+                    signal_grade=c.get("signal_grade"),
+                    career_grade=c.get("career_grade"),
+                    insider_name=c.get("insider_name"),
+                    insider_title=c.get("title"),
+                    is_rare_reversal=bool(c.get("is_rare_reversal")),
+                    trade_id=c.get("trade_id"),
+                )
+            except Exception as exc:
+                # Don't crash the runner if the notification channel fails —
+                # the strategy_portfolio row is the durable record.
+                logger.warning("trade alert send failed for %s: %s", ticker, exc)
+            entered.append({
+                "ticker": ticker, "qty": qty, "entry_price": entry_price,
+                "mode": "alert_only",
+            })
+            continue   # next candidate; do NOT touch Alpaca
+
+        # 3 (paper/live). Submit Alpaca order (best-effort side-channel).
+        #    If the ticker is already held in Alpaca, skip submission to avoid
+        #    stacking; the strategy_portfolio row is already canonical
+        #    regardless of fill.
         alpaca_already_holds = alpaca.get_position(ticker) is not None
         if alpaca_already_holds:
             logger.warning(
@@ -1919,9 +1964,10 @@ def check_exits(
 
     open_rows = conn.execute(
         "SELECT * FROM strategy_portfolio WHERE strategy = ? AND status = 'open' "
-        "AND execution_source IN ('paper', 'live') ORDER BY entry_date",
+        "AND execution_source IN ('paper', 'live', 'alert') ORDER BY entry_date",
         (strategy_name,),
     ).fetchall()
+    execution_mode = config.get("execution_mode", "paper")
 
     today = _now_et().strftime("%Y-%m-%d")
     closed: list[dict] = []
@@ -2113,8 +2159,31 @@ def check_exits(
             is_live=bool(pos.get("is_live", False)),
         )
 
-        # 3. Submit Alpaca sell (best-effort side-channel). Skip if Alpaca
-        #    doesn't hold the position (decoupled, lost share, etc.).
+        # 3 (alert_only). Push exit notification, skip Alpaca sell entirely.
+        #    The strategy_portfolio row was already marked closed above; this
+        #    just notifies the operator that the hold period is up.
+        if pos.get("execution_source") == "alert" or execution_mode == "alert_only":
+            try:
+                from framework.alerts.trade_alert import send_exit_alert
+                send_exit_alert(
+                    prefix=prefix,
+                    ticker=ticker,
+                    reason=exit_reason or "time",
+                    entry_date=entry_date,
+                    entry_price=entry_price,
+                    current_price=current_price,
+                    qty=shares,
+                    hold_days_actual=hold_days,
+                    target_hold=int(exit_cfg.get("hold_days") or 30),
+                    trade_id=pos.get("trade_id"),
+                )
+            except Exception as exc:
+                logger.warning("exit alert send failed for %s: %s", ticker, exc)
+            closed.append(pos)
+            continue   # do NOT touch Alpaca
+
+        # 3 (paper/live). Submit Alpaca sell (best-effort side-channel). Skip
+        #    if Alpaca doesn't hold the position (decoupled, lost share, etc.).
         if alpaca_pos is None or shares <= 0:
             _record_alpaca_outcome(
                 conn, order_id=order_id, alpaca_order_id=None,

@@ -8,6 +8,15 @@ position_size_pct: 0.10
 max_concurrent: 10
 filing_lookback_days: 2
 
+# Decision sink: 'paper' | 'live' | 'alert_only'.
+# 'alert_only' = push iOS notification (ntfy.sh) when a candidate passes all
+# filters + conviction + capacity; do NOT submit any Alpaca order. The
+# operator manually decides whether to enter via their own brokerage.
+# strategy_portfolio rows are still written with execution_source='alert'
+# for dedup, capacity counting, and historical analysis. See cw_runner.py
+# execution_mode branch.
+execution_mode: alert_only
+
 # Validated thesis: A+/A PIT-graded insiders buying in uptrend
 # Signal compounds over time — genuine information advantage in favorable setup
 #
