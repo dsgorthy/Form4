@@ -214,8 +214,9 @@ writers:
     script: strategies/insider_catalog/fetch_latest.py
     plists: [com.openclaw.insider-fetch]
     schedule: "every 5 min"
-    sla_hours: 48
+    sla_hours: 96
     required_for: ['*']
+    notes: "96h SLA covers weekends + federal holiday Mondays (Memorial Day, Labor Day, MLK Day, Presidents Day) where SEC EDGAR is closed. Previous 48h halted cw_runner every long-weekend Monday — 2026-05-25 incident."
     notes: "Proxy for ingest freshness. write_freshness only fires on non-zero inserts."
 
   - column: trades.is_10b5_1

@@ -134,9 +134,9 @@ insider_ticker_scores.blended_score:
 
 # ── Raw ingest (populated by insider-fetch) ──
 trades.filing_date:
-  max_staleness_hours: 48
+  max_staleness_hours: 96
   required_for: ['*']
-  description: "Latest filing_date in trades — proxy for ingest freshness. 48h covers quiet weekends where insider-fetch runs every 5min but inserts 0 rows; only write_freshness fires on n_rows>0."
+  description: "Latest filing_date in trades — proxy for ingest freshness. 96h covers weekends + federal holiday Mondays (Memorial Day, Labor Day, MLK Day, Presidents Day) where SEC EDGAR is closed and no Form 4s file. Previous 48h SLA halted cw_runner every long-weekend Monday — 2026-05-25 incident."
   populated_by: strategies/insider_catalog/fetch_latest.py
 
 # ── Compute_signals detectors (24 total; only strategy-critical contracted) ──
