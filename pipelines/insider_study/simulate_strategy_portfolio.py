@@ -71,15 +71,15 @@ logger = logging.getLogger(__name__)
 STRATEGY_CONFIG = {
     "quality_momentum": {
         "yaml": REPO / "strategies/cw_strategies/configs/quality_momentum.yaml",
-        "start_date": "2026-01-01",
+        "start_date": "2023-01-01",
     },
     "reversal_dip": {
         "yaml": REPO / "strategies/cw_strategies/configs/reversal_dip.yaml",
-        "start_date": "2026-01-01",
+        "start_date": "2023-01-01",
     },
     "tenb51_surprise": {
         "yaml": REPO / "strategies/cw_strategies/configs/tenb51_surprise.yaml",
-        "start_date": "2026-01-01",
+        "start_date": "2023-01-01",
     },
 }
 
