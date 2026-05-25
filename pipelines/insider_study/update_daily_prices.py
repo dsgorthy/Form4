@@ -35,9 +35,7 @@ logger = logging.getLogger(__name__)
 BENCHMARK_TICKERS = ("SPY", "QQQ", "IWM", "TLT", "GLD")
 
 
-def load_alpaca_credentials() -> tuple[str, str]:
-    """Load shared read-only data credentials from .env. This script only fetches
-    bars — never places orders — so the data credentials are correct."""
+def _read_env_file() -> dict[str, str]:
     env_path = Path(__file__).resolve().parents[2] / ".env"
     creds: dict[str, str] = {}
     if env_path.exists():
@@ -47,13 +45,62 @@ def load_alpaca_credentials() -> tuple[str, str]:
                 continue
             k, _, v = line.partition("=")
             creds[k.strip()] = v.strip().strip('"').strip("'")
+    return creds
 
-    key = os.environ.get("ALPACA_DATA_API_KEY") or creds.get("ALPACA_DATA_API_KEY")
-    secret = os.environ.get("ALPACA_DATA_API_SECRET") or creds.get("ALPACA_DATA_API_SECRET")
-    if key and secret:
-        return key, secret
 
-    logger.error("ALPACA_DATA_API_KEY / ALPACA_DATA_API_SECRET not found in env or .env")
+def _ping_alpaca(key: str, secret: str) -> bool:
+    """One-bar ping to confirm the credentials are accepted by data.alpaca.markets."""
+    import requests
+    try:
+        r = requests.get(
+            "https://data.alpaca.markets/v2/stocks/AAPL/bars",
+            params={"start": "2025-01-02", "end": "2025-01-03",
+                    "timeframe": "1Day", "feed": "iex"},
+            headers={"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret},
+            timeout=10,
+        )
+        return r.status_code == 200
+    except Exception:
+        return False
+
+
+def load_alpaca_credentials() -> tuple[str, str]:
+    """Resolve a working pair of Alpaca data credentials.
+
+    Prefers the dedicated read-only ALPACA_DATA_API_KEY / _SECRET pair (per
+    CLAUDE.md's "shared read-only credentials for bar-reading processes"
+    convention). If that pair is missing or auth-fails, falls back to one of
+    the per-strategy trading key pairs (which also work against the data
+    endpoint). Logs a warning when the fallback triggers so the operator
+    knows to rotate the proper data credentials.
+
+    Background: 2026-05-19 the dedicated data key began returning 401 across
+    every ticker; daily-prices wrote 0 rows for 4+ consecutive runs. The
+    fallback keeps ingestion alive while the proper key is regenerated.
+    """
+    creds = _read_env_file()
+
+    primary_key = os.environ.get("ALPACA_DATA_API_KEY") or creds.get("ALPACA_DATA_API_KEY")
+    primary_secret = (
+        os.environ.get("ALPACA_DATA_API_SECRET") or creds.get("ALPACA_DATA_API_SECRET")
+    )
+    if primary_key and primary_secret and _ping_alpaca(primary_key, primary_secret):
+        return primary_key, primary_secret
+
+    if primary_key:
+        logger.warning(
+            "ALPACA_DATA_API_KEY present but 401 on ping — falling back to a "
+            "strategy trading key. Rotate the dedicated data key when convenient."
+        )
+
+    for prefix in ("QUALITY_MOMENTUM", "REVERSAL_DIP", "TENB51_SURPRISE"):
+        k = creds.get(f"ALPACA_API_KEY_{prefix}")
+        s = creds.get(f"ALPACA_API_SECRET_{prefix}")
+        if k and s and _ping_alpaca(k, s):
+            logger.warning("Using ALPACA_API_KEY_%s as data-fetch fallback.", prefix)
+            return k, s
+
+    logger.error("No working Alpaca credentials available for data fetches")
     sys.exit(1)
 
 
