@@ -445,6 +445,21 @@ def get_filing(trade_id: str, user: UserContext = Depends(get_current_user)) -> 
     enrich_items_with_price_end([result])
     enrich_items_with_trade_grade(None, [result])
 
+    # LLM "Why this matters" narrative (admin-gated for now — feature flag
+    # until we validate quality on more trades). Only present for high-signal
+    # buys that have a row in trade_narrative.
+    if user.is_admin:
+        with get_db() as narr_conn:
+            narr_row = narr_conn.execute(
+                """SELECT summary, price_context, catalysts, risks,
+                          generated_at::text AS generated_at, model_name
+                   FROM trade_narrative
+                   WHERE trade_id = ? AND summary IS NOT NULL""",
+                (raw_id,),
+            ).fetchone()
+            if narr_row:
+                result["narrative"] = dict(narr_row)
+
     if not user.is_pro:
         from api.gating import null_track_record_fields
         null_track_record_fields(result)

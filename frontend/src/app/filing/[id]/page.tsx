@@ -40,6 +40,14 @@ interface FilingDetail extends Filing {
   lots?: Lot[];
   total_qty?: number;
   total_value?: number;
+  narrative?: {
+    summary?: string;
+    price_context?: string;
+    catalysts?: string;
+    risks?: string;
+    generated_at?: string;
+    model_name?: string;
+  };
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
@@ -188,6 +196,54 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
               <> originally filed on {(filing as any).date_of_orig_sub}</>
             )}
             . The data shown reflects the corrected values.
+          </div>
+        </div>
+      )}
+
+      {/* Why this matters — LLM-generated narrative (admin-gated for now) */}
+      {filing.narrative?.summary && (
+        <div className="mb-6 rounded-lg border border-[#3B82F6]/20 bg-[#3B82F6]/5 p-5">
+          <div className="flex items-baseline justify-between mb-3">
+            <div className="text-[10px] font-semibold uppercase tracking-widest text-[#3B82F6]">
+              Why this matters
+            </div>
+            <div className="text-[10px] text-[#55556A]">
+              {filing.narrative.model_name || "AI summary"}
+              {filing.narrative.generated_at ? ` · ${filing.narrative.generated_at.slice(0, 10)}` : ""}
+            </div>
+          </div>
+          <div className="space-y-3 text-sm text-[#E8E8ED] leading-relaxed">
+            <p>{filing.narrative.summary}</p>
+
+            {filing.narrative.price_context && (
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-[#55556A] mb-1">
+                  Price context
+                </div>
+                <p>{filing.narrative.price_context}</p>
+              </div>
+            )}
+
+            {filing.narrative.catalysts && (
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-[#55556A] mb-1">
+                  Catalysts to watch
+                </div>
+                <p className="text-[#22C55E]/90">{filing.narrative.catalysts}</p>
+              </div>
+            )}
+
+            {filing.narrative.risks && (
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-[#55556A] mb-1">
+                  Risks
+                </div>
+                <p className="text-[#F59E0B]/90">{filing.narrative.risks}</p>
+              </div>
+            )}
+          </div>
+          <div className="mt-3 pt-3 border-t border-[#3B82F6]/10 text-[10px] text-[#55556A] italic">
+            AI-generated context from public data. Not investment advice. Verify before trading.
           </div>
         </div>
       )}
