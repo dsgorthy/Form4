@@ -1570,6 +1570,31 @@ def execute_entries(
         #    so dedup + capacity counting work for subsequent scans.
         if execution_mode == "alert_only":
             try:
+                # Look up LLM narrative if it exists yet. Race condition is
+                # OK: enrich-narratives runs every 5 min; alerts often fire
+                # within seconds of trade ingestion so the LLM row may not
+                # be there yet. Missing narrative just means the alert sends
+                # without the "Why:" + catalyst lines — full context is
+                # always available via the deep link once the LLM catches up.
+                narrative = None
+                try:
+                    narr_row = conn.execute(
+                        """SELECT summary, price_context, catalysts, risks
+                           FROM trade_narrative
+                           WHERE trade_id = ? AND summary IS NOT NULL""",
+                        (c.get("trade_id"),),
+                    ).fetchone()
+                    if narr_row:
+                        narrative = {
+                            "tier": "high_signal",
+                            "summary": narr_row["summary"],
+                            "catalysts": narr_row["catalysts"],
+                            "price_context": narr_row["price_context"],
+                            "risks": narr_row["risks"],
+                        }
+                except Exception as nexc:
+                    logger.debug("narrative lookup failed for %s: %s", ticker, nexc)
+
                 from framework.alerts.trade_alert import send_entry_alert
                 send_entry_alert(
                     prefix=prefix,
@@ -1586,6 +1611,7 @@ def execute_entries(
                     insider_title=c.get("title"),
                     is_rare_reversal=bool(c.get("is_rare_reversal")),
                     trade_id=c.get("trade_id"),
+                    narrative=narrative,
                 )
             except Exception as exc:
                 # Don't crash the runner if the notification channel fails —
