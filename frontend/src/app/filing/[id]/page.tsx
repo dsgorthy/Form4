@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { fetchAPI } from "@/lib/api";
+import { fetchAPIAuth } from "@/lib/auth";
 import { formatCurrency, formatPercent, isReturnUnavailable, unavailableReason } from "@/lib/format";
 import { InsiderGradeBadge } from "@/components/insider-grade-badge";
 import { Badge } from "@/components/ui/badge";
@@ -114,8 +115,11 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
   let related: Filing[];
 
   try {
+    // Main filing fetch uses the authed fetcher so the API can identify the
+    // user (Pro tier, admin) and return gated fields (e.g., trade_narrative).
+    // Related-filings list stays anonymous — no user-specific gating there.
     [filing, related] = await Promise.all([
-      fetchAPI<FilingDetail>(`/filings/${id}`),
+      fetchAPIAuth<FilingDetail>(`/filings/${id}`),
       fetchAPI<Filing[]>(`/filings/${id}/related`),
     ]);
   } catch {
