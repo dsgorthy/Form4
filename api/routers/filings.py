@@ -351,6 +351,11 @@ def get_filing(trade_id: str, user: UserContext = Depends(get_current_user)) -> 
                 t.price, t.qty, t.value, t.is_csuite, t.title_weight,
                 t.source, t.accession, t.trans_code,
                 t.is_10b5_1, t.is_routine, t.cohen_routine, t.shares_owned_after, t.is_rare_reversal, t.insider_switch_rate, t.week52_proximity,
+                -- Flags consumed by api/narrative.classify_tier
+                COALESCE(t.is_tax_sale, 0) AS is_tax_sale,
+                COALESCE(t.is_recurring, 0) AS is_recurring,
+                COALESCE(t.is_largest_ever, 0) AS is_largest_ever,
+                t.pit_cluster_size,
                 t.pit_grade, t.pit_blended_score, t.career_grade,
                 t.is_amendment, t.document_type, t.date_of_orig_sub,
                 COALESCE(i.is_entity, 0) as is_entity,
@@ -445,20 +450,24 @@ def get_filing(trade_id: str, user: UserContext = Depends(get_current_user)) -> 
     enrich_items_with_price_end([result])
     enrich_items_with_trade_grade(None, [result])
 
-    # LLM "Why this matters" narrative (admin-gated for now — feature flag
-    # until we validate quality on more trades). Only present for high-signal
-    # buys that have a row in trade_narrative.
-    if user.is_admin:
-        with get_db() as narr_conn:
-            narr_row = narr_conn.execute(
-                """SELECT summary, price_context, catalysts, risks,
-                          generated_at::text AS generated_at, model_name
-                   FROM trade_narrative
-                   WHERE trade_id = ? AND summary IS NOT NULL""",
-                (raw_id,),
-            ).fetchone()
-            if narr_row:
-                result["narrative"] = dict(narr_row)
+    # "Why this matters" narrative — always present, with depth proportional to signal.
+    #   high_signal → LLM-generated 4-field narrative (from trade_narrative)
+    #   routine     → templated 1-sentence reason (scheduled / tax / recurring)
+    #   low_signal  → templated 2-sentence summary (open-market, no special flags)
+    # See api/narrative.py for the classifier + template logic.
+    from api.narrative import build_narrative
+    llm_narrative = None
+    with get_db() as narr_conn:
+        narr_row = narr_conn.execute(
+            """SELECT summary, price_context, catalysts, risks,
+                      generated_at::text AS generated_at, model_name
+               FROM trade_narrative
+               WHERE trade_id = ? AND summary IS NOT NULL""",
+            (raw_id,),
+        ).fetchone()
+        if narr_row:
+            llm_narrative = dict(narr_row)
+    result["narrative"] = build_narrative(result, llm_narrative)
 
     if not user.is_pro:
         from api.gating import null_track_record_fields

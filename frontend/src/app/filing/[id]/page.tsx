@@ -42,12 +42,13 @@ interface FilingDetail extends Filing {
   total_qty?: number;
   total_value?: number;
   narrative?: {
+    tier?: "high_signal" | "high_signal_pending" | "routine" | "low_signal";
     summary?: string;
-    price_context?: string;
-    catalysts?: string;
-    risks?: string;
-    generated_at?: string;
-    model_name?: string;
+    price_context?: string | null;
+    catalysts?: string | null;
+    risks?: string | null;
+    generated_at?: string | null;
+    model_name?: string | null;
   };
 }
 
@@ -204,53 +205,89 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
         </div>
       )}
 
-      {/* Why this matters — LLM-generated narrative (admin-gated for now) */}
-      {filing.narrative?.summary && (
-        <div className="mb-6 rounded-lg border border-[#3B82F6]/20 bg-[#3B82F6]/5 p-5">
-          <div className="flex items-baseline justify-between mb-3">
-            <div className="text-[10px] font-semibold uppercase tracking-widest text-[#3B82F6]">
-              Why this matters
+      {/* Trade narrative — depth varies by tier:
+         - high_signal: full 4-field LLM narrative, blue accent
+         - high_signal_pending: short placeholder while LLM catches up
+         - routine: 1-sentence templated reason (scheduled/tax/recurring), muted
+         - low_signal: 2-sentence templated open-market summary, muted */}
+      {filing.narrative?.summary && (() => {
+        const tier = filing.narrative.tier || "low_signal";
+        const isHighSignal = tier === "high_signal";
+        const isPending = tier === "high_signal_pending";
+
+        // Visual treatment scales with signal strength
+        const borderClass = isHighSignal
+          ? "border-[#3B82F6]/30 bg-[#3B82F6]/5"
+          : isPending
+          ? "border-[#3B82F6]/15 bg-[#3B82F6]/[0.02]"
+          : "border-[#2A2A3A] bg-[#12121A]";
+        const labelClass = isHighSignal
+          ? "text-[#3B82F6]"
+          : isPending
+          ? "text-[#3B82F6]/70"
+          : "text-[#55556A]";
+        const tierLabel =
+          tier === "high_signal"
+            ? "Why this matters"
+            : tier === "high_signal_pending"
+            ? "Why this matters (generating…)"
+            : tier === "routine"
+            ? "Trade context"
+            : "Trade context";
+
+        return (
+          <div className={`mb-6 rounded-lg border p-5 ${borderClass}`}>
+            <div className="flex items-baseline justify-between mb-3">
+              <div className={`text-[10px] font-semibold uppercase tracking-widest ${labelClass}`}>
+                {tierLabel}
+              </div>
+              {isHighSignal && (
+                <div className="text-[10px] text-[#55556A]">
+                  {filing.narrative.model_name || "AI summary"}
+                  {filing.narrative.generated_at
+                    ? ` · ${filing.narrative.generated_at.slice(0, 10)}`
+                    : ""}
+                </div>
+              )}
             </div>
-            <div className="text-[10px] text-[#55556A]">
-              {filing.narrative.model_name || "AI summary"}
-              {filing.narrative.generated_at ? ` · ${filing.narrative.generated_at.slice(0, 10)}` : ""}
+            <div className="space-y-3 text-sm text-[#E8E8ED] leading-relaxed">
+              <p className={isHighSignal ? "" : "text-[#8888A0]"}>{filing.narrative.summary}</p>
+
+              {filing.narrative.price_context && (
+                <div>
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-[#55556A] mb-1">
+                    Price context
+                  </div>
+                  <p>{filing.narrative.price_context}</p>
+                </div>
+              )}
+
+              {filing.narrative.catalysts && (
+                <div>
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-[#55556A] mb-1">
+                    Catalysts to watch
+                  </div>
+                  <p className="text-[#22C55E]/90">{filing.narrative.catalysts}</p>
+                </div>
+              )}
+
+              {filing.narrative.risks && (
+                <div>
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-[#55556A] mb-1">
+                    Risks
+                  </div>
+                  <p className="text-[#F59E0B]/90">{filing.narrative.risks}</p>
+                </div>
+              )}
             </div>
-          </div>
-          <div className="space-y-3 text-sm text-[#E8E8ED] leading-relaxed">
-            <p>{filing.narrative.summary}</p>
-
-            {filing.narrative.price_context && (
-              <div>
-                <div className="text-[10px] font-semibold uppercase tracking-wider text-[#55556A] mb-1">
-                  Price context
-                </div>
-                <p>{filing.narrative.price_context}</p>
-              </div>
-            )}
-
-            {filing.narrative.catalysts && (
-              <div>
-                <div className="text-[10px] font-semibold uppercase tracking-wider text-[#55556A] mb-1">
-                  Catalysts to watch
-                </div>
-                <p className="text-[#22C55E]/90">{filing.narrative.catalysts}</p>
-              </div>
-            )}
-
-            {filing.narrative.risks && (
-              <div>
-                <div className="text-[10px] font-semibold uppercase tracking-wider text-[#55556A] mb-1">
-                  Risks
-                </div>
-                <p className="text-[#F59E0B]/90">{filing.narrative.risks}</p>
+            {isHighSignal && (
+              <div className="mt-3 pt-3 border-t border-[#3B82F6]/10 text-[10px] text-[#55556A] italic">
+                AI-generated context from public data. Not investment advice. Verify before trading.
               </div>
             )}
           </div>
-          <div className="mt-3 pt-3 border-t border-[#3B82F6]/10 text-[10px] text-[#55556A] italic">
-            AI-generated context from public data. Not investment advice. Verify before trading.
-          </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Signal Quality + Signal badges */}
       <div className="flex flex-col md:flex-row gap-4 mb-6">
