@@ -377,37 +377,86 @@ def upsert_narrative(conn, trade_id: int, payload: dict, narrative: dict | None,
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--limit", type=int, default=20)
+    p.add_argument("--limit", type=int, default=20,
+                   help="max trades to process per run (production uses 20)")
     p.add_argument("--since", default=None,
-                   help="filing_date >= this (default: 30 days ago)")
+                   help="filing_date >= this (default: 30 days ago). "
+                        "Accepts ISO date or shortcuts: '24h', '7d', '90d'")
     p.add_argument("--regenerate", action="store_true",
                    help="ignore cached narratives; re-run all matched trades")
+    p.add_argument("--no-pipeline-run", action="store_true",
+                   help="skip pipeline_run wrapper (for ad-hoc manual runs)")
     args = p.parse_args()
 
-    since = args.since or (date.today().toordinal() - 30)
-    since_str = args.since or date.fromordinal(since).isoformat()
+    # Parse --since shortcuts
+    if args.since and args.since.endswith(("h", "d")):
+        unit = args.since[-1]
+        n = int(args.since[:-1])
+        hours = n if unit == "h" else n * 24
+        from datetime import datetime, timedelta
+        cutoff = datetime.utcnow() - timedelta(hours=hours)
+        since_str = cutoff.strftime("%Y-%m-%d")
+    elif args.since:
+        since_str = args.since
+    else:
+        since_str = date.fromordinal(date.today().toordinal() - 30).isoformat()
 
+    if args.no_pipeline_run:
+        _run(since_str, args.limit, args.regenerate, telemetry=None)
+        return
+
+    from framework.observability import pipeline_run
+    with pipeline_run(
+        "enrich_high_signal_trades",
+        log_path="/Users/derekg/trading-framework/logs/enrich-narratives.log",
+    ) as prun:
+        stats = _run(since_str, args.limit, args.regenerate, telemetry=prun)
+        prun.set_rows_written(stats["matched"])
+        prun.set_metadata({
+            "since": since_str,
+            "limit": args.limit,
+            "candidates_after_filter": stats["candidates_after_filter"],
+            "matched": stats["matched"],
+            "failed": stats["failed"],
+            "skipped_already_done": stats["skipped"],
+        })
+
+
+def _run(since_str: str, limit: int, regenerate: bool, telemetry) -> dict:
+    """Returns {candidates, matched, failed, skipped} for pipeline_run metadata."""
     conn = get_connection()
-    trades = conn.execute(high_signal_query(since_str, args.limit)).fetchall()
-    logger.info("Candidate high-signal trades: %d", len(trades))
+    trades = conn.execute(high_signal_query(since_str, limit)).fetchall()
+    candidates_total = len(trades)
+    logger.info("Candidate high-signal trades: %d", candidates_total)
 
-    if not args.regenerate:
+    skipped = 0
+    if not regenerate:
+        # Only skip trades that successfully generated a narrative. Failed
+        # rows (summary IS NULL, error column populated) get retried — the
+        # most common failure is Ollama timeout on dense input, which often
+        # succeeds on retry once cache warms or load drops.
         already = {
             r["trade_id"] for r in conn.execute(
-                "SELECT trade_id FROM trade_narrative"
+                "SELECT trade_id FROM trade_narrative WHERE summary IS NOT NULL"
             ).fetchall()
         }
+        before = len(trades)
         trades = [t for t in trades if t["trade_id"] not in already]
-        logger.info("After dedup against existing trade_narrative: %d", len(trades))
+        skipped = before - len(trades)
+        logger.info("After dedup against existing trade_narrative: %d "
+                    "(skipped %d already-done)", len(trades), skipped)
 
     if not trades:
         logger.info("Nothing to do.")
-        return
+        return {"candidates_after_filter": candidates_total, "matched": 0,
+                "failed": 0, "skipped": skipped}
 
     print()
     print(f"{'#':>3}  {'ticker':6}  {'insider':28}  {'$ amount':>12}  status")
     print(f"{'---':>3}  {'-' * 6}  {'-' * 28}  {'-' * 12}  ------")
 
+    matched = 0
+    failed = 0
     for i, t in enumerate(trades, 1):
         t = dict(t)
         ticker = t["ticker"]
@@ -420,8 +469,16 @@ def main():
         narrative, error, ms = call_ollama(payload)
         upsert_narrative(conn, t["trade_id"], payload, narrative, error, ms)
 
-        status = "ok" if narrative else f"FAIL: {error[:30]}"
+        if narrative:
+            matched += 1
+            status = "ok"
+        else:
+            failed += 1
+            status = f"FAIL: {error[:30]}"
         print(f"{i:>3}  {ticker:6}  {insider:28}  ${amt:>11,.0f}  {status} ({ms}ms)")
+
+    return {"candidates_after_filter": candidates_total, "matched": matched,
+            "failed": failed, "skipped": skipped}
 
     conn.close()
     logger.info("Done. Review with:")

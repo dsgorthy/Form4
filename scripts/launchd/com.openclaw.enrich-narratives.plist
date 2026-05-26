@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.openclaw.enrich-narratives</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/python3</string>
+        <string>/Users/derekg/trading-framework/scripts/demo_narratives.py</string>
+        <string>--since</string>
+        <string>24h</string>
+        <string>--limit</string>
+        <string>20</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/derekg/trading-framework</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>PYTHONPATH</key>
+        <string>/Users/derekg/trading-framework</string>
+    </dict>
+    <!-- Every 5 minutes, offset 2 min from insider-fetch (which fires at
+         :00, :05, :10, ... and finishes within ~25s). This runs at :02, :07,
+         :12, ... so newly-inserted high-signal trades are picked up promptly
+         but never racing with the fetch's transaction.
+         At ~5-15 new high-signal trades per 5-min window and ~60s of LLM
+         time per trade, expected runtime is 5-15 min — some runs will
+         overlap the next schedule, which is fine: the script is idempotent
+         (skips already-done trades) and capped at --limit 20 per run. -->
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict><key>Minute</key><integer>2</integer></dict>
+        <dict><key>Minute</key><integer>7</integer></dict>
+        <dict><key>Minute</key><integer>12</integer></dict>
+        <dict><key>Minute</key><integer>17</integer></dict>
+        <dict><key>Minute</key><integer>22</integer></dict>
+        <dict><key>Minute</key><integer>27</integer></dict>
+        <dict><key>Minute</key><integer>32</integer></dict>
+        <dict><key>Minute</key><integer>37</integer></dict>
+        <dict><key>Minute</key><integer>42</integer></dict>
+        <dict><key>Minute</key><integer>47</integer></dict>
+        <dict><key>Minute</key><integer>52</integer></dict>
+        <dict><key>Minute</key><integer>57</integer></dict>
+    </array>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>KeepAlive</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>/Users/derekg/trading-framework/logs/enrich-narratives.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/derekg/trading-framework/logs/enrich-narratives.log</string>
+</dict>
+</plist>
