@@ -1044,22 +1044,27 @@ def scan_signals(conn, config: dict) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def _get_latest_price(alpaca: PaperBackend, ticker: str) -> Optional[float]:
-    """Fetch latest trade price from Alpaca data API."""
-    try:
-        data = alpaca._request("GET", "/../../v2/stocks/{}/trades/latest".format(ticker))
-        return float(data.get("trade", {}).get("p", 0)) or None
-    except Exception:
-        pass
-    # Fallback: use Alpaca data endpoint directly (shared read-only credentials)
+    """Fetch latest trade price from Alpaca data API.
+
+    Uses the strategy's trading credentials (which carry data-API entitlement
+    on paper accounts). The old paths — path-traversal hack on paper-api and
+    the dedicated ALPACA_DATA_API_KEY — both broke ~2026-05-26 (404 and 401
+    respectively). Per-strategy trading keys are the working route.
+    """
     import requests as _req
     try:
         resp = _req.get(
             f"https://data.alpaca.markets/v2/stocks/{ticker}/trades/latest",
-            headers=_data_api_headers(),
+            headers={
+                "APCA-API-KEY-ID": alpaca._session.headers.get("APCA-API-KEY-ID", ""),
+                "APCA-API-SECRET-KEY": alpaca._session.headers.get("APCA-API-SECRET-KEY", ""),
+            },
             timeout=10,
         )
         if resp.status_code == 200:
             return float(resp.json().get("trade", {}).get("p", 0)) or None
+        logger.warning("Price fetch HTTP %d for %s: %s",
+                       resp.status_code, ticker, resp.text[:120])
     except Exception as exc:
         logger.warning("Price fetch failed for %s: %s", ticker, exc)
     return None
