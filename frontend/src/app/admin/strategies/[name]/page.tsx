@@ -172,6 +172,7 @@ interface OpenPositionRow {
   id: number;
   trade_id: number | null;
   ticker: string;
+  execution_source: string | null;
   insider_name: string | null;
   insider_title: string | null;
   signal_grade: string | null;
@@ -193,6 +194,7 @@ interface ClosedPositionRow {
   id: number;
   trade_id: number | null;
   ticker: string;
+  execution_source: string | null;
   insider_name: string | null;
   insider_title: string | null;
   signal_grade: string | null;
@@ -441,6 +443,33 @@ function FreshnessSection({ rows }: { rows: FreshnessRow[] }) {
   );
 }
 
+function ExecSourceBadge({ source }: { source: string | null }) {
+  // Provenance per row: where this position originated.
+  //   simulated → strategy_simulator (deterministic walk-forward replay)
+  //   alert     → cw_runner alert_only mode (real signal, no Alpaca order)
+  //   paper     → cw_runner paper mode (real Alpaca paper order)
+  //   live      → cw_runner live mode (real Alpaca live order)
+  //   backtest  → historical backtest result (legacy)
+  const s = (source || "").toLowerCase();
+  const palette: Record<string, string> = {
+    alert:     "bg-[#22C55E22] text-[#22C55E] border-[#22C55E55]",
+    paper:     "bg-[#3B82F622] text-[#3B82F6] border-[#3B82F655]",
+    live:      "bg-[#A855F722] text-[#A855F7] border-[#A855F755]",
+    simulated: "bg-[#55556A33] text-[#8888A0] border-[#55556A55]",
+    backtest:  "bg-[#55556A33] text-[#55556A] border-[#55556A55]",
+  };
+  const cls = palette[s] || "bg-[#55556A33] text-[#55556A] border-[#55556A55]";
+  const label = s === "simulated" ? "SIM"
+    : s === "backtest" ? "BT"
+    : s.toUpperCase() || "?";
+  return (
+    <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold border ${cls}`}
+          title={`execution_source = ${source || "unknown"}`}>
+      {label}
+    </span>
+  );
+}
+
 function FreshnessStatus({ label }: { label: FreshnessRow["status_label"] }) {
   const style: Record<typeof label, string> = {
     fresh:      "bg-[#22C55E22] text-[#22C55E] border-[#22C55E55]",
@@ -523,6 +552,7 @@ function PositionsSection({
           <thead className="text-left text-[#55556A] text-[10px] uppercase tracking-wider">
             <tr>
               <th className="py-2 pr-3">Ticker</th>
+              <th className="pr-3">Src</th>
               <th className="pr-3 text-right">Entry</th>
               <th className="pr-3 text-right">Now</th>
               <th className="pr-3 text-right">+/- %</th>
@@ -537,6 +567,7 @@ function PositionsSection({
             {positions.open.rows.map((p) => (
               <tr key={p.id} className="border-t border-[#2A2A3A]/50 hover:bg-[#1A1A26]">
                 <td className="py-2 pr-3 font-mono font-bold text-[#E8E8ED]">{p.ticker}</td>
+                <td className="pr-3"><ExecSourceBadge source={p.execution_source} /></td>
                 <td className="pr-3 text-right font-mono text-xs">${p.entry_price.toFixed(2)}</td>
                 <td className="pr-3 text-right font-mono text-xs">
                   {p.current_price != null ? `$${p.current_price.toFixed(2)}` : "—"}
@@ -565,7 +596,7 @@ function PositionsSection({
             ))}
             {positions.open.rows.length === 0 && (
               <tr>
-                <td colSpan={9} className="py-4 text-center text-[#55556A] text-xs">No open positions.</td>
+                <td colSpan={10} className="py-4 text-center text-[#55556A] text-xs">No open positions.</td>
               </tr>
             )}
           </tbody>
@@ -596,6 +627,7 @@ function PositionsSection({
           <thead className="text-left text-[#55556A] text-[10px] uppercase tracking-wider">
             <tr>
               <th className="py-2 pr-3">Ticker</th>
+              <th className="pr-3">Src</th>
               <th className="pr-3 text-right">Entry</th>
               <th className="pr-3 text-right">Exit</th>
               <th className="pr-3 text-right">+/- %</th>
@@ -610,6 +642,7 @@ function PositionsSection({
             {positions.closed.rows.map((p) => (
               <tr key={p.id} className="border-t border-[#2A2A3A]/50 hover:bg-[#1A1A26]">
                 <td className="py-2 pr-3 font-mono font-bold text-[#E8E8ED]">{p.ticker}</td>
+                <td className="pr-3"><ExecSourceBadge source={p.execution_source} /></td>
                 <td className="pr-3 text-right font-mono text-xs">
                   {p.entry_price != null ? `$${p.entry_price.toFixed(2)}` : "—"}
                 </td>
@@ -630,7 +663,7 @@ function PositionsSection({
             ))}
             {positions.closed.rows.length === 0 && (
               <tr>
-                <td colSpan={9} className="py-4 text-center text-[#55556A] text-xs">No closed positions yet.</td>
+                <td colSpan={10} className="py-4 text-center text-[#55556A] text-xs">No closed positions yet.</td>
               </tr>
             )}
           </tbody>

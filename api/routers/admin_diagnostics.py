@@ -697,10 +697,14 @@ enriched AS (
     FROM evaluations ev
     LEFT JOIN trades t       ON t.trade_id = ev.trade_id
     LEFT JOIN insiders i     ON i.insider_id = t.effective_insider_id
-    LEFT JOIN strategy_portfolio sp
-           ON sp.strategy = ev.strategy
-          AND sp.trade_id = ev.trade_id
-          AND sp.execution_source IN ('alert','paper','live')
+    LEFT JOIN LATERAL (
+        SELECT * FROM strategy_portfolio sp_inner
+         WHERE sp_inner.strategy = ev.strategy
+           AND sp_inner.trade_id = ev.trade_id
+           AND COALESCE(sp_inner.is_live, false) = false
+         ORDER BY (sp_inner.status = 'open') DESC, sp_inner.entry_date DESC
+         LIMIT 1
+    ) sp ON true
 )
 SELECT * FROM enriched
 """
@@ -929,6 +933,7 @@ def _build_position_rows(
             "id": d.get("id"),
             "trade_id": d.get("trade_id"),
             "ticker": ticker,
+            "execution_source": d.get("execution_source"),
             "insider_name": d.get("insider_name"),
             "insider_title": d.get("insider_title"),
             "signal_grade": d.get("signal_grade"),
@@ -995,13 +1000,18 @@ def strategy_positions(
     offset = (page - 1) * per_page
 
     with get_db() as conn:
+        # Match /portfolio's canonical filter: every non-live row regardless
+        # of execution_source. Simulated rows (from strategy_simulator) and
+        # alert rows (from cw_runner alert_only) are both "what the strategy
+        # thinks it has" — the operator needs to see both. Each row carries
+        # execution_source so the UI can label its provenance.
         open_rows = conn.execute(
             """SELECT id, ticker, entry_date, entry_price, shares, dollar_amount,
                       insider_name, insider_title, signal_grade, trade_id,
-                      planned_exit_date
+                      planned_exit_date, execution_source
                  FROM strategy_portfolio
                 WHERE strategy = ?
-                  AND execution_source IN ('alert','paper','live')
+                  AND COALESCE(is_live, false) = false
                   AND status = 'open'
                 ORDER BY entry_date DESC, id DESC""",
             (name,),
@@ -1011,7 +1021,7 @@ def strategy_positions(
             """SELECT COUNT(*) AS n
                  FROM strategy_portfolio
                 WHERE strategy = ?
-                  AND execution_source IN ('alert','paper','live')
+                  AND COALESCE(is_live, false) = false
                   AND status = 'closed'""",
             (name,),
         ).fetchone()
@@ -1021,10 +1031,10 @@ def strategy_positions(
             f"""SELECT id, ticker, entry_date, entry_price, exit_date, exit_price,
                        shares, dollar_amount, insider_name, insider_title,
                        signal_grade, trade_id, pnl_pct, pnl_dollar, exit_reason,
-                       hold_days
+                       hold_days, execution_source
                   FROM strategy_portfolio
                  WHERE strategy = ?
-                   AND execution_source IN ('alert','paper','live')
+                   AND COALESCE(is_live, false) = false
                    AND status = 'closed'
                  ORDER BY exit_date DESC NULLS LAST, entry_date DESC, id DESC
                  LIMIT {int(per_page)} OFFSET {int(offset)}""",
