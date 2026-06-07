@@ -13,10 +13,12 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone, date as _date
 from pathlib import Path
 from typing import Optional
 
+import requests
+import yaml
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.auth import UserContext, require_admin
@@ -119,6 +121,134 @@ def _strategy_or_404(name: str) -> dict:
     raise HTTPException(status_code=404, detail=f"Unknown strategy: {name}")
 
 
+# Strategy yaml location (same on Studio + Mini).
+_STRAT_YAML_DIR = REPO_ROOT / "strategies" / "cw_strategies" / "configs"
+
+
+def _read_strategy_rules(name: str) -> dict:
+    """Return the operationally-relevant subset of the strategy's yaml.
+
+    Used by the /positions endpoint to render a "Strategy rules" header
+    band (target_hold, stop_pct, exit_strategy, capacity caps) and by the
+    strategy_detail endpoint to expose execution_mode for the frontend's
+    alert_only conditional rendering.
+    """
+    yaml_path = _STRAT_YAML_DIR / f"{name}.yaml"
+    try:
+        cfg = yaml.safe_load(yaml_path.read_text()) or {}
+    except Exception as e:
+        logger.warning("strategy yaml read failed for %s: %s", name, e)
+        return {}
+    exit_cfg = cfg.get("exit", {}) or {}
+    return {
+        "execution_mode": cfg.get("execution_mode", "paper"),
+        "exit_strategy": exit_cfg.get("strategy"),
+        "hold_days": exit_cfg.get("hold_days"),
+        "stop_loss_pct": exit_cfg.get("stop_loss_pct"),
+        "max_concurrent": cfg.get("max_concurrent"),
+        "soft_cap": cfg.get("soft_cap"),
+        "min_conviction": cfg.get("min_conviction"),
+        "min_conviction_above_soft": cfg.get("min_conviction_above_soft"),
+        "position_size_pct": cfg.get("position_size_pct"),
+    }
+
+
+# Per-process 60s price cache. Open positions are bounded (~10 per
+# strategy), so a single dashboard refresh fetches at most ~10 quotes
+# from Alpaca. 60s is the same TTL the paper_trading.py /dashboard uses.
+_PRICE_CACHE: dict[str, tuple[datetime, dict]] = {}
+_PRICE_TTL_SECONDS = 60
+
+
+def _fetch_current_prices(strategy: str, tickers: list[str], conn) -> dict[str, dict]:
+    """Return {ticker: {"price": float|None, "at": iso|None, "source": str}}.
+
+    source ∈ {"alpaca", "eod_fallback", "unavailable"}.
+
+    Uses the strategy's per-account trading credentials against
+    data.alpaca.markets — the same path the runner uses since the
+    2026-05-30 price-fetch fix. On failure, falls back to the most
+    recent close in prices.daily_prices. Both routes contribute to a
+    shared 60s cache.
+    """
+    if not tickers:
+        return {}
+    now = datetime.now(timezone.utc)
+    out: dict[str, dict] = {}
+    misses: list[str] = []
+    for t in tickers:
+        cached = _PRICE_CACHE.get(t)
+        if cached and (now - cached[0]).total_seconds() < _PRICE_TTL_SECONDS:
+            out[t] = cached[1]
+        else:
+            misses.append(t)
+    if not misses:
+        return out
+
+    prefix = strategy.upper()
+    api_key = os.getenv(f"ALPACA_API_KEY_{prefix}", "")
+    api_secret = os.getenv(f"ALPACA_API_SECRET_{prefix}", "")
+    headers = {"APCA-API-KEY-ID": api_key, "APCA-API-SECRET-KEY": api_secret} if api_key else {}
+
+    for t in misses:
+        d = {"price": None, "at": None, "source": "unavailable"}
+        if headers:
+            try:
+                r = requests.get(
+                    f"https://data.alpaca.markets/v2/stocks/{t}/trades/latest",
+                    headers=headers,
+                    timeout=5,
+                )
+                if r.status_code == 200:
+                    trade = (r.json() or {}).get("trade") or {}
+                    p = trade.get("p")
+                    if p:
+                        d = {"price": float(p), "at": trade.get("t"), "source": "alpaca"}
+            except Exception as e:
+                logger.warning("Alpaca quote failed for %s: %s", t, e)
+
+        if d["price"] is None and conn is not None:
+            try:
+                row = conn.execute(
+                    """SELECT date, close FROM prices.daily_prices
+                        WHERE ticker = ? ORDER BY date DESC LIMIT 1""",
+                    (t,),
+                ).fetchone()
+                if row and row["close"]:
+                    d = {"price": float(row["close"]),
+                         "at": str(row["date"]),
+                         "source": "eod_fallback"}
+            except Exception as e:
+                logger.warning("daily_prices lookup failed for %s: %s", t, e)
+
+        _PRICE_CACHE[t] = (now, d)
+        out[t] = d
+
+    return out
+
+
+def _trading_days_between(d1: _date, d2: _date) -> int:
+    """Trading days from d1 to d2 (exclusive of d1, inclusive of d2).
+    Negative if d2 < d1. Used for hold time + time remaining display."""
+    if d1 == d2:
+        return 0
+    try:
+        from framework.data.calendar import MarketCalendar
+    except Exception:
+        # Fallback to calendar days if MarketCalendar unavailable.
+        return (d2 - d1).days
+    cal = MarketCalendar()
+    sign = 1 if d2 > d1 else -1
+    start, end = (d1, d2) if sign > 0 else (d2, d1)
+    n = 0
+    cursor = start + timedelta(days=1)
+    while cursor <= end:
+        if cal.is_trading_day(cursor):
+            n += 1
+        cursor += timedelta(days=1)
+    return sign * n
+
+
 def _decision_summary(conn, strategy: str) -> dict:
     """Roll up trade_decision_audit for the strategy: counts by stage/outcome."""
     rows = conn.execute(
@@ -167,26 +297,70 @@ def _rejection_histogram(conn, strategy: str, days: int = 30) -> list[dict]:
 
 
 def _freshness_for_strategy(conn, strategy: str) -> list[dict]:
-    """Per-contract freshness status for one strategy."""
+    """Per-contract freshness status for one strategy.
+
+    Returns two staleness numbers per row:
+      observed_age_hours — raw clock hours since last update.
+      business_age_hours — hours excluding weekends + US market holidays
+                           (only when the contract's business_hours_only=true,
+                            which is the default).
+    `effective_stale` is the business-aware verdict — what the UI should
+    treat as authoritative. `stale` is kept as a back-compat flag set on
+    the raw observed_age for any older consumers.
+    """
     try:
-        from framework.contracts.freshness import FreshnessRegistry, get_freshness
+        from framework.contracts.freshness import (
+            FreshnessRegistry, get_freshness, business_age_hours,
+        )
     except Exception as e:
         logger.warning("freshness module unavailable: %s", e)
         return []
     registry = FreshnessRegistry.get()
+    now = datetime.now(timezone.utc)
     out = []
     for c in registry.for_strategy(strategy):
         try:
             ts, age = get_freshness(conn, c.table, c.column)
         except Exception:
             ts, age = None, None
+
+        # Business-hours-adjusted age. Falls back to raw age if the
+        # contract doesn't have business_hours_only set or if ts missing.
+        if ts is not None and c.business_hours_only:
+            biz_age = business_age_hours(ts, now)
+        elif age is not None:
+            biz_age = float(age)
+        else:
+            biz_age = None
+
+        observed_stale = age is None or age > c.max_staleness_hours
+        effective_stale = biz_age is None or biz_age > c.max_staleness_hours
+
+        # Human-friendly status label.
+        # - unknown:        no signal_freshness row found
+        # - fresh:          inside SLA on business-hours basis
+        # - weekend_ok:     past raw SLA but inside business-hours SLA
+        # - stale:          past business-hours SLA
+        if age is None:
+            status_label = "unknown"
+        elif effective_stale:
+            status_label = "stale"
+        elif observed_stale:
+            status_label = "weekend_ok"
+        else:
+            status_label = "fresh"
+
         out.append({
             "table": c.table,
             "column": c.column,
             "max_staleness_hours": c.max_staleness_hours,
             "observed_age_hours": round(age, 2) if age is not None else None,
+            "business_age_hours": round(biz_age, 2) if biz_age is not None else None,
             "last_observed_at": ts.isoformat() if ts else None,
-            "stale": age is None or age > c.max_staleness_hours,
+            "stale": observed_stale,
+            "effective_stale": effective_stale,
+            "status_label": status_label,
+            "business_hours_only": c.business_hours_only,
             "populated_by": c.populated_by,
         })
     return out
@@ -320,13 +494,36 @@ FROM evaluations
 
 def _query_evaluations(conn, where_sql: str, params: list,
                        order_sql: str = "ORDER BY ts DESC",
-                       limit_sql: str = "LIMIT 50") -> list[dict]:
-    sql = _EVAL_SQL_BASE.format(where_clause=where_sql) + f" {order_sql} {limit_sql}"
+                       limit_sql: str = "LIMIT 50",
+                       *,
+                       dedup: bool = True,
+                       strategy_for_prices: Optional[str] = None) -> list[dict]:
+    """Pull evaluation rows enriched with accession/insider/outcome.
+
+    `dedup=True` (default) collapses multi-lot Form 4 filings to one row
+    per SEC accession (highest-conviction lot). Set False to surface
+    every individual evaluation row.
+
+    `strategy_for_prices` enables live-quote lookup for rows whose
+    entered position is still open — produces `outcome.kind='open'` with
+    fresh unrealized P&L.
+    """
+    extra_where = " WHERE dedup_rn = 1" if dedup else ""
+    sql = (_EVAL_DEDUP_SQL.format(where_clause=where_sql)
+           + extra_where + f" {order_sql} {limit_sql}")
     rows = conn.execute(sql, params).fetchall()
+    open_tickers = [
+        r["ticker"] for r in rows
+        if r.get("alert_status") == "open" and r.get("ticker")
+    ]
+    open_tickers = list(set(open_tickers))
+    price_map = (
+        _fetch_current_prices(strategy_for_prices, open_tickers, conn)
+        if (strategy_for_prices and open_tickers) else {}
+    )
     out: list[dict] = []
     for r in rows:
         d = dict(r)
-        # Parse feature_snapshot if present
         snap_str = d.pop("feature_snapshot_text", None)
         if snap_str:
             try:
@@ -335,6 +532,8 @@ def _query_evaluations(conn, where_sql: str, params: list,
                 d["feature_snapshot"] = None
         else:
             d["feature_snapshot"] = None
+        d["outcome"] = _build_eval_outcome(d, price_map)
+        d.pop("dedup_rn", None)
         out.append(d)
     return out
 
@@ -406,19 +605,105 @@ def strategy_detail(
             params=[name],
             order_sql="ORDER BY ts DESC",
             limit_sql="LIMIT 50",
+            dedup=True,
+            strategy_for_prices=name,
         )
         reconciliation = _reconciliation_state(conn, name)
     alerts = _recent_alerts(limit=20, severity=None,
                             component_filter=f"cw_runner.{name}")
+    rules = _read_strategy_rules(name)
     return {
-        "strategy": s,
+        "strategy": {**s, "execution_mode": rules.get("execution_mode")},
         "decision_summary": summary,
         "freshness": freshness,
         "rejection_histogram_30d": rejections,
         "recent_evaluations": recent_evaluations,
         "recent_alerts": alerts,
-        "reconciliation": reconciliation,
+        # Reconciliation block is only meaningful when the runner actually
+        # touches Alpaca. For alert_only strategies (QM, RD) there are no
+        # Alpaca orders to reconcile, so the frontend hides the panel.
+        "reconciliation": reconciliation if rules.get("execution_mode") != "alert_only" else None,
+        "rules": rules,
     }
+
+
+_EVAL_DEDUP_SQL = """
+WITH evaluations AS (
+    SELECT
+        strategy, run_id, trade_id, ticker, filing_date, thesis, source,
+        MAX(ts) AS ts,
+        MAX(pit_grade) AS pit_grade,
+        MAX(conviction) AS conviction,
+        BOOL_OR(stage = 'dedup' AND passed)        AS dedup_passed,
+        BOOL_OR(stage = 'filter' AND passed)       AS filter_passed,
+        BOOL_OR(stage = 'pit_lookup' AND passed)   AS pit_passed,
+        BOOL_OR(stage = 'min_10b5_1' AND passed)   AS tenb51_passed,
+        BOOL_OR(stage = 'conviction' AND passed)   AS conviction_passed,
+        BOOL_OR(stage = 'capacity' AND passed)     AS capacity_passed,
+        BOOL_OR(stage = 'dedup')                   AS dedup_evaluated,
+        BOOL_OR(stage = 'filter')                  AS filter_evaluated,
+        BOOL_OR(stage = 'pit_lookup')              AS pit_evaluated,
+        BOOL_OR(stage = 'min_10b5_1')              AS tenb51_evaluated,
+        BOOL_OR(stage = 'conviction')              AS conviction_evaluated,
+        BOOL_OR(stage = 'capacity')                AS capacity_evaluated,
+        MAX(reason) FILTER (WHERE stage = 'dedup')      AS dedup_reason,
+        MAX(reason) FILTER (WHERE stage = 'filter')     AS filter_reason,
+        MAX(reason) FILTER (WHERE stage = 'pit_lookup') AS pit_reason,
+        MAX(reason) FILTER (WHERE stage = 'min_10b5_1') AS tenb51_reason,
+        MAX(reason) FILTER (WHERE stage = 'conviction') AS conviction_reason,
+        MAX(reason) FILTER (WHERE stage = 'capacity')   AS capacity_reason,
+        MAX(feature_snapshot::text) FILTER (WHERE stage = 'conviction') AS feature_snapshot_text
+    FROM trade_decision_audit
+    {where_clause}
+    GROUP BY strategy, run_id, trade_id, ticker, filing_date, thesis, source
+),
+enriched AS (
+    SELECT
+        ev.*,
+        COALESCE(
+            capacity_passed,
+            CASE WHEN capacity_evaluated THEN false ELSE conviction_passed END,
+            false
+        ) AS final_passed,
+        CASE
+            WHEN dedup_passed = false      THEN 'dedup'
+            WHEN filter_passed = false     THEN 'filter'
+            WHEN pit_passed = false        THEN 'pit_lookup'
+            WHEN tenb51_passed = false     THEN 'min_10b5_1'
+            WHEN conviction_passed = false THEN 'conviction'
+            WHEN capacity_passed = false   THEN 'capacity'
+            ELSE NULL
+        END AS rejected_at,
+        t.accession                                AS accession,
+        t.value                                    AS trade_value,
+        i.name                                     AS insider_name,
+        t.title                                    AS insider_title,
+        t.career_grade                             AS trade_career_grade,
+        sp.status                                  AS alert_status,
+        sp.entry_price                             AS alert_entry_price,
+        sp.exit_price                              AS alert_exit_price,
+        sp.pnl_pct                                 AS alert_pnl_pct,
+        sp.pnl_dollar                              AS alert_pnl_dollar,
+        sp.shares                                  AS alert_shares,
+        sp.entry_date                              AS alert_entry_date,
+        sp.exit_reason                             AS alert_exit_reason,
+        ROW_NUMBER() OVER (
+            PARTITION BY COALESCE(t.accession, 'eval_' || ev.trade_id::text)
+            ORDER BY ev.conviction DESC NULLS LAST, ev.ts DESC
+        ) AS dedup_rn,
+        COUNT(*) OVER (
+            PARTITION BY COALESCE(t.accession, 'eval_' || ev.trade_id::text)
+        ) AS lots_in_filing
+    FROM evaluations ev
+    LEFT JOIN trades t       ON t.trade_id = ev.trade_id
+    LEFT JOIN insiders i     ON i.insider_id = t.effective_insider_id
+    LEFT JOIN strategy_portfolio sp
+           ON sp.strategy = ev.strategy
+          AND sp.trade_id = ev.trade_id
+          AND sp.execution_source IN ('alert','paper','live')
+)
+SELECT * FROM enriched
+"""
 
 
 @router.get("/strategies/{name}/evaluations")
@@ -435,6 +720,10 @@ def strategy_evaluations(
     source: Optional[str] = Query(None, regex="^(live|simulation|log_replay|actual)$"),
     since: Optional[str] = None,
     ticker: Optional[str] = None,
+    dedup: bool = Query(True,
+        description="When true (default), collapse multi-lot Form 4 filings to one "
+                    "row per SEC accession. The representative row is the lot with "
+                    "the highest conviction (ties broken by latest ts)."),
     user: UserContext = Depends(require_admin),
 ):
     """Paginated decisions, ONE ROW PER EVALUATION (= one row per trade-and-run).
@@ -475,18 +764,20 @@ def strategy_evaluations(
     base_where_clause = f"WHERE {base_where}"
     offset = (page - 1) * per_page
     with get_db() as conn:
-        # First, get total + apply final_passed/rejected_at filters at the
-        # outer level (after the GROUP BY pivot).
+        # Outer filters applied after the per-stage pivot. Dedup adds
+        # "dedup_rn = 1" so we keep one representative per accession.
         outer_clauses: list[str] = []
         if final_passed is not None:
             outer_clauses.append(f"final_passed = {bool(final_passed)}")
         if rejected_at:
             outer_clauses.append(f"rejected_at = '{rejected_at}'")
+        if dedup:
+            outer_clauses.append("dedup_rn = 1")
         outer_where = (" WHERE " + " AND ".join(outer_clauses)) if outer_clauses else ""
 
         # Total
         count_sql = (
-            _EVAL_SQL_BASE.format(where_clause=base_where_clause)
+            _EVAL_DEDUP_SQL.format(where_clause=base_where_clause)
             + outer_where
         )
         total_sql = f"SELECT COUNT(*) AS n FROM ({count_sql}) sub"
@@ -495,11 +786,21 @@ def strategy_evaluations(
 
         # Page rows
         sql = (
-            _EVAL_SQL_BASE.format(where_clause=base_where_clause)
+            _EVAL_DEDUP_SQL.format(where_clause=base_where_clause)
             + outer_where
             + f" ORDER BY ts DESC LIMIT {int(per_page)} OFFSET {int(offset)}"
         )
         rows = conn.execute(sql, params).fetchall()
+
+        # Resolve current prices for entered-and-still-open rows so we
+        # can show live unrealized P&L in the Filings table's Outcome
+        # column. Bounded to (per_page) lookups, hits the shared cache.
+        open_tickers = list({
+            r["ticker"] for r in rows
+            if r.get("alert_status") == "open" and r.get("ticker")
+        })
+        price_map = _fetch_current_prices(name, open_tickers, conn) if open_tickers else {}
+
         decisions = []
         for r in rows:
             d = dict(r)
@@ -511,13 +812,84 @@ def strategy_evaluations(
                     d["feature_snapshot"] = None
             else:
                 d["feature_snapshot"] = None
+            # Outcome shape — single dict consumed by the Filings table's
+            # Outcome column. open: unrealized P&L vs entry; closed:
+            # stored realized P&L; not_entered: terminal stage + reason.
+            d["outcome"] = _build_eval_outcome(d, price_map)
+            # dedup_rn is an implementation detail; the count is what's useful.
+            d.pop("dedup_rn", None)
             decisions.append(d)
     return {
         "page": page,
         "per_page": per_page,
         "total": total,
+        "dedup": dedup,
         "evaluations": decisions,
     }
+
+
+def _build_eval_outcome(d: dict, price_map: dict[str, dict]) -> dict:
+    """Compress an enriched evaluation row into a single Outcome shape.
+
+    Three branches:
+      not_entered → strategy rejected at some stage; surface terminal stage
+                    + reason from the corresponding *_reason column.
+      open        → entered and currently held; compute unrealized P&L
+                    using a live quote (fall through to None if missing).
+      closed      → entered and exited; use stored pnl_pct / pnl_dollar.
+    """
+    if not d.get("final_passed"):
+        stage = d.get("rejected_at")
+        reason_field_map = {
+            "dedup": "dedup_reason",
+            "filter": "filter_reason",
+            "pit_lookup": "pit_reason",
+            "min_10b5_1": "tenb51_reason",
+            "conviction": "conviction_reason",
+            "capacity": "capacity_reason",
+        }
+        reason = d.get(reason_field_map.get(stage or "", ""), "")
+        return {
+            "kind": "not_entered",
+            "rejected_at": stage,
+            "reason": reason,
+        }
+    status = d.get("alert_status")
+    if status == "open":
+        ticker = d.get("ticker")
+        quote = price_map.get(ticker) or {}
+        current_price = quote.get("price")
+        entry_price = float(d["alert_entry_price"]) if d.get("alert_entry_price") is not None else None
+        shares = int(d["alert_shares"] or 0) if d.get("alert_shares") is not None else 0
+        if current_price is not None and entry_price is not None:
+            pnl_pct = (current_price - entry_price) / entry_price
+            pnl_dollar = (current_price - entry_price) * shares
+        else:
+            pnl_pct = None
+            pnl_dollar = None
+        return {
+            "kind": "open",
+            "entry_price": entry_price,
+            "current_price": current_price,
+            "price_source": quote.get("source", "unavailable"),
+            "shares": shares,
+            "pnl_pct": pnl_pct,
+            "pnl_dollar": pnl_dollar,
+            "entry_date": d.get("alert_entry_date"),
+        }
+    if status == "closed":
+        return {
+            "kind": "closed",
+            "entry_price": float(d["alert_entry_price"]) if d.get("alert_entry_price") is not None else None,
+            "exit_price": float(d["alert_exit_price"]) if d.get("alert_exit_price") is not None else None,
+            "pnl_pct": float(d["alert_pnl_pct"]) if d.get("alert_pnl_pct") is not None else None,
+            "pnl_dollar": float(d["alert_pnl_dollar"]) if d.get("alert_pnl_dollar") is not None else None,
+            "exit_reason": d.get("alert_exit_reason"),
+        }
+    # final_passed=true but no matching strategy_portfolio row — historical
+    # rows from old code versions, or out-of-band cleanup. Mark as entered-
+    # but-untracked so the UI shows "✓ entered" without a P&L number.
+    return {"kind": "entered_untracked"}
 
 
 @router.get("/strategies/{name}/freshness")
@@ -529,6 +901,163 @@ def strategy_freshness(
     _strategy_or_404(name)
     with get_db() as conn:
         return {"strategy": name, "freshness": _freshness_for_strategy(conn, name)}
+
+
+def _build_position_rows(
+    rows: list,
+    strategy: str,
+    price_map: dict[str, dict],
+    today: _date,
+    is_closed: bool,
+) -> list[dict]:
+    """Shared shape for open + closed position rows. Includes P&L
+    (unrealized for open, realized for closed) and days_held /
+    trading_days_remaining (open only)."""
+    out: list[dict] = []
+    for r in rows:
+        d = dict(r)
+        ticker = d.get("ticker")
+        entry_price = float(d["entry_price"]) if d.get("entry_price") is not None else None
+        shares = int(d["shares"] or 0)
+        entry_date_str = d.get("entry_date")
+        try:
+            entry_d = _date.fromisoformat(entry_date_str) if entry_date_str else None
+        except Exception:
+            entry_d = None
+
+        row: dict = {
+            "id": d.get("id"),
+            "trade_id": d.get("trade_id"),
+            "ticker": ticker,
+            "insider_name": d.get("insider_name"),
+            "insider_title": d.get("insider_title"),
+            "signal_grade": d.get("signal_grade"),
+            "entry_date": entry_date_str,
+            "entry_price": entry_price,
+            "shares": shares,
+            "dollar_amount": float(d["dollar_amount"]) if d.get("dollar_amount") is not None else None,
+        }
+
+        if is_closed:
+            exit_price = float(d["exit_price"]) if d.get("exit_price") is not None else None
+            row["exit_date"] = d.get("exit_date")
+            row["exit_price"] = exit_price
+            row["exit_reason"] = d.get("exit_reason")
+            row["hold_days"] = int(d["hold_days"]) if d.get("hold_days") is not None else None
+            row["pnl_pct"] = float(d["pnl_pct"]) if d.get("pnl_pct") is not None else None
+            row["pnl_dollar"] = float(d["pnl_dollar"]) if d.get("pnl_dollar") is not None else None
+        else:
+            quote = price_map.get(ticker) or {}
+            current_price = quote.get("price")
+            row["current_price"] = current_price
+            row["current_price_at"] = quote.get("at")
+            row["price_source"] = quote.get("source", "unavailable")
+            if current_price is not None and entry_price is not None:
+                row["unrealized_pnl_pct"] = (current_price - entry_price) / entry_price
+                row["unrealized_pnl_dollar"] = (current_price - entry_price) * shares
+            else:
+                row["unrealized_pnl_pct"] = None
+                row["unrealized_pnl_dollar"] = None
+            row["days_held"] = (today - entry_d).days if entry_d else None
+            row["planned_exit_date"] = d.get("planned_exit_date")
+            try:
+                planned_d = _date.fromisoformat(d["planned_exit_date"]) if d.get("planned_exit_date") else None
+            except Exception:
+                planned_d = None
+            row["trading_days_remaining"] = (
+                _trading_days_between(today, planned_d) if planned_d else None
+            )
+
+        out.append(row)
+    return out
+
+
+@router.get("/strategies/{name}/positions")
+def strategy_positions(
+    name: str,
+    page: int = Query(1, ge=1, description="Closed positions page"),
+    per_page: int = Query(25, ge=1, le=200, description="Closed positions per page"),
+    user: UserContext = Depends(require_admin),
+):
+    """Open + paginated closed alert positions with P&L.
+
+    Open positions get a live current_price (Alpaca data API → daily_prices
+    fallback). Closed positions get stored realized P&L from
+    strategy_portfolio.
+
+    The `rules` block surfaces the strategy yaml's hold_days, stop_pct,
+    exit_strategy, etc. so the UI can render a "Strategy rules" header
+    band without re-deriving anything client-side.
+    """
+    _strategy_or_404(name)
+    rules = _read_strategy_rules(name)
+    today = datetime.now(timezone(timedelta(hours=-4))).date()
+    offset = (page - 1) * per_page
+
+    with get_db() as conn:
+        open_rows = conn.execute(
+            """SELECT id, ticker, entry_date, entry_price, shares, dollar_amount,
+                      insider_name, insider_title, signal_grade, trade_id,
+                      planned_exit_date
+                 FROM strategy_portfolio
+                WHERE strategy = ?
+                  AND execution_source IN ('alert','paper','live')
+                  AND status = 'open'
+                ORDER BY entry_date DESC, id DESC""",
+            (name,),
+        ).fetchall()
+
+        total_closed_row = conn.execute(
+            """SELECT COUNT(*) AS n
+                 FROM strategy_portfolio
+                WHERE strategy = ?
+                  AND execution_source IN ('alert','paper','live')
+                  AND status = 'closed'""",
+            (name,),
+        ).fetchone()
+        total_closed = int(total_closed_row["n"]) if total_closed_row else 0
+
+        closed_rows = conn.execute(
+            f"""SELECT id, ticker, entry_date, entry_price, exit_date, exit_price,
+                       shares, dollar_amount, insider_name, insider_title,
+                       signal_grade, trade_id, pnl_pct, pnl_dollar, exit_reason,
+                       hold_days
+                  FROM strategy_portfolio
+                 WHERE strategy = ?
+                   AND execution_source IN ('alert','paper','live')
+                   AND status = 'closed'
+                 ORDER BY exit_date DESC NULLS LAST, entry_date DESC, id DESC
+                 LIMIT {int(per_page)} OFFSET {int(offset)}""",
+            (name,),
+        ).fetchall()
+
+        # Fetch live prices for open positions
+        open_tickers = list({r["ticker"] for r in open_rows if r["ticker"]})
+        price_map = _fetch_current_prices(name, open_tickers, conn) if open_tickers else {}
+
+        open_positions = _build_position_rows(open_rows, name, price_map, today, is_closed=False)
+        closed_positions = _build_position_rows(closed_rows, name, {}, today, is_closed=True)
+
+    # Roll-ups
+    open_total_pnl = sum((p["unrealized_pnl_dollar"] or 0.0) for p in open_positions)
+    open_total_cost = sum((p["dollar_amount"] or 0.0) for p in open_positions)
+    return {
+        "strategy": name,
+        "rules": rules,
+        "open": {
+            "rows": open_positions,
+            "count": len(open_positions),
+            "total_cost": round(open_total_cost, 2),
+            "total_unrealized_pnl_dollar": round(open_total_pnl, 2),
+            "total_unrealized_pnl_pct": (open_total_pnl / open_total_cost) if open_total_cost > 0 else None,
+        },
+        "closed": {
+            "rows": closed_positions,
+            "page": page,
+            "per_page": per_page,
+            "total": total_closed,
+        },
+    }
 
 
 @router.get("/alerts")

@@ -59,6 +59,11 @@ class FreshnessContract:
     required_for: tuple[str, ...]   # strategies; '*' means all
     description: str
     populated_by: str
+    # When True (default), staleness ignores weekend + US market holiday hours.
+    # All current contracts are business-hours-driven (SEC publishes Mon-Fri;
+    # daily-prices, refresh-features, etc. all run on the market calendar).
+    # Set False only for a contract whose populator runs 7 days a week.
+    business_hours_only: bool = True
 
     def applies_to(self, strategy: str) -> bool:
         return "*" in self.required_for or strategy in self.required_for
@@ -97,6 +102,7 @@ class FreshnessRegistry:
                 required_for=tuple(spec.get("required_for", ["*"])),
                 description=spec.get("description", ""),
                 populated_by=spec.get("populated_by", ""),
+                business_hours_only=bool(spec.get("business_hours_only", True)),
             )
 
     def lookup(self, table: str, column: str) -> Optional[FreshnessContract]:
@@ -107,6 +113,53 @@ class FreshnessRegistry:
 
     def all(self) -> list[FreshnessContract]:
         return list(self._contracts.values())
+
+
+# ── Business-hours staleness ────────────────────────────────────────────────
+
+def business_age_hours(last_observed: datetime, now: Optional[datetime] = None) -> float:
+    """Hours elapsed since `last_observed`, treating non-trading days
+    (US weekends + NYSE holidays) as contributing zero hours.
+
+    Used by the admin freshness panel to avoid showing weekend-only gaps
+    as stale. A 50h gap that started Fri afternoon and ends Sun afternoon
+    has ~10h of business time elapsed — well within a 26h SLA.
+    """
+    if now is None:
+        now = datetime.now(timezone.utc)
+    if last_observed >= now:
+        return 0.0
+
+    # Import lazily — calendar module is heavy and only needed for the
+    # admin diagnostic endpoint, not for the runner halt path.
+    from framework.data.calendar import MarketCalendar
+    cal = MarketCalendar()
+
+    # We use ET dates for the trading-day check. The exact offset doesn't
+    # matter for whole-day weekend handling; small DST drift on the
+    # boundary hour is acceptable for an SLA-display metric.
+    ET = timezone(__import__("datetime").timedelta(hours=-4))
+    start_et = last_observed.astimezone(ET)
+    now_et = now.astimezone(ET)
+
+    total_hours = (now - last_observed).total_seconds() / 3600.0
+    if total_hours <= 0:
+        return 0.0
+
+    non_business_hours = 0.0
+    from datetime import datetime as _dt, time as _time, timedelta as _td
+    cursor_date = start_et.date()
+    end_date = now_et.date()
+    while cursor_date <= end_date:
+        if not cal.is_trading_day(cursor_date):
+            day_start = _dt.combine(cursor_date, _time.min, tzinfo=ET)
+            day_end = day_start + _td(days=1)
+            overlap_start = max(day_start, start_et)
+            overlap_end = min(day_end, now_et)
+            if overlap_end > overlap_start:
+                non_business_hours += (overlap_end - overlap_start).total_seconds() / 3600.0
+        cursor_date += _td(days=1)
+    return max(0.0, total_hours - non_business_hours)
 
 
 # ── Database lookup ─────────────────────────────────────────────────────────
