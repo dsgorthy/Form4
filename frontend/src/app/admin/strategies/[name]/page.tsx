@@ -180,6 +180,8 @@ interface OpenPositionRow {
   entry_price: number;
   shares: number;
   dollar_amount: number;
+  portfolio_value: number | null;
+  position_size_pct: number | null;
   current_price: number | null;
   current_price_at: string | null;
   price_source: string;
@@ -204,6 +206,8 @@ interface ClosedPositionRow {
   exit_price: number | null;
   shares: number;
   dollar_amount: number | null;
+  portfolio_value: number | null;
+  position_size_pct: number | null;
   pnl_pct: number | null;
   pnl_dollar: number | null;
   exit_reason: string | null;
@@ -443,6 +447,24 @@ function FreshnessSection({ rows }: { rows: FreshnessRow[] }) {
   );
 }
 
+function SizeCell({
+  dollarAmount, shares, pct,
+}: { dollarAmount: number | null; shares: number; pct: number | null }) {
+  if (dollarAmount == null) return <span className="text-[#55556A]">—</span>;
+  const k = dollarAmount >= 1000
+    ? `$${(dollarAmount / 1000).toFixed(1)}k`
+    : `$${dollarAmount.toFixed(0)}`;
+  return (
+    <span>
+      <span className="text-[#E8E8ED]">{k}</span>
+      <span className="ml-1 text-[#55556A]">({shares} sh)</span>
+      {pct != null && (
+        <span className="ml-1 text-[#8888A0]">· {(pct * 100).toFixed(1)}%</span>
+      )}
+    </span>
+  );
+}
+
 function ExecSourceBadge({ source }: { source: string | null }) {
   // Provenance per row: where this position originated.
   //   simulated → strategy_simulator (deterministic walk-forward replay)
@@ -553,6 +575,7 @@ function PositionsSection({
             <tr>
               <th className="py-2 pr-3">Ticker</th>
               <th className="pr-3">Src</th>
+              <th className="pr-3 text-right">Size</th>
               <th className="pr-3 text-right">Entry</th>
               <th className="pr-3 text-right">Now</th>
               <th className="pr-3 text-right">+/- %</th>
@@ -568,6 +591,9 @@ function PositionsSection({
               <tr key={p.id} className="border-t border-[#2A2A3A]/50 hover:bg-[#1A1A26]">
                 <td className="py-2 pr-3 font-mono font-bold text-[#E8E8ED]">{p.ticker}</td>
                 <td className="pr-3"><ExecSourceBadge source={p.execution_source} /></td>
+                <td className="pr-3 text-right font-mono text-xs">
+                  <SizeCell dollarAmount={p.dollar_amount} shares={p.shares} pct={p.position_size_pct} />
+                </td>
                 <td className="pr-3 text-right font-mono text-xs">${p.entry_price.toFixed(2)}</td>
                 <td className="pr-3 text-right font-mono text-xs">
                   {p.current_price != null ? `$${p.current_price.toFixed(2)}` : "—"}
@@ -579,9 +605,7 @@ function PositionsSection({
                   {p.unrealized_pnl_pct != null ? formatPctSigned(p.unrealized_pnl_pct) : "—"}
                 </td>
                 <td className={`pr-3 text-right font-mono text-xs ${(p.unrealized_pnl_dollar ?? 0) >= 0 ? "text-[#22C55E]" : "text-[#EF4444]"}`}>
-                  {p.unrealized_pnl_dollar != null
-                    ? `${formatDollarSigned(p.unrealized_pnl_dollar)} (${p.shares})`
-                    : "—"}
+                  {p.unrealized_pnl_dollar != null ? formatDollarSigned(p.unrealized_pnl_dollar) : "—"}
                 </td>
                 <td className="pr-3 text-xs text-[#8888A0]">{p.days_held != null ? `${p.days_held}d` : "—"}</td>
                 <td className="pr-3 text-xs text-[#8888A0]">
@@ -596,7 +620,7 @@ function PositionsSection({
             ))}
             {positions.open.rows.length === 0 && (
               <tr>
-                <td colSpan={10} className="py-4 text-center text-[#55556A] text-xs">No open positions.</td>
+                <td colSpan={11} className="py-4 text-center text-[#55556A] text-xs">No open positions.</td>
               </tr>
             )}
           </tbody>
@@ -628,6 +652,7 @@ function PositionsSection({
             <tr>
               <th className="py-2 pr-3">Ticker</th>
               <th className="pr-3">Src</th>
+              <th className="pr-3 text-right">Size</th>
               <th className="pr-3 text-right">Entry</th>
               <th className="pr-3 text-right">Exit</th>
               <th className="pr-3 text-right">+/- %</th>
@@ -643,6 +668,9 @@ function PositionsSection({
               <tr key={p.id} className="border-t border-[#2A2A3A]/50 hover:bg-[#1A1A26]">
                 <td className="py-2 pr-3 font-mono font-bold text-[#E8E8ED]">{p.ticker}</td>
                 <td className="pr-3"><ExecSourceBadge source={p.execution_source} /></td>
+                <td className="pr-3 text-right font-mono text-xs">
+                  <SizeCell dollarAmount={p.dollar_amount} shares={p.shares} pct={p.position_size_pct} />
+                </td>
                 <td className="pr-3 text-right font-mono text-xs">
                   {p.entry_price != null ? `$${p.entry_price.toFixed(2)}` : "—"}
                 </td>
@@ -663,7 +691,7 @@ function PositionsSection({
             ))}
             {positions.closed.rows.length === 0 && (
               <tr>
-                <td colSpan={10} className="py-4 text-center text-[#55556A] text-xs">No closed positions yet.</td>
+                <td colSpan={11} className="py-4 text-center text-[#55556A] text-xs">No closed positions yet.</td>
               </tr>
             )}
           </tbody>

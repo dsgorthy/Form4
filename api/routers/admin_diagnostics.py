@@ -913,10 +913,20 @@ def _build_position_rows(
     price_map: dict[str, dict],
     today: _date,
     is_closed: bool,
+    rules: Optional[dict] = None,
 ) -> list[dict]:
     """Shared shape for open + closed position rows. Includes P&L
-    (unrealized for open, realized for closed) and days_held /
-    trading_days_remaining (open only)."""
+    (unrealized for open, realized for closed), days_held /
+    trading_days_remaining (open only), and a portfolio-relative size
+    fraction so the UI can show "$18.6k · 10.0%" per row.
+
+    If the row's stored planned_exit_date is missing (the simulator
+    doesn't write it), we synthesize it from entry_date + rules.hold_days
+    via MarketCalendar — same formula cw_runner uses, so sim + alert rows
+    end up directionally consistent. trading_days_remaining is always
+    computed against this resolved planned exit.
+    """
+    hold_days = (rules or {}).get("hold_days")
     out: list[dict] = []
     for r in rows:
         d = dict(r)
@@ -929,6 +939,18 @@ def _build_position_rows(
         except Exception:
             entry_d = None
 
+        dollar_amount = float(d["dollar_amount"]) if d.get("dollar_amount") is not None else None
+        portfolio_value = float(d["portfolio_value"]) if d.get("portfolio_value") is not None else None
+        # % of portfolio at the time the position was sized. For sim rows
+        # portfolio_value happens to hold final equity (legacy simulator
+        # quirk) so this comes in slightly under 10% — the actual sizing
+        # at entry was 10% of entry-time equity. Either way, the relative
+        # ratio per row matches the strategy's position_size_pct target.
+        size_pct = (
+            dollar_amount / portfolio_value
+            if dollar_amount is not None and portfolio_value not in (None, 0)
+            else None
+        )
         row: dict = {
             "id": d.get("id"),
             "trade_id": d.get("trade_id"),
@@ -940,7 +962,9 @@ def _build_position_rows(
             "entry_date": entry_date_str,
             "entry_price": entry_price,
             "shares": shares,
-            "dollar_amount": float(d["dollar_amount"]) if d.get("dollar_amount") is not None else None,
+            "dollar_amount": dollar_amount,
+            "portfolio_value": portfolio_value,
+            "position_size_pct": size_pct,
         }
 
         if is_closed:
@@ -964,11 +988,21 @@ def _build_position_rows(
                 row["unrealized_pnl_pct"] = None
                 row["unrealized_pnl_dollar"] = None
             row["days_held"] = (today - entry_d).days if entry_d else None
-            row["planned_exit_date"] = d.get("planned_exit_date")
+            # Resolve planned_exit_date: prefer the stored value (cw_runner
+            # writes it correctly); fall back to entry_date + rules.hold_days
+            # trading days for sim rows where the simulator skips the column.
+            stored_planned = d.get("planned_exit_date")
             try:
-                planned_d = _date.fromisoformat(d["planned_exit_date"]) if d.get("planned_exit_date") else None
+                planned_d = _date.fromisoformat(stored_planned) if stored_planned else None
             except Exception:
                 planned_d = None
+            if planned_d is None and entry_d is not None and hold_days:
+                try:
+                    from framework.data.calendar import MarketCalendar
+                    planned_d = MarketCalendar().add_trading_days(entry_d, int(hold_days))
+                except Exception as exc:
+                    logger.debug("planned_exit synthesis failed for %s: %s", ticker, exc)
+            row["planned_exit_date"] = planned_d.isoformat() if planned_d else None
             row["trading_days_remaining"] = (
                 _trading_days_between(today, planned_d) if planned_d else None
             )
@@ -1008,7 +1042,7 @@ def strategy_positions(
         open_rows = conn.execute(
             """SELECT id, ticker, entry_date, entry_price, shares, dollar_amount,
                       insider_name, insider_title, signal_grade, trade_id,
-                      planned_exit_date, execution_source
+                      planned_exit_date, execution_source, portfolio_value
                  FROM strategy_portfolio
                 WHERE strategy = ?
                   AND COALESCE(is_live, false) = false
@@ -1031,7 +1065,7 @@ def strategy_positions(
             f"""SELECT id, ticker, entry_date, entry_price, exit_date, exit_price,
                        shares, dollar_amount, insider_name, insider_title,
                        signal_grade, trade_id, pnl_pct, pnl_dollar, exit_reason,
-                       hold_days, execution_source
+                       hold_days, execution_source, portfolio_value
                   FROM strategy_portfolio
                  WHERE strategy = ?
                    AND COALESCE(is_live, false) = false
@@ -1045,8 +1079,8 @@ def strategy_positions(
         open_tickers = list({r["ticker"] for r in open_rows if r["ticker"]})
         price_map = _fetch_current_prices(name, open_tickers, conn) if open_tickers else {}
 
-        open_positions = _build_position_rows(open_rows, name, price_map, today, is_closed=False)
-        closed_positions = _build_position_rows(closed_rows, name, {}, today, is_closed=True)
+        open_positions = _build_position_rows(open_rows, name, price_map, today, is_closed=False, rules=rules)
+        closed_positions = _build_position_rows(closed_rows, name, {}, today, is_closed=True, rules=rules)
 
     # Roll-ups
     open_total_pnl = sum((p["unrealized_pnl_dollar"] or 0.0) for p in open_positions)
