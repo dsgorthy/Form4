@@ -20,6 +20,11 @@ COPY api/ /app/api/
 COPY framework/ /app/framework/
 COPY config/ /app/config/
 
+# Strategy yamls — read by admin diagnostics (/strategies/{name}/positions
+# and the rules block on /strategies/{name}). Read-only at runtime; baked
+# in at build so a yaml edit triggers an API redeploy by design.
+COPY strategies/cw_strategies/configs/ /app/strategies/cw_strategies/configs/
+
 # Verify all modules import cleanly — catches syntax errors before deploy
 RUN python -c "import api.main" 2>&1 || (echo "IMPORT CHECK FAILED" && exit 1)
 
