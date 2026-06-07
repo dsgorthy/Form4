@@ -1332,60 +1332,9 @@ def pipelines_status(
     }
 
 
-# ── Drift audit (Stage 5 — sim-vs-live divergence) ─────────────────────────
-
-
-@router.get("/drift")
-def drift_audit(
-    strategy: Optional[str] = Query(default=None),
-    days: int = Query(default=7, ge=1, le=90),
-    user: UserContext = Depends(require_admin),
-) -> dict:
-    """Recent sim-vs-live drift events from strategy_drift_audit.
-
-    Each row is one (strategy, ticker, entry_date) divergence found by
-    scripts/drift_detector.py. Drift types:
-      - sim_only: simulator entered this trade; paper account didn't
-      - paper_only: paper account entered; simulator didn't pick it
-      - size_delta: both entered but dollar_amount differs >5%
-      - price_delta: both entered but entry_price differs >2%
-      - exit_delta: both closed but at different dates/prices
-    """
-    where_strategy = "AND strategy = ?" if strategy else ""
-    params = (days,)
-    if strategy:
-        params = (days, strategy)
-
-    with get_db() as conn:
-        # Summary by strategy + drift_type
-        summary = conn.execute(
-            f"""SELECT strategy, drift_type, severity, COUNT(*) AS n,
-                       MAX(ts) AS last_seen
-                FROM strategy_drift_audit
-                WHERE ts > NOW() - (? || ' days')::interval
-                  {where_strategy}
-                GROUP BY strategy, drift_type, severity
-                ORDER BY strategy, drift_type""",
-            params,
-        ).fetchall()
-
-        recent = conn.execute(
-            f"""SELECT id, ts, strategy, ticker, entry_date, drift_type,
-                       severity, sim_status, paper_status,
-                       sim_entry_price, paper_entry_price,
-                       sim_dollar_amount, paper_dollar_amount,
-                       sim_pnl_pct, paper_pnl_pct, notes
-                FROM strategy_drift_audit
-                WHERE ts > NOW() - (? || ' days')::interval
-                  {where_strategy}
-                ORDER BY ts DESC, id DESC
-                LIMIT 500""",
-            params,
-        ).fetchall()
-
-    return {
-        "checked_at": datetime.now(timezone.utc).isoformat(),
-        "window_days": days,
-        "summary": [dict(r) for r in summary],
-        "events": [dict(r) for r in recent],
-    }
+# Drift audit endpoint removed 2026-06-07. It read from strategy_drift_audit
+# which was populated by scripts/drift_detector.py comparing sim_portfolio
+# vs paper_trades — two tables that never received post-backfill writes.
+# Every drift event was a false positive against a stale snapshot.
+# Consolidated to strategy_portfolio as the single source; see migration
+# 2026-06-07_consolidate_to_strategy_portfolio.sql.

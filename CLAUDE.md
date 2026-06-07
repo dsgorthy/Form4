@@ -85,33 +85,32 @@ reports/                    # Board reports, backtest results, sweep CSVs
 migrations/                  # SQL migrations (applied via psql -f, NOT auto-run)
 ```
 
-## Architecture in flight (2026-05-22 refactor)
+## Position state — single canonical table
 
-The codebase is mid-refactor. Read `project_2026-05-22_architectural_refactor.md`
-in Claude memory for the full plan. Snapshot:
+All position state lives in **`strategy_portfolio`**. Discriminated by:
+- `is_live boolean` — false for non-real-money rows
+- `execution_source text` — `backtest | simulated | alert | paper | live`
 
-- **Stages 0-1**: ✅ done. Daily simulator no longer dups rows; ingestion isolation verified.
-- **Stage 2 (foundation done, cutover deferred)**: `sim_portfolio`, `paper_trades`,
-  `live_trades`, `backtest_archive` tables created and backfilled. Old
-  `strategy_portfolio` still authoritative for now — every writer/reader
-  must continue to use it until cutover. New tables are advisory.
+Readers (e.g. `/portfolio`, `/admin/strategies/{name}/positions`,
+`/paper-trading/dashboard`) filter on these two columns. There is no
+sim/paper/live split table — the 2026-05-22 Stage 2 refactor created
+`sim_portfolio`/`paper_trades`/`live_trades`/`backtest_archive` as
+side tables, never reached cutover, and was rolled back 2026-06-07
+(migration `2026-06-07_consolidate_to_strategy_portfolio.sql`). The
+drift detector (Stage 5) was removed in the same change since there's
+no longer anything to compare across tables.
+
+What did survive from the refactor:
+- **Stages 0-1**: simulator dup fix + Studio-only launchd guard.
 - **Stage 2.5**: ✅ `pipeline_runs` table + `framework.observability.pipeline_run()`
-  context manager. New batch jobs should wrap their entry point in it; over time,
-  retrofit existing services. Surfaces at `/admin/pipelines`.
-- **Stage 3 (scaffold)**: `framework/decision/` exists with shared `evaluate_filters`
-  + dataclass contracts. cw_runner has NOT been migrated yet — it still has
-  inline SQL filter logic. New decision logic SHOULD go in `framework/decision/`.
-- **Stage 4 (scaffold)**: `framework/execution/service.py` exists with the
-  ExecutionService contract + deterministic client_order_id. cw_runner has NOT
-  been refactored to use it — it still calls Alpaca inline.
-- **Stage 5**: ✅ `scripts/drift_detector.py` runs daily at 08:00 PT,
-  compares sim_portfolio vs paper trades, writes to `strategy_drift_audit`.
-  Surfaces at `/admin/drift`.
-- **Stage 6**: ✅ frontend pages live for `/admin/pipelines` and `/admin/drift`.
+  context manager. New batch jobs wrap their entry point in it. Surfaces at
+  `/admin/pipelines`.
+- **Stage 3 (scaffold)**: `framework/decision/` has shared `evaluate_filters`
+  + dataclass contracts. cw_runner still has inline filter logic. New
+  decision logic should land here when extracting shared paths.
 
 When touching cw_runner or simulate_strategy_portfolio, prefer to extract
-shared logic into `framework/decision/` rather than reimplementing in place —
-that's how the remaining drift surfaces get closed.
+shared logic into `framework/decision/` rather than reimplementing in place.
 
 ## Commands
 

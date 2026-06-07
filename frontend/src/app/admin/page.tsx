@@ -15,11 +15,6 @@ const SECTIONS = [
     description: "Structured run history (start/end/status/duration/rows) for every batch job that adopts framework.observability.pipeline_run().",
   },
   {
-    href: "/admin/drift",
-    label: "Sim vs Paper Drift",
-    description: "Every (strategy, ticker, entry_date) where the simulator and the paper account disagree. Recorded daily by drift_detector.",
-  },
-  {
     href: "/admin/jobs",
     label: "System Jobs",
     description: "Real-time launchd job health (log-mtime based). Pre-pipeline_runs source of truth for services not yet instrumented.",
