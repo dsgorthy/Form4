@@ -1,0 +1,22 @@
+name: 'pyrrho_dataplane'
+version: '0.1.0'
+config-version: 2
+
+profile: 'pyrrho_dataplane'
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+snapshot-paths: ["snapshots"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+analysis-paths: ["analyses"]
+
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  pyrrho_dataplane:
+    +materialized: table
+    +schema: dataplane_marts

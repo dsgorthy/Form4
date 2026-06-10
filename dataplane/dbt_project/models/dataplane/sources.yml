@@ -1,0 +1,29 @@
+version: 2
+
+sources:
+  - name: dataplane
+    description: "Source tables managed by Sqitch migrations in dataplane/sqitch/"
+    schema: public
+    tables:
+      - name: signal_definitions
+        description: "The signal catalog. One row per (signal_id, version)."
+        columns:
+          - name: signal_id
+            tests: [not_null]
+          - name: version
+            tests: [not_null]
+          - name: owner
+            tests: [not_null]
+          - name: sla_hours
+            tests: [not_null]
+      - name: signal_observations
+        description: "Every signal computation lands here keyed by (signal_id, ticker, as_of_date)."
+        columns:
+          - name: signal_id
+            tests: [not_null]
+          - name: ticker
+            tests: [not_null]
+          - name: as_of_date
+            tests: [not_null]
+          - name: value
+            tests: [not_null]

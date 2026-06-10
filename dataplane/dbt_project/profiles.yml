@@ -1,0 +1,26 @@
+pyrrho_dataplane:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      # Postgres 17 on Studio uses peer auth on /tmp socket — empty
+      # host string in psycopg, but dbt-postgres wants an explicit host;
+      # /tmp is the socket directory on Studio (matches form4 + pyrrho).
+      host: /tmp
+      user: derekg
+      password: ""
+      port: 5432
+      dbname: pyrrho_data_dev
+      schema: dataplane_marts
+      threads: 4
+      keepalives_idle: 0
+    prod:
+      type: postgres
+      host: /tmp
+      user: derekg
+      password: ""
+      port: 5432
+      dbname: pyrrho_data_prod
+      schema: dataplane_marts
+      threads: 4
+      keepalives_idle: 0

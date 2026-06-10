@@ -1,0 +1,51 @@
+# Dagster instance configuration.
+# Set DAGSTER_HOME to the directory containing this file.
+#
+# Default DAGSTER_HOME for the operator workflow:
+#   /Users/derekg/dataplane_dagster_home/
+
+storage:
+  postgres:
+    postgres_db:
+      hostname: localhost
+      username: derekg
+      db_name: dagster_runs
+      port: 5432
+
+run_storage:
+  module: dagster_postgres.run_storage
+  class: PostgresRunStorage
+  config:
+    postgres_db:
+      hostname: localhost
+      username: derekg
+      db_name: dagster_runs
+      port: 5432
+
+event_log_storage:
+  module: dagster_postgres.event_log
+  class: PostgresEventLogStorage
+  config:
+    postgres_db:
+      hostname: localhost
+      username: derekg
+      db_name: dagster_runs
+      port: 5432
+
+schedule_storage:
+  module: dagster_postgres.schedule_storage
+  class: PostgresScheduleStorage
+  config:
+    postgres_db:
+      hostname: localhost
+      username: derekg
+      db_name: dagster_runs
+      port: 5432
+
+# Local concurrency caps so Dagster doesn't fan out beyond a healthy
+# saturation point on Studio (which also runs Form4, pyrrho, etc.).
+run_coordinator:
+  module: dagster.core.run_coordinator
+  class: QueuedRunCoordinator
+  config:
+    max_concurrent_runs: 4

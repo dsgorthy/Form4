@@ -1,0 +1,25 @@
+[project]
+name = "pyrrho-dataplane"
+version = "0.1.0"
+description = "Pyrrho data plane — modular alt-data ingestion + PIT-correct signal pipelines"
+requires-python = ">=3.11"
+dependencies = [
+    "psycopg2-binary>=2.9",
+    "dagster>=1.13",
+    "dagster-postgres>=0.27",
+    "dagster-dbt>=0.27",
+    "dbt-core>=1.11",
+    "dbt-postgres>=1.10",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["dataplane*", "dagster_project*", "signals*"]
+exclude = ["tests*", "dbt_project*"]
+
+[tool.dagster]
+module_name = "dagster_project.definitions"
