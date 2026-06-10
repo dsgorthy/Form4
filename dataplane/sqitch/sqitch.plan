@@ -1,0 +1,8 @@
+%syntax-version=1.0.0
+%project=pyrrho_dataplane
+%uri=https://github.com/dsgorthy/pyrrho-dataplane
+
+create_signal_classes_enum 2026-06-10T18:00:00Z Derek Gorthy <derek@sidequestgroup.com> # Signal class enum: price, volume, insider, options_flow, fundamental, analyst, sentiment, congress, earnings, macro, composite
+create_signal_definitions [create_signal_classes_enum] 2026-06-10T18:00:00Z Derek Gorthy <derek@sidequestgroup.com> # signal_definitions catalog: id+version+owner+upstream+SLA+lifecycle
+create_signal_observations [create_signal_definitions] 2026-06-10T18:00:00Z Derek Gorthy <derek@sidequestgroup.com> # signal_observations: canonical (signal_id, ticker, as_of_date) → value rows
+create_signal_indexes [create_signal_observations] 2026-06-10T18:00:00Z Derek Gorthy <derek@sidequestgroup.com> # Performance indexes for ticker/time/run-id query patterns
