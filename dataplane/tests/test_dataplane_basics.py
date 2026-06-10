@@ -213,3 +213,68 @@ class TestPITTestCase:
     def test_rejects_naive_datetime(self):
         with pytest.raises(ValueError, match="timezone-aware"):
             PITTestCase(ticker="AAPL", as_of=datetime(2026, 1, 1))
+
+
+# ── Materialization modes ───────────────────────────────────────────────
+
+class TestMaterializationMode:
+    def test_default_is_per_ticker_per_day(self):
+        class S(Signal):
+            signal_id = "test.foo"
+            version = "v1"
+            owner = "x"
+            sla_hours = 1
+
+            def compute(self, ticker, as_of):
+                return self.observation(ticker, as_of, value=1.0)
+
+        assert S.materialization_mode == "per_ticker_per_day"
+
+    def test_per_partition_events_accepted(self):
+        class S(Signal):
+            signal_id = "test.raw"
+            version = "v1"
+            owner = "x"
+            sla_hours = 1
+            materialization_mode = "per_partition_events"
+
+            def materialize_partition(self, partition_date):
+                return []
+
+        assert S.materialization_mode == "per_partition_events"
+
+    def test_invalid_mode_rejected(self):
+        with pytest.raises(TypeError, match="materialization_mode"):
+            class S(Signal):
+                signal_id = "test.bad"
+                version = "v1"
+                owner = "x"
+                sla_hours = 1
+                materialization_mode = "nonsense"
+
+    def test_unimplemented_compute_raises(self):
+        class S(Signal):
+            signal_id = "test.raw"
+            version = "v1"
+            owner = "x"
+            sla_hours = 1
+            materialization_mode = "per_partition_events"
+
+            def materialize_partition(self, partition_date):
+                return []
+
+        with pytest.raises(NotImplementedError, match="compute"):
+            S().compute("AAPL", datetime.now(timezone.utc))
+
+    def test_unimplemented_materialize_partition_raises(self):
+        class S(Signal):
+            signal_id = "test.derived"
+            version = "v1"
+            owner = "x"
+            sla_hours = 1
+
+            def compute(self, ticker, as_of):
+                return self.observation(ticker, as_of, value=1.0)
+
+        with pytest.raises(NotImplementedError, match="materialize_partition"):
+            S().materialize_partition(datetime.now(timezone.utc))

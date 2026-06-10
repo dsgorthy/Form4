@@ -90,9 +90,16 @@ def _signal_asset_key(cls: Type[Signal]) -> AssetKey:
 
 def _make_signal_asset(cls: Type[Signal]):
     """Create a Dagster asset that materializes one Signal for one day's
-    partition, computing every ticker in DEFAULT_TICKERS."""
+    partition. Dispatches on the Signal's materialization_mode:
 
-    @asset(
+      per_ticker_per_day (default) → iterate DEFAULT_TICKERS, call
+                                     compute(ticker, as_of) per ticker
+      per_partition_events          → call materialize_partition(date) once,
+                                     write the returned list of observations
+    """
+
+    mode = cls.materialization_mode
+    common_kwargs = dict(
         key=_signal_asset_key(cls),
         partitions_def=daily_partitions,
         description=cls.description or cls.__doc__ or cls.signal_id,
@@ -103,20 +110,58 @@ def _make_signal_asset(cls: Type[Signal]):
             "version": cls.version,
             "owner": cls.owner,
             "sla_hours": cls.sla_hours,
+            "materialization_mode": mode,
         },
     )
+
+    if mode == "per_partition_events":
+        @asset(**common_kwargs)
+        def _materialize(
+            context: AssetExecutionContext,
+            dataplane_conn: PostgresResource,
+        ) -> MaterializeResult:
+            partition_date = context.partition_key
+            as_of = datetime.fromisoformat(partition_date).replace(tzinfo=timezone.utc)
+            with dataplane_conn.connection() as conn:
+                register(conn, cls)
+                signal = cls(conn=conn)
+                observations = signal.materialize_partition(as_of)
+                n_written = 0
+                n_errors = 0
+                errors_sample = []
+                tickers_seen = set()
+                for obs in observations:
+                    try:
+                        write_observation(conn, obs)
+                        n_written += 1
+                        tickers_seen.add(obs.ticker)
+                    except Exception as exc:  # noqa: BLE001
+                        n_errors += 1
+                        if len(errors_sample) < 5:
+                            errors_sample.append(f"{obs.ticker}/{obs.as_of_date}: {exc}")
+            return MaterializeResult(
+                metadata={
+                    "events_returned": MetadataValue.int(len(observations)),
+                    "written": MetadataValue.int(n_written),
+                    "distinct_tickers": MetadataValue.int(len(tickers_seen)),
+                    "errors": MetadataValue.int(n_errors),
+                    "error_sample": MetadataValue.md("\n".join(errors_sample) or "—"),
+                    "partition": MetadataValue.text(partition_date),
+                }
+            )
+        _materialize.__name__ = f"materialize_events_{cls.signal_id.replace('.', '_')}"
+        return _materialize
+
+    # Default: per_ticker_per_day
+    @asset(**common_kwargs)
     def _materialize(
         context: AssetExecutionContext,
         dataplane_conn: PostgresResource,
     ) -> MaterializeResult:
-        # Partition key like "2026-06-10" → as_of midnight UTC on that day.
         partition_date = context.partition_key
         as_of = datetime.fromisoformat(partition_date).replace(tzinfo=timezone.utc)
-
         with dataplane_conn.connection() as conn:
-            # Register the signal in the catalog on every run — idempotent.
             register(conn, cls)
-
             signal = cls(conn=conn)
             n_written = 0
             n_errors = 0
@@ -126,20 +171,19 @@ def _make_signal_asset(cls: Type[Signal]):
                     obs = signal.compute(ticker, as_of)
                     write_observation(conn, obs)
                     n_written += 1
-                except Exception as exc:  # noqa: BLE001 — error tolerance per ticker
+                except Exception as exc:  # noqa: BLE001
                     n_errors += 1
                     if len(errors_sample) < 5:
                         errors_sample.append(f"{ticker}: {exc}")
-            return MaterializeResult(
-                metadata={
-                    "tickers": MetadataValue.int(len(DEFAULT_TICKERS)),
-                    "written": MetadataValue.int(n_written),
-                    "errors": MetadataValue.int(n_errors),
-                    "error_sample": MetadataValue.md("\n".join(errors_sample) or "—"),
-                    "partition": MetadataValue.text(partition_date),
-                }
-            )
-
+        return MaterializeResult(
+            metadata={
+                "tickers": MetadataValue.int(len(DEFAULT_TICKERS)),
+                "written": MetadataValue.int(n_written),
+                "errors": MetadataValue.int(n_errors),
+                "error_sample": MetadataValue.md("\n".join(errors_sample) or "—"),
+                "partition": MetadataValue.text(partition_date),
+            }
+        )
     _materialize.__name__ = f"materialize_{cls.signal_id.replace('.', '_')}"
     return _materialize
 

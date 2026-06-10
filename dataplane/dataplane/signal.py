@@ -19,7 +19,6 @@ Optional:
 """
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Any, ClassVar, List, Optional
 from uuid import UUID, uuid4
@@ -29,7 +28,7 @@ from dataplane.pit import PITViolationError
 from dataplane.upstream import Upstream
 
 
-class Signal(ABC):
+class Signal:
     """Base class for all signals. See module docstring for the contract."""
 
     # Class-level metadata. Subclass MUST set; __init_subclass__ enforces.
@@ -41,6 +40,16 @@ class Signal(ABC):
     output_schema: ClassVar[dict] = {}
     business_hours_only: ClassVar[bool] = True
     description: ClassVar[str] = ""
+
+    # Materialization mode:
+    #   "per_ticker_per_day" (default) → compute(ticker, as_of) → one obs
+    #   "per_partition_events" → materialize_partition(partition_date) →
+    #                            list[obs] with as_of_date = event timestamps
+    # The per_partition_events mode handles raw event streams where many
+    # observations land on the same calendar day for the same ticker (Form 4
+    # filings, options ticks, news items). Each event gets a precise
+    # timestamp so (signal_id, ticker, as_of_date) stays unique.
+    materialization_mode: ClassVar[str] = "per_ticker_per_day"
 
     def __init_subclass__(cls, **kwargs):
         """Validate that subclass declared the required class attributes.
@@ -63,6 +72,12 @@ class Signal(ABC):
                 f"{cls.__name__}.upstream must be a list of Upstream; "
                 f"got {type(cls.upstream).__name__}"
             )
+        valid_modes = ("per_ticker_per_day", "per_partition_events")
+        if cls.materialization_mode not in valid_modes:
+            raise TypeError(
+                f"{cls.__name__}.materialization_mode must be one of {valid_modes}; "
+                f"got {cls.materialization_mode!r}"
+            )
 
     def __init__(self, conn=None):
         # Per-instance run state. A Signal is cheap to instantiate; one per
@@ -74,10 +89,30 @@ class Signal(ABC):
 
     # ── Subclass entry point ────────────────────────────────────────────
 
-    @abstractmethod
     def compute(self, ticker: str, as_of: datetime) -> SignalObservation:
-        """Compute the signal for one (ticker, as_of). Decorate with @PIT.strict."""
-        ...
+        """Per-ticker-per-day signals: implement this.
+
+        Default raises NotImplementedError so per_partition_events signals
+        don't accidentally get called via this path. Decorate with @PIT.strict.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} did not implement compute(). If this is "
+            f"a per_partition_events signal, implement materialize_partition() "
+            f"instead."
+        )
+
+    def materialize_partition(self, partition_date: datetime) -> list:
+        """Per-partition-events signals: implement this. Returns
+        list[SignalObservation], one per event landing on partition_date,
+        each with as_of_date set to its own event timestamp.
+
+        Per_ticker_per_day signals don't override this; the framework's
+        asset wrapper routes to compute() instead.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} did not implement materialize_partition(). "
+            f"If this is a per_ticker_per_day signal, implement compute() instead."
+        )
 
     @classmethod
     def test_cases(cls) -> list:
