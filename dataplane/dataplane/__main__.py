@@ -13,6 +13,7 @@ from typing import List, Optional, Sequence
 
 from dataplane.backfill import PartitionResult, backfill
 from dataplane.discovery import DEFAULT_TICKERS, discover_signal_classes
+from dataplane.parity import DEFAULT_KEY_FIELDS, compare as parity_compare
 
 
 def _parse_tickers(spec: Optional[str]) -> Optional[List[str]]:
@@ -70,6 +71,47 @@ def _cmd_backfill(args: argparse.Namespace) -> int:
         f"{result.total_errors} errors total"
     )
     return 0 if result.total_errors == 0 else 1
+
+
+def _cmd_parity(args: argparse.Namespace) -> int:
+    key_fields = (
+        tuple(k.strip() for k in args.key.split(",") if k.strip())
+        if args.key
+        else DEFAULT_KEY_FIELDS
+    )
+    result = parity_compare(
+        signal_a=args.signal_a,
+        signal_b=args.signal_b,
+        from_date=args.from_date,
+        to_date=args.to_date,
+        key_fields=key_fields,
+    )
+    print(
+        f"parity {result.signal_a} vs {result.signal_b}  "
+        f"[{result.from_date} → {result.to_date}]"
+    )
+    print(f"  key fields:   {', '.join(result.key_fields)}")
+    print(f"  rows in A:    {result.count_a:>8,}")
+    print(f"  rows in B:    {result.count_b:>8,}")
+    print(f"  matched:      {result.matched:>8,}")
+    print(f"  only in A:    {result.only_in_a:>8,}")
+    print(f"  only in B:    {result.only_in_b:>8,}")
+    if result.count_a and result.count_b:
+        coverage_a = 100 * result.matched / result.count_a
+        coverage_b = 100 * result.matched / result.count_b
+        print(
+            f"  coverage:     A→{coverage_a:5.1f}%   B→{coverage_b:5.1f}%"
+        )
+    if result.sample_only_in_a:
+        print("  --- sample only in A ---")
+        for row in result.sample_only_in_a:
+            print(f"    {row}")
+    if result.sample_only_in_b:
+        print("  --- sample only in B ---")
+        for row in result.sample_only_in_b:
+            print(f"    {row}")
+    # Exit nonzero if either side has unmatched rows — caller can gate cutover.
+    return 0 if (result.only_in_a == 0 and result.only_in_b == 0) else 1
 
 
 def _cmd_list(args: argparse.Namespace) -> int:
@@ -132,6 +174,23 @@ def build_parser() -> argparse.ArgumentParser:
 
     pl = sub.add_parser("list", help="List discovered signals.")
     pl.set_defaults(func=_cmd_list)
+
+    pp = sub.add_parser(
+        "parity",
+        help="Diff two signals' observations on a fingerprint join key.",
+    )
+    pp.add_argument("signal_a", help="signal_id of the new/candidate signal")
+    pp.add_argument("signal_b", help="signal_id of the baseline signal")
+    pp.add_argument("--from", dest="from_date", required=True)
+    pp.add_argument("--to", dest="to_date", required=True)
+    pp.add_argument(
+        "--key",
+        help=(
+            "comma-separated JSON value fields to join on "
+            f"(default: {','.join(DEFAULT_KEY_FIELDS)})"
+        ),
+    )
+    pp.set_defaults(func=_cmd_parity)
 
     return p
 
