@@ -1,0 +1,9 @@
+# Dagster workspace — tells dagster-webserver + dagster-daemon where the
+# code location lives. Installed to $DAGSTER_HOME/workspace.yaml by
+# install_dagster_services.sh; both services run with cwd=$DAGSTER_HOME
+# and pick this up automatically.
+load_from:
+  - python_module:
+      module_name: dagster_project.definitions
+      executable_path: /Users/derekg/dataplane_venv/bin/python
+      working_directory: /Users/derekg/trading-framework/dataplane
