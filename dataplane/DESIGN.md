@@ -49,7 +49,7 @@ no user-facing expression DSL until the product is multi-user.
   ── orchestration rail ──────────────────────────────────────────────
   Dagster: daily_signals job 04:30 UTC · dbt_marts 05:00 UTC ·
   run_failure_sensor → ntfy · daemon+webserver launchd on Studio
-  (UI tailnet-only 100.78.9.66:3000) · run history in dagster_runs PG
+  (UI tailnet-only 100.78.9.66:3030) · run history in dagster_runs PG
 ```
 
 ## Storage schema

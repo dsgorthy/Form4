@@ -13,7 +13,7 @@
   <array>
     <string>/bin/bash</string>
     <string>-c</string>
-    <string>set -a; . /Users/derekg/trading-framework/.env 2>/dev/null || true; set +a; exec /Users/derekg/dataplane_venv/bin/dagster-webserver -h 100.78.9.66 -p 3000</string>
+    <string>set -a; . /Users/derekg/trading-framework/.env 2>/dev/null || true; set +a; exec /Users/derekg/dataplane_venv/bin/dagster-webserver -h 100.78.9.66 -p 3030</string>
   </array>
 
   <!-- cwd must be DAGSTER_HOME: webserver reads workspace.yaml from cwd. -->

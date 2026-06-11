@@ -14,7 +14,7 @@ REPO=/Users/derekg/trading-framework
 VENV=/Users/derekg/dataplane_venv
 LA="$HOME/Library/LaunchAgents"
 DEPLOY="$REPO/dataplane/deploy"
-UI_PORT=3000
+UI_PORT=3030
 
 # ── Sanity checks ────────────────────────────────────────────────────
 [ -x "$VENV/bin/dagster-daemon" ]    || { echo "FATAL: $VENV/bin/dagster-daemon missing"; exit 1; }
