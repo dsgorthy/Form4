@@ -212,9 +212,14 @@ Conveniently this needs **zero new raw feeds** — all three inputs exist.
 | Signal contract + PIT machinery + 21 tests | built |
 | Signals: trades.raw, career_grade (form4 bridge), price.daily.close | built |
 | Dagster auto-discovery, daily partitions, Postgres instance | built |
-| Schedules (04:30/05:00 UTC) + failure→ntfy + launchd services | built, install staged |
+| Schedules (04:30/05:00 UTC) + failure→ntfy + launchd services (UI 3030) | built, installed on Studio |
 | dbt marts (latest_signal_per_ticker, signal_catalog_active) | built, thin |
-| Backfill CLI, lookback read, StrategySignal, strategy YAML | M1 |
+| Backfill CLI (`python3 -m dataplane backfill/list`) | built |
+| insider.filings.raw (direct EDGAR, parser reused from form4) | built |
+| Parity CLI (`python3 -m dataplane parity`) | built |
+| Parity baseline (1 day, ~92-96%) — see memory for path to ≥99.5% | done |
+| lookback read, StrategySignal, strategy YAML | M1 |
+| Retire form4 bridge (insider.trades.raw.v1) once parity holds 30d | gated |
 | 5-min sensors, asset-sensor chaining | M2 |
 | cluster_buys + second strategy | M3 |
 | SLA probe → ntfy, /admin/signals, CI, Sqitch prod target | planned |
