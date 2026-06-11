@@ -125,6 +125,7 @@ class InsiderFilingsRawV1(Signal):
                 event_ts = _disambiguate(base_ts, accession, idx)
 
                 payload = _serializable(trade)
+                payload["accession"] = accession
                 payload["accepted_at"] = accepted_at
 
                 observations.append(SignalObservation(

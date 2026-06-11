@@ -57,10 +57,20 @@ class ParityResult:
 
 def _fingerprints(conn, signal_id: str, from_date: str, to_date: str,
                   key_fields: Sequence[str]) -> List[tuple]:
-    """Return (key_tuple,) rows for a signal in the date range."""
-    extract = ", ".join(f"value->>{repr(k)}" for k in key_fields)
+    """Return one fingerprint tuple per observation in the date range.
+
+    `ticker` is special — both signals carry it as a top-level column, not
+    in the JSON value. Every other field comes from value->>'<name>'.
+    """
+    columns = []
+    for k in key_fields:
+        if k == "ticker":
+            columns.append("ticker")
+        else:
+            columns.append(f"value->>{repr(k)}")
+    select_list = ", ".join(columns)
     sql = f"""
-        SELECT ticker, {extract}
+        SELECT {select_list}
           FROM signal_observations
          WHERE signal_id LIKE %s
            AND as_of_date >= %s::date
@@ -69,11 +79,10 @@ def _fingerprints(conn, signal_id: str, from_date: str, to_date: str,
     cur = conn.cursor()
     try:
         cur.execute(sql, (f"{signal_id}%", from_date, to_date))
-        # Reduce each row to a homogenous tuple. Convert null -> "" to make
-        # set membership deterministic.
         rows = cur.fetchall()
     finally:
         cur.close()
+    # Null → "" so set membership is deterministic across signals.
     return [tuple((v if v is not None else "") for v in r) for r in rows]
 
 
