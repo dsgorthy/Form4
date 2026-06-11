@@ -60,7 +60,7 @@ daily_signals_job = define_asset_job(
 daily_signals_schedule = build_schedule_from_partitioned_job(
     daily_signals_job,
     hour_of_day=4,
-    minute_of_day=30,
+    minute_of_hour=30,
     default_status=DefaultScheduleStatus.RUNNING,
 )
 
