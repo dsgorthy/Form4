@@ -4,14 +4,6 @@
 # Default DAGSTER_HOME for the operator workflow:
 #   /Users/derekg/dataplane_dagster_home/
 
-storage:
-  postgres:
-    postgres_db:
-      hostname: localhost
-      username: derekg
-      db_name: dagster_runs
-      port: 5432
-
 run_storage:
   module: dagster_postgres.run_storage
   class: PostgresRunStorage
