@@ -13,11 +13,8 @@ annotations`. Dagster validates the asset compute function's `context`
 parameter annotation at decoration time, and string-form annotations
 break that validation.
 """
-import importlib
-import inspect
-import pkgutil
 from datetime import datetime, timezone
-from typing import List, Type
+from typing import Type
 
 from dagster import (
     AssetExecutionContext,
@@ -28,9 +25,9 @@ from dagster import (
     asset,
 )
 
-import signals as signals_pkg
 from dataplane import Signal
 from dataplane.catalog import register, write_observation
+from dataplane.discovery import DEFAULT_TICKERS, discover_signal_classes
 
 from dagster_project.resources import PostgresResource
 
@@ -38,43 +35,6 @@ from dagster_project.resources import PostgresResource
 # Stable starting point for the dataplane's daily partitions. Plenty of
 # room for historical backfill once the lake is online.
 PARTITION_START = "2020-01-01"
-
-# Conservative default ticker universe. Override per-asset via config or
-# extend by editing this list. Backfill jobs can supply a custom list.
-DEFAULT_TICKERS: List[str] = [
-    "SPY", "QQQ", "IWM",
-    "AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "TSLA",
-    "AMD", "AVGO", "ADBE", "NFLX", "INTC",
-    "JPM", "BAC", "WFC", "GS",
-    "JNJ", "PFE", "MRK", "LLY",
-    "XOM", "CVX",
-    "BRK.B", "V", "MA", "HD", "WMT", "PG",
-]
-
-
-# ── Discovery ────────────────────────────────────────────────────────
-
-def discover_signal_classes() -> List[Type[Signal]]:
-    """Walk the signals/ package and return every concrete Signal subclass."""
-    found: List[Type[Signal]] = []
-    for _, modname, _ in pkgutil.walk_packages(
-        signals_pkg.__path__, prefix=f"{signals_pkg.__name__}."
-    ):
-        try:
-            mod = importlib.import_module(modname)
-        except Exception:  # pragma: no cover — import failures get surfaced as bad assets
-            continue
-        for _, cls in inspect.getmembers(mod, inspect.isclass):
-            if cls is Signal:
-                continue
-            if not issubclass(cls, Signal):
-                continue
-            if getattr(cls, "_dataplane_abstract", False):
-                continue
-            # de-duplicate (re-imports happen via from-imports)
-            if cls.signal_id and cls.version and cls not in found:
-                found.append(cls)
-    return found
 
 
 # ── Asset factory ────────────────────────────────────────────────────
