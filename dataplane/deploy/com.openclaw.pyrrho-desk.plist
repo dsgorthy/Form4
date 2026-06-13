@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.openclaw.pyrrho-desk</string>
+
+  <!-- Tailnet-only bind; no auth on this page. KeepAlive retries until
+       tailscaled is up at boot, same pattern as the Dagster webserver. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-c</string>
+    <string>set -a; . /Users/derekg/trading-framework/.env 2>/dev/null || true; set +a; exec /Users/derekg/dataplane_venv/bin/python -m dataplane.desk --host 100.78.9.66 --port 3031</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/derekg/trading-framework/dataplane</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PYRRHO_DATAPLANE_DSN</key>
+    <string>dbname=pyrrho_data_dev host=localhost</string>
+    <key>DAGSTER_RUNS_DSN</key>
+    <string>dbname=dagster_runs host=localhost</string>
+    <key>PATH</key>
+    <string>/Users/derekg/dataplane_venv/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+
+  <key>StandardOutPath</key>
+  <string>/Users/derekg/dataplane_dagster_home/logs/pyrrho-desk.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/derekg/dataplane_dagster_home/logs/pyrrho-desk.err</string>
+</dict>
+</plist>
