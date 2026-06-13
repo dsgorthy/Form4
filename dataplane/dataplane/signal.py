@@ -19,7 +19,7 @@ Optional:
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, ClassVar, List, Optional
 from uuid import UUID, uuid4
 
@@ -125,14 +125,27 @@ class Signal:
 
     # ── Framework-provided data access ─────────────────────────────────
 
-    def read(self, signal_id: str, ticker: str, as_of: Optional[datetime] = None):
+    def read(
+        self,
+        signal_id: str,
+        ticker: str,
+        as_of: Optional[datetime] = None,
+        lookback: Optional[timedelta] = None,
+    ):
         """The only sanctioned data accessor inside compute().
 
         Reads rows from signal_observations where:
           - signal_id matches the upstream declaration
           - ticker matches
           - as_of_date <= (current_as_of - upstream.pit_lag)
+          - if lookback is set: also as_of_date >= (max_as_of - lookback)
           - in frozen mode: additionally ingested_at < current_as_of
+
+        Returns rows newest-first.
+
+        ``lookback`` lets gates request a bounded series without filtering
+        in Python — e.g. ``read(... lookback=timedelta(days=90))`` is the
+        90-day window used by drawdown/momentum gates.
 
         Raises PITViolationError if:
           - signal_id is not in this signal's upstream list
@@ -156,6 +169,7 @@ class Signal:
             )
         up = matches[0]
         max_as_of = current - up.pit_lag
+        min_as_of = max_as_of - lookback if lookback is not None else None
 
         if self._conn is None:
             raise RuntimeError(
@@ -163,38 +177,30 @@ class Signal:
                 f"Pass conn= to the constructor or use the catalog runner."
             )
 
+        where = [
+            "signal_id LIKE %s",
+            "ticker = %s",
+            "as_of_date <= %s",
+        ]
+        params: list = [f"{signal_id}%", ticker, max_as_of]
+        if min_as_of is not None:
+            where.append("as_of_date >= %s")
+            params.append(min_as_of)
         if self._pit_mode == "frozen":
-            sql = """
-                SELECT signal_id, ticker, as_of_date, value, confidence,
-                       source_run_id, ingested_at, metadata
-                  FROM signal_observations
-                 WHERE signal_id LIKE %s
-                   AND ticker = %s
-                   AND as_of_date <= %s
-                   AND ingested_at < %s
-                 ORDER BY as_of_date DESC
-            """
-            params = (
-                f"{signal_id}%",   # allow version-suffixed reads (signal.v3)
-                ticker,
-                max_as_of,
-                current,
-            )
-        else:
-            sql = """
-                SELECT signal_id, ticker, as_of_date, value, confidence,
-                       source_run_id, ingested_at, metadata
-                  FROM signal_observations
-                 WHERE signal_id LIKE %s
-                   AND ticker = %s
-                   AND as_of_date <= %s
-                 ORDER BY as_of_date DESC
-            """
-            params = (f"{signal_id}%", ticker, max_as_of)
+            where.append("ingested_at < %s")
+            params.append(current)
+
+        sql = (
+            "SELECT signal_id, ticker, as_of_date, value, confidence, "
+            "source_run_id, ingested_at, metadata "
+            "FROM signal_observations "
+            "WHERE " + " AND ".join(where) + " "
+            "ORDER BY as_of_date DESC"
+        )
 
         cur = self._conn.cursor()
         try:
-            cur.execute(sql, params)
+            cur.execute(sql, tuple(params))
             cols = [d[0] for d in cur.description]
             return [dict(zip(cols, row)) for row in cur.fetchall()]
         finally:

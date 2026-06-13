@@ -1,0 +1,27 @@
+strategy: agrade_drawdown_buy
+version: v1
+owner: derek
+sla_hours: 24
+cadence: daily          # M1: re-evaluated per daily partition; M2: 5-min sensor
+universe: all           # take whatever the trigger feed emits
+description: |
+  M1 reference strategy — A-grade insider buy on a name down >10% over 90d.
+  Demonstrates triggers + gates + look-back semantics end-to-end.
+
+triggers:
+  - signal: insider.trades.raw.v1
+    when: value.trade_type == 'buy' and value.value >= 50000
+
+gates:
+  - signal: insider.career_grade.v3
+    when: value.grade in ['A+', 'A']
+    max_staleness: 30d   # career_grade is recomputed when the insider trades
+
+  - signal: price.daily.close.v1
+    window: 90d
+    when: latest.close / earliest.close - 1 <= -0.10
+    max_staleness: 4d    # account for weekends / holidays / late EOD ingest
+
+emit:
+  channel: ntfy
+  cooldown: 5d per ticker  # advisory; enforced at emit time, not strategy eval

@@ -3,15 +3,22 @@ Signal subclass.
 
 Lives in the dataplane core (not under dagster_project) so the backfill
 CLI can use it without pulling in Dagster.
+
+Also walks `dataplane/strategies/*.yaml` for YAML-defined StrategySignal
+subclasses (composite signals = triggers + gates).
 """
 from __future__ import annotations
 
 import importlib
 import inspect
 import pkgutil
+from pathlib import Path
 from typing import List, Optional, Type
 
 from dataplane.signal import Signal
+
+
+STRATEGIES_DIR = Path(__file__).resolve().parents[1] / "strategies"
 
 
 # Default ticker universe for per_ticker_per_day signals. Conservative;
@@ -28,8 +35,9 @@ DEFAULT_TICKERS: List[str] = [
 ]
 
 
-def discover_signal_classes() -> List[Type[Signal]]:
-    """Return every concrete Signal subclass found under the signals/ package."""
+def discover_signal_classes(include_strategies: bool = True) -> List[Type[Signal]]:
+    """Return every concrete Signal subclass — Python-defined and (optionally)
+    YAML-defined strategies."""
     import signals as signals_pkg
 
     found: List[Type[Signal]] = []
@@ -49,6 +57,17 @@ def discover_signal_classes() -> List[Type[Signal]]:
                 continue
             if cls.signal_id and cls.version and cls not in found:
                 found.append(cls)
+
+    if include_strategies:
+        try:
+            from dataplane.strategy import discover_strategies
+
+            for s in discover_strategies(STRATEGIES_DIR):
+                if s not in found:
+                    found.append(s)
+        except Exception:
+            pass
+
     return found
 
 
