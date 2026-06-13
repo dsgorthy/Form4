@@ -1,0 +1,22 @@
+{% if history %}
+<table>
+  <tr><th></th><th>partition</th><th>started</th><th class="num">dur</th><th class="num">run</th></tr>
+  {% for r in history %}
+  <tr>
+    <td><span class="dot {{ run_color(r.status) }}"></span></td>
+    <td class="dim">{{ r.partition or "—" }}</td>
+    <td class="dim">{{ fmt_ts(r.started_at) }}</td>
+    <td class="num">{{ (r.duration_seconds|int ~ "s") if r.duration_seconds else "—" }}</td>
+    <td class="dim">
+      {% if r.status == 'FAILURE' %}
+        <a href="/pipelines/{{ r.run_id }}">{{ r.run_id[:8] }}</a>
+      {% else %}
+        {{ r.run_id[:8] }}
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<div class="dim" style="font-size: 12px;">(no scheduled runs touched this asset yet — only CLI/composer backfills)</div>
+{% endif %}

@@ -390,6 +390,55 @@ def recent_runs(limit: int = 25) -> List[RunRow]:
     return out
 
 
+def signal_run_history(signal_id: str, version: str, limit: int = 10) -> List[RunRow]:
+    """Materializations of this asset, newest first. Joins event_logs to runs
+    so we get partition + duration + status alongside the asset event."""
+    # AssetKey is the signal_id parts followed by version, dot-split:
+    #   insider.trades.raw + v1.0.0 → ["insider","trades","raw","v1.0.0"]
+    asset_key_parts = signal_id.split(".") + [version]
+    asset_key_json = json.dumps(asset_key_parts)
+    out: List[RunRow] = []
+    try:
+        with dagster_conn() as conn:
+            cur = conn.cursor()
+            try:
+                cur.execute(
+                    """
+                    SELECT r.run_id, r.pipeline_name, e.partition,
+                           r.status,
+                           to_timestamp(r.start_time),
+                           (r.end_time - r.start_time)::float
+                      FROM event_logs e
+                      JOIN runs r ON r.run_id = e.run_id
+                     WHERE e.asset_key = %s
+                       AND e.dagster_event_type IN ('ASSET_MATERIALIZATION', 'STEP_FAILURE')
+                     ORDER BY e.id DESC
+                     LIMIT %s
+                    """,
+                    (asset_key_json, limit),
+                )
+                seen = set()
+                for row in cur.fetchall():
+                    rid = row[0]
+                    # Dedup: same run_id can produce both materialization + failure
+                    if rid in seen:
+                        continue
+                    seen.add(rid)
+                    out.append(RunRow(
+                        run_id=rid or "?",
+                        job_name=row[1] or "(unknown)",
+                        partition=row[2],
+                        status=(row[3] or "").upper(),
+                        started_at=row[4],
+                        duration_seconds=float(row[5]) if row[5] is not None else None,
+                    ))
+            finally:
+                cur.close()
+    except Exception:
+        pass
+    return out
+
+
 def run_failure_message(run_id: str) -> Optional[str]:
     """Pull the most recent STEP_FAILURE event body for a run."""
     try:

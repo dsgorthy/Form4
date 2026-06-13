@@ -27,6 +27,7 @@ from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse, R
 from starlette.routing import Route
 from starlette.templating import Jinja2Templates
 
+from dataplane.backfill import backfill as run_backfill
 from dataplane.desk import composer, queries
 from dataplane.status import gather_status
 
@@ -154,6 +155,11 @@ async def signal_detail(request: Request):
 
     observations = queries.recent_observations(sid, ticker_filter, limit)
     known_ids = {s.signal_id for s in queries.all_signals()}
+    history = queries.signal_run_history(signal.signal_id, signal.version, limit=10)
+
+    today = datetime.now(timezone.utc).date()
+    default_from = (today - timedelta(days=7)).isoformat()
+    default_to = today.isoformat()
 
     return templates.TemplateResponse(request, "signal_detail.html", {
         "active": "signals",
@@ -163,8 +169,13 @@ async def signal_detail(request: Request):
         "limit": limit,
         "output_schema_pretty": json.dumps(signal.output_schema, indent=2),
         "known_signal_ids": known_ids,
+        "history": history,
+        "backfill_url": f"/signals/{sid}/backfill",
+        "default_from": default_from,
+        "default_to": default_to,
         "fmt_ts": fmt_ts,
         "fmt_age": fmt_age,
+        "run_color": run_color,
         "summarize_value": summarize_value,
     })
 
@@ -198,6 +209,11 @@ async def strategy_detail(request: Request):
     fail_dist = queries.fail_reason_distribution(sid)
 
     strategy_yaml = _load_strategy_yaml(sid)
+    history = queries.signal_run_history(signal.signal_id, signal.version, limit=10)
+
+    today = datetime.now(timezone.utc).date()
+    default_from = (today - timedelta(days=30)).isoformat()
+    default_to = today.isoformat()
 
     return templates.TemplateResponse(request, "strategy_detail.html", {
         "active": "strategies",
@@ -211,8 +227,13 @@ async def strategy_detail(request: Request):
         "to_date": to_date,
         "limit": limit,
         "strategy_yaml": strategy_yaml,
+        "history": history,
+        "backfill_url": f"/strategies/{sid}/backfill",
+        "default_from": default_from,
+        "default_to": default_to,
         "fmt_ts": fmt_ts,
         "fmt_age": fmt_age,
+        "run_color": run_color,
         "summarize_value": summarize_value,
     })
 
@@ -399,6 +420,59 @@ async def new_strategy_gate_row(request: Request):
     })
 
 
+# ── Backfill routes (Phase C) ──────────────────────────────────────────
+
+async def backfill_signal(request: Request):
+    """Run a backfill synchronously and return a result fragment.
+
+    Same impl as the CLI's `dataplane backfill` — calls dataplane.backfill.
+    Long ranges block the request thread; UI surfaces the limitation.
+    """
+    sid = request.path_params["signal_id"]
+    return await _do_backfill(request, sid)
+
+
+async def backfill_strategy(request: Request):
+    sid = request.path_params["signal_id"]
+    return await _do_backfill(request, sid)
+
+
+async def _do_backfill(request: Request, signal_id: str):
+    form = await request.form()
+    from_date = (form.get("from_date") or "").strip()
+    to_date = (form.get("to_date") or "").strip()
+    tickers_raw = (form.get("tickers") or "").strip()
+    tickers = [t.strip().upper() for t in tickers_raw.split(",") if t.strip()] or None
+
+    started = datetime.now()
+    try:
+        result = run_backfill(
+            signal_ref=signal_id,
+            from_date=from_date,
+            to_date=to_date,
+            tickers=tickers,
+        )
+    except Exception as exc:
+        return templates.TemplateResponse(request, "_backfill_result.html", {
+            "error": str(exc),
+        })
+    duration = int((datetime.now() - started).total_seconds())
+
+    # Tail the last 8 partition lines for visibility (most recent wins)
+    tail = result.partitions[-8:] if len(result.partitions) > 8 else result.partitions
+    lines = "\n".join(
+        f"{p.partition_date}: {p.written:>6,} written"
+        + (f"  ⚠ {p.errors} errors" if p.errors else "")
+        for p in tail
+    )
+
+    return templates.TemplateResponse(request, "_backfill_result.html", {
+        "result": result,
+        "duration_seconds": duration,
+        "recent_partition_lines": lines,
+    })
+
+
 # ── App factory ───────────────────────────────────────────────────────
 
 app = Starlette(routes=[
@@ -416,6 +490,8 @@ app = Starlette(routes=[
     Route("/new/strategy/dryrun",       new_strategy_dryrun,  methods=["POST"]),
     Route("/new/strategy/save",         new_strategy_save,    methods=["POST"]),
     Route("/new/strategy/gate-row",     new_strategy_gate_row),
+    Route("/signals/{signal_id}/backfill",    backfill_signal,   methods=["POST"]),
+    Route("/strategies/{signal_id}/backfill", backfill_strategy, methods=["POST"]),
     Route("/api/status.json",           status_json),
     Route("/healthz",                   healthz),
 ])

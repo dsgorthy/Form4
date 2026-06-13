@@ -1,0 +1,16 @@
+{% if error %}
+<div class="errors">backfill failed: {{ error }}</div>
+{% else %}
+<div style="background: rgba(45, 211, 111, 0.08); border: 1px solid var(--green); padding: 8px 12px; margin-top: 8px;">
+  <div>
+    <b>{{ "{:,}".format(result.total_written) }}</b> rows written across
+    <b>{{ result.partitions|length }}</b> partitions in <b>{{ duration_seconds }}s</b>
+    {% if result.total_errors %}<span class="pill red">{{ result.total_errors }} errors</span>{% endif %}
+  </div>
+  {% if recent_partition_lines %}
+  <div class="dim" style="font-size: 11px; margin-top: 6px; max-height: 120px; overflow-y: auto;">
+    <pre style="background: transparent; border: none; padding: 0; margin: 0; font-size: 11px;">{{ recent_partition_lines }}</pre>
+  </div>
+  {% endif %}
+</div>
+{% endif %}

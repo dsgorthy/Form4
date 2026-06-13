@@ -1,0 +1,25 @@
+<form hx-post="{{ backfill_url }}" hx-target="#backfill-result" hx-indicator="#backfill-busy"
+      style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
+  <div class="field" style="grid-template-columns: auto 130px; margin-bottom:0;">
+    <label>from</label>
+    <input type="date" name="from_date" value="{{ default_from }}" required>
+  </div>
+  <div class="field" style="grid-template-columns: auto 130px; margin-bottom:0;">
+    <label>to</label>
+    <input type="date" name="to_date" value="{{ default_to }}" required>
+  </div>
+  {% if mode == "per_ticker_per_day" %}
+  <div class="field" style="grid-template-columns: auto 200px; margin-bottom:0;">
+    <label>tickers</label>
+    <input type="text" name="tickers" placeholder="(default universe)">
+  </div>
+  {% endif %}
+  <button type="submit" class="primary"
+          style="background: var(--accent); color: white; border: 1px solid var(--accent); padding: 5px 14px; cursor: pointer; border-radius: 2px;">
+    Run backfill
+  </button>
+  <span id="backfill-busy" class="htmx-indicator dim" style="font-size: 12px;">…running</span>
+</form>
+<div class="dim" style="font-size: 11px; margin-top: 6px;">
+  walks partitions chronologically · idempotent upserts · long ranges hang the request (use CLI for &gt;30d)
+</div>

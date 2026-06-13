@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ signal.signal_id }} · Pyrrho Desk{% endblock %}
+{% block head %}<script src="https://unpkg.com/htmx.org@1.9.10" defer></script>{% endblock %}
 {% block main %}
 <h1>
   <span class="dot {{ signal.freshness_status|lower }}"></span>
@@ -85,4 +86,22 @@
   <div class="dim" style="margin-top:6px; font-size:11px;">showing latest {{ limit }} (raise limit or filter to see more)</div>
   {% endif %}
 </section>
+
+<div class="grid-2">
+  <section>
+    <h2>Backfill</h2>
+    {% with mode = signal.signal_class %}
+    {% include "_backfill_form.html" %}
+    {% endwith %}
+    <div id="backfill-result"></div>
+  </section>
+
+  <section>
+    <h2>Run History</h2>
+    {% include "_run_history.html" %}
+    <div class="dim" style="font-size: 11px; margin-top: 6px;">
+      Dagster · <a href="http://100.78.9.66:3030" target="_blank">UI</a>
+    </div>
+  </section>
+</div>
 {% endblock %}
