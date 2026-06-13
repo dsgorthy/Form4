@@ -39,11 +39,12 @@ def spec_from_form(form: Dict[str, Any]) -> Dict[str, Any]:
     name = (form.get("strategy") or "").strip()
     version = (form.get("version") or "v1").strip() or "v1"
 
+    sla_raw = float(form.get("sla_hours") or 24)
     spec: Dict[str, Any] = {
         "strategy":    name,
         "version":     version,
         "owner":       (form.get("owner") or "derek").strip(),
-        "sla_hours":   float(form.get("sla_hours") or 24),
+        "sla_hours":   int(sla_raw) if sla_raw == int(sla_raw) else sla_raw,
         "cadence":     (form.get("cadence") or "daily").strip(),
         "universe":    (form.get("universe") or "all").strip(),
         "description": (form.get("description") or "").strip() or f"strategy {name}",
@@ -69,9 +70,12 @@ def spec_from_form(form: Dict[str, Any]) -> Dict[str, Any]:
         staleness = (staleness or "").strip()
         if not sig or not when:
             continue
-        g: Dict[str, Any] = {"signal": sig, "when": when}
+        # Field order matches existing YAML convention: signal, window
+        # (if any), when, max_staleness.
+        g: Dict[str, Any] = {"signal": sig}
         if window:
             g["window"] = window
+        g["when"] = when
         if staleness:
             g["max_staleness"] = staleness
         gates.append(g)
