@@ -218,8 +218,12 @@ Conveniently this needs **zero new raw feeds** — all three inputs exist.
 | insider.filings.raw (direct EDGAR, parser reused from form4) | built |
 | Parity CLI (`python3 -m dataplane parity`) | built |
 | Parity baseline (1 day, ~92-96%) — see memory for path to ≥99.5% | done |
-| lookback read, StrategySignal, strategy YAML | M1 |
+| Signal.read(..., lookback=) | built |
+| StrategySignal (YAML-driven composite) + agrade_drawdown_buy.v1 | built |
+| Report CLI (`python3 -m dataplane report`) — M1 demo artifact tool | built |
+| Strategy replay 90d → eval tape with reasons (M1 acceptance bar) | done |
 | Retire form4 bridge (insider.trades.raw.v1) once parity holds 30d | gated |
+| Universe expansion (31 hardcoded → all ~5.7k priced tickers) | blocking real-world alerts |
 | 5-min sensors, asset-sensor chaining | M2 |
 | cluster_buys + second strategy | M3 |
 | SLA probe → ntfy, /admin/signals, CI, Sqitch prod target | planned |
