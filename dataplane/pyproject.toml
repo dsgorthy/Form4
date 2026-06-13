@@ -17,6 +17,8 @@ dependencies = [
     "jinja2>=3.0",
     "python-multipart>=0.0.9",
     "PyYAML>=6.0",
+    # Read-only MCP server (Pyrrho data access for Claude Desktop / Code)
+    "mcp[cli]>=1.0",
 ]
 
 [project.optional-dependencies]
