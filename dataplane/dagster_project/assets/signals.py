@@ -28,6 +28,7 @@ from dagster import (
 from dataplane import Signal
 from dataplane.catalog import register, write_observation
 from dataplane.discovery import DEFAULT_TICKERS, discover_signal_classes
+from dataplane.emit import emit_alerts
 
 from dagster_project.resources import PostgresResource
 
@@ -99,6 +100,11 @@ def _make_signal_asset(cls: Type[Signal]):
                         n_errors += 1
                         if len(errors_sample) < 5:
                             errors_sample.append(f"{obs.ticker}/{obs.as_of_date}: {exc}")
+                # Strategy alert emission — only fires for live (recent)
+                # partitions, only for triggered observations that haven't
+                # alerted within the cooldown window. CLI backfills don't
+                # reach this branch so replays stay silent.
+                n_pushed = emit_alerts(conn, signal, observations, as_of)
             return MaterializeResult(
                 metadata={
                     "events_returned": MetadataValue.int(len(observations)),
@@ -107,6 +113,7 @@ def _make_signal_asset(cls: Type[Signal]):
                     "errors": MetadataValue.int(n_errors),
                     "error_sample": MetadataValue.md("\n".join(errors_sample) or "—"),
                     "partition": MetadataValue.text(partition_date),
+                    "alerts_pushed": MetadataValue.int(n_pushed),
                 }
             )
         _materialize.__name__ = f"materialize_events_{cls.signal_id.replace('.', '_')}"
