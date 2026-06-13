@@ -153,7 +153,7 @@ def _latest_fact_before(
 class FundamentalsFactsV1(Signal):
     """Per-ticker daily snapshot of SEC XBRL facts known as-of the date."""
 
-    signal_id = "fundamentals.facts"
+    signal_id = "fundamental.facts"
     version = "v1.0.0"
     owner = "derek"
     sla_hours = 96.0  # filings land sporadically, so freshness window is wide
