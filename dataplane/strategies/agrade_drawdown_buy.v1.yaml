@@ -10,7 +10,10 @@ description: |
 
 triggers:
   - signal: insider.trades.raw.v1
-    when: value.trade_type == 'buy' and value.value >= 50000
+    # trans_code == 'P' = open-market purchase. Other "buy" codes
+    # (A=award, M=option exercise, F=tax-withheld) inflate counts with
+    # vesting events that aren't conviction signals.
+    when: value.trans_code == 'P' and value.value >= 50000
 
 gates:
   - signal: insider.career_grade.v3
