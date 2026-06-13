@@ -15,6 +15,7 @@ from dataplane.backfill import PartitionResult, backfill
 from dataplane.discovery import DEFAULT_TICKERS, discover_signal_classes
 from dataplane.parity import DEFAULT_KEY_FIELDS, compare as parity_compare
 from dataplane.report import format_report, report as strategy_report
+from dataplane.status import gather_status, render_terminal
 
 
 def _parse_tickers(spec: Optional[str]) -> Optional[List[str]]:
@@ -115,6 +116,12 @@ def _cmd_parity(args: argparse.Namespace) -> int:
     return 0 if (result.only_in_a == 0 and result.only_in_b == 0) else 1
 
 
+def _cmd_status(args: argparse.Namespace) -> int:
+    snap = gather_status(recent_runs_limit=args.runs)
+    print(render_terminal(snap))
+    return 0
+
+
 def _cmd_report(args: argparse.Namespace) -> int:
     rep = strategy_report(
         signal_ref=args.strategy,
@@ -186,6 +193,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     pl = sub.add_parser("list", help="List discovered signals.")
     pl.set_defaults(func=_cmd_list)
+
+    ps = sub.add_parser(
+        "status",
+        help="Pyrrho Dataplane Desk — signals/strategies/runs at a glance.",
+    )
+    ps.add_argument(
+        "--runs", type=int, default=8,
+        help="number of recent Dagster runs to show (default: 8)",
+    )
+    ps.set_defaults(func=_cmd_status)
 
     pr = sub.add_parser(
         "report",
