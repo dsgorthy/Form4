@@ -14,6 +14,7 @@ from typing import List, Optional, Sequence
 from dataplane.backfill import PartitionResult, backfill
 from dataplane.discovery import DEFAULT_TICKERS, discover_signal_classes
 from dataplane.parity import DEFAULT_KEY_FIELDS, compare as parity_compare
+from dataplane.report import format_report, report as strategy_report
 
 
 def _parse_tickers(spec: Optional[str]) -> Optional[List[str]]:
@@ -114,6 +115,17 @@ def _cmd_parity(args: argparse.Namespace) -> int:
     return 0 if (result.only_in_a == 0 and result.only_in_b == 0) else 1
 
 
+def _cmd_report(args: argparse.Namespace) -> int:
+    rep = strategy_report(
+        signal_ref=args.strategy,
+        from_date=args.from_date,
+        to_date=args.to_date,
+        show_alerts=args.alerts,
+    )
+    print(format_report(rep))
+    return 0
+
+
 def _cmd_list(args: argparse.Namespace) -> int:
     classes = discover_signal_classes()
     if not classes:
@@ -174,6 +186,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     pl = sub.add_parser("list", help="List discovered signals.")
     pl.set_defaults(func=_cmd_list)
+
+    pr = sub.add_parser(
+        "report",
+        help="Strategy evaluation report — what triggered, what didn't, why.",
+    )
+    pr.add_argument("strategy", help="strategy signal_id, e.g. strategy.agrade_drawdown_buy")
+    pr.add_argument("--from", dest="from_date", required=True)
+    pr.add_argument("--to", dest="to_date", default=_today_utc())
+    pr.add_argument("--alerts", type=int, default=50, help="max triggered alerts to show")
+    pr.set_defaults(func=_cmd_report)
 
     pp = sub.add_parser(
         "parity",
