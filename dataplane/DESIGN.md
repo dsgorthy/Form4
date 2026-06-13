@@ -216,6 +216,9 @@ Conveniently this needs **zero new raw feeds** — all three inputs exist.
 | dbt marts (latest_signal_per_ticker, signal_catalog_active) | built, thin |
 | Backfill CLI (`python3 -m dataplane backfill/list`) | built |
 | Status CLI (`python3 -m dataplane status`) + Pyrrho Desk dashboard (`:3031`) | built |
+| Desk workbench: catalog/signal/strategy/ticker/pipeline pages | built (Phase A) |
+| Desk composer: form → YAML → dry-run → save | built (Phase B) |
+| Desk operate: backfill button + per-signal run history | built (Phase C) |
 | Signal.auto_schedule opt-out + EDGAR retry-on-5xx | built |
 | insider.filings.raw (direct EDGAR, parser reused from form4) | built |
 | Parity CLI (`python3 -m dataplane parity`) | built |
