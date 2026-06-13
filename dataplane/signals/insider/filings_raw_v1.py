@@ -18,9 +18,12 @@ from __future__ import annotations
 
 import hashlib
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Callable, List, Optional
+
+import requests
 
 # Reuse form4's tested EDGAR fetcher + parser. The script lives at
 # strategies/insider_catalog/backfill_live.py — make it importable.
@@ -41,6 +44,34 @@ from strategies.insider_catalog.backfill_live import (  # noqa: E402
 from dataplane import Signal, SignalObservation, Upstream  # noqa: E402
 
 
+def _retry_on_5xx(
+    fn: Callable[..., Any],
+    *args,
+    max_attempts: int = 3,
+    base_delay: float = 1.0,
+    **kwargs,
+):
+    """Retry EDGAR calls on transient 5xx errors. EFTS occasionally
+    returns 500 mid-pagination (observed 2026-06-11 and 2026-06-12);
+    one such hit nuking the whole nightly job is not acceptable.
+
+    Retries only on HTTPError where status >= 500. 4xx and non-HTTP errors
+    re-raise immediately — those mean we asked the wrong thing.
+    """
+    last_exc = None
+    for attempt in range(max_attempts):
+        try:
+            return fn(*args, **kwargs)
+        except requests.exceptions.HTTPError as exc:
+            status = getattr(exc.response, "status_code", 0)
+            if status < 500 or attempt == max_attempts - 1:
+                raise
+            last_exc = exc
+            time.sleep(base_delay * (2 ** attempt))
+    if last_exc:
+        raise last_exc
+
+
 class InsiderFilingsRawV1(Signal):
     """Direct EDGAR ingestion of Form 4 filings — no form4.trades dependency.
 
@@ -56,6 +87,9 @@ class InsiderFilingsRawV1(Signal):
     business_hours_only = False
     description = "Raw Form 4 filings ingested directly from EDGAR EFTS."
     materialization_mode = "per_partition_events"
+    # Off the nightly schedule until parity vs insider.trades.raw holds ≥99.5%
+    # for 30 days. CLI backfills + Dagster UI manual triggers still work.
+    auto_schedule = False
     upstream = [
         Upstream("external.edgar.efts", pit_lag=timedelta(0)),
     ]
@@ -89,8 +123,11 @@ class InsiderFilingsRawV1(Signal):
         day = partition_date.strftime("%Y-%m-%d")
         observations: List[SignalObservation] = []
 
-        # Stage 1: get filing metadata from EFTS
-        filings = fetch_all_form4_filings(day, day)
+        # Stage 1: get filing metadata from EFTS (retry on 5xx)
+        try:
+            filings = _retry_on_5xx(fetch_all_form4_filings, day, day)
+        except Exception:
+            return observations  # EDGAR down — emit nothing for the partition
 
         # Stage 2: fetch + parse each filing
         for filing in filings:
@@ -100,7 +137,9 @@ class InsiderFilingsRawV1(Signal):
             filing_date_str = filing.get("filing_date", day) or day
 
             try:
-                xml_text, accepted_at = fetch_form4_xml(cik, accession)
+                xml_text, accepted_at = _retry_on_5xx(
+                    fetch_form4_xml, cik, accession
+                )
             except Exception:
                 continue
             if not xml_text:

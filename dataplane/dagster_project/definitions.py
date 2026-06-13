@@ -27,7 +27,11 @@ from dagster import (
 from dagster_dbt import DbtCliResource
 
 from dagster_project.assets.dbt import dataplane_dbt_assets, dbt_project
-from dagster_project.assets.signals import build_signal_assets, daily_partitions
+from dagster_project.assets.signals import (
+    build_signal_assets,
+    daily_partitions,
+    scheduled_signal_asset_keys,
+)
 from dagster_project.resources import (
     dataplane_resource,
     form4_resource,
@@ -50,7 +54,10 @@ signal_assets = build_signal_assets()
 
 daily_signals_job = define_asset_job(
     name="daily_signals",
-    selection=AssetSelection.assets(*signal_assets),
+    # Only signals with auto_schedule=True (parity-mode feeds opt out so
+    # they don't crash the nightly job; they're still manually triggerable
+    # from the Dagster UI and via the backfill CLI).
+    selection=AssetSelection.keys(*scheduled_signal_asset_keys()),
     partitions_def=daily_partitions,
 )
 

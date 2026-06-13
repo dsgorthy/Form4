@@ -151,3 +151,18 @@ def _make_signal_asset(cls: Type[Signal]):
 def build_signal_assets():
     """Return a list of Dagster asset functions, one per discovered Signal."""
     return [_make_signal_asset(cls) for cls in discover_signal_classes()]
+
+
+def scheduled_signal_asset_keys() -> list:
+    """AssetKeys of signals whose nightly schedule we *do* want to run.
+
+    Excludes Signal subclasses with auto_schedule=False (e.g. parity-mode
+    feeds). The assets still exist in Dagster (and Definitions) so they're
+    visible + manually triggerable; they just don't appear in the daily
+    job's selection.
+    """
+    return [
+        _signal_asset_key(cls)
+        for cls in discover_signal_classes()
+        if getattr(cls, "auto_schedule", True)
+    ]

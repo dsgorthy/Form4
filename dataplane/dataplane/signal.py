@@ -51,6 +51,13 @@ class Signal:
     # timestamp so (signal_id, ticker, as_of_date) stays unique.
     materialization_mode: ClassVar[str] = "per_ticker_per_day"
 
+    # Whether the nightly daily_signals job should include this signal.
+    # Default True. Set False for signals that aren't yet production-ready
+    # (e.g. parity-mode dataplane-native versions of bridged feeds): the
+    # asset still exists in Dagster (so it shows up in the UI, lineage, and
+    # CLI backfills) but the nightly job won't try to materialize it.
+    auto_schedule: ClassVar[bool] = True
+
     def __init_subclass__(cls, **kwargs):
         """Validate that subclass declared the required class attributes.
 
