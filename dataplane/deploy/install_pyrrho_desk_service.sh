@@ -30,7 +30,7 @@ fi
 # Validate the module imports cleanly before installing
 ( cd "$REPO/dataplane" \
   && PYRRHO_DATAPLANE_DSN="dbname=pyrrho_data_dev host=localhost" \
-     "$VENV/bin/python" -c "from dataplane.desk import gather_status, render_html; print('desk module OK')" ) \
+     "$VENV/bin/python" -c "from dataplane.desk.app import app; print(f'desk app OK - {len(app.routes)} routes')" ) \
   || { echo "FATAL: dataplane.desk failed to import"; exit 1; }
 
 mkdir -p /Users/derekg/dataplane_dagster_home/logs
