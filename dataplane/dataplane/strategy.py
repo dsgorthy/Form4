@@ -151,6 +151,11 @@ class StrategySignal(Signal):
     materialization_mode = "per_partition_events"
     _dataplane_abstract = True  # base class isn't itself registerable
 
+    # Strategies register under the 'composite' signal_class regardless of
+    # the strategy.<name> signal_id prefix (the catalog enum has no
+    # 'strategy' value, and DESIGN.md models strategies as composite signals).
+    signal_class_override = "composite"
+
     # Set by load_strategy_yaml on the dynamic subclass:
     _strategy_spec: dict = {}
 

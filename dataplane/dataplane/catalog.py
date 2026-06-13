@@ -40,7 +40,12 @@ def register(conn, signal_cls: Type[Signal]) -> None:
             f"{signal_cls.__name__} cannot register: missing signal_id/version"
         )
 
-    signal_class_token = signal_cls.signal_id.split(".", 1)[0]
+    # Either an explicit class attribute (strategies set 'composite') or the
+    # first dot-segment of the signal_id ('insider.career_grade' → 'insider').
+    signal_class_token = (
+        getattr(signal_cls, "signal_class_override", None)
+        or signal_cls.signal_id.split(".", 1)[0]
+    )
     upstream_json = json.dumps([u.to_json() for u in signal_cls.upstream])
     output_schema_json = json.dumps(signal_cls.output_schema)
 
