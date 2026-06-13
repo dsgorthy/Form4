@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}{{ signal.signal_id }} · Pyrrho Desk{% endblock %}
+{% block main %}
+<h1>
+  <span class="dot {{ signal.freshness_status|lower }}"></span>
+  {{ signal.signal_id }}
+  <span class="dim" style="font-weight:400; font-size:12px;"> {{ signal.version }}</span>
+  <span class="badge">{{ signal.signal_class }}</span>
+</h1>
+<div class="sub">{{ signal.description }}</div>
+
+<div class="grid-2">
+  <section>
+    <h2>Metadata</h2>
+    <div class="kv">
+      <div class="k">owner</div>             <div>{{ signal.owner }}</div>
+      <div class="k">sla</div>               <div>{{ signal.sla_hours|int }}h ({{ signal.freshness_status }})</div>
+      <div class="k">business hours only</div><div>{{ signal.business_hours_only }}</div>
+      <div class="k">rows total</div>        <div>{{ "{:,}".format(signal.row_count) }}</div>
+      <div class="k">rows 24h / 7d</div>     <div>{{ "{:,}".format(signal.rows_24h) }} / {{ "{:,}".format(signal.rows_7d) }}</div>
+      <div class="k">latest ingest</div>     <div>{{ fmt_ts(signal.latest_ingested_at) }} ({{ fmt_age(signal.age_hours) }})</div>
+      <div class="k">latest as_of</div>      <div>{{ fmt_ts(signal.latest_as_of) }}</div>
+      <div class="k">earliest as_of</div>    <div>{{ fmt_ts(signal.earliest_as_of) }}</div>
+      <div class="k">registered</div>        <div>{{ fmt_ts(signal.registered_at) }}</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Upstream + Schema</h2>
+    {% if signal.upstream %}
+      <div class="kv">
+        <div class="k">upstream</div>
+        <div>
+          {% for u in signal.upstream %}
+            <div>
+              {% set up_id = u.signal_id %}
+              {% if up_id in known_signal_ids %}
+                <a href="/signals/{{ up_id }}">{{ up_id }}</a>
+              {% else %}
+                <span class="dim">{{ up_id }}</span>
+                <span class="badge">external</span>
+              {% endif %}
+              <span class="dim">· pit_lag {{ u.pit_lag_seconds }}s</span>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+    <div style="margin-top:10px;">
+      <div class="dim" style="font-size:11px; text-transform:uppercase; letter-spacing:0.8px;">output schema</div>
+      <pre>{{ output_schema_pretty }}</pre>
+    </div>
+  </section>
+</div>
+
+<section>
+  <h2>Recent Observations</h2>
+  <form class="filters" method="get">
+    <label>ticker</label>
+    <input type="text" name="ticker" value="{{ ticker_filter or '' }}" placeholder="(any)">
+    <label>limit</label>
+    <select name="limit">
+      {% for n in [25, 50, 100, 200] %}
+      <option value="{{ n }}" {% if limit == n %}selected{% endif %}>{{ n }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit">filter</button>
+    {% if ticker_filter %}<a href="?">clear</a>{% endif %}
+  </form>
+
+  <table>
+    <tr>
+      <th>as_of</th><th>ticker</th><th>value (top fields)</th><th class="num">conf</th>
+    </tr>
+    {% for o in observations %}
+    <tr>
+      <td class="dim">{{ fmt_ts(o.as_of_date) }}</td>
+      <td><a href="/ticker?symbol={{ o.ticker }}">{{ o.ticker }}</a></td>
+      <td>{{ summarize_value(signal.signal_class, o.value) }}</td>
+      <td class="num dim">{{ ("%.2f" % o.confidence) if o.confidence is not none else "—" }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% if observations|length == limit %}
+  <div class="dim" style="margin-top:6px; font-size:11px;">showing latest {{ limit }} (raise limit or filter to see more)</div>
+  {% endif %}
+</section>
+{% endblock %}

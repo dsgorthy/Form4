@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}run {{ run_id[:8] }} · Pyrrho Desk{% endblock %}
+{% block main %}
+<h1>run {{ run_id }}</h1>
+<div class="sub"><a href="/pipelines">← back to pipelines</a> · <a href="http://100.78.9.66:3030/runs/{{ run_id }}" target="_blank">open in Dagster UI</a></div>
+<section>
+  <h2>Failure trace</h2>
+  {% if message %}
+  <pre>{{ message }}</pre>
+  {% else %}
+  <div class="dim">no STEP_FAILURE event found for this run</div>
+  {% endif %}
+</section>
+{% endblock %}

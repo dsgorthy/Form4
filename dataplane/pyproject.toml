@@ -10,6 +10,12 @@ dependencies = [
     "dagster-dbt>=0.27",
     "dbt-core>=1.11",
     "dbt-postgres>=1.10",
+    # Desk dashboard (Starlette + Jinja2 + uvicorn ship with Dagster but
+    # listed explicitly here so dataplane runs standalone too)
+    "starlette>=1.0",
+    "uvicorn>=0.30",
+    "jinja2>=3.0",
+    "PyYAML>=6.0",
 ]
 
 [project.optional-dependencies]

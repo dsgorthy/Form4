@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}{{ ticker }} · Pyrrho Desk{% endblock %}
+{% block main %}
+<h1>{{ ticker }}</h1>
+<div class="sub">cross-signal snapshot · latest known values</div>
+
+{% if rows %}
+<section>
+  <table>
+    <tr>
+      <th>signal</th><th>latest as_of</th><th>value (summary)</th><th class="num">rows for ticker</th>
+    </tr>
+    {% for r in rows %}
+    <tr>
+      <td><a href="/signals/{{ r.signal_id.rsplit('.v', 1)[0] }}">{{ r.signal_id }}</a></td>
+      <td class="dim">{{ fmt_ts(r.latest_as_of) }}</td>
+      <td>{{ summarize_value_generic(r.latest_value) }}</td>
+      <td class="num">{{ "{:,}".format(r.row_count) }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+{% else %}
+<section>
+  <div class="dim">no signal observations for ticker <b>{{ ticker }}</b></div>
+</section>
+{% endif %}
+{% endblock %}

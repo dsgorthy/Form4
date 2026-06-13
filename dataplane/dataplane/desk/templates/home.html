@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block main %}
+<div class="sub">{{ ts }} · auto-refresh 30s</div>
+<meta http-equiv="refresh" content="30">
+
+<section>
+  <div class="summary">
+    <span>pipelines healthy: <b>{{ snap.healthy_pipelines }}/{{ snap.non_strategy_count }}</b></span>
+    <span>evals 24h: <b>{{ "{:,}".format(snap.total_evals_24h) }}</b></span>
+    <span>triggered 24h: <b>{{ "{:,}".format(snap.total_triggered_24h) }}</b></span>
+  </div>
+</section>
+
+<section>
+  <h2>Signals</h2>
+  <table>
+    <tr><th></th><th>signal</th><th class="num">rows</th><th class="num">24h</th><th class="num">7d</th><th class="num">age</th><th class="num">sla</th></tr>
+    {% for s in raw_signals %}
+    <tr>
+      <td><span class="dot {{ s.freshness_status|lower }}"></span></td>
+      <td><a href="/signals/{{ s.signal_id }}">{{ s.signal_id }}</a></td>
+      <td class="num">{{ "{:,}".format(s.row_count) }}</td>
+      <td class="num">{{ "{:,}".format(s.rows_24h) }}</td>
+      <td class="num">{{ "{:,}".format(s.rows_7d) }}</td>
+      <td class="num">{{ fmt_age(s.age_hours) }}</td>
+      <td class="num">{{ s.sla_hours|int }}h</td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+
+{% if strategies %}
+<section>
+  <h2>Strategies</h2>
+  <table>
+    <tr><th></th><th>strategy</th><th class="num">evals 24h</th><th class="num">trig 24h</th><th class="num">age</th><th>top miss</th></tr>
+    {% for s in strategies %}
+    {% set o = strategy_outcomes.get(s.signal_id) %}
+    <tr>
+      <td><span class="dot {{ s.freshness_status|lower }}"></span></td>
+      <td><a href="/strategies/{{ s.signal_id }}">{{ s.signal_id }}</a></td>
+      <td class="num">{{ "{:,}".format(o.evals_24h if o else 0) }}</td>
+      <td class="num">{{ "{:,}".format(o.triggered_24h if o else 0) }}</td>
+      <td class="num">{{ fmt_age(s.age_hours) }}</td>
+      <td class="dim">{{ (o.top_fail_reason if o else "—") or "—" }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+{% endif %}
+
+<section>
+  <h2>Recent Dagster Runs</h2>
+  <table>
+    <tr><th></th><th>job</th><th>started</th><th>partition</th><th class="num">dur</th></tr>
+    {% for r in recent_runs %}
+    <tr>
+      <td><span class="dot {{ run_color(r.status) }}"></span></td>
+      <td>{{ r.job_name }}</td>
+      <td class="dim">{{ fmt_ts(r.started_at) }}</td>
+      <td class="dim">{{ r.partition or "—" }}</td>
+      <td class="num">{{ (r.duration_seconds|int ~ 's') if r.duration_seconds else "—" }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+{% endblock %}

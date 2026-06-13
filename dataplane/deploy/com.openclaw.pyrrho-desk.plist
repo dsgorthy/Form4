@@ -12,6 +12,9 @@
     <string>/bin/bash</string>
     <string>-c</string>
     <string>set -a; . /Users/derekg/trading-framework/.env 2>/dev/null || true; set +a; exec /Users/derekg/dataplane_venv/bin/python -m dataplane.desk --host 100.78.9.66 --port 3031</string>
+    <!-- Same module path as the legacy single-file desk; now serves the
+         Starlette + Jinja2 multi-page workbench. -->
+
   </array>
 
   <key>WorkingDirectory</key>

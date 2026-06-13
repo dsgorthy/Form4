@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}{{ signal.signal_id }} · Pyrrho Desk{% endblock %}
+{% block main %}
+<h1>
+  <span class="dot {{ signal.freshness_status|lower }}"></span>
+  {{ signal.signal_id }}
+  <span class="dim" style="font-weight:400; font-size:12px;"> {{ signal.version }}</span>
+  <span class="badge">strategy</span>
+</h1>
+<div class="sub">{{ signal.description }}</div>
+
+<div class="grid-2">
+  <section>
+    <h2>Stats</h2>
+    <div class="kv">
+      <div class="k">owner</div>          <div>{{ signal.owner }}</div>
+      <div class="k">evaluations (24h)</div><div>{{ "{:,}".format(outcomes.evals_24h if outcomes else 0) }}</div>
+      <div class="k">evaluations (7d)</div> <div>{{ "{:,}".format(outcomes.evals_7d if outcomes else 0) }}</div>
+      <div class="k">triggered (24h)</div>  <div>{{ "{:,}".format(outcomes.triggered_24h if outcomes else 0) }}</div>
+      <div class="k">triggered (7d)</div>   <div>{{ "{:,}".format(outcomes.triggered_7d if outcomes else 0) }}</div>
+      <div class="k">latest run</div>       <div>{{ fmt_ts(signal.latest_ingested_at) }} ({{ fmt_age(signal.age_hours) }})</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>YAML</h2>
+    {% if strategy_yaml %}
+    <pre>{{ strategy_yaml }}</pre>
+    {% else %}
+    <div class="dim">YAML source not found in dataplane/strategies/ — this strategy may not be file-backed.</div>
+    {% endif %}
+  </section>
+</div>
+
+<section>
+  <h2>Fail-Reason Distribution (last 30d)</h2>
+  <table>
+    <tr><th>reason</th><th class="num">count</th><th></th></tr>
+    {% for reason, n in fail_distribution %}
+    <tr>
+      <td class="dim">{{ reason }}</td>
+      <td class="num">{{ "{:,}".format(n) }}</td>
+      <td><span style="display:inline-block; height:6px; background:{{ '#2dd36f' if reason == '(triggered)' else '#5260ff' }}; width:{{ (n / fail_distribution[0][1] * 200)|int if fail_distribution else 0 }}px;"></span></td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+
+<section>
+  <h2>Evaluation Tape</h2>
+  <form class="filters" method="get">
+    <label>ticker</label>
+    <input type="text" name="ticker" value="{{ ticker_filter or '' }}" placeholder="(any)">
+    <label>outcome</label>
+    <select name="outcome">
+      <option value="" {% if not outcome_filter %}selected{% endif %}>(any)</option>
+      <option value="triggered" {% if outcome_filter == 'triggered' %}selected{% endif %}>triggered</option>
+      <option value="suppressed" {% if outcome_filter == 'suppressed' %}selected{% endif %}>suppressed</option>
+    </select>
+    <label>from</label>
+    <input type="date" name="from_date" value="{{ from_date or '' }}">
+    <label>to</label>
+    <input type="date" name="to_date" value="{{ to_date or '' }}">
+    <label>limit</label>
+    <select name="limit">
+      {% for n in [50, 100, 200, 500] %}
+      <option value="{{ n }}" {% if limit == n %}selected{% endif %}>{{ n }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit">filter</button>
+    {% if ticker_filter or outcome_filter or from_date or to_date %}
+    <a href="?">clear</a>
+    {% endif %}
+  </form>
+
+  <table>
+    <tr>
+      <th></th><th>as_of</th><th>ticker</th><th>outcome</th><th>detail</th>
+    </tr>
+    {% for e in evaluations %}
+    <tr>
+      <td>
+        {% if e.triggered %}<span class="pill green">●</span>{% else %}<span class="pill dim">○</span>{% endif %}
+      </td>
+      <td class="dim">{{ fmt_ts(e.as_of_date) }}</td>
+      <td><a href="/ticker?symbol={{ e.ticker }}">{{ e.ticker }}</a></td>
+      <td>
+        {% if e.triggered %}
+          <span class="pill green">triggered</span>
+        {% else %}
+          <span class="pill dim">{{ (e.fail_reason or "suppressed")[:70] }}</span>
+        {% endif %}
+      </td>
+      <td class="dim">
+        {% if e.triggered %}
+          {% set tv = e.trigger_value %}
+          {{ tv.get("trade_type", "?") }} qty={{ tv.get("qty", "?") }}
+          ${{ "{:,.0f}".format(tv.get("value", 0)) if tv.get("value") else "0" }}
+          {% if tv.get("insider_name") %}by {{ tv.get("insider_name") }}{% endif %}
+        {% else %}
+          {% set tv = e.trigger_value %}
+          {{ tv.get("trade_type", "")|upper }} {{ tv.get("trans_code", "") }}
+          {% if tv.get("value") %}${{ "{:,.0f}".format(tv.get("value")) }}{% endif %}
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% if evaluations|length == 0 %}
+  <div class="dim" style="margin-top:6px; font-size:11px;">(no evaluations match these filters)</div>
+  {% endif %}
+</section>
+{% endblock %}

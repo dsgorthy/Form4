@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Signals · Pyrrho Desk{% endblock %}
+{% block main %}
+<h1>Signals</h1>
+<div class="sub">{{ signals|length }} active in the catalog · click any row to drill in</div>
+
+<section>
+  <table>
+    <tr>
+      <th></th><th>signal_id</th><th>version</th><th>class</th>
+      <th class="num">rows</th><th class="num">24h</th>
+      <th class="num">age</th><th class="num">sla</th><th>description</th>
+    </tr>
+    {% for s in signals %}
+    <tr>
+      <td><span class="dot {{ s.freshness_status|lower }}"></span></td>
+      <td><a href="/signals/{{ s.signal_id }}">{{ s.signal_id }}</a></td>
+      <td class="dim">{{ s.version }}</td>
+      <td><span class="badge">{{ s.signal_class }}</span></td>
+      <td class="num">{{ "{:,}".format(s.row_count) }}</td>
+      <td class="num">{{ "{:,}".format(s.rows_24h) }}</td>
+      <td class="num">{{ fmt_age(s.age_hours) }}</td>
+      <td class="num">{{ s.sla_hours|int }}h</td>
+      <td class="dim">{{ s.description[:80] }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+{% endblock %}

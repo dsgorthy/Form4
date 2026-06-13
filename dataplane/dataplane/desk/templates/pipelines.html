@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Pipelines · Pyrrho Desk{% endblock %}
+{% block main %}
+<h1>Pipelines</h1>
+<div class="sub">recent Dagster runs · click a failure for the error trace</div>
+
+<section>
+  <table>
+    <tr>
+      <th></th><th>job</th><th>started</th><th>partition</th><th>status</th><th class="num">dur</th><th>run_id</th>
+    </tr>
+    {% for r in runs %}
+    <tr>
+      <td><span class="dot {{ run_color(r.status) }}"></span></td>
+      <td>{{ r.job_name }}</td>
+      <td class="dim">{{ fmt_ts(r.started_at) }}</td>
+      <td class="dim">{{ r.partition or "—" }}</td>
+      <td>
+        {% if r.status == 'FAILURE' %}
+          <a href="/pipelines/{{ r.run_id }}" class="pill red">{{ r.status }}</a>
+        {% else %}
+          <span class="pill dim">{{ r.status }}</span>
+        {% endif %}
+      </td>
+      <td class="num">{{ (r.duration_seconds|int ~ 's') if r.duration_seconds else "—" }}</td>
+      <td class="dim">{{ r.run_id[:8] }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+
+<div class="sub">deeper drill-down: <a href="http://100.78.9.66:3030" target="_blank">Dagster UI</a></div>
+{% endblock %}
