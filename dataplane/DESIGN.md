@@ -215,6 +215,8 @@ Conveniently this needs **zero new raw feeds** — all three inputs exist.
 | Schedules (04:30/05:00 UTC) + failure→ntfy + launchd services (UI 3030) | built, installed on Studio |
 | dbt marts (latest_signal_per_ticker, signal_catalog_active) | built, thin |
 | Backfill CLI (`python3 -m dataplane backfill/list`) | built |
+| Status CLI (`python3 -m dataplane status`) + Pyrrho Desk dashboard (`:3031`) | built |
+| Signal.auto_schedule opt-out + EDGAR retry-on-5xx | built |
 | insider.filings.raw (direct EDGAR, parser reused from form4) | built |
 | Parity CLI (`python3 -m dataplane parity`) | built |
 | Parity baseline (1 day, ~92-96%) — see memory for path to ≥99.5% | done |
