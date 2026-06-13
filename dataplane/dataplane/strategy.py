@@ -326,6 +326,18 @@ class StrategySignal(Signal):
 
             try:
                 passed = bool(_safe_eval(gate["when"], ns))
+            except TypeError:
+                # Null in a numeric expression — typically a no_data row at
+                # the window's edge (upstream backfill hadn't reached that
+                # date yet). Fail closed; surface the lookback depth gap.
+                return {
+                    "signal": gate_signal_id,
+                    "passed": False,
+                    "reason": (
+                        "incomplete upstream window — "
+                        "extend backfill depth to fix"
+                    ),
+                }
             except Exception as exc:
                 return {
                     "signal": gate_signal_id,
