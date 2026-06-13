@@ -1,0 +1,24 @@
+{% if errors %}
+<div class="errors">
+  <div>can't save yet:</div>
+  <ul>
+  {% for e in errors %}<li>{{ e.message }}</li>{% endfor %}
+  </ul>
+</div>
+{% elif file_exists %}
+<div class="errors">
+  <div>file already exists at <code>{{ path }}</code>.</div>
+  <div style="margin-top:4px;">
+    <button type="button" class="primary"
+            hx-post="/new/strategy/save?overwrite=1" hx-target="#save-result"
+            hx-include="#composer">Overwrite</button>
+    or change the name / version above.
+  </div>
+</div>
+{% else %}
+<div style="background: rgba(45, 211, 111, 0.08); border: 1px solid var(--green); padding: 8px 12px;">
+  saved to <code>{{ path }}</code> ·
+  <a href="/strategies/strategy.{{ name }}">view detail</a> ·
+  backfill: <code>python3 -m dataplane backfill strategy.{{ name }} --from YYYY-MM-DD --to today</code>
+</div>
+{% endif %}

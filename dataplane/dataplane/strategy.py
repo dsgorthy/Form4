@@ -359,10 +359,12 @@ class StrategySignal(Signal):
 
 # ── YAML loader ─────────────────────────────────────────────────────────
 
-def load_strategy_yaml(path: Path) -> Type[StrategySignal]:
-    """Load one YAML file and return a dynamically-created StrategySignal subclass."""
-    spec = yaml.safe_load(path.read_text())
+def make_strategy_class(spec: dict) -> Type[StrategySignal]:
+    """Build a StrategySignal subclass from an already-parsed spec dict.
 
+    Used by load_strategy_yaml(path) and by the desk composer's dry-run
+    (which works from a candidate dict without touching the filesystem).
+    """
     name = spec["strategy"]
     version = spec["version"]
     owner = spec.get("owner", "derek")
@@ -399,6 +401,11 @@ def load_strategy_yaml(path: Path) -> Type[StrategySignal]:
         },
     )
     return cls
+
+
+def load_strategy_yaml(path: Path) -> Type[StrategySignal]:
+    """Load one YAML file and return a dynamically-created StrategySignal subclass."""
+    return make_strategy_class(yaml.safe_load(path.read_text()))
 
 
 def discover_strategies(

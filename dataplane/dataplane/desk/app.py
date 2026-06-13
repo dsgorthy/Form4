@@ -17,17 +17,17 @@ from __future__ import annotations
 
 import json
 import yaml
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import JSONResponse, PlainTextResponse, RedirectResponse
+from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from starlette.routing import Route
 from starlette.templating import Jinja2Templates
 
-from dataplane.desk import queries
+from dataplane.desk import composer, queries
 from dataplane.status import gather_status
 
 
@@ -307,18 +307,115 @@ async def healthz(request: Request):
     return PlainTextResponse("ok")
 
 
+# ── Composer routes (Phase B) ──────────────────────────────────────────
+
+async def new_strategy_form(request: Request):
+    return templates.TemplateResponse(request, "new_strategy.html", {
+        "active": "new",
+        "available_signals": composer.signals_for_composer(),
+    })
+
+
+def _form_to_spec_dict(form_data) -> dict:
+    """Translate Starlette's FormData into the shape composer.spec_from_form
+    wants — single-value strings + list[str] for the repeated gate fields."""
+    return {
+        "strategy":           form_data.get("strategy", ""),
+        "version":            form_data.get("version", ""),
+        "owner":              form_data.get("owner", ""),
+        "sla_hours":          form_data.get("sla_hours", "24"),
+        "cadence":            form_data.get("cadence", "daily"),
+        "universe":           form_data.get("universe", "all"),
+        "description":        form_data.get("description", ""),
+        "trigger_signal":     form_data.get("trigger_signal", ""),
+        "trigger_when":       form_data.get("trigger_when", ""),
+        "gate_signal":        form_data.getlist("gate_signal"),
+        "gate_when":          form_data.getlist("gate_when"),
+        "gate_window":        form_data.getlist("gate_window"),
+        "gate_max_staleness": form_data.getlist("gate_max_staleness"),
+        "emit_channel":       form_data.get("emit_channel", "ntfy"),
+        "emit_cooldown":      form_data.get("emit_cooldown", ""),
+    }
+
+
+async def new_strategy_preview(request: Request):
+    form = await request.form()
+    flat = _form_to_spec_dict(form)
+    spec = composer.spec_from_form(flat)
+    return PlainTextResponse(composer.render_yaml(spec))
+
+
+async def new_strategy_dryrun(request: Request):
+    form = await request.form()
+    flat = _form_to_spec_dict(form)
+    spec = composer.spec_from_form(flat)
+    errors = composer.validate_spec(spec)
+    if errors:
+        return templates.TemplateResponse(request, "_dryrun_result.html", {
+            "errors": errors, "result": None, "outcomes_sorted": [],
+        })
+    # Default 90-day window ending today UTC
+    today = datetime.now(timezone.utc).date()
+    from_date = (today - timedelta(days=90)).isoformat()
+    to_date = today.isoformat()
+    try:
+        result = composer.dry_run(spec, from_date, to_date)
+    except Exception as exc:
+        return templates.TemplateResponse(request, "_dryrun_result.html", {
+            "errors": [composer.ValidationError("dryrun", f"dry-run failed: {exc}")],
+            "result": None, "outcomes_sorted": [],
+        })
+    outcomes_sorted = sorted(result.outcomes.items(), key=lambda kv: -kv[1])
+    return templates.TemplateResponse(request, "_dryrun_result.html", {
+        "errors": [], "result": result, "outcomes_sorted": outcomes_sorted,
+    })
+
+
+async def new_strategy_save(request: Request):
+    form = await request.form()
+    flat = _form_to_spec_dict(form)
+    spec = composer.spec_from_form(flat)
+    errors = composer.validate_spec(spec)
+    if errors:
+        return templates.TemplateResponse(request, "_save_result.html", {
+            "errors": errors,
+        })
+    overwrite = (request.query_params.get("overwrite") == "1")
+    try:
+        path = composer.save_yaml(spec, overwrite=overwrite)
+        return templates.TemplateResponse(request, "_save_result.html", {
+            "errors": [], "path": str(path), "name": spec["strategy"],
+        })
+    except FileExistsError as exc:
+        return templates.TemplateResponse(request, "_save_result.html", {
+            "errors": [], "file_exists": True, "path": str(exc),
+            "name": spec["strategy"],
+        })
+
+
+async def new_strategy_gate_row(request: Request):
+    return templates.TemplateResponse(request, "_gate_row.html", {
+        "available_signals": composer.signals_for_composer(),
+    })
+
+
 # ── App factory ───────────────────────────────────────────────────────
 
 app = Starlette(routes=[
-    Route("/",                       home),
-    Route("/signals",                signals_list),
-    Route("/signals/{signal_id}",    signal_detail),
-    Route("/strategies",             strategies_list),
-    Route("/strategies/{signal_id}", strategy_detail),
-    Route("/ticker",                 ticker_redirect),
-    Route("/ticker/{symbol}",        ticker_view),
-    Route("/pipelines",              pipelines),
-    Route("/pipelines/{run_id}",     run_failure),
-    Route("/api/status.json",        status_json),
-    Route("/healthz",                healthz),
+    Route("/",                          home),
+    Route("/signals",                   signals_list),
+    Route("/signals/{signal_id}",       signal_detail),
+    Route("/strategies",                strategies_list),
+    Route("/strategies/{signal_id}",    strategy_detail),
+    Route("/ticker",                    ticker_redirect),
+    Route("/ticker/{symbol}",           ticker_view),
+    Route("/pipelines",                 pipelines),
+    Route("/pipelines/{run_id}",        run_failure),
+    Route("/new/strategy",              new_strategy_form),
+    Route("/new/strategy/preview",      new_strategy_preview, methods=["POST"]),
+    Route("/new/strategy/dryrun",       new_strategy_dryrun,  methods=["POST"]),
+    Route("/new/strategy/save",         new_strategy_save,    methods=["POST"]),
+    Route("/new/strategy/gate-row",     new_strategy_gate_row),
+    Route("/api/status.json",           status_json),
+    Route("/healthz",                   healthz),
 ])

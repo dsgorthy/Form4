@@ -1,0 +1,24 @@
+<div class="gate">
+  <h3>Gate <button type="button" class="remove-gate" onclick="this.closest('.gate').remove()">×</button></h3>
+  <div class="field"><label>signal</label>
+    <select name="gate_signal">
+      <option value="">— pick —</option>
+      {% for sid, klass, schema in available_signals %}
+      <option value="{{ sid }}">{{ sid }} ({{ klass }})</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="hint gate-hint">choose a signal — its output_schema fields will appear here.</div>
+  <div class="field"><label>window</label>
+    <input type="text" name="gate_window" placeholder="(optional) e.g. 90d">
+  </div>
+  <div class="hint">if set: <code>read(... lookback=window)</code>; exposes <code>latest</code> + <code>earliest</code> instead of <code>value</code>.</div>
+  <div class="field tall"><label>when</label>
+    <textarea name="gate_when" rows="2" class="tall"
+              placeholder="value.grade in ['A+', 'A']"></textarea>
+  </div>
+  <div class="field"><label>max staleness</label>
+    <input type="text" name="gate_max_staleness" placeholder="e.g. 30d">
+  </div>
+  <div class="hint">fail closed if newest upstream value is older than this.</div>
+</div>

@@ -1,0 +1,48 @@
+{% if errors %}
+<div class="errors">
+  <div>can't dry-run yet:</div>
+  <ul>
+  {% for e in errors %}<li>{{ e.message }}</li>{% endfor %}
+  </ul>
+</div>
+{% else %}
+<div style="margin-bottom:8px;">
+  <span class="pill green">{{ result.triggered }} triggered</span>
+  <span class="pill dim">{{ result.total }} evaluations</span>
+  <span class="pill dim">{{ result.from_date }} → {{ result.to_date }}</span>
+</div>
+
+<table>
+  <tr><th>outcome</th><th class="num">count</th></tr>
+  {% for reason, n in outcomes_sorted %}
+  <tr>
+    <td class="dim">{{ reason }}</td>
+    <td class="num">{{ "{:,}".format(n) }}</td>
+  </tr>
+  {% endfor %}
+</table>
+
+{% if result.sample_triggered %}
+<div style="margin-top:10px;">
+  <div class="dim" style="font-size:11px; text-transform:uppercase; letter-spacing:0.8px;">
+    sample alerts (first {{ result.sample_triggered|length }})
+  </div>
+  <table>
+    <tr><th>ticker</th><th>as_of</th><th>trigger</th></tr>
+    {% for a in result.sample_triggered %}
+    <tr>
+      <td>{{ a.ticker }}</td>
+      <td class="dim">{{ a.as_of[:16] }}</td>
+      <td class="dim">
+        {% set tv = a.trigger %}
+        {{ tv.get("trade_type", "?")|upper }}
+        qty={{ tv.get("qty", "?") }}
+        {% if tv.get("value") %}${{ "{:,.0f}".format(tv.get("value")) }}{% endif %}
+        {% if tv.get("insider_name") %}· {{ tv.get("insider_name") }}{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
+{% endif %}

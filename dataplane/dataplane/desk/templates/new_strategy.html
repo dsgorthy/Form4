@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+{% block title %}New strategy · Pyrrho Desk{% endblock %}
+{% block head %}
+<script src="https://unpkg.com/htmx.org@1.9.10" defer></script>
+<style>
+  .composer { display: grid; grid-template-columns: 1.2fr 1fr; gap: 14px; }
+  @media (max-width: 1024px) { .composer { grid-template-columns: 1fr; } }
+  .composer .col { display: flex; flex-direction: column; gap: 14px; }
+  .field { display: grid; grid-template-columns: 110px 1fr; gap: 6px 10px; align-items: center; margin-bottom: 6px; }
+  .field.tall { grid-template-columns: 110px 1fr; align-items: start; }
+  .field label { color: var(--dim); font-size: 12px; }
+  .field input, .field textarea, .field select {
+    background: var(--bg); color: var(--fg); border: 1px solid var(--border);
+    padding: 5px 9px; font: inherit; outline: none; border-radius: 2px;
+    width: 100%;
+  }
+  .field textarea { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .field textarea.tall { min-height: 60px; }
+  .field input:focus, .field textarea:focus, .field select:focus { border-color: var(--accent); }
+  .gate {
+    border: 1px solid var(--border); padding: 10px 12px; margin-bottom: 10px;
+    background: var(--panel-2);
+  }
+  .gate h3 { margin: 0 0 8px; font-size: 11px; color: var(--dim);
+             text-transform: uppercase; letter-spacing: 0.8px; font-weight: 500; }
+  .hint { color: var(--dim); font-size: 11px; padding-left: 110px; margin-top: 2px; }
+  .actions { display: flex; gap: 8px; margin-top: 14px; }
+  .actions button {
+    background: var(--panel-2); color: var(--fg); border: 1px solid var(--border);
+    padding: 7px 14px; font: inherit; cursor: pointer; border-radius: 2px;
+  }
+  .actions button.primary { background: var(--accent); color: white; border-color: var(--accent); }
+  .actions button:hover { border-color: var(--accent); }
+  .right-col { position: sticky; top: 60px; align-self: start; }
+  pre.preview { background: var(--bg); border: 1px solid var(--border);
+                padding: 10px 12px; margin: 0; min-height: 200px;
+                overflow-x: auto; font-size: 12px; }
+  .errors { background: rgba(235, 68, 90, 0.1); border: 1px solid var(--red);
+            padding: 8px 12px; margin-bottom: 12px; }
+  .errors li { color: var(--red); font-size: 12px; }
+  .errors ul { margin: 4px 0 0; padding-left: 20px; }
+  .dryrun-result { font-size: 12px; }
+  .dryrun-result .pill { margin-right: 6px; }
+  .dryrun-result table { font-size: 12px; }
+  .remove-gate {
+    background: transparent; border: none; color: var(--dim); cursor: pointer;
+    font-size: 14px; padding: 0 4px;
+  }
+  .remove-gate:hover { color: var(--red); }
+</style>
+{% endblock %}
+
+{% block main %}
+<h1>New strategy</h1>
+<div class="sub">compose · preview YAML · dry-run on existing data · save to <code>dataplane/strategies/</code></div>
+
+<form id="composer" class="composer">
+  <div class="col">
+    <section>
+      <h2>Header</h2>
+      <div class="field"><label>name</label>
+        <input type="text" name="strategy" placeholder="e.g. cluster_buys_drawdown" required>
+      </div>
+      <div class="hint">lowercase + underscores. becomes the file <code>&lt;name&gt;.&lt;version&gt;.yaml</code>.</div>
+
+      <div class="field"><label>version</label>
+        <input type="text" name="version" value="v1" required>
+      </div>
+      <div class="field"><label>owner</label>
+        <input type="text" name="owner" value="derek">
+      </div>
+      <div class="field"><label>sla hours</label>
+        <input type="number" name="sla_hours" value="24" min="1">
+      </div>
+      <div class="field"><label>cadence</label>
+        <select name="cadence">
+          <option value="daily" selected>daily</option>
+          <option value="5min">5min (M2)</option>
+        </select>
+      </div>
+      <div class="field"><label>universe</label>
+        <input type="text" name="universe" value="all">
+      </div>
+      <div class="field tall"><label>description</label>
+        <textarea name="description" rows="2" class="tall"></textarea>
+      </div>
+    </section>
+
+    <section>
+      <h2>Trigger</h2>
+      <div class="field"><label>signal</label>
+        <select name="trigger_signal" id="trigger_signal" required onchange="updateHint('trigger')">
+          <option value="">— pick —</option>
+          {% for sid, klass, schema in available_signals %}
+          <option value="{{ sid }}" data-schema='{{ schema|tojson }}'>{{ sid }} ({{ klass }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="hint" id="trigger_hint">choose a signal — its output_schema fields will appear here.</div>
+      <div class="field tall"><label>when</label>
+        <textarea name="trigger_when" rows="2" class="tall"
+                  placeholder="value.trans_code == 'P' and value.value >= 50000"></textarea>
+      </div>
+      <div class="hint">predicate over <code>value.*</code>. true → fires the gate cascade.</div>
+    </section>
+
+    <section>
+      <h2>Gates</h2>
+      <div id="gates">
+        {% include "_gate_row.html" %}
+      </div>
+      <button type="button" class="actions" style="border:1px solid var(--border); padding:5px 10px; background: var(--panel-2); color: var(--fg); cursor: pointer;"
+              hx-get="/new/strategy/gate-row" hx-target="#gates" hx-swap="beforeend">
+        + add gate
+      </button>
+    </section>
+
+    <section>
+      <h2>Emit</h2>
+      <div class="field"><label>channel</label>
+        <select name="emit_channel">
+          <option value="ntfy" selected>ntfy</option>
+        </select>
+      </div>
+      <div class="field"><label>cooldown</label>
+        <input type="text" name="emit_cooldown" placeholder="5d per ticker">
+      </div>
+    </section>
+
+    <div class="actions">
+      <button type="button" class="primary"
+              hx-post="/new/strategy/preview" hx-target="#preview"
+              hx-include="#composer">
+        Preview YAML
+      </button>
+      <button type="button"
+              hx-post="/new/strategy/dryrun" hx-target="#dryrun"
+              hx-include="#composer" hx-indicator="#dryrun-busy">
+        Dry-run last 90d
+      </button>
+      <button type="button"
+              hx-post="/new/strategy/save" hx-target="#save-result"
+              hx-include="#composer">
+        Save YAML
+      </button>
+      <span id="dryrun-busy" class="htmx-indicator" style="color: var(--dim);">…dry-running</span>
+    </div>
+    <div id="save-result" style="margin-top:10px;"></div>
+  </div>
+
+  <div class="col right-col">
+    <section>
+      <h2>Preview</h2>
+      <pre id="preview" class="preview"># fill the form, then click Preview YAML</pre>
+    </section>
+    <section>
+      <h2>Dry-run result</h2>
+      <div id="dryrun" class="dryrun-result">
+        <span class="dim">Pick gates, then click "Dry-run last 90d" to see what would have fired against existing data.</span>
+      </div>
+    </section>
+  </div>
+</form>
+
+<script>
+  // Schema map: signal_id → output_schema dict (parsed on first interaction)
+  const schemaBySignal = {};
+  {% for sid, klass, schema in available_signals %}
+  schemaBySignal[{{ sid|tojson }}] = {{ schema|tojson }};
+  {% endfor %}
+
+  function fieldsFor(signalId, prefix) {
+    const schema = schemaBySignal[signalId];
+    if (!schema) return "";
+    const fields = Object.keys(schema);
+    if (fields.length === 0) return "";
+    return prefix + ".[" + fields.join(", ") + "]";
+  }
+
+  function updateHint(slot, gateIdx) {
+    const sel = slot === "trigger"
+      ? document.getElementById("trigger_signal")
+      : document.querySelectorAll('select[name="gate_signal"]')[gateIdx];
+    if (!sel) return;
+    const sigId = sel.value;
+    const hintId = slot === "trigger" ? "trigger_hint" : "gate_hint_" + gateIdx;
+    const hint = document.getElementById(hintId);
+    if (!hint) return;
+    if (!sigId) {
+      hint.textContent = "choose a signal — its output_schema fields will appear here.";
+      return;
+    }
+    const fields = fieldsFor(sigId, "value");
+    hint.innerHTML = fields
+      ? "available: <code>" + fields + "</code>"
+      : "schema has no declared fields";
+  }
+
+  // Update hints whenever HTMX swaps in a new gate row
+  document.body.addEventListener("htmx:afterSwap", function(evt) {
+    document.querySelectorAll('select[name="gate_signal"]').forEach((sel, i) => {
+      sel.setAttribute("data-gate-idx", i);
+      sel.onchange = () => updateHint("gate", i);
+      // refresh the hint id targeting
+      const hintEl = sel.closest(".gate").querySelector(".gate-hint");
+      if (hintEl) hintEl.id = "gate_hint_" + i;
+    });
+  });
+</script>
+{% endblock %}
