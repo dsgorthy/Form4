@@ -119,15 +119,28 @@ class InsiderFilingsRawV1(Signal):
         self, partition_date: datetime
     ) -> List[SignalObservation]:
         """Fetch all Form 4 filings filed on partition_date, return one
-        observation per parsed trade."""
+        observation per parsed trade.
+
+        Multi-pass fetch: queries EFTS for (d-1, d+1) instead of (d, d),
+        then filters to filing_date == d. Late-arriving filings indexed by
+        EFTS under an adjacent date — observed during the parity baseline
+        — get captured. Idempotent upsert handles overlap.
+        """
         day = partition_date.strftime("%Y-%m-%d")
+        day_minus_1 = (partition_date - timedelta(days=1)).strftime("%Y-%m-%d")
+        day_plus_1 = (partition_date + timedelta(days=1)).strftime("%Y-%m-%d")
         observations: List[SignalObservation] = []
 
         # Stage 1: get filing metadata from EFTS (retry on 5xx)
         try:
-            filings = _retry_on_5xx(fetch_all_form4_filings, day, day)
+            filings_wide = _retry_on_5xx(
+                fetch_all_form4_filings, day_minus_1, day_plus_1
+            )
         except Exception:
             return observations  # EDGAR down — emit nothing for the partition
+
+        # Filter to filings whose EDGAR file_date matches the partition.
+        filings = [f for f in filings_wide if f.get("filing_date") == day]
 
         # Stage 2: fetch + parse each filing
         for filing in filings:
