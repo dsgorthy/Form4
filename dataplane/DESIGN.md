@@ -222,6 +222,7 @@ Conveniently this needs **zero new raw feeds** — all three inputs exist.
 | Desk strategy edit/delete (CRUD over composed YAMLs) | built |
 | M2: realtime 5-min sensor + strategy chain (DEFAULT STOPPED) | built, awaiting universe |
 | Universe expansion script (batched Alpaca, insider-active tickers) | built (`scripts/expand_price_universe.py`) |
+| **M1 demo on expanded universe: 355 real alerts in 90 days** | **done 2026-06-13** |
 | Signal.auto_schedule opt-out + EDGAR retry-on-5xx | built |
 | insider.filings.raw (direct EDGAR, parser reused from form4) | built |
 | Parity CLI (`python3 -m dataplane parity`) | built |
