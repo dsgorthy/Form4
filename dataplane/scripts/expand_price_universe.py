@@ -43,7 +43,7 @@ sys.path.insert(0, str(_REPO / "dataplane"))
 
 from dataplane.catalog import register, write_observation  # noqa: E402
 from dataplane.observation import SignalObservation  # noqa: E402
-from signals.price.daily_close_v1 import PriceDailyCloseV1  # noqa: E402
+from signals.price.daily_close_v1 import PricesDailyCloseV1 as PriceDailyCloseV1  # noqa: E402
 
 
 ALPACA_BARS_URL = "https://data.alpaca.markets/v2/stocks/bars"
