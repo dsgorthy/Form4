@@ -27,6 +27,16 @@
     <h2>YAML</h2>
     {% if strategy_yaml %}
     <pre>{{ strategy_yaml }}</pre>
+    <div style="display:flex; gap:10px; margin-top:6px;">
+      <a href="/new/strategy?from={{ signal.signal_id }}" class="pill green" style="padding: 4px 12px; text-decoration:none; border:1px solid var(--accent);">Edit</a>
+      <form method="POST" action="/strategies/{{ signal.signal_id }}/delete"
+            onsubmit="return confirm('Delete this strategy permanently?')">
+        <button type="submit" class="pill red"
+                style="padding: 4px 12px; background: transparent; border:1px solid var(--red); color: var(--red); cursor: pointer;">
+          Delete
+        </button>
+      </form>
+    </div>
     {% else %}
     <div class="dim">YAML source not found in dataplane/strategies/ — this strategy may not be file-backed.</div>
     {% endif %}

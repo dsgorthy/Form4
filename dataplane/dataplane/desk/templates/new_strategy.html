@@ -51,38 +51,41 @@
 {% endblock %}
 
 {% block main %}
-<h1>New strategy</h1>
-<div class="sub">compose · preview YAML · dry-run on existing data · save to <code>dataplane/strategies/</code></div>
+<h1>{% if edit_mode %}Edit strategy <code>{{ prefill.strategy }}</code>{% else %}New strategy{% endif %}</h1>
+<div class="sub">compose · preview YAML · dry-run on existing data · save to <code>dataplane/strategies/</code>
+{% if edit_mode %} · <a href="/strategies/strategy.{{ prefill.strategy }}">cancel</a>{% endif %}</div>
 
 <form id="composer" class="composer">
   <div class="col">
     <section>
       <h2>Header</h2>
       <div class="field"><label>name</label>
-        <input type="text" name="strategy" placeholder="e.g. cluster_buys_drawdown" required>
+        <input type="text" name="strategy" placeholder="e.g. cluster_buys_drawdown" required
+               value="{{ prefill.strategy if prefill else '' }}"
+               {% if edit_mode %}readonly{% endif %}>
       </div>
       <div class="hint">lowercase + underscores. becomes the file <code>&lt;name&gt;.&lt;version&gt;.yaml</code>.</div>
 
       <div class="field"><label>version</label>
-        <input type="text" name="version" value="v1" required>
+        <input type="text" name="version" value="{{ prefill.version if prefill else 'v1' }}" required>
       </div>
       <div class="field"><label>owner</label>
-        <input type="text" name="owner" value="derek">
+        <input type="text" name="owner" value="{{ prefill.owner if prefill else 'derek' }}">
       </div>
       <div class="field"><label>sla hours</label>
-        <input type="number" name="sla_hours" value="24" min="1">
+        <input type="number" name="sla_hours" value="{{ prefill.sla_hours if prefill else 24 }}" min="1">
       </div>
       <div class="field"><label>cadence</label>
         <select name="cadence">
-          <option value="daily" selected>daily</option>
-          <option value="5min">5min (M2)</option>
+          <option value="daily" {% if not prefill or prefill.cadence == 'daily' %}selected{% endif %}>daily</option>
+          <option value="5min" {% if prefill and prefill.cadence == '5min' %}selected{% endif %}>5min (M2)</option>
         </select>
       </div>
       <div class="field"><label>universe</label>
-        <input type="text" name="universe" value="all">
+        <input type="text" name="universe" value="{{ prefill.universe if prefill else 'all' }}">
       </div>
       <div class="field tall"><label>description</label>
-        <textarea name="description" rows="2" class="tall"></textarea>
+        <textarea name="description" rows="2" class="tall">{{ prefill.description if prefill else '' }}</textarea>
       </div>
     </section>
 
@@ -92,14 +95,14 @@
         <select name="trigger_signal" id="trigger_signal" required onchange="updateHint('trigger')">
           <option value="">— pick —</option>
           {% for sid, klass, schema in available_signals %}
-          <option value="{{ sid }}" data-schema='{{ schema|tojson }}'>{{ sid }} ({{ klass }})</option>
+          <option value="{{ sid }}" {% if prefill and prefill.trigger_signal == sid %}selected{% endif %}>{{ sid }} ({{ klass }})</option>
           {% endfor %}
         </select>
       </div>
       <div class="hint" id="trigger_hint">choose a signal — its output_schema fields will appear here.</div>
       <div class="field tall"><label>when</label>
         <textarea name="trigger_when" rows="2" class="tall"
-                  placeholder="value.trans_code == 'P' and value.value >= 50000"></textarea>
+                  placeholder="value.trans_code == 'P' and value.value >= 50000">{{ prefill.trigger_when if prefill else '' }}</textarea>
       </div>
       <div class="hint">predicate over <code>value.*</code>. true → fires the gate cascade.</div>
     </section>
@@ -107,7 +110,15 @@
     <section>
       <h2>Gates</h2>
       <div id="gates">
-        {% include "_gate_row.html" %}
+        {% if prefill and prefill.gates %}
+          {% for gate in prefill.gates %}
+            {% with prefill_gate = gate %}
+            {% include "_gate_row.html" %}
+            {% endwith %}
+          {% endfor %}
+        {% else %}
+          {% include "_gate_row.html" %}
+        {% endif %}
       </div>
       <button type="button" class="actions" style="border:1px solid var(--border); padding:5px 10px; background: var(--panel-2); color: var(--fg); cursor: pointer;"
               hx-get="/new/strategy/gate-row" hx-target="#gates" hx-swap="beforeend">
@@ -123,7 +134,8 @@
         </select>
       </div>
       <div class="field"><label>cooldown</label>
-        <input type="text" name="emit_cooldown" placeholder="5d per ticker">
+        <input type="text" name="emit_cooldown" placeholder="5d per ticker"
+               value="{{ prefill.emit_cooldown if prefill else '' }}">
       </div>
     </section>
 
@@ -139,9 +151,9 @@
         Dry-run last 90d
       </button>
       <button type="button"
-              hx-post="/new/strategy/save" hx-target="#save-result"
+              hx-post="/new/strategy/save{% if edit_mode %}?overwrite=1{% endif %}" hx-target="#save-result"
               hx-include="#composer">
-        Save YAML
+        {% if edit_mode %}Save changes{% else %}Save YAML{% endif %}
       </button>
       <span id="dryrun-busy" class="htmx-indicator" style="color: var(--dim);">…dry-running</span>
     </div>

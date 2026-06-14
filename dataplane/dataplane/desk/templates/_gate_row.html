@@ -4,21 +4,23 @@
     <select name="gate_signal">
       <option value="">— pick —</option>
       {% for sid, klass, schema in available_signals %}
-      <option value="{{ sid }}">{{ sid }} ({{ klass }})</option>
+      <option value="{{ sid }}" {% if prefill_gate is defined and prefill_gate.signal == sid %}selected{% endif %}>{{ sid }} ({{ klass }})</option>
       {% endfor %}
     </select>
   </div>
   <div class="hint gate-hint">choose a signal — its output_schema fields will appear here.</div>
   <div class="field"><label>window</label>
-    <input type="text" name="gate_window" placeholder="(optional) e.g. 90d">
+    <input type="text" name="gate_window" placeholder="(optional) e.g. 90d"
+           value="{{ prefill_gate.window if prefill_gate is defined and prefill_gate.window else '' }}">
   </div>
   <div class="hint">if set: <code>read(... lookback=window)</code>; exposes <code>latest</code> + <code>earliest</code> instead of <code>value</code>.</div>
   <div class="field tall"><label>when</label>
     <textarea name="gate_when" rows="2" class="tall"
-              placeholder="value.grade in ['A+', 'A']"></textarea>
+              placeholder="value.grade in ['A+', 'A']">{{ prefill_gate.when if prefill_gate is defined else '' }}</textarea>
   </div>
   <div class="field"><label>max staleness</label>
-    <input type="text" name="gate_max_staleness" placeholder="e.g. 30d">
+    <input type="text" name="gate_max_staleness" placeholder="e.g. 30d"
+           value="{{ prefill_gate.max_staleness if prefill_gate is defined and prefill_gate.max_staleness else '' }}">
   </div>
   <div class="hint">fail closed if newest upstream value is older than this.</div>
 </div>

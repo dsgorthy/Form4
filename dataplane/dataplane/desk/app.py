@@ -331,10 +331,49 @@ async def healthz(request: Request):
 # ── Composer routes (Phase B) ──────────────────────────────────────────
 
 async def new_strategy_form(request: Request):
+    """Composer form. If ?from=strategy.<name>, pre-fill from the existing
+    YAML — that's the 'edit strategy' path."""
+    edit_from = (request.query_params.get("from") or "").strip()
+    prefill = composer.load_spec_for_edit(edit_from) if edit_from else None
+
+    # Flatten the spec back to form-shape so the template renders defaults.
+    if prefill:
+        triggers = prefill.get("triggers") or [{}]
+        trigger = triggers[0] if triggers else {}
+        prefill_form = {
+            "strategy":     prefill.get("strategy", ""),
+            "version":      prefill.get("version", "v1"),
+            "owner":        prefill.get("owner", "derek"),
+            "sla_hours":    int(prefill.get("sla_hours") or 24),
+            "cadence":      prefill.get("cadence", "daily"),
+            "universe":     prefill.get("universe", "all"),
+            "description":  prefill.get("description", ""),
+            "trigger_signal": trigger.get("signal", ""),
+            "trigger_when":   trigger.get("when", ""),
+            "gates":          prefill.get("gates") or [],
+            "emit_channel":   (prefill.get("emit") or {}).get("channel", "ntfy"),
+            "emit_cooldown":  (prefill.get("emit") or {}).get("cooldown", ""),
+        }
+    else:
+        prefill_form = None
+
     return templates.TemplateResponse(request, "new_strategy.html", {
         "active": "new",
         "available_signals": composer.signals_for_composer(),
+        "prefill": prefill_form,
+        "edit_mode": bool(prefill),
     })
+
+
+async def delete_strategy_route(request: Request):
+    sid = request.path_params["signal_id"]
+    try:
+        path = composer.delete_strategy(sid)
+    except Exception as exc:
+        return PlainTextResponse(f"delete failed: {exc}", status_code=500)
+    if path is None:
+        return PlainTextResponse(f"no YAML found for {sid}", status_code=404)
+    return RedirectResponse("/strategies", status_code=303)
 
 
 def _form_to_spec_dict(form_data) -> dict:
@@ -492,6 +531,7 @@ app = Starlette(routes=[
     Route("/new/strategy/gate-row",     new_strategy_gate_row),
     Route("/signals/{signal_id}/backfill",    backfill_signal,   methods=["POST"]),
     Route("/strategies/{signal_id}/backfill", backfill_strategy, methods=["POST"]),
+    Route("/strategies/{signal_id}/delete",   delete_strategy_route, methods=["POST"]),
     Route("/api/status.json",           status_json),
     Route("/healthz",                   healthz),
 ])

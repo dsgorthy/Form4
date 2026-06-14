@@ -196,6 +196,52 @@ def save_yaml(spec: dict, overwrite: bool = False) -> Path:
     return p
 
 
+def load_spec_for_edit(strategy_signal_id: str) -> Optional[dict]:
+    """Find the YAML for a strategy.<name> signal_id and parse it.
+    Returns None if no file matches. Used to pre-fill the composer form."""
+    name = strategy_signal_id.removeprefix("strategy.")
+    if not STRATEGIES_DIR.exists():
+        return None
+    for p in STRATEGIES_DIR.glob("*.yaml"):
+        try:
+            spec = yaml.safe_load(p.read_text())
+            if spec.get("strategy") == name:
+                return spec
+        except Exception:
+            continue
+    return None
+
+
+def delete_strategy(strategy_signal_id: str) -> Optional[Path]:
+    """Delete the YAML file for a strategy. Returns the path deleted, or
+    None if no file matched. Catalog row (signal_definitions) is also
+    removed so the strategy disappears from the desk."""
+    name = strategy_signal_id.removeprefix("strategy.")
+    if not STRATEGIES_DIR.exists():
+        return None
+    for p in STRATEGIES_DIR.glob("*.yaml"):
+        try:
+            spec = yaml.safe_load(p.read_text())
+        except Exception:
+            continue
+        if spec.get("strategy") != name:
+            continue
+        p.unlink()
+        # Clear the catalog row too (idempotent).
+        with _conn() as conn:
+            cur = conn.cursor()
+            try:
+                cur.execute(
+                    "DELETE FROM signal_definitions WHERE signal_id = %s",
+                    (strategy_signal_id,),
+                )
+                conn.commit()
+            finally:
+                cur.close()
+        return p
+    return None
+
+
 # ── Dry-run ────────────────────────────────────────────────────────────
 
 @dataclass
