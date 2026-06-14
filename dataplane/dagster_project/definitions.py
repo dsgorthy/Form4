@@ -11,18 +11,26 @@ assets/signals.py).
 """
 import os
 import shutil
+import time
+from datetime import datetime, timezone
 
 import requests
 from dagster import (
+    AssetKey,
     AssetSelection,
     DefaultScheduleStatus,
     DefaultSensorStatus,
     Definitions,
     RunFailureSensorContext,
+    RunRequest,
     ScheduleDefinition,
+    SensorEvaluationContext,
+    SensorResult,
+    SkipReason,
     build_schedule_from_partitioned_job,
     define_asset_job,
     run_failure_sensor,
+    sensor,
 )
 from dagster_dbt import DbtCliResource
 
@@ -117,11 +125,55 @@ def ntfy_on_run_failure(context: RunFailureSensorContext):
         pass  # alerting must never take down the daemon
 
 
+# ── M2: realtime 5-min loop ──────────────────────────────────────────
+#
+# Re-materializes today's insider.trades.raw partition every 5 minutes
+# (idempotent upsert; picks up new form4-bridge rows as they land) and
+# chains the strategy partition right after. Combined with the existing
+# ntfy emit in the asset wrapper, this is the live alerting loop.
+#
+# Default status STOPPED so it doesn't surprise — Derek toggles it from
+# the Dagster UI when he wants live alerts on.
+
+_REALTIME_KEYS = [
+    AssetKey(["insider", "trades", "raw", "v1.0.0"]),
+    AssetKey(["strategy", "agrade_drawdown_buy", "v1"]),
+]
+
+realtime_strategy_job = define_asset_job(
+    name="realtime_strategy",
+    selection=AssetSelection.keys(*_REALTIME_KEYS),
+    partitions_def=daily_partitions,
+)
+
+
+@sensor(
+    name="realtime_5min_loop",
+    job=realtime_strategy_job,
+    minimum_interval_seconds=300,
+    default_status=DefaultSensorStatus.STOPPED,
+)
+def realtime_5min_loop(context: SensorEvaluationContext):
+    """Every 5 min, refresh today's insider.trades.raw + strategy partitions.
+
+    Idempotent at the signal-write layer, and the strategy's emit logic
+    dedupes alerts via the cooldown window (so re-running doesn't spam).
+    """
+    today_utc = datetime.now(timezone.utc).date().isoformat()
+    bucket = int(time.time() // 300)
+    return SensorResult(
+        run_requests=[RunRequest(
+            run_key=f"realtime-{today_utc}-{bucket}",
+            partition_key=today_utc,
+        )],
+    )
+
+
 defs = Definitions(
     assets=[*signal_assets, dataplane_dbt_assets],
-    jobs=[daily_signals_job, dbt_marts_job],
+    jobs=[daily_signals_job, dbt_marts_job, realtime_strategy_job],
     schedules=[daily_signals_schedule, dbt_marts_schedule],
-    sensors=[ntfy_on_run_failure],
+    sensors=[ntfy_on_run_failure, realtime_5min_loop],
     resources={
         "dataplane_conn": dataplane_resource(),
         "form4_conn":     form4_resource(),
