@@ -219,6 +219,9 @@ Conveniently this needs **zero new raw feeds** — all three inputs exist.
 | Desk workbench: catalog/signal/strategy/ticker/pipeline pages | built (Phase A) |
 | Desk composer: form → YAML → dry-run → save | built (Phase B) |
 | Desk operate: backfill button + per-signal run history | built (Phase C) |
+| Desk strategy edit/delete (CRUD over composed YAMLs) | built |
+| M2: realtime 5-min sensor + strategy chain (DEFAULT STOPPED) | built, awaiting universe |
+| Universe expansion script (batched Alpaca, insider-active tickers) | built (`scripts/expand_price_universe.py`) |
 | Signal.auto_schedule opt-out + EDGAR retry-on-5xx | built |
 | insider.filings.raw (direct EDGAR, parser reused from form4) | built |
 | Parity CLI (`python3 -m dataplane parity`) | built |
