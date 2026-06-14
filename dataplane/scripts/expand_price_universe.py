@@ -79,6 +79,9 @@ def _active_universe(form4_dsn: str, min_trades: int, days_back: int, max_ticker
             cur.close()
 
     out: List[str] = []
+    # Tickers that confuse Alpaca's symbol parser (NONE → null) or are
+    # otherwise unreliable. Add to taste.
+    _SKIP = {"NONE", "NULL", "NAN"}
     for ticker, _ in rows:
         t = (ticker or "").strip().upper()
         # Skip warrants / units / preferred / multi-class with suffix bias
@@ -86,6 +89,8 @@ def _active_universe(form4_dsn: str, min_trades: int, days_back: int, max_ticker
         if not t or len(t) > 5:
             continue
         if any(c in t for c in ("$", "/")) or t.endswith("W"):
+            continue
+        if t in _SKIP:
             continue
         out.append(t)
         if len(out) >= max_tickers:
@@ -105,22 +110,35 @@ def _alpaca_headers() -> Dict[str, str]:
     return {"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret}
 
 
-def _fetch_batch(symbols: List[str], start: str, end: str) -> dict:
-    """One Alpaca call for up to 100 symbols, all days in range."""
-    params = {
-        "symbols": ",".join(symbols),
-        "timeframe": "1Day",
-        "start": start,
-        "end": end,
-        "feed": "iex",
-        "adjustment": "raw",
-        "limit": 10000,
-    }
-    resp = requests.get(
-        ALPACA_BARS_URL, params=params, headers=_alpaca_headers(), timeout=60
-    )
-    resp.raise_for_status()
-    return resp.json()
+def _fetch_batch(symbols: List[str], start: str, end: str) -> Dict[str, list]:
+    """Pull all bars for `symbols` over [start, end], paginating through
+    Alpaca's `next_page_token`. Returns dict: symbol → [bar, ...]."""
+    aggregated: Dict[str, list] = {}
+    next_token: str = ""
+    while True:
+        params = {
+            "symbols": ",".join(symbols),
+            "timeframe": "1Day",
+            "start": start,
+            "end": end,
+            "feed": "iex",
+            "adjustment": "raw",
+            "limit": 10000,
+        }
+        if next_token:
+            params["page_token"] = next_token
+        resp = requests.get(
+            ALPACA_BARS_URL, params=params, headers=_alpaca_headers(), timeout=60
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        bars_by_symbol = data.get("bars") or {}
+        for sym, bars in bars_by_symbol.items():
+            aggregated.setdefault(sym, []).extend(bars or [])
+        next_token = data.get("next_page_token") or ""
+        if not next_token:
+            break
+    return aggregated
 
 
 def main():
@@ -153,12 +171,27 @@ def main():
         batch = tickers[batch_start:batch_start + BATCH_SIZE]
         print(f"batch {batch_start // BATCH_SIZE + 1}: {len(batch)} symbols …", end="", flush=True)
         try:
-            data = _fetch_batch(batch, args.from_date, args.to_date)
+            bars_by_symbol = _fetch_batch(batch, args.from_date, args.to_date)
+        except requests.exceptions.HTTPError as exc:
+            # Bad batch — usually one bad symbol poisoning the whole call.
+            # Bisect: split and retry, drop any sub-batch that still 400s.
+            print(f" 400 on whole batch — bisecting")
+            bars_by_symbol = {}
+            stack: list = [batch]
+            while stack:
+                sub = stack.pop()
+                if len(sub) == 1:
+                    continue  # drop singletons that 400
+                try:
+                    bars_by_symbol.update(_fetch_batch(sub, args.from_date, args.to_date))
+                except requests.exceptions.HTTPError:
+                    mid = len(sub) // 2
+                    stack.append(sub[:mid])
+                    stack.append(sub[mid:])
         except Exception as exc:
             print(f" FAILED: {exc}")
             continue
 
-        bars_by_symbol = data.get("bars") or {}
         rows_this_batch = 0
         with psycopg2.connect(args.dataplane_dsn) as conn:
             for symbol, bars in bars_by_symbol.items():
