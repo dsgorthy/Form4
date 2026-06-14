@@ -222,7 +222,10 @@ Conveniently this needs **zero new raw feeds** — all three inputs exist.
 | Signal.auto_schedule opt-out + EDGAR retry-on-5xx | built |
 | insider.filings.raw (direct EDGAR, parser reused from form4) | built |
 | Parity CLI (`python3 -m dataplane parity`) | built |
-| Parity baseline (1 day, ~92-96%) — see memory for path to ≥99.5% | done |
+| Parity baseline (1 day, v2 multi-pass at 95.4%/95.4%) | done |
+| fundamental.facts.v1 (SEC XBRL companyfacts, third bronze source) | built |
+| MCP read-only server (pyrrho-dataplane) — 7 tools | built |
+| Strategy ntfy push (Dagster asset wrapper, cooldown + backfill guard) | built |
 | Signal.read(..., lookback=) | built |
 | StrategySignal (YAML-driven composite) + agrade_drawdown_buy.v1 | built |
 | Report CLI (`python3 -m dataplane report`) — M1 demo artifact tool | built |
