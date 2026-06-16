@@ -60,12 +60,35 @@ def _make_signal_asset(cls: Type[Signal]):
     """
 
     mode = cls.materialization_mode
+
+    # Translate declared upstream signal_ids into Dagster asset deps so
+    # the strategy/derived signal materializes AFTER its inputs in the
+    # same job run. Without this, Dagster runs assets in parallel — the
+    # strategy ends up reading a partially-populated trades.raw and
+    # misses today's events (observed 2026-06-15: 12 evals vs 1305
+    # expected).
+    upstream_asset_keys = []
+    for u in cls.upstream:
+        # external.* upstreams aren't dataplane assets; skip them.
+        if u.signal_id.startswith("external."):
+            continue
+        # Find the matching Signal class to get its asset key (which
+        # encodes the version). Falls back gracefully if it isn't in
+        # the discovered set.
+        for other in discover_signal_classes():
+            if other.signal_id == u.signal_id or u.signal_id.startswith(
+                f"{other.signal_id}."
+            ):
+                upstream_asset_keys.append(_signal_asset_key(other))
+                break
+
     common_kwargs = dict(
         key=_signal_asset_key(cls),
         partitions_def=daily_partitions,
         description=cls.description or cls.__doc__ or cls.signal_id,
         compute_kind="python",
         group_name=cls.signal_id.split(".", 1)[0],
+        deps=upstream_asset_keys,
         metadata={
             "signal_id": cls.signal_id,
             "version": cls.version,
