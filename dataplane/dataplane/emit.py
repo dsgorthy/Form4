@@ -43,10 +43,20 @@ def _parse_cooldown(spec: Optional[str]) -> Optional[timedelta]:
 
 
 def _has_recent_alert(
-    conn, signal_id: str, ticker: str, window: timedelta
+    conn,
+    signal_id: str,
+    ticker: str,
+    window: timedelta,
+    current_as_of: datetime,
 ) -> bool:
     """True if we already wrote a triggered=true observation for this
-    (strategy, ticker) within the cooldown window."""
+    (strategy, ticker) within the cooldown window — strictly BEFORE
+    the observation we're considering pushing right now.
+
+    The `as_of_date < current_as_of` filter is what makes this safe to
+    call after write_observation. Without it the just-written row would
+    self-dedup every push (observed 2026-06-16: 3 triggered rows, 0
+    pushed)."""
     cur = conn.cursor()
     try:
         cur.execute(
@@ -56,10 +66,11 @@ def _has_recent_alert(
              WHERE signal_id LIKE %s
                AND ticker = %s
                AND (value->>'triggered')::boolean = true
+               AND as_of_date < %s
                AND ingested_at >= now() - INTERVAL '1 second' * %s
              LIMIT 1
             """,
-            (f"{signal_id}%", ticker, int(window.total_seconds())),
+            (f"{signal_id}%", ticker, current_as_of, int(window.total_seconds())),
         )
         return cur.fetchone() is not None
     finally:
@@ -127,11 +138,18 @@ def emit_alerts(
     name = strategy_id.removeprefix("strategy.")
 
     pushed = 0
-    for obs in observations:
+    pushed_tickers_this_batch: set = set()
+    # Process oldest-first so the dedup-within-batch step keeps the
+    # earliest trigger per ticker (most informative).
+    for obs in sorted(observations, key=lambda o: o.as_of_date):
         v = obs.value if isinstance(obs.value, dict) else {}
         if not v.get("triggered"):
             continue
-        if _has_recent_alert(conn, strategy_id, obs.ticker, cooldown):
+        if obs.ticker in pushed_tickers_this_batch:
+            continue  # dedup within-batch (e.g. two FLNT trades the same day)
+        if _has_recent_alert(
+            conn, strategy_id, obs.ticker, cooldown, obs.as_of_date
+        ):
             continue
         body = _format_alert(name, v, obs.ticker)
         try:
@@ -146,6 +164,7 @@ def emit_alerts(
                 timeout=8,
             )
             pushed += 1
+            pushed_tickers_this_batch.add(obs.ticker)
         except Exception:
             # Alerting must never break ingestion.
             pass
