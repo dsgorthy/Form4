@@ -84,6 +84,9 @@ interface Trade {
   execution_source?: string;
   is_estimated?: boolean;
   company?: string | null;
+  current_price?: number | null;
+  unrealized_pnl_pct?: number | null;
+  unrealized_pnl_dollar?: number | null;
   gated?: boolean;
 }
 
@@ -715,7 +718,12 @@ export function PortfolioView() {
             </thead>
             <tbody>
               {trades.map((t) => {
-                const isWin = t.pnl_pct != null && t.pnl_pct > 0;
+                // Realized P&L (closed) or unrealized (open position marked to
+                // the latest close). Show whichever applies; flag unrealized.
+                const retPct = t.pnl_pct ?? t.unrealized_pnl_pct ?? null;
+                const retDollar = t.pnl_dollar ?? t.unrealized_pnl_dollar ?? null;
+                const isUnrealized = t.pnl_pct == null && t.unrealized_pnl_pct != null;
+                const retUp = retPct != null && retPct >= 0;
                 const gated = t.gated === true;
                 return (
                   <tr
@@ -754,11 +762,13 @@ export function PortfolioView() {
                     <td className={`px-3 py-2 text-right font-mono ${gated ? "text-[#55556A]/40 blur-[3px]" : "text-[#55556A]"}`} title={t.hold_days != null ? `${t.hold_days} calendar days` : ""}>
                       {t.hold_days != null ? `${Math.round(t.hold_days * 5/7)}td` : "\u2014"}
                     </td>
-                    <td className={`px-3 py-2 text-right font-mono ${gated ? "text-[#E8E8ED]/40 blur-[3px]" : t.pnl_pct != null ? (isWin ? "text-[#22C55E]" : "text-[#EF4444]") : "text-[#55556A]"}`}>
-                      {t.pnl_pct != null ? `${t.pnl_pct > 0 ? "+" : ""}${t.pnl_pct.toFixed(1)}%` : "\u2014"}
+                    <td className={`px-3 py-2 text-right font-mono ${gated ? "text-[#E8E8ED]/40 blur-[3px]" : retPct != null ? (retUp ? "text-[#22C55E]" : "text-[#EF4444]") : "text-[#55556A]"}`}
+                        title={isUnrealized ? "Unrealized \u2014 marked to last close" : ""}>
+                      {retPct != null ? `${retPct > 0 ? "+" : ""}${retPct.toFixed(1)}%${isUnrealized ? "*" : ""}` : "\u2014"}
                     </td>
-                    <td className={`px-3 py-2 text-right font-mono ${gated ? "text-[#E8E8ED]/40 blur-[3px]" : t.pnl_dollar != null ? (t.pnl_dollar >= 0 ? "text-[#22C55E]" : "text-[#EF4444]") : "text-[#55556A]"}`}>
-                      {t.pnl_dollar != null ? `${t.pnl_dollar >= 0 ? "+" : ""}$${Math.abs(t.pnl_dollar).toFixed(0)}` : "\u2014"}
+                    <td className={`px-3 py-2 text-right font-mono ${gated ? "text-[#E8E8ED]/40 blur-[3px]" : retDollar != null ? (retDollar >= 0 ? "text-[#22C55E]" : "text-[#EF4444]") : "text-[#55556A]"}`}
+                        title={isUnrealized ? "Unrealized \u2014 marked to last close" : ""}>
+                      {retDollar != null ? `${retDollar >= 0 ? "+" : ""}$${Math.abs(retDollar).toFixed(0)}${isUnrealized ? "*" : ""}` : "\u2014"}
                     </td>
                     <td className="px-3 py-2 text-center">
                       {t.stop_hit ? (
@@ -784,6 +794,13 @@ export function PortfolioView() {
             </tbody>
           </table>
         </div>
+
+        {/* Unrealized P&L legend — only when open rows are marked to market */}
+        {trades.some((t) => t.pnl_pct == null && t.unrealized_pnl_pct != null) && (
+          <div className="mt-2 text-[10px] text-[#55556A]">
+            * unrealized — open positions marked to the latest close
+          </div>
+        )}
 
         {/* Pagination — shared component */}
         {paginationInfo && (

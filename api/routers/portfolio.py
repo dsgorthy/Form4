@@ -13,8 +13,12 @@ from api.id_encoding import encode_trade_id
 router = APIRouter(prefix="/api/v1/portfolio", tags=["portfolio"])
 
 
-def _build_trade_row(r: dict, scale: float, gated: bool = False) -> dict:
-    """Format a single trade row, redacting if gated."""
+def _build_trade_row(r: dict, scale: float, gated: bool = False, current_price=None) -> dict:
+    """Format a single trade row, redacting if gated.
+
+    For OPEN positions, `current_price` (the latest available close) drives the
+    unrealized P&L fields so the frontend shows live gains instead of a dash.
+    """
     row = {
         "id": r["id"],
         "trade_id": encode_trade_id(r["trade_id"]) if r["trade_id"] else None,
@@ -41,8 +45,21 @@ def _build_trade_row(r: dict, scale: float, gated: bool = False) -> dict:
         "company": r.get("company"),
         "pit_grade": r.get("pit_grade"),
         "career_grade": r.get("career_grade"),
+        "current_price": round(current_price, 2) if current_price else None,
+        "unrealized_pnl_pct": None,
+        "unrealized_pnl_dollar": None,
         "gated": gated,
     }
+    # Open positions: mark to the latest close so the UI shows live unrealized
+    # gains instead of a dash. dollar_amount is the capital basis; fall back to
+    # shares * entry_price for legacy rows written before dollar_amount existed.
+    if r.get("status") == "open" and current_price and r.get("entry_price"):
+        ep = r["entry_price"]
+        if ep > 0:
+            upct = (current_price - ep) / ep
+            basis = r.get("dollar_amount") or ((r.get("shares") or 0) * ep)
+            row["unrealized_pnl_pct"] = round(upct * 100, 2)
+            row["unrealized_pnl_dollar"] = round((basis or 0) * upct * scale, 2)
     if gated:
         row["ticker"] = r["ticker"][:1] + "•••"
         row["trade_id"] = None
@@ -55,6 +72,10 @@ def _build_trade_row(r: dict, scale: float, gated: bool = False) -> dict:
         row["company"] = None
         row["pit_grade"] = None
         row["career_grade"] = None
+        # Redact dollar figures (matches pnl_dollar/entry_price); the % stays
+        # visible like pnl_pct so gated rows still show direction of move.
+        row["current_price"] = None
+        row["unrealized_pnl_dollar"] = None
     return row
 
 
@@ -90,6 +111,15 @@ def get_portfolio(
         # $100K directly, scale = 1.0.
         scale = 1.0
 
+        # Every strategy_portfolio read in this function filters
+        # execution_source = 'simulated' — the canonical day-by-day simulation
+        # that is this view's single source of truth (matches /overlay). For the
+        # same strategies, cw_runner also writes operational 'alert'/'paper'/
+        # 'live' rows (dedup + capacity tracking, see cw_runner alert_only mode).
+        # Those rows overlap the simulated positions one-for-one, so without this
+        # filter they double up the open-positions list (duplicate open
+        # positions bug, 2026-06-22). Keep the filter on any new query added here.
+
         # Summary stats
         summary = conn.execute("""
             SELECT
@@ -102,7 +132,7 @@ def get_portfolio(
                 MAX(exit_date) AS last_trade,
                 MAX(equity_after) AS peak_equity
             FROM strategy_portfolio
-            WHERE strategy = ? AND COALESCE(is_live, false) = false AND status = 'closed'
+            WHERE strategy = ? AND COALESCE(is_live, false) = false AND execution_source = 'simulated' AND status = 'closed'
         """, (strategy,)).fetchone()
 
         # Equity curve — rebuild from P&L to avoid snapshot artifacts.
@@ -114,7 +144,7 @@ def get_portfolio(
         curve_raw = conn.execute("""
             SELECT exit_date, pnl_dollar, ticker, exit_reason
             FROM strategy_portfolio
-            WHERE strategy = ? AND COALESCE(is_live, false) = false AND status = 'closed' AND exit_date IS NOT NULL
+            WHERE strategy = ? AND COALESCE(is_live, false) = false AND execution_source = 'simulated' AND status = 'closed' AND exit_date IS NOT NULL
             ORDER BY exit_date
         """, (strategy,)).fetchall()
 
@@ -122,7 +152,7 @@ def get_portfolio(
         anchor_row = conn.execute("""
             SELECT MIN(entry_date) AS earliest
             FROM strategy_portfolio
-            WHERE strategy = ? AND COALESCE(is_live, false) = false
+            WHERE strategy = ? AND COALESCE(is_live, false) = false AND execution_source = 'simulated'
         """, (strategy,)).fetchone()
         anchor_date = anchor_row["earliest"] if anchor_row else None
 
@@ -130,7 +160,7 @@ def get_portfolio(
         open_positions = conn.execute("""
             SELECT ticker, entry_date, entry_price, dollar_amount, position_size
             FROM strategy_portfolio
-            WHERE strategy = ? AND COALESCE(is_live, false) = false
+            WHERE strategy = ? AND COALESCE(is_live, false) = false AND execution_source = 'simulated'
               AND status = 'open' AND entry_price > 0
         """, (strategy,)).fetchall()
 
@@ -215,18 +245,25 @@ def get_portfolio(
                         "equity": round(spy_equity, 2),
                     })
 
-        # Total trade count for pagination (includes open + closed).
+        # Total trade count for pagination — must match the trade-log row set:
+        # one open row per ticker (operational ∪ simulated) + simulated closed.
         total_count = conn.execute("""
-            SELECT COUNT(*) AS cnt FROM strategy_portfolio
-            WHERE strategy = ? AND COALESCE(is_live, false) = false
-        """, (strategy,)).fetchone()["cnt"]
+            SELECT
+              (SELECT COUNT(DISTINCT ticker) FROM strategy_portfolio
+                WHERE strategy = ? AND COALESCE(is_live, false) = false
+                  AND status = 'open'
+                  AND execution_source IN ('alert','paper','live','simulated'))
+              + (SELECT COUNT(*) FROM strategy_portfolio
+                  WHERE strategy = ? AND COALESCE(is_live, false) = false
+                    AND status = 'closed' AND execution_source = 'simulated') AS cnt
+        """, (strategy, strategy)).fetchone()["cnt"]
 
         # Per-trade data for client-side filtering (lightweight: date, return, exit type)
         trade_points = [dict(r) for r in conn.execute("""
             SELECT exit_date, ROUND(pnl_pct * 100, 2) AS pnl_pct, exit_reason,
                    ROUND(hold_days, 0) AS hold_days, signal_quality
             FROM strategy_portfolio
-            WHERE strategy = ? AND COALESCE(is_live, false) = false AND status = 'closed' AND pnl_pct IS NOT NULL
+            WHERE strategy = ? AND COALESCE(is_live, false) = false AND execution_source = 'simulated' AND status = 'closed' AND pnl_pct IS NOT NULL
             ORDER BY exit_date
         """, (strategy,)).fetchall()]
 
@@ -241,7 +278,7 @@ def get_portfolio(
                    ROUND(SUM(CASE WHEN pnl_pct > 0 THEN 1.0 ELSE 0 END) / COUNT(*) * 100, 1) AS win_rate,
                    ROUND(AVG(hold_days), 1) AS avg_hold
             FROM strategy_portfolio
-            WHERE strategy = ? AND COALESCE(is_live, false) = false AND status = 'closed'
+            WHERE strategy = ? AND COALESCE(is_live, false) = false AND execution_source = 'simulated' AND status = 'closed'
             GROUP BY exit_reason
             ORDER BY count DESC
         """, (strategy,)).fetchall()]
@@ -253,7 +290,7 @@ def get_portfolio(
                    ROUND(SUM(pnl_dollar), 2) AS pnl,
                    ROUND(SUM(CASE WHEN pnl_pct > 0 THEN 1.0 ELSE 0 END) / COUNT(*) * 100, 1) AS win_rate
             FROM strategy_portfolio
-            WHERE strategy = ? AND COALESCE(is_live, false) = false AND status = 'closed'
+            WHERE strategy = ? AND COALESCE(is_live, false) = false AND execution_source = 'simulated' AND status = 'closed'
             GROUP BY SUBSTR(exit_date, 1, 4)
             ORDER BY year
         """, (strategy,)).fetchall()]
@@ -267,10 +304,40 @@ def get_portfolio(
         # 2026-05-12 after the strategy_portfolio rebuild produced legitimate
         # in-flight positions that should be visible to subscribers.
         trades = conn.execute("""
+            WITH open_pick AS (
+                -- Open positions = ONE row per ticker, preferring the live
+                -- operational entry (alert/paper/live = what we actually
+                -- pinged/traded, the entry price the user saw) over the
+                -- nightly simulated counterpart. This is what de-dups the
+                -- table: the same held ticker no longer shows once per source.
+                SELECT id FROM (
+                    SELECT id,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY ticker
+                               ORDER BY CASE execution_source
+                                            WHEN 'live'  THEN 0
+                                            WHEN 'paper' THEN 1
+                                            WHEN 'alert' THEN 2
+                                            ELSE 3 END,
+                                        entry_date DESC, id DESC
+                           ) AS rk
+                    FROM strategy_portfolio
+                    WHERE strategy = ? AND COALESCE(is_live, false) = false
+                      AND status = 'open'
+                      AND execution_source IN ('alert','paper','live','simulated')
+                ) x WHERE rk = 1
+            ),
+            closed_pick AS (
+                -- Closed track record = the canonical nightly simulation.
+                SELECT id FROM strategy_portfolio
+                WHERE strategy = ? AND COALESCE(is_live, false) = false
+                  AND status = 'closed' AND execution_source = 'simulated'
+            )
             SELECT sp.id, sp.trade_id, sp.ticker, sp.trade_type, sp.direction,
                    sp.entry_date, sp.entry_price, sp.exit_date, sp.exit_price,
                    sp.hold_days, sp.target_hold, sp.stop_hit,
                    sp.pnl_pct, sp.pnl_dollar, sp.position_size,
+                   sp.dollar_amount, sp.shares,
                    sp.portfolio_value, sp.equity_after,
                    sp.insider_name, sp.insider_pit_n, sp.insider_pit_wr, sp.signal_quality,
                    sp.exit_reason, sp.status,
@@ -278,10 +345,31 @@ def get_portfolio(
                    t.pit_grade, t.career_grade
             FROM strategy_portfolio sp
             LEFT JOIN trades t ON t.trade_id = sp.trade_id
-            WHERE sp.strategy = ? AND COALESCE(sp.is_live, false) = false
+            WHERE sp.id IN (SELECT id FROM open_pick)
+               OR sp.id IN (SELECT id FROM closed_pick)
             ORDER BY (sp.status = 'open') DESC, sp.entry_date DESC
             LIMIT ? OFFSET ?
-        """, (strategy, per_page, offset)).fetchall()
+        """, (strategy, strategy, per_page, offset)).fetchall()
+
+        # Latest close per displayed OPEN ticker → unrealized P&L. The
+        # displayed open set is the operational/alert track (one row per
+        # ticker) which can differ from the simulated open set used by the
+        # equity curve above, so fetch closes for exactly what we show.
+        disp_open_tickers = sorted({r["ticker"] for r in trades if r["status"] == "open"})
+        disp_closes: dict[str, float] = {}
+        if disp_open_tickers:
+            ph = ",".join(["?"] * len(disp_open_tickers))
+            for r in conn.execute(f"""
+                SELECT dp.ticker, dp.close
+                FROM prices.daily_prices dp
+                JOIN (
+                    SELECT ticker, MAX(date) AS md
+                    FROM prices.daily_prices
+                    WHERE ticker IN ({ph})
+                    GROUP BY ticker
+                ) l ON l.ticker = dp.ticker AND l.md = dp.date
+            """, tuple(disp_open_tickers)).fetchall():
+                disp_closes[r["ticker"]] = float(r["close"])
 
     # Compute max drawdown from equity curve
     # Two versions: all-time and post-2020 (excludes COVID crash)
@@ -331,7 +419,8 @@ def get_portfolio(
         else:
             global_idx = offset + i
             gated = global_idx >= FREE_VISIBLE
-        trade_rows.append(_build_trade_row(dict(r), scale, gated=gated))
+        cp = disp_closes.get(r["ticker"]) if r["status"] == "open" else None
+        trade_rows.append(_build_trade_row(dict(r), scale, gated=gated, current_price=cp))
 
     total_pages = max(1, (total_count + per_page - 1) // per_page)
 
