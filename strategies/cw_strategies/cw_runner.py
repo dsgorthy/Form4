@@ -1626,6 +1626,15 @@ def execute_entries(
                 "ticker": ticker, "qty": qty, "entry_price": entry_price,
                 "mode": "alert_only",
             })
+            # Mark the ticker held and consume a slot — exactly like the
+            # paper/live and dry_run paths. Without this, a second candidate
+            # for the SAME ticker later in this batch (a DIFFERENT trade_id —
+            # e.g. two same-day Form 4 buys by one insider) passes the
+            # `if ticker in held_tickers` guard above and double-enters,
+            # firing a second ntfy push for one position (observed 2026-06-22:
+            # AMR alerted twice, trade_ids 1775205 + 1775206).
+            held_tickers.add(ticker)
+            slots -= 1
             continue   # next candidate; do NOT touch Alpaca
 
         # 3 (paper/live). Submit Alpaca order (best-effort side-channel).
