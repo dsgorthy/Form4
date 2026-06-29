@@ -2583,7 +2583,11 @@ def run_daemon(config: dict) -> None:
                 except Exception as exc:
                     logger.error("Intraday re-scan failed: %s", exc)
 
-            # Check stops only (not time exits) every 5 min
+            # Every 5 min: check_exits evaluates stop-loss AND time-exit
+            # (planned_exit_date) for paper/live/alert positions, and fires the
+            # SELL alert when due. This is the ONLY path that time-exits
+            # alert_only positions — check_scheduled_exits (15:45) covers only
+            # paper/live. Do NOT narrow this to stops, or alert SELLs vanish.
             elif now.minute not in (0, 30):
                 try:
                     alpaca = get_alpaca(config)
