@@ -72,6 +72,7 @@ interface Trade {
   exit_price: number | null;
   hold_days: number | null;
   target_hold: number;
+  planned_exit_date?: string | null;
   stop_hit: boolean;
   pnl_pct: number | null;
   pnl_dollar: number | null;
@@ -724,6 +725,14 @@ export function PortfolioView() {
                 const retDollar = t.pnl_dollar ?? t.unrealized_pnl_dollar ?? null;
                 const isUnrealized = t.pnl_pct == null && t.unrealized_pnl_pct != null;
                 const retUp = retPct != null && retPct >= 0;
+                // Scheduled sell date + countdown for open positions (the
+                // strategy time-exits at its planned_exit_date and fires a
+                // SELL alert that day; this surfaces the date ahead of time).
+                const isOpen = t.status === "open";
+                const plannedExit = isOpen ? t.planned_exit_date ?? null : null;
+                const daysToExit = plannedExit
+                  ? Math.ceil((new Date(plannedExit + "T16:00:00Z").getTime() - Date.now()) / 86400000)
+                  : null;
                 const gated = t.gated === true;
                 return (
                   <tr
@@ -755,7 +764,7 @@ export function PortfolioView() {
                     <td className={`px-3 py-2 text-right font-mono ${gated ? "text-[#E8E8ED]/40 blur-[3px]" : "text-[#E8E8ED]"}`}>
                       {t.entry_price != null ? `$${t.entry_price.toFixed(2)}` : "\u2014"}
                     </td>
-                    <td className={`px-3 py-2 ${gated ? "text-[#8888A0]/40 blur-[3px]" : "text-[#8888A0]"}`}>{t.exit_date || "Open"}</td>
+                    <td className={`px-3 py-2 ${gated ? "text-[#8888A0]/40 blur-[3px]" : "text-[#8888A0]"}`} title={plannedExit ? "Scheduled sell date (time-exit)" : ""}>{t.exit_date ? t.exit_date : plannedExit ? `~${plannedExit}` : "Open"}</td>
                     <td className={`px-3 py-2 text-right font-mono ${gated ? "text-[#E8E8ED]/40 blur-[3px]" : "text-[#E8E8ED]"}`}>
                       {t.exit_price != null ? `$${t.exit_price.toFixed(2)}` : "\u2014"}
                     </td>
@@ -778,7 +787,9 @@ export function PortfolioView() {
                       ) : t.exit_reason === "time_exit" || t.exit_reason === "eod_time_exit" ? (
                         <span className="text-[#55556A]">T+{t.target_hold}</span>
                       ) : t.status === "open" ? (
-                        <Badge variant="outline" className="text-[9px] border-[#3B82F6]/30 text-[#3B82F6]">OPEN</Badge>
+                        <Badge variant="outline" className="text-[9px] border-[#3B82F6]/30 text-[#3B82F6]" title={plannedExit ? `Sells ~${plannedExit} (time-exit)` : ""}>
+                          {daysToExit != null ? (daysToExit > 0 ? `OPEN · ${daysToExit}d` : "OPEN · due") : "OPEN"}
+                        </Badge>
                       ) : null}
                     </td>
                     <td className="hidden lg:table-cell px-3 py-2 text-center">

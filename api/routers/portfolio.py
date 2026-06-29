@@ -31,6 +31,7 @@ def _build_trade_row(r: dict, scale: float, gated: bool = False, current_price=N
         "exit_price": round(r["exit_price"], 2) if r["exit_price"] else None,
         "hold_days": r["hold_days"],
         "target_hold": r["target_hold"],
+        "planned_exit_date": (str(r["planned_exit_date"])[:10] if r.get("planned_exit_date") else None),
         "stop_hit": bool(r["stop_hit"]),
         "pnl_pct": round(r["pnl_pct"] * 100, 2) if r["pnl_pct"] else None,
         "pnl_dollar": round(r["pnl_dollar"] * scale, 2) if r["pnl_dollar"] else None,
@@ -335,7 +336,7 @@ def get_portfolio(
             )
             SELECT sp.id, sp.trade_id, sp.ticker, sp.trade_type, sp.direction,
                    sp.entry_date, sp.entry_price, sp.exit_date, sp.exit_price,
-                   sp.hold_days, sp.target_hold, sp.stop_hit,
+                   sp.hold_days, sp.target_hold, sp.planned_exit_date, sp.stop_hit,
                    sp.pnl_pct, sp.pnl_dollar, sp.position_size,
                    sp.dollar_amount, sp.shares,
                    sp.portfolio_value, sp.equity_after,
