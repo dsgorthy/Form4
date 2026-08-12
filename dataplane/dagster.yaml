@@ -3,36 +3,33 @@
 #
 # Default DAGSTER_HOME for the operator workflow:
 #   /Users/derekg/dataplane_dagster_home/
+#
+# Storages connect over the PostgreSQL UNIX SOCKET (?host=/tmp), not TCP
+# localhost:5432. dagster-postgres opens a fresh connection per query
+# (NullPool), which over TCP burns one ephemeral port per query. That took
+# Studio down on 2026-07-28: 13.5M sessions on dagster_runs pinned all 16,384
+# ports (49152-65535) in TIME_WAIT, so every other process on the host —
+# cloudflared, Tailscale, the Colima gateway — failed to open sockets with
+# EADDRNOTAVAIL. form4.app and trytailorly.com served 502 for 14 days.
+# Unix sockets consume no ephemeral ports. Do not revert to hostname/port.
 
 run_storage:
   module: dagster_postgres.run_storage
   class: PostgresRunStorage
   config:
-    postgres_db:
-      hostname: localhost
-      username: derekg
-      db_name: dagster_runs
-      port: 5432
+    postgres_url: "postgresql://derekg@/dagster_runs?host=/tmp"
 
 event_log_storage:
   module: dagster_postgres.event_log
   class: PostgresEventLogStorage
   config:
-    postgres_db:
-      hostname: localhost
-      username: derekg
-      db_name: dagster_runs
-      port: 5432
+    postgres_url: "postgresql://derekg@/dagster_runs?host=/tmp"
 
 schedule_storage:
   module: dagster_postgres.schedule_storage
   class: PostgresScheduleStorage
   config:
-    postgres_db:
-      hostname: localhost
-      username: derekg
-      db_name: dagster_runs
-      port: 5432
+    postgres_url: "postgresql://derekg@/dagster_runs?host=/tmp"
 
 # Local concurrency caps so Dagster doesn't fan out beyond a healthy
 # saturation point on Studio (which also runs Form4, pyrrho, etc.).
