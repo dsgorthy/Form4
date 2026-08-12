@@ -4,7 +4,6 @@ import {
   formatResearchDate,
   getResearchByType,
   RESEARCH_TYPES,
-  RESEARCH_TYPE_DESCRIPTIONS,
   RESEARCH_TYPE_LABELS,
   type ResearchPostMeta,
   type ResearchType,
@@ -101,46 +100,6 @@ function PostCard({ post }: { post: ResearchPostMeta }) {
   );
 }
 
-function TypeSection({ type, posts }: { type: ResearchType; posts: ResearchPostMeta[] }) {
-  const recent = posts.slice(0, 3);
-  return (
-    <section className="space-y-4">
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-[#E8E8ED] tracking-tight">
-            {RESEARCH_TYPE_LABELS[type]}
-          </h2>
-          <p className="mt-1 text-sm text-[#8888A0] max-w-2xl">
-            {RESEARCH_TYPE_DESCRIPTIONS[type]}
-          </p>
-        </div>
-        {posts.length > 3 && (
-          <Link
-            href={`/research/${type}`}
-            className="text-sm text-[#3B82F6] hover:text-[#60A5FA] transition-colors whitespace-nowrap"
-          >
-            View all {posts.length} →
-          </Link>
-        )}
-      </div>
-
-      {recent.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-[#2A2A3A] bg-[#0F0F18] p-6 text-center">
-          <p className="text-sm text-[#55556A]">
-            First {RESEARCH_TYPE_LABELS[type].toLowerCase().replace(/s$/, "")} coming soon.
-          </p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {recent.map((p) => (
-            <PostCard key={p.slug} post={p} />
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
 export default function ResearchHubPage() {
   const byType = Object.fromEntries(
     RESEARCH_TYPES.map((t) => [t, getResearchByType(t)])
@@ -150,6 +109,7 @@ export default function ResearchHubPage() {
     a.frontmatter.date < b.frontmatter.date ? 1 : -1
   );
   const featured = allPosts[0];
+  const rest = allPosts.slice(1);
 
   const jsonLd = {
     "@context": "https://schema.org",
@@ -224,11 +184,26 @@ export default function ResearchHubPage() {
           </Link>
         </section>
 
-        <div className="space-y-12">
-          {RESEARCH_TYPES.map((type) => (
-            <TypeSection key={type} type={type} posts={byType[type]} />
-          ))}
-        </div>
+        {/* One flat list, not per-type sections. Splitting two posts across
+            three types rendered two "coming soon" placeholders and made the
+            hub look emptier than it is. Type still shows on each card. */}
+        {rest.length > 0 && (
+          <section className="space-y-4">
+            <div>
+              <h2 className="text-2xl font-bold text-[#E8E8ED] tracking-tight">
+                All research
+              </h2>
+              <p className="mt-1 text-sm text-[#8888A0] max-w-2xl">
+                Thesis papers, portfolio updates, and notes.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {rest.map((p) => (
+                <PostCard key={p.slug} post={p} />
+              ))}
+            </div>
+          </section>
+        )}
       </div>
     </>
   );

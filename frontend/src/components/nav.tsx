@@ -62,14 +62,16 @@ function ExploreDropdown({ pathname }: { pathname: string }) {
 const primaryLinks = [
   { href: "/portfolio", label: "Portfolio" },
   { href: "/feed", label: "Today's Trades" },
-  { href: "/research", label: "Research" },
 ];
 
+// Research moved out of primary nav 2026-08-12: two posts does not earn
+// top-level placement. Promote it back when the publishing cadence justifies it.
 const exploreLinks = [
   { href: "/screener", label: "Screener" },
   { href: "/leaderboard", label: "Leaderboard" },
   { href: "/clusters", label: "Clusters" },
   { href: "/congress", label: "Congress" },
+  { href: "/research", label: "Research" },
 ];
 
 export function Nav() {

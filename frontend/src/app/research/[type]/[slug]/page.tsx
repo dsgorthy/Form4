@@ -113,12 +113,11 @@ export default async function ResearchPostPage({
             Research
           </Link>
           <span className="mx-2">/</span>
-          <Link
-            href={`/research/${post.type}`}
-            className="hover:text-[#E8E8ED] transition-colors"
-          >
+          {/* Per-type listing pages were removed 2026-08-12 when /research
+              collapsed to a single hub — this is a label, not a link. */}
+          <span className="text-[#55556A]">
             {RESEARCH_TYPE_LABELS[post.type]}
-          </Link>
+          </span>
         </nav>
 
         <header className="mb-10 pb-8 border-b border-[#2A2A3A]">

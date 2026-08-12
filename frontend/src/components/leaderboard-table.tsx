@@ -39,7 +39,14 @@ function SkeletonRow({ i }: { i: number }) {
 
 export function LeaderboardTable({ filters, sort, order }: LeaderboardTableProps) {
   const { getToken } = useAuth();
-  const [data, setData] = useState<(PaginatedResponse<LeaderboardEntry> & { gated?: boolean }) | null>(null);
+  const [data, setData] = useState<
+    | (PaginatedResponse<LeaderboardEntry> & {
+        gated?: boolean;
+        preview?: boolean;
+        preview_limit?: number | null;
+      })
+    | null
+  >(null);
   const [sparklines, setSparklines] = useState<Record<string, number[]>>({});
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -204,7 +211,25 @@ export function LeaderboardTable({ filters, sort, order }: LeaderboardTableProps
           </tbody>
         </table>
       </div>
-      <Pagination total={data.total} limit={PAGE_SIZE} offset={offset} onPageChange={fetchPage} />
+      {data.preview ? (
+        <div className="mt-4 rounded-lg border border-[#2A2A3A] bg-[#12121A] p-5 text-center">
+          <p className="text-sm text-[#E8E8ED]">
+            Showing the top {data.items.length} of{" "}
+            {data.total.toLocaleString()} ranked insiders.
+          </p>
+          <p className="mt-1 text-sm text-[#8888A0]">
+            Pro+ unlocks the full leaderboard, sorting, and filters.
+          </p>
+          <Link
+            href="/pricing"
+            className="mt-4 inline-block rounded-md bg-[#3B82F6] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#2563EB]"
+          >
+            See plans
+          </Link>
+        </div>
+      ) : (
+        <Pagination total={data.total} limit={PAGE_SIZE} offset={offset} onPageChange={fetchPage} />
+      )}
     </div>
   );
 }

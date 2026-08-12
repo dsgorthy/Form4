@@ -5,7 +5,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 
-from api.auth import UserContext
+from api.auth import UserContext, get_current_user
 from api.db import get_db
 from api.gating import null_items_track_records, redact_gated_items, require_pro_plus
 from api.id_encoding import decode_insider_id, encode_response_ids
@@ -26,9 +26,17 @@ SORT_COLUMNS = {
 }
 
 
+# Free/Pro users see this many ranked insiders; Pro+ sees the full list.
+# The ranking is the most defensible thing the product computes, and gating it
+# entirely behind Pro+ made it invisible to exactly the people deciding whether
+# to pay. The preview shows WHO ranks; the track-record detail behind the
+# ranking still requires Pro.
+FREE_PREVIEW_LIMIT = 10
+
+
 @router.get("")
 def leaderboard(
-    user: UserContext = Depends(require_pro_plus),
+    user: UserContext = Depends(get_current_user),
     sort_by: str = Query(default="score", pattern="^(score|win_rate|alpha|buy_count|percentile)$"),
     order: str = Query(default="desc", pattern="^(asc|desc)$"),
     min_trades: Optional[int] = Query(default=None, ge=1),
@@ -46,6 +54,13 @@ def leaderboard(
     was a known PIT violation — it ranked by global all-time stats while the
     UI displayed PIT grades, producing inconsistent rankings.
     """
+    # Preview mode: anyone below Pro+ gets the top N of the default ranking.
+    # Paging and deep offsets stay Pro+ so the full list keeps its value.
+    preview = not (user.is_pro_plus or user.is_admin)
+    if preview:
+        limit = min(limit, FREE_PREVIEW_LIMIT)
+        offset = 0
+
     # Filter to insiders with a career score (PIT). Falls back to itr.score
     # IS NOT NULL only if all sort modes other than "score" are selected.
     conditions = ["bc.best_career_score IS NOT NULL"]
@@ -137,7 +152,10 @@ def leaderboard(
         enrich_with_best_pit_grade(conn, items)
     if not user.is_pro:
         items = null_items_track_records(items)
-    if not user.has_full_feed:
+    # Preview rows deliberately keep names and career grade visible — redacting
+    # them to •••• would defeat the entire point of showing a ranking. The
+    # track-record columns are already nulled above for non-Pro.
+    if not preview and not user.has_full_feed:
         for item in items:
             item["gated"] = True
         items = redact_gated_items(items)
@@ -149,6 +167,9 @@ def leaderboard(
         "offset": offset,
         "items": items,
         "gated": not user.has_full_feed,
+        # Tells the client this is a truncated free view, not the whole list.
+        "preview": preview,
+        "preview_limit": FREE_PREVIEW_LIMIT if preview else None,
     }
 
 
