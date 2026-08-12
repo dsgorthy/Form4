@@ -3,6 +3,15 @@ display_name: "Form4 10b5-1 Surprise"
 alert_prefix: "[10b5]"
 # Dedicated paper account — reads ALPACA_API_KEY_TENB51_SURPRISE / _SECRET_TENB51_SURPRISE from .env
 alpaca_env_prefix: TENB51_SURPRISE
+
+# Decision sink: 'paper' | 'live' | 'alert_only'.
+# Alpaca execution was deprecated 2026-08-12 — Alpaca is a DATA provider here,
+# not an execution venue. This was the last strategy still submitting orders;
+# quality_momentum and reversal_dip were already alert_only. Signals and
+# strategy_portfolio rows (execution_source='alert') are still written for
+# dedup, capacity counting, and research. No Alpaca order is ever submitted.
+execution_mode: alert_only
+
 starting_capital: 100000
 position_size_pct: 0.20
 max_concurrent: 5

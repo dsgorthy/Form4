@@ -1898,6 +1898,13 @@ def check_scheduled_exits(
     prefix = config.get("alert_prefix", "")
     today = _now_et().strftime("%Y-%m-%d")
 
+    # Execution mode gates the broker leg, exactly as check_exits() does.
+    # Without this, an alert_only strategy still liquidated real Alpaca
+    # positions here — the ledger row and the broker order were decided by
+    # two different rules.
+    is_live = bool(config.get("live_money", False))
+    execution_mode = config.get("execution_mode", "live" if is_live else "paper")
+
     due_rows = conn.execute(
         """SELECT * FROM strategy_portfolio
            WHERE strategy = ? AND status = 'open'
@@ -1934,7 +1941,18 @@ def check_scheduled_exits(
             current_price = alpaca_pos["current_price"]
 
         fill_price = current_price
-        if alpaca_pos is not None and shares > 0:
+        # alert_only / 'alert'-sourced rows close the ledger row at the market
+        # price but never touch the broker.
+        skip_broker = (
+            execution_mode == "alert_only"
+            or pos.get("execution_source") == "alert"
+        )
+        if skip_broker:
+            logger.info(
+                "%s: alert_only — closing ledger row at %.2f, no Alpaca sell",
+                ticker, current_price,
+            )
+        if alpaca_pos is not None and shares > 0 and not skip_broker:
             try:
                 order = alpaca.submit_order(
                     ticker, shares, "sell", order_type="market", time_in_force="day"
