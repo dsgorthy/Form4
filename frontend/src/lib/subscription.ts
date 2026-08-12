@@ -3,13 +3,37 @@ export type Tier = "free" | "pro" | "pro_plus" | "trial" | "grace";
 const TRIAL_DAYS = 7;
 const GRACE_DAYS = 7;
 
+/**
+ * True if a comped tier's end date has passed. `pro_until` is only ever set
+ * by hand when comping an account (Stripe never writes it), so its absence
+ * means "no expiry" and paid subscribers are untouched. An unparseable value
+ * leaves access in place — a typo shouldn't revoke access we promised.
+ *
+ * Mirrors `comp_lapsed` in api/auth.py — keep the two in sync.
+ */
+function compLapsed(meta: Record<string, unknown>): boolean {
+  const raw = meta.pro_until;
+  if (!raw) return false;
+
+  const text = String(raw).trim();
+  // Bare YYYY-MM-DD means access through the end of that day, UTC.
+  const expires = /^\d{4}-\d{2}-\d{2}$/.test(text)
+    ? Date.parse(`${text}T23:59:59Z`)
+    : Date.parse(text);
+
+  if (Number.isNaN(expires)) return false;
+  return Date.now() > expires;
+}
+
 export function getUserTier(user: { publicMetadata?: Record<string, unknown>; createdAt?: number | Date | null } | null | undefined): Tier {
   if (!user) return "free";
   const meta = user.publicMetadata || {};
 
-  // Paid pro / pro+
-  if ((meta.tier as string) === "pro_plus") return "pro_plus";
-  if ((meta.tier as string) === "pro") return "pro";
+  // Paid pro / pro+ — a comped tier falls through to trial/grace once it lapses.
+  if (!compLapsed(meta)) {
+    if ((meta.tier as string) === "pro_plus") return "pro_plus";
+    if ((meta.tier as string) === "pro") return "pro";
+  }
 
   // Check account age for trial / grace (Clerk provides createdAt as ms timestamp)
   if (user.createdAt) {
@@ -51,7 +75,7 @@ export function isPro(user: { publicMetadata?: Record<string, unknown>; createdA
 
 export function isProPlus(user: { publicMetadata?: Record<string, unknown> } | null | undefined): boolean {
   if (!user) return false;
-  return (user.publicMetadata?.tier as string) === "pro_plus";
+  return getUserTier(user) === "pro_plus";
 }
 
 export function hasFullFeed(user: { publicMetadata?: Record<string, unknown>; createdAt?: number | Date | null } | null | undefined): boolean {

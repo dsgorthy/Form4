@@ -35,6 +35,7 @@ _root_env = Path(__file__).resolve().parent.parent / ".env"
 if _root_env.exists():
     load_dotenv(_root_env)
 
+from api.comp import comp_lapsed
 from api.email import send_email, generate_unsubscribe_token
 from api.email_templates import (
     APP_URL,
@@ -188,7 +189,9 @@ def _get_top_signals(days_back: int = 7, limit: int = 5) -> list[dict]:
 def _build_email(email_name: str, user_id: str) -> tuple[str, str] | None:
     """Build (subject, html) for a given email. Returns None if data unavailable."""
     unsub_token = generate_unsubscribe_token(user_id)
-    unsub_url = f"{APP_URL}/api/v1/notifications/unsubscribe?user={user_id}&token={unsub_token}"
+    # Param must be `user_id` — that's the name the endpoint declares
+    # (api/routers/notifications.py:287). `user` returns 422.
+    unsub_url = f"{APP_URL}/api/v1/notifications/unsubscribe?user_id={user_id}&token={unsub_token}"
 
     if email_name == "welcome":
         return welcome_email(unsub_url)
@@ -218,9 +221,9 @@ def process_user(
     if not user_id or not created_at:
         return 0
 
-    # Skip pro users (already paying)
+    # Skip pro users (already paying, or on an unexpired comp)
     public_meta = user_data.get("public_metadata", {})
-    if public_meta.get("tier") == "pro":
+    if public_meta.get("tier") in ("pro", "pro_plus") and not comp_lapsed(public_meta):
         return 0
 
     # Calculate account age in days

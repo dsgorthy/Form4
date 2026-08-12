@@ -10,6 +10,7 @@ import jwt
 from jwt import PyJWKClient
 from fastapi import Header, Request
 
+from api.comp import comp_lapsed
 from api.config import CLERK_JWKS_URL
 
 # Comma-separated Clerk user IDs that can access /admin/* endpoints
@@ -151,6 +152,11 @@ async def get_current_user(
             tier = metadata.get("tier", "free")
             api_access = metadata.get("api_access", False)
 
+        # A comped tier expires on its own; fall back to the age-derived
+        # trial/grace logic below once it does.
+        if comp_lapsed(metadata):
+            tier = "free"
+
         # If user is already Pro (paid), skip trial logic
         if tier == "pro":
             return UserContext(user_id=user_id, tier="pro", api_access=api_access)
@@ -227,9 +233,13 @@ async def _resolve_api_key(api_key: str) -> UserContext:
             if not public_meta.get("api_access", False):
                 return ANONYMOUS
 
+            tier = public_meta.get("tier", "free")
+            if comp_lapsed(public_meta):
+                tier = "free"
+
             return UserContext(
                 user_id=user_id,
-                tier=public_meta.get("tier", "free"),
+                tier=tier,
                 api_access=True,
             )
     except Exception as e:

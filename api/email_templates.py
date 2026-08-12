@@ -1,6 +1,12 @@
-"""Trial email sequence templates for Form4.app.
+"""Email templates for Form4.app.
 
-6 emails sent at days 0, 3, 5, 7, 14, 30 after signup.
+The lifecycle sequence is 6 emails sent at days 0, 3, 5, 7, 14, 30 after
+signup (see EMAIL_SEQUENCE, driven by pipelines/trial_emails.py).
+
+comp_grant_email is separate: a hand-sent note for when an account is comped
+to Pro via scripts/comp_user.py. It is not part of the sequence and is never
+sent automatically.
+
 All share a common layout matching Form4's dark brand.
 """
 from __future__ import annotations
@@ -222,6 +228,59 @@ def win_back_email(top_signals: list[dict], unsubscribe_url: str = "") -> tuple[
     return (
         "Here's what you missed on Form4 this month",
         _layout(content, "Upgrade to Pro", f"{APP_URL}/pricing", unsubscribe_url),
+    )
+
+
+# --- One-off: comped Pro access (not part of the sequence) ---
+
+def comp_grant_email(
+    first_name: str = "",
+    until_date: str = "",
+    unsubscribe_url: str = "",
+) -> tuple[str, str]:
+    """Returns (subject, html) for the note announcing a comped Pro window.
+
+    Sent by hand after scripts/comp_user.py, to someone whose trial already
+    lapsed and who has therefore already received the automated "your grace
+    period has ended" mail. It reads as a reversal of that, so the tone is a
+    founder note rather than a marketing blast.
+
+    first_name: may be empty — Clerk has no name for some accounts.
+    until_date: human-readable comp end, e.g. "November 11".
+    """
+    greeting = f"Hi {first_name}," if first_name else "Hi there,"
+    through = f" through {until_date}" if until_date else ""
+
+    content = f"""\
+    <p style="margin:0 0 16px;font-size:14px;color:#8888A0;line-height:1.6;">{greeting}</p>
+    <p style="margin:0 0 16px;font-size:14px;color:#8888A0;line-height:1.6;">
+      You signed up in July and got the standard 7-day trial. It ran out, and after that
+      Form4 would have shown you a thinner version of itself &mdash; filings without the
+      scores or track records that make them worth reading.
+    </p>
+    <p style="margin:0 0 16px;font-size:14px;color:#8888A0;line-height:1.6;">
+      That's a poor first impression of the product, so I've turned
+      <strong style="color:#3B82F6;">Pro back on for your account{through}</strong>.
+      No card, nothing to activate &mdash; it's already live.
+    </p>
+    <p style="margin:0 0 8px;font-size:13px;font-weight:600;color:#E8E8ED;">Worth your time first:</p>
+    <ul style="margin:0 0 16px;padding:0 0 0 18px;font-size:13px;color:#8888A0;line-height:1.8;">
+      <li><strong style="color:#E8E8ED;">The feed</strong> &mdash; every new Form 4 filing, graded</li>
+      <li><strong style="color:#E8E8ED;">The leaderboard</strong> &mdash; insiders ranked by how their past buys actually performed</li>
+      <li><strong style="color:#E8E8ED;">Clusters</strong> &mdash; several insiders buying the same stock in the same window</li>
+    </ul>
+    <p style="margin:0 0 16px;font-size:14px;color:#8888A0;line-height:1.6;">
+      If it isn't useful, reply and tell me why &mdash; I read every one. If it is,
+      I'd like to know which part.
+    </p>
+    <p style="margin:0;font-size:14px;color:#8888A0;line-height:1.6;">
+      &mdash; Derek<br>
+      <span style="font-size:12px;color:#55556A;">Founder, Form4</span>
+    </p>"""
+
+    return (
+        "Your Form4 Pro access is back on — 3 months, no charge",
+        _layout(content, "Open the Feed", f"{APP_URL}/", unsubscribe_url),
     )
 
 
