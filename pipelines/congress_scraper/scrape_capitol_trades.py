@@ -19,7 +19,7 @@ import re
 import sqlite3
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -65,9 +65,38 @@ OWNER_MAP = {
 }
 
 
-def parse_ct_date(text: str) -> Optional[str]:
-    """Parse Capitol Trades date format like '13 Mar2026' or '2 Feb2026' to YYYY-MM-DD."""
+_RELATIVE_DATE_RE = re.compile(
+    r"^(?:\d{1,2}:\d{2})?\s*(today|yesterday)$", re.IGNORECASE
+)
+
+
+def parse_ct_date(text: str, *, now: Optional[datetime] = None) -> Optional[str]:
+    """Parse a Capitol Trades date cell to YYYY-MM-DD.
+
+    Handles two shapes:
+
+    1. Absolute — '13 Mar2026', '2 Feb2026'. Used by the Traded column and
+       by Published once a row is more than ~2 days old.
+    2. Relative — '13:05Today', '13:06Yesterday'. Capitol Trades switched
+       the Published column to this for recent rows at some point after
+       2026-04, which silently broke parsing: every fresh disclosure came
+       back with filing_date=None. Since filing_date is the PIT timestamp
+       (when the trade became public), losing it makes the row unusable.
+
+    Relative days resolve against UTC. The site shows a clock time, so a row
+    scraped either side of UTC midnight can land a day off — but relative
+    labels only ever apply to the newest ~2 days, and re-materializing a
+    partition later (once the row renders absolute) corrects it on upsert.
+    """
     text = text.strip()
+
+    rel = _RELATIVE_DATE_RE.match(text)
+    if rel:
+        base = (now or datetime.now(timezone.utc)).date()
+        if rel.group(1).lower() == "yesterday":
+            base -= timedelta(days=1)
+        return base.isoformat()
+
     # Insert space before year if missing: '13 Mar2026' -> '13 Mar 2026'
     text = re.sub(r"([A-Za-z])(\d{4})", r"\1 \2", text)
     # Capitol Trades uses "Sept" instead of standard "Sep"
