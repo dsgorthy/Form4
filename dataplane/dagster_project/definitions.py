@@ -34,6 +34,7 @@ from dagster import (
 )
 from dagster_dbt import DbtCliResource
 
+from dagster_project.assets.congress_sync import congress_trades_form4_sync
 from dagster_project.assets.dbt import dataplane_dbt_assets, dbt_project
 from dagster_project.assets.signals import (
     build_signal_assets,
@@ -65,7 +66,8 @@ daily_signals_job = define_asset_job(
     # Only signals with auto_schedule=True (parity-mode feeds opt out so
     # they don't crash the nightly job; they're still manually triggerable
     # from the Dagster UI and via the backfill CLI).
-    selection=AssetSelection.keys(*scheduled_signal_asset_keys()),
+    selection=AssetSelection.keys(*scheduled_signal_asset_keys())
+    | AssetSelection.assets(congress_trades_form4_sync),
     partitions_def=daily_partitions,
 )
 
@@ -170,7 +172,7 @@ def realtime_5min_loop(context: SensorEvaluationContext):
 
 
 defs = Definitions(
-    assets=[*signal_assets, dataplane_dbt_assets],
+    assets=[*signal_assets, congress_trades_form4_sync, dataplane_dbt_assets],
     jobs=[daily_signals_job, dbt_marts_job, realtime_strategy_job],
     schedules=[daily_signals_schedule, dbt_marts_schedule],
     sensors=[ntfy_on_run_failure, realtime_5min_loop],

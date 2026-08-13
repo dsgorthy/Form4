@@ -19,6 +19,14 @@ dependencies = [
     "PyYAML>=6.0",
     # Read-only MCP server (Pyrrho data access for Claude Desktop / Code)
     "mcp[cli]>=1.0",
+    # congress.trades.raw.v1 scrapes Capitol Trades HTML. Without these the
+    # signal imports fine and only fails at materialize time, so a venv
+    # rebuild would silently stop congress ingestion. lxml is required
+    # explicitly: bs4 raises FeatureNotFound for the "lxml" parser rather
+    # than falling back.
+    "requests>=2.31",
+    "beautifulsoup4>=4.12",
+    "lxml>=5.0",
 ]
 
 [project.optional-dependencies]

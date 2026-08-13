@@ -144,28 +144,9 @@ class CongressTradesRawV1(Signal):
                     continue          # same disclosure repeated across pages
                 seen.add(fingerprint)
 
-                observations.append(SignalObservation(
-                    signal_id=f"{self.signal_id}.{self.version}",
-                    ticker=ticker,
-                    as_of_date=_disclosure_timestamp(day, fingerprint),
-                    value={
-                        "politician":     r.get("name"),
-                        "party":          r.get("party"),
-                        "chamber":        r.get("chamber"),
-                        "state":          r.get("state"),
-                        "trade_type":     r.get("trade_type"),
-                        "trade_date":     r.get("trade_date"),
-                        "filing_date":    r.get("filing_date"),
-                        "value_low":      r.get("value_low"),
-                        "value_high":     r.get("value_high"),
-                        "value_estimate": r.get("value_estimate"),
-                        "owner":          r.get("owner"),
-                        "company":        r.get("company"),
-                        "report_url":     r.get("report_url"),
-                    },
-                    source_run_id=self._run_id,
-                    metadata={"source": "capitoltrades", "page": page},
-                ))
+                obs = self.observation_from_row(r, page=page)
+                if obs is not None:
+                    observations.append(obs)
 
             # Pages run newest-first. Once the whole page predates the target
             # day there is nothing older to find for this partition.
@@ -176,6 +157,44 @@ class CongressTradesRawV1(Signal):
 
         logger.info("congress %s: %d disclosure(s)", day, len(observations))
         return observations
+
+    def observation_from_row(self, row: dict, page: Optional[int] = None
+                             ) -> Optional[SignalObservation]:
+        """Convert one scraped disclosure into a SignalObservation.
+
+        Shared by the daily partition materializer and the bulk backfill
+        (`dataplane/scripts/backfill_congress.py`) so both paths emit
+        byte-identical rows. If they diverged, a backfilled partition and a
+        re-materialized one would disagree and the upsert would churn.
+        """
+        ticker = (row.get("ticker") or "").strip().upper()
+        filing_date = row.get("filing_date")
+        if not ticker or not filing_date:
+            return None
+
+        fingerprint = _fingerprint(row)
+        return SignalObservation(
+            signal_id=f"{self.signal_id}.{self.version}",
+            ticker=ticker,
+            as_of_date=_disclosure_timestamp(filing_date, fingerprint),
+            value={
+                "politician":     row.get("name"),
+                "party":          row.get("party"),
+                "chamber":        row.get("chamber"),
+                "state":          row.get("state"),
+                "trade_type":     row.get("trade_type"),
+                "trade_date":     row.get("trade_date"),
+                "filing_date":    filing_date,
+                "value_low":      row.get("value_low"),
+                "value_high":     row.get("value_high"),
+                "value_estimate": row.get("value_estimate"),
+                "owner":          row.get("owner"),
+                "company":        row.get("company"),
+                "report_url":     row.get("report_url"),
+            },
+            source_run_id=self._run_id,
+            metadata={"source": "capitoltrades", **({"page": page} if page else {})},
+        )
 
 
 def _fingerprint(row: dict) -> str:
