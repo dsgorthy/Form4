@@ -534,84 +534,16 @@ def what_if_simulation(trade_id: str, user: UserContext = Depends(get_current_us
                     "pnl_10k": round(10000 * ret, 2),
                 })
 
-        # Options performance (if available)
-        options = []
-        if filing_date:
-            # Use T+1 as entry date for options (same as stock entry)
-            from datetime import datetime as _dt, timedelta as _td
-            try:
-                fd = _dt.strptime(filing_date[:10], "%Y-%m-%d").date()
-                opt_entry_date = fd + _td(days=1)
-                # Skip weekends
-                while opt_entry_date.weekday() >= 5:
-                    opt_entry_date += _td(days=1)
-                opt_entry_str = opt_entry_date.isoformat()
-            except Exception:
-                opt_entry_str = filing_date
-
-            entry_price = result.get("entry_price") or result.get("price") or 0
-            opt_type = "P" if result["trade_type"] == "sell" else "C"
-
-            for hold_label, hold_days in [("7d", 7), ("30d", 30), ("90d", 90)]:
-                # For each hold period, find options with enough DTE to survive
-                min_dte = hold_days + 7  # buffer so option doesn't expire during hold
-
-                for strike_label, strike_mult in [("ITM (5%)", 1.05 if result["trade_type"] == "sell" else 0.95),
-                                                   ("ATM", 1.00),
-                                                   ("OTM (5%)", 0.95 if result["trade_type"] == "sell" else 1.05)]:
-                    if entry_price <= 0:
-                        continue
-                    target_strike = round(entry_price * strike_mult, 2)
-
-                    # Find contract with enough DTE for this hold period
-                    opt = conn.execute("""
-                        SELECT op.expiration, op.strike, op.ask, op.bid,
-                               julianday(op.expiration) - julianday(op.trade_date) AS dte
-                        FROM option_prices op
-                        WHERE op.ticker = ? AND op.right = ? AND op.trade_date = ?
-                          AND julianday(op.expiration) - julianday(op.trade_date) >= ?
-                        ORDER BY ABS(op.strike - ?), op.expiration
-                        LIMIT 1
-                    """, (ticker, opt_type, opt_entry_str, min_dte, target_strike)).fetchone()
-
-                    if not opt or not opt["ask"] or opt["ask"] <= 0:
-                        continue
-
-                    # Find exit price
-                    exit_opt = conn.execute("""
-                        SELECT bid, close FROM option_prices
-                        WHERE ticker = ? AND right = ? AND expiration = ? AND strike = ?
-                          AND trade_date BETWEEN (?::date + ? * interval '1 day')::text AND (?::date + ? * interval '1 day')::text
-                        ORDER BY ABS(EXTRACT(EPOCH FROM (trade_date::timestamp - ((?::date + ? * interval '1 day')::timestamp))) / 86400.0)
-                        LIMIT 1
-                    """, (ticker, opt_type, opt["expiration"], opt["strike"],
-                          opt_entry_str, hold_days - 2, opt_entry_str, hold_days + 3,
-                          opt_entry_str, hold_days)).fetchone()
-
-                    if not exit_opt:
-                        continue
-
-                    exit_px = exit_opt["bid"] if exit_opt["bid"] and exit_opt["bid"] > 0 else (exit_opt["close"] or 0) * 0.9
-                    if exit_px <= 0:
-                        continue
-
-                    opt_return = (exit_px - opt["ask"]) / opt["ask"]
-                    options.append({
-                        "strike_label": strike_label,
-                        "hold": hold_label,
-                        "option_type": "Put" if opt_type == "P" else "Call",
-                        "strike": opt["strike"],
-                        "dte": int(opt["dte"]),
-                        "entry_ask": round(opt["ask"], 2),
-                        "exit_bid": round(exit_px, 2),
-                        "return_pct": round(opt_return * 100, 1),
-                        "pnl_1k": round(1000 * opt_return, 2),
-                    })
+        # Options performance REMOVED 2026-08-13. It read prices.option_prices,
+        # which is frozen at 2026-03-27 — the ThetaData subscription was
+        # cancelled 2026-06-07 and there is no replacement feed. The block
+        # silently returned nothing for any recent filing while looking like a
+        # working feature, which is worse than not shipping it. The 23.5M
+        # historical rows remain queryable in PG for backtests.
 
     return {
         "ticker": ticker,
         "trade_type": result["trade_type"],
         "filing_date": filing_date,
         "horizons": horizons,
-        "options": options,
     }

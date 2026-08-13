@@ -17,24 +17,11 @@ interface Horizon {
   pnl_10k: number;
 }
 
-interface OptionResult {
-  strike_label: string;
-  hold: string;
-  option_type: string;
-  strike: number;
-  dte: number;
-  entry_ask: number;
-  exit_bid: number;
-  return_pct: number;
-  pnl_1k: number;
-}
-
 interface WhatIfData {
   ticker: string;
   trade_type: string;
   filing_date: string;
   horizons: Horizon[];
-  options: OptionResult[];
 }
 
 export function WhatIfSimulator({ tradeId }: { tradeId: string }) {
@@ -129,49 +116,6 @@ export function WhatIfSimulator({ tradeId }: { tradeId: string }) {
         </table>
       </div>
 
-      {/* Options performance */}
-      {data.options.length > 0 && (
-        <>
-          <div className="text-xs text-[#55556A] mt-4 mb-2">
-            Options Performance (hypothetical $1K premium, entry at ASK, exit at BID)
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="text-[#55556A] border-b border-[#2A2A3A]/50">
-                  <th className="text-left py-1.5 pr-2 font-medium">Strike</th>
-                  <th className="text-left py-1.5 px-2 font-medium">Hold</th>
-                  <th className="text-right py-1.5 px-2 font-medium">DTE</th>
-                  <th className="text-right py-1.5 px-2 font-medium">Entry</th>
-                  <th className="text-right py-1.5 px-2 font-medium">Exit</th>
-                  <th className="text-right py-1.5 px-2 font-medium">Return</th>
-                  <th className="text-right py-1.5 pl-2 font-medium">P&L ($1K)</th>
-                </tr>
-              </thead>
-              <tbody className="font-mono">
-                {data.options.map((o, i) => {
-                  const isGood = o.return_pct > 0;
-                  return (
-                    <tr key={i} className="border-b border-[#2A2A3A]/30">
-                      <td className="py-1.5 pr-2 text-[#8888A0]">{o.strike_label}</td>
-                      <td className="py-1.5 px-2 text-[#8888A0]">{o.hold}</td>
-                      <td className="text-right py-1.5 px-2 text-[#55556A]">{o.dte}d</td>
-                      <td className="text-right py-1.5 px-2 text-[#E8E8ED]">${o.entry_ask.toFixed(2)}</td>
-                      <td className="text-right py-1.5 px-2 text-[#E8E8ED]">${o.exit_bid.toFixed(2)}</td>
-                      <td className={`text-right py-1.5 px-2 ${isGood ? "text-[#22C55E]" : "text-[#EF4444]"}`}>
-                        {o.return_pct > 0 ? "+" : ""}{o.return_pct}%
-                      </td>
-                      <td className={`text-right py-1.5 pl-2 ${isGood ? "text-[#22C55E]" : "text-[#EF4444]"}`}>
-                        {o.pnl_1k > 0 ? "+" : ""}{formatCurrency(o.pnl_1k)}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
 
       <div className="text-[10px] text-[#55556A] mt-3">
         Hypothetical returns based on actual market data. Past performance does not guarantee future results.
