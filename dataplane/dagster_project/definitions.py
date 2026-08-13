@@ -82,6 +82,34 @@ daily_signals_schedule = build_schedule_from_partitioned_job(
     default_status=DefaultScheduleStatus.RUNNING,
 )
 
+# ── form4 derived chain ───────────────────────────────────────────────
+#
+# Replaces four independent launchd crons that were ordered only by the
+# clock: daily-prices 17:30, backfill-returns 05:00, refresh-features 06:00,
+# compute-signals 17:45. Nothing connected them, so when prices went stale on
+# 2026-07-28 all three downstream jobs still ran on stale input and exited 0
+# for 18 days.
+#
+# As one job the ordering is structural, and each asset re-checks upstream
+# freshness before computing, so a bad root fails the run instead of
+# silently poisoning everything below it.
+#
+# 17:30 PT weekdays: same slot the prices cron used — after the Alpaca EOD
+# bars land. The whole chain takes ~20min (prices ~35s, returns ~12min,
+# features ~3min, signals ~3min), finishing well before the 03:15 backup.
+form4_pipeline_job = define_asset_job(
+    name="form4_pipeline",
+    selection=AssetSelection.assets(*form4_pipeline_assets),
+)
+
+form4_pipeline_schedule = ScheduleDefinition(
+    name="form4_pipeline_daily",
+    job=form4_pipeline_job,
+    cron_schedule="30 17 * * 1-5",
+    execution_timezone="America/Los_Angeles",
+    default_status=DefaultScheduleStatus.RUNNING,
+)
+
 dbt_marts_job = define_asset_job(
     name="dbt_marts",
     selection=AssetSelection.assets(dataplane_dbt_assets),
@@ -175,8 +203,10 @@ def realtime_5min_loop(context: SensorEvaluationContext):
 defs = Definitions(
     assets=[*signal_assets, congress_trades_form4_sync,
             *form4_pipeline_assets, dataplane_dbt_assets],
-    jobs=[daily_signals_job, dbt_marts_job, realtime_strategy_job],
-    schedules=[daily_signals_schedule, dbt_marts_schedule],
+    jobs=[daily_signals_job, dbt_marts_job, form4_pipeline_job,
+          realtime_strategy_job],
+    schedules=[daily_signals_schedule, dbt_marts_schedule,
+               form4_pipeline_schedule],
     sensors=[ntfy_on_run_failure, realtime_5min_loop],
     resources={
         "dataplane_conn": dataplane_resource(),
