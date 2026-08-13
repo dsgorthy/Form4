@@ -4,7 +4,12 @@ import Link from "next/link";
 import { fetchAPIAuth } from "@/lib/auth";
 import { formatCurrency } from "@/lib/format";
 import { InsiderTradeChart } from "@/components/insider-trade-chart";
-import { TickerInput } from "@/components/ticker-input";
+import { ExploreSearch } from "@/components/explore-search";
+import {
+  ExploreInsiderView,
+  type InsiderProfileLite,
+  type InsiderCompanyRow,
+} from "@/components/explore-insider-view";
 import { WatchButton } from "@/components/watch-button";
 import { TradesTable } from "@/components/trades-table";
 import { CongressTable } from "@/components/congress-table";
@@ -47,14 +52,25 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 interface Props {
   searchParams: Promise<{
     ticker?: string;
+    insider?: string;
   }>;
 }
+
+// One route, two displays. ?ticker= and ?insider= are mutually exclusive;
+// insider wins if both are somehow present so a stale ticker default cannot
+// hijack an explicit insider link.
 
 const TRADES_LIMIT = 25;
 const CONGRESS_LIMIT = 10;
 
-export default async function ScreenerPage({ searchParams }: Props) {
+export default async function ExplorePage({ searchParams }: Props) {
   const sp = await searchParams;
+  const insiderParam = sp.insider?.trim();
+
+  if (insiderParam) {
+    return <InsiderMode identifier={insiderParam} />;
+  }
+
   const ticker = sp.ticker?.toUpperCase() || "AAPL";
 
   let overview: CompanyOverview | null = null;
@@ -92,11 +108,11 @@ export default async function ScreenerPage({ searchParams }: Props) {
       {/* Header — when no company loaded, show full intro + centered search */}
       {!overview && (
         <div className="mb-8">
-          <h1 className="text-2xl font-bold text-[#E8E8ED] mb-1">Screener</h1>
+          <h1 className="text-2xl font-bold text-[#E8E8ED] mb-1">Explore</h1>
           <p className="text-sm text-[#55556A] mb-4">
-            Look up any ticker to see insider activity, trade history, and political overlap
+            Look up any company or insider — trade history, track records, and political overlap
           </p>
-          <TickerInput />
+          <ExploreSearch />
         </div>
       )}
 
@@ -129,8 +145,8 @@ export default async function ScreenerPage({ searchParams }: Props) {
                 </span>
               </div>
             </div>
-            <div className="shrink-0">
-              <TickerInput />
+            <div className="shrink-0 w-full md:w-auto md:min-w-[320px]">
+              <ExploreSearch />
             </div>
           </div>
 
@@ -172,6 +188,58 @@ export default async function ScreenerPage({ searchParams }: Props) {
           {/* All Trades — paginated */}
           <TradesTable ticker={ticker} initialData={trades} />
         </div>
+      )}
+    </div>
+  );
+}
+
+
+async function InsiderMode({ identifier }: { identifier: string }) {
+  let profile: InsiderProfileLite | null = null;
+  let companies: InsiderCompanyRow[] = [];
+  let trades: PaginatedResponse<Filing> | null = null;
+  let error: string | null = null;
+
+  try {
+    profile = await fetchAPIAuth<InsiderProfileLite>(`/insiders/${identifier}`);
+  } catch {
+    error = `No insider found for "${identifier}"`;
+  }
+
+  // Companies and trades are best-effort: a failure here should degrade the
+  // page, not blank it, the way the all-or-nothing Promise.all on the public
+  // profile page used to.
+  if (profile) {
+    try {
+      const res = await fetchAPIAuth<{ companies: InsiderCompanyRow[] }>(
+        `/insiders/${identifier}/companies`,
+      );
+      companies = res.companies || [];
+    } catch {}
+    try {
+      trades = await fetchAPIAuth<PaginatedResponse<Filing>>(
+        `/insiders/${identifier}/trades`,
+        { limit: String(TRADES_LIMIT) },
+      );
+    } catch {}
+  }
+
+  return (
+    <div>
+      <div className="mb-8">
+        <h1 className="mb-1 text-2xl font-bold text-[#E8E8ED]">Explore</h1>
+        <p className="mb-4 text-sm text-[#8888A0]">
+          Look up any company or insider.
+        </p>
+        <ExploreSearch />
+      </div>
+      {error && (
+        <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] px-4 py-6 text-sm text-[#8888A0]">
+          {error}
+        </div>
+      )}
+      {profile && (
+        <ExploreInsiderView profile={profile} companies={companies} trades={trades} />
       )}
     </div>
   );

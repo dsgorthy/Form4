@@ -30,7 +30,7 @@ export function TickerInput() {
       setSuggestions([]);
       setIsOpen(false);
       setSelectedIdx(-1);
-      router.push(`/screener?ticker=${encodeURIComponent(ticker.toUpperCase())}`);
+      router.push(`/explore?ticker=${encodeURIComponent(ticker.toUpperCase())}`);
     },
     [router],
   );
@@ -132,7 +132,7 @@ export function TickerInput() {
               setQuery("");
               setSuggestions([]);
               setIsOpen(false);
-              router.push("/screener");
+              router.push("/explore");
             }}
             className="absolute right-3 top-1/2 -translate-y-1/2 text-[#55556A] hover:text-[#8888A0] transition-colors"
           >

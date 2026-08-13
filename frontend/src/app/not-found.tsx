@@ -18,7 +18,7 @@ export default function NotFound() {
           Go to Dashboard
         </Link>
         <Link
-          href="/screener"
+          href="/explore"
           className="rounded-md border border-[#2A2A3A] px-5 py-2.5 text-sm font-medium text-[#E8E8ED] transition-colors hover:bg-[#1A1A26]"
         >
           Search Tickers

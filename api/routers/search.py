@@ -47,6 +47,7 @@ def search(q: str = Query(..., min_length=1, max_length=100), request: Request =
         insiders = conn.execute(
             """
             SELECT i.insider_id, COALESCE(i.display_name, i.name) AS name, i.cik,
+                   i.slug,
                    itr.score, itr.score_tier, itr.primary_title, itr.primary_ticker
             FROM insiders i
             LEFT JOIN insider_track_records itr ON i.insider_id = itr.insider_id

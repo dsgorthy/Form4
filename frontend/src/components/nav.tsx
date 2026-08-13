@@ -17,9 +17,9 @@ function SettingsIcon() {
   );
 }
 
-function ExploreDropdown({ pathname }: { pathname: string }) {
+function MoreDropdown({ pathname }: { pathname: string }) {
   const [open, setOpen] = useState(false);
-  const isActive = exploreLinks.some((l) => pathname === l.href);
+  const isActive = moreLinks.some((l) => pathname === l.href);
 
   return (
     <div className="relative" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
@@ -30,7 +30,7 @@ function ExploreDropdown({ pathname }: { pathname: string }) {
             : "text-[#8888A0] hover:text-[#E8E8ED] hover:bg-[#1A1A26]/50"
         }`}
       >
-        Explore
+        More
         <svg className={`w-3.5 h-3.5 transition-transform ${open ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
         </svg>
@@ -38,7 +38,7 @@ function ExploreDropdown({ pathname }: { pathname: string }) {
       {open && (
         <div className="absolute left-0 top-full pt-1 z-50">
           <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] py-1 shadow-xl min-w-[160px]">
-            {exploreLinks.map((link) => (
+            {moreLinks.map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
@@ -77,11 +77,13 @@ const primaryLinks = [
   { href: "/congress", label: "Congress" },
 ];
 
-// Secondary. Screener and Clusters are real tools but answer a question the
-// visitor only has once they're already engaged. Research stays demoted until
-// the publishing cadence justifies promotion (two posts does not).
-const exploreLinks = [
-  { href: "/screener", label: "Screener" },
+// Secondary, surfaced under a "More" dropdown. The word "Explore" now names
+// the entity tool at /explore (renamed from /screener 2026-08-13 — it never
+// screened a universe, it shows one company or insider), so the dropdown had
+// to give the word up rather than have an Explore menu containing an Explore
+// link.
+const moreLinks = [
+  { href: "/explore", label: "Explore" },
   { href: "/clusters", label: "Clusters" },
   { href: "/research", label: "Research" },
 ];
@@ -126,7 +128,7 @@ export function Nav() {
               </Link>
             );
           })}
-          <ExploreDropdown pathname={pathname} />
+          <MoreDropdown pathname={pathname} />
         </div>
 
         {/* Right side */}
@@ -237,10 +239,10 @@ export function Nav() {
             );
           })}
 
-          {/* Explore section */}
+          {/* More section */}
           <div className="pt-2 mt-1 border-t border-[#2A2A3A]">
-            <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-widest text-[#55556A]">Explore</div>
-            {exploreLinks.map((link) => {
+            <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-widest text-[#55556A]">More</div>
+            {moreLinks.map((link) => {
               const isActive = pathname === link.href;
               return (
                 <Link

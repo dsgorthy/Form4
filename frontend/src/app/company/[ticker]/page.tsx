@@ -136,15 +136,15 @@ export default async function CompanyPage({ params }: { params: Promise<{ ticker
       )}
 
       {/* Primary route into the product. /company/[ticker] is an SEO surface:
-          indexable, public, deliberately a SUBSET. The screener is the actual
+          indexable, public, deliberately a SUBSET. Explore is the actual
           tool, so every visitor who wants to DO something goes there. */}
       <Link
-        href={`/screener?ticker=${overview.ticker}`}
+        href={`/explore?ticker=${overview.ticker}`}
         className="mb-8 flex items-center justify-between gap-4 rounded-lg border border-[#3B82F6]/40 bg-[#3B82F6]/10 px-5 py-4 transition-colors hover:border-[#3B82F6] hover:bg-[#3B82F6]/15"
       >
         <div>
           <div className="text-sm font-semibold text-[#E8E8ED]">
-            Open {overview.ticker} in the Screener
+            Open {overview.ticker} in Explore
           </div>
           <div className="mt-0.5 text-xs text-[#8888A0]">
             Full trade history, insider track records, price chart and
@@ -167,7 +167,7 @@ export default async function CompanyPage({ params }: { params: Promise<{ ticker
 
       {/* Recent trades — a static, crawlable subset. The paginated
           TradesTable, the price chart and the congress table are tool
-          features and live in the screener; rendering them here duplicated
+          features and live in Explore; rendering them here duplicated
           the tool on a page whose job is to rank in search. */}
       <div className="mb-8">
         <SectionLabel>Recent Insider Trades</SectionLabel>
@@ -205,10 +205,10 @@ export default async function CompanyPage({ params }: { params: Promise<{ ticker
         </div>
         {trades.total > SEO_TRADE_ROWS && (
           <Link
-            href={`/screener?ticker=${overview.ticker}`}
+            href={`/explore?ticker=${overview.ticker}`}
             className="mt-3 inline-block text-sm text-[#3B82F6] transition-colors hover:text-[#60A5FA]"
           >
-            View all {trades.total.toLocaleString()} trades in the Screener &rarr;
+            View all {trades.total.toLocaleString()} trades in Explore &rarr;
           </Link>
         )}
       </div>
