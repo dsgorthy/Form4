@@ -18,7 +18,13 @@ const STATIC_PATHS = [
 
 interface SitemapData {
   tickers: string[];
-  insiders: { id: string; name: string }[];
+  // The API returns {id, name} so URLs can carry the insider's legal name.
+  // Older deploys returned bare id strings, and this file is statically
+  // generated at BUILD time — so during a rolling deploy the new frontend
+  // can render against the old API and emit /insider/undefined straight into
+  // Google. Accept both shapes so a version skew degrades to an ugly-but-
+  // valid URL instead of a poisoned sitemap.
+  insiders: ({ id: string; name: string } | string)[];
   filings: string[];
 }
 
@@ -52,11 +58,14 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   }));
 
   // Insider pages (top 10K by trade count)
-  const insiderPages: MetadataRoute.Sitemap = data.insiders.map((ins) => ({
-    url: `${BASE}${insiderPath(ins.name, ins.id)}`,
-    changeFrequency: "monthly" as const,
-    priority: 0.6,
-  }));
+  const insiderPages: MetadataRoute.Sitemap = data.insiders
+    .map((ins) => (typeof ins === "string" ? { id: ins, name: "" } : ins))
+    .filter((ins) => ins && ins.id)          // never emit /insider/undefined
+    .map((ins) => ({
+      url: `${BASE}${insiderPath(ins.name, ins.id)}`,
+      changeFrequency: "monthly" as const,
+      priority: 0.6,
+    }));
 
   // Recent filing pages (last 90 days)
   const filingPages: MetadataRoute.Sitemap = data.filings.map((id) => ({
