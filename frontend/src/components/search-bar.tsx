@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { InsiderGradeBadge } from "@/components/insider-grade-badge";
 import { formatCurrency } from "@/lib/format";
+import { insiderPath } from "@/lib/insider-url";
 
 interface TickerResult {
   ticker: string;
@@ -176,7 +177,7 @@ export function SearchBar() {
               {results!.insiders.map((ins) => (
                 <button
                   key={ins.insider_id}
-                  onClick={() => navigate(`/insider/${ins.cik || ins.insider_id}`)}
+                  onClick={() => navigate(insiderPath(ins.name, ins.cik || ins.insider_id))}
                   className="w-full flex items-center gap-3 px-3 py-2 hover:bg-[#1A1A26]/60 transition-colors text-left"
                 >
                   <div className="flex-1 min-w-0">

@@ -22,14 +22,14 @@ def sitemap_urls(
 
     Returns:
         tickers: list of all traded tickers
-        insiders: list of encoded insider IDs (top N by trade count)
+        insiders: list of {id, name} for slugged URLs (top N by track record)
         filings: list of encoded filing IDs (last N days)
     """
     with get_db() as conn:
         from api.id_encoding import encode_trade_id
 
         tickers: list[str] = []
-        insiders: list[str] = []
+        insiders: list[dict] = []
         filings: list[str] = []
 
         # All tickers — use insider_companies as a corruption-safe fallback
@@ -52,13 +52,22 @@ def sitemap_urls(
 
         # Top insiders by track record (avoids heavy trades GROUP BY)
         try:
+            # Join the name in: insider URLs are /insider/{name-slug}-{id}
+            # for SEO, and a sitemap of bare IDs would publish the one URL
+            # shape search engines get nothing from.
             insider_rows = conn.execute("""
-                SELECT insider_id FROM insider_track_records
-                WHERE buy_count >= 2
-                ORDER BY score DESC NULLS LAST
-                LIMIT ?
+                SELECT tr.insider_id,
+                       COALESCE(i.display_name, i.name) AS name
+                  FROM insider_track_records tr
+                  LEFT JOIN insiders i ON i.insider_id = tr.insider_id
+                 WHERE tr.buy_count >= 2
+                 ORDER BY tr.score DESC NULLS LAST
+                 LIMIT ?
             """, (limit_insiders,)).fetchall()
-            insiders = [encode_insider_id(r["insider_id"]) for r in insider_rows if r["insider_id"]]
+            insiders = [
+                {"id": encode_insider_id(r["insider_id"]), "name": r["name"] or ""}
+                for r in insider_rows if r["insider_id"]
+            ]
         except Exception:
             pass
 

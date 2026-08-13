@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { TickerDisplay } from "@/components/ui/ticker-display";
 import { ClusterTimeline } from "@/components/cluster-timeline";
 import { ProGate } from "@/components/pro-gate";
+import { insiderPath } from "@/lib/insider-url";
 
 interface ClusterInsider {
   insider_id: string;
@@ -227,7 +228,7 @@ export default async function ClustersPage({ searchParams }: Props) {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                 {cluster.insiders.map((ins) => {
                   const InsWrapper = isGated ? "div" : Link;
-                  const insProps = isGated ? {} : { href: `/insider/${ins.cik || ins.insider_id}` };
+                  const insProps = isGated ? {} : { href: insiderPath(ins.name, ins.cik || ins.insider_id) };
                   return (
                     <InsWrapper
                       key={ins.insider_id}

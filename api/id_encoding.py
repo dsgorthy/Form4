@@ -36,6 +36,24 @@ def decode_notification_id(encoded: str) -> int | None:
     return result[0] if result else None
 
 
+def identifier_from_slug(identifier: str) -> str:
+    """Extract the stable ID from an SEO slug URL.
+
+    Insider URLs are /insider/{name-slug}-{id} so the legal name is in the
+    path for search, while the sqid (or CIK) stays authoritative for lookup.
+    The ID is always the final hyphen-delimited segment, which is unambiguous
+    because every sqid alphabet here is lowercase-alphanumeric with no hyphen,
+    and CIKs are numeric. Names containing hyphens ("Smith-Jones") are
+    therefore safe.
+
+    Bare IDs pass through unchanged, so pre-slug URLs and external links keep
+    working — no redirect table, no new column, no uniqueness problem.
+    """
+    if not identifier:
+        return identifier
+    return identifier.rsplit("-", 1)[-1] if "-" in identifier else identifier
+
+
 def encode_response_ids(items: list[dict], trade: bool = True, insider: bool = True) -> list[dict]:
     """Encode all ID fields in a list of response dicts at the API boundary."""
     for item in items:

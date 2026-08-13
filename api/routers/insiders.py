@@ -6,7 +6,12 @@ from api.auth import UserContext
 from api.db import get_db
 from api.filters import add_trans_code_filter, filing_group_by
 from api.gating import require_pro
-from api.id_encoding import decode_insider_id, encode_insider_id, encode_response_ids
+from api.id_encoding import (
+    decode_insider_id,
+    encode_insider_id,
+    encode_response_ids,
+    identifier_from_slug,
+)
 from api.pit_helpers import get_best_pit_grade, get_ticker_grades
 from api.signals_enrichment import enrich_items_with_signals
 from api.context_enrichment import enrich_items_with_context
@@ -18,6 +23,7 @@ router = APIRouter(prefix="/api/v1/insiders", tags=["insiders"])
 @router.get("/{identifier}")
 def get_insider(identifier: str, user: UserContext = Depends(require_pro)) -> dict:
     """Insider profile with full track record. Accepts encoded sqids ID or CIK."""
+    identifier = identifier_from_slug(identifier)
     with get_db() as conn:
         # Try as sqids-encoded insider_id first, then as CIK
         insider = None
@@ -227,6 +233,7 @@ def get_insider_score_history(
     user: UserContext = Depends(require_pro),
 ) -> dict:
     """PIT score progression over time for an insider across all tickers."""
+    identifier = identifier_from_slug(identifier)
     with get_db() as conn:
         decoded_id = decode_insider_id(identifier)
         if decoded_id is None:
@@ -282,6 +289,7 @@ def get_insider_trades(
     user: UserContext = Depends(require_pro),
 ) -> dict:
     """Paginated trade history for an insider. Accepts encoded sqids ID or CIK."""
+    identifier = identifier_from_slug(identifier)
     with get_db() as conn:
         insider = None
         decoded_id = decode_insider_id(identifier)
@@ -391,6 +399,7 @@ def get_insider_trades(
 @router.get("/{identifier}/companies")
 def get_insider_companies(identifier: str, user: UserContext = Depends(require_pro)) -> dict:
     """Company history for an insider. Accepts encoded sqids ID or CIK."""
+    identifier = identifier_from_slug(identifier)
     with get_db() as conn:
         insider = None
         decoded_id = decode_insider_id(identifier)
@@ -480,6 +489,7 @@ def get_return_distribution(
     user: UserContext = Depends(require_pro),
 ) -> dict:
     """Binned return distribution for an insider's trades."""
+    identifier = identifier_from_slug(identifier)
     col = _WINDOW_COL[window]
 
     with get_db() as conn:

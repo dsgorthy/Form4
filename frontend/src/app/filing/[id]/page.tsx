@@ -14,6 +14,7 @@ import { ContextFacts } from "@/components/context-facts";
 import { WhatIfSimulator } from "@/components/what-if-simulator";
 import { TradeGradeDetail } from "@/components/trade-grade-badge";
 import type { Filing } from "@/lib/types";
+import { insiderPath } from "@/lib/insider-url";
 
 interface Lot {
   trade_id: string;
@@ -339,7 +340,7 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
           <SectionLabel>Insider</SectionLabel>
           <InfoRow label="Name">
             <Link
-              href={`/insider/${filing.cik || filing.insider_id}`}
+              href={insiderPath(filing.insider_name, filing.cik || filing.insider_id)}
               className="text-blue-400 hover:text-blue-300"
             >
               {filing.insider_name}
@@ -487,7 +488,7 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
           View Company
         </Link>
         <Link
-          href={`/insider/${filing.cik || filing.insider_id}`}
+          href={insiderPath(filing.insider_name, filing.cik || filing.insider_id)}
           className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26] px-5 py-2.5 text-sm font-medium text-[#E8E8ED] hover:bg-[#2A2A3A]/60 transition-colors"
         >
           View Insider

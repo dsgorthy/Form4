@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import { getAllResearch, RESEARCH_TYPES } from "@/lib/research";
+import { insiderPath } from "@/lib/insider-url";
 
 const BASE = "https://form4.app";
 const API = process.env.API_URL_INTERNAL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
@@ -17,7 +18,7 @@ const STATIC_PATHS = [
 
 interface SitemapData {
   tickers: string[];
-  insiders: string[];
+  insiders: { id: string; name: string }[];
   filings: string[];
 }
 
@@ -51,8 +52,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   }));
 
   // Insider pages (top 10K by trade count)
-  const insiderPages: MetadataRoute.Sitemap = data.insiders.map((id) => ({
-    url: `${BASE}/insider/${id}`,
+  const insiderPages: MetadataRoute.Sitemap = data.insiders.map((ins) => ({
+    url: `${BASE}${insiderPath(ins.name, ins.id)}`,
     changeFrequency: "monthly" as const,
     priority: 0.6,
   }));

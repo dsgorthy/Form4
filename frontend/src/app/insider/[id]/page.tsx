@@ -14,6 +14,7 @@ import { InsiderTradesTable } from "@/components/insider-trades-table";
 import { InsiderScoreChart } from "@/components/insider-score-chart";
 import { TickerDisplay, companyToSlug } from "@/components/ui/ticker-display";
 import type { InsiderProfile, InsiderCompany, Filing, PaginatedResponse } from "@/lib/types";
+import { insiderPath } from "@/lib/insider-url";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
@@ -38,6 +39,9 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
       ? `${profile.name} insider trading profile. ${parts.join(". ")}. SEC Form 4 analysis on Form4.app.`
       : `${profile.name} insider trading profile on Form4.app.`;
     return {
+      // Canonical points at the slugged form so the bare-ID URL (still valid,
+      // and what older links use) does not split ranking signal with it.
+      alternates: { canonical: `https://form4.app${insiderPath(profile.name, id)}` },
       title: `${profile.name} — Insider Profile`,
       description,
       openGraph: { title: `${profile.name} — Insider Profile`, description },
@@ -222,7 +226,10 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
               <span>
                 Controlled by{" "}
                 <Link
-                  href={`/insider/${profile.entity_group.primary_insider_id}`}
+                  href={insiderPath(
+                    profile.entity_group.members.find((m: any) => m.is_primary)?.name,
+                    profile.entity_group.primary_insider_id,
+                  )}
                   className="text-blue-400 hover:text-blue-300"
                 >
                   {profile.entity_group.members.find((m: any) => m.is_primary)?.name || "Unknown"}
@@ -237,7 +244,7 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                 .map((m: any) => (
                   <Link
                     key={m.insider_id}
-                    href={`/insider/${m.insider_id}`}
+                    href={insiderPath(m.name, m.insider_id)}
                     className="rounded-md border border-[#2A2A3A] px-2 py-1 text-xs text-[#8888A0] hover:text-[#E8E8ED] hover:bg-[#2A2A3A]/40 transition-colors"
                   >
                     {m.name}

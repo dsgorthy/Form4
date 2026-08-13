@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { fetchAPI } from "@/lib/api";
 import { formatCurrency } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
+import { insiderPath } from "@/lib/insider-url";
 
 interface SignalBreakdown {
   baseline: number;
@@ -262,7 +263,7 @@ export default async function TradeDetailPage({
               <span className="text-[#55556A]">
                 {" — "}
                 {trade.insider_id ? (
-                  <Link href={`/insider/${trade.insider_id}`} className="hover:text-[#8888A0]">{trade.insider_name}</Link>
+                  <Link href={insiderPath(trade.insider_name, trade.insider_id)} className="hover:text-[#8888A0]">{trade.insider_name}</Link>
                 ) : trade.insider_name}
               </span>
             )}

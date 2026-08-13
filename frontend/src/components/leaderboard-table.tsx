@@ -9,6 +9,7 @@ import { InsiderGradeBadge } from "@/components/insider-grade-badge";
 import Sparkline from "@/components/sparkline";
 import { Pagination } from "@/components/pagination";
 import type { LeaderboardEntry, PaginatedResponse } from "@/lib/types";
+import { insiderPath } from "@/lib/insider-url";
 
 const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
 const PAGE_SIZE = 50;
@@ -138,7 +139,7 @@ export function LeaderboardTable({ filters, sort, order }: LeaderboardTableProps
                     <span className="font-medium text-blue-400/40 blur-[3px]">{entry.name}</span>
                   ) : (
                     <Link
-                      href={`/insider/${entry.cik || entry.insider_id}`}
+                      href={insiderPath(entry.name, entry.cik || entry.insider_id)}
                       className="font-medium text-blue-400 hover:text-blue-300"
                     >
                       {entry.name}
