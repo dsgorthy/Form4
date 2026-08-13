@@ -37,7 +37,17 @@ STAMP="$(date +%Y%m%d_%H%M%S)"
 
 # Ordered by how painful the loss would be, so the important ones land first
 # if the run is interrupted.
-DATABASES=("${@:-form4 pyrrho_data_dev pyrrho_prod dagster_runs}")
+#
+#   form4            product + research data, almost none of it re-fetchable
+#   job_search_prod  Tailorly production (14GB) — was covered by NOTHING
+#   pyrrho_data_dev  the dataplane: signal_observations / signal_definitions
+#   design_quiz_prod small but live
+#   dagster_runs     materialization history; losing it loses lineage, not data
+#
+# pyrrho_prod / pyrrho_staging were removed 2026-08-12 when the Pyrrho product
+# was decommissioned. Final archival dumps live in
+# backups/postgres-archive/pyrrho-final and on the Mini.
+DATABASES=("${@:-form4 job_search_prod pyrrho_data_dev design_quiz_prod dagster_runs}")
 read -r -a DATABASES <<< "${DATABASES[*]}"
 
 mkdir -p "$BACKUP_ROOT"

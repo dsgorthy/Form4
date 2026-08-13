@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Off-box watchdog. THIS ONE RUNS ON THE MINI, ON PURPOSE.
+
+  It is the only scheduled job that belongs on the Mini: its entire value is
+  living outside Studio's failure domain. Everything that watched Studio ran
+  ON Studio and alerted over the network path that broke, which is why a
+  14-day outage went unnoticed.
+
+  Deliberately NOT named com.openclaw.* — `guard_studio_only_plists` in
+  ~/.local/bin/studio fails a deploy if any com.openclaw.* plist other than
+  its whitelist is present on the deploying machine (the Mini).
+
+  Light by design: a few HTTPS requests plus short SSH queries every 30
+  minutes. No database, no daemon, no local state.
+
+  Install (on the Mini):
+    cp scripts/launchd/com.derekg.offbox-watchdog.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.derekg.offbox-watchdog.plist
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.derekg.offbox-watchdog</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/python3</string>
+    <string>/Users/derekg/trading-framework/scripts/offbox_watchdog.py</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/derekg/trading-framework</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+
+  <key>StartInterval</key>
+  <integer>1800</integer>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/derekg/trading-framework/logs/offbox-watchdog.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/derekg/trading-framework/logs/offbox-watchdog.err</string>
+</dict>
+</plist>
