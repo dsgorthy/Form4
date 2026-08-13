@@ -32,9 +32,10 @@ def resolve_insider_id(conn, identifier: str) -> int | None:
 
       1. exact slug           /insider/roger-s-penske        (current URLs)
       2. bare sqid            /insider/mgwdq7                (API clients)
-      3. trailing-segment id  /insider/roger-s-penske-mgwdq7 (pre-slug URLs,
+      3. retired slug         /insider/jr-james-d-farley     (name since fixed)
+      4. trailing-segment id  /insider/roger-s-penske-mgwdq7 (pre-slug URLs,
                                                               already indexed)
-      4. CIK                  /insider/0001234567
+      5. CIK                  /insider/0001234567
 
     Every previously-published URL shape still resolves, so nothing that was
     linked or crawled breaks.
@@ -51,6 +52,14 @@ def resolve_insider_id(conn, identifier: str) -> int | None:
     decoded = decode_insider_id(identifier)
     if decoded is not None:
         return decoded
+
+    # A slug retired by a name correction. Checked before the trailing-segment
+    # rule because a retired slug is a whole slug, and that rule would chop it.
+    row = conn.execute(
+        "SELECT insider_id FROM insider_slug_aliases WHERE old_slug = ?", (identifier,)
+    ).fetchone()
+    if row:
+        return row["insider_id"]
 
     trailing = identifier_from_slug(identifier)
     if trailing != identifier:

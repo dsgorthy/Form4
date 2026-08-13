@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 import { fetchAPI } from "@/lib/api";
 import { fetchAPIAuth } from "@/lib/auth";
 import { formatCurrency, formatPercent } from "@/lib/format";
@@ -136,6 +136,17 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
       );
     }
     notFound();
+  }
+
+  // The API resolves retired slugs (insider_slug_aliases), so a URL published
+  // before a name correction still works. Send it on to the canonical one so
+  // crawlers consolidate on one address instead of indexing both.
+  //
+  // MUST sit outside the try above: permanentRedirect signals by throwing a
+  // NEXT_REDIRECT sentinel, which that catch would swallow into notFound().
+  const canonicalSlug = (profile as any).slug as string | undefined;
+  if (canonicalSlug && id !== canonicalSlug && id !== String((profile as any).cik)) {
+    permanentRedirect(`/insider/${canonicalSlug}`);
   }
 
   const tr = profile.track_record;

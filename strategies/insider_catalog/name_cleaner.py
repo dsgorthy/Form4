@@ -56,6 +56,83 @@ ACRONYM_PATTERNS = re.compile(
 LAST_NAME_PREFIXES = {"mc", "mac", "de", "van", "von", "di", "le", "la", "du", "del",
                       "al", "el", "o'", "der", "den", "des", "het", "ten", "ter", "das", "dos"}
 
+# --- compound surnames -------------------------------------------------------
+#
+# EDGAR gives "LAST FIRST MIDDLE", and rotating token 0 to the end is right
+# only when the surname is one token. It is wrong for a compound surname:
+#
+#   "SIMMONS SMITH CATHERINE A"  rotate -> "Smith Catherine A. Simmons"  WRONG
+#                                correct -> "Catherine A. Simmons Smith"
+#
+# Telling the two apart needs population frequency, which is frozen into
+# name_lexicon.json by scripts/build_name_lexicon.py (see that file for how
+# it is learned). A token absent from both lists means "no opinion" and the
+# default rotation stands, so a stale or missing lexicon degrades to today's
+# behaviour rather than misfiring.
+_LEXICON_PATH = Path(__file__).resolve().parent / "name_lexicon.json"
+
+
+def _load_lexicon() -> tuple[frozenset, frozenset]:
+    try:
+        import json
+        d = json.loads(_LEXICON_PATH.read_text())
+        return frozenset(d.get("given", ())), frozenset(d.get("surname", ()))
+    except Exception:  # missing/corrupt -> no compound detection, not a crash
+        logger.warning("name_lexicon.json unreadable; compound-surname detection off")
+        return frozenset(), frozenset()
+
+
+GIVEN_TOKENS, SURNAME_TOKENS = _load_lexicon()
+
+# Chinese/Korean/Vietnamese names arrive surname-first already, so the plain
+# rotation is correct for them: "KONG XIAO JUN" -> "Xiao Jun Kong". The
+# frequency signal cannot see this — "Xiao" reads surname-like in isolation —
+# and would produce the nonsense "Jun Kong Xiao", so skip on the surname
+# itself. Covers the high-frequency cases present in the filing set.
+CJK_SURNAMES = {
+    "wang", "li", "zhang", "liu", "chen", "yang", "huang", "zhao", "wu", "zhou",
+    "xu", "sun", "ma", "zhu", "hu", "guo", "he", "gao", "lin", "luo", "zheng",
+    "liang", "xie", "song", "tang", "han", "feng", "deng", "cao", "peng", "zeng",
+    "xiao", "tian", "dong", "pan", "yuan", "cai", "jiang", "yu", "ye", "shen",
+    "kong", "leung", "wong", "chan", "cheung", "lau", "ng", "ho", "chow", "tsang",
+    "kim", "park", "choi", "jung", "kang", "yoon", "lim", "shin", "seo", "kwon",
+    "nguyen", "tran", "pham", "vu", "vo", "dang", "bui", "do", "ngo", "duong",
+    "tan", "goh", "teo", "ong", "sim", "koh", "yeo", "toh",
+}
+
+
+def _norm_token(tok: str) -> str:
+    return tok.lower().strip(".,'\"")
+
+
+def _has_compound_surname(tokens: list[str]) -> bool:
+    """True when tokens[0:2] form one surname rather than LAST + FIRST.
+
+    Expects suffixes already stripped. Two shapes qualify:
+        [LAST1 LAST2 FIRST]          "Simmons Smith Catherine"
+        [LAST1 LAST2 FIRST INITIAL]  "Simmons Smith Catherine A."
+
+    Both signals must agree — the given-name slot looks like a given name AND
+    the second surname slot looks like a surname. "SMITH JOHN MICHAEL" has two
+    given-ish tokens and so stays on the default rotation. Deliberately
+    conservative: declining is free, flipping a correct name is a visible
+    regression.
+    """
+    if len(tokens) == 4:
+        if not (_is_middle_initial(tokens[3]) and not _is_middle_initial(tokens[2])):
+            return False
+    elif len(tokens) != 3:
+        return False
+
+    a, b, c = tokens[0], tokens[1], tokens[2]
+    if _is_middle_initial(b) or _is_middle_initial(c):
+        return False
+    if _norm_token(a) in CJK_SURNAMES:
+        return False
+    if _norm_token(a) in LAST_NAME_PREFIXES or _norm_token(b) in LAST_NAME_PREFIXES:
+        return False  # particle logic below owns these
+    return _norm_token(c) in GIVEN_TOKENS and _norm_token(b) in SURNAME_TOKENS
+
 
 def _smart_title_case(word: str) -> str:
     """Title-case a word, handling special patterns like McDonald, O'Brien."""
@@ -65,9 +142,9 @@ def _smart_title_case(word: str) -> str:
     if not word.isupper() and not word.islower() and len(word) > 2:
         return word
 
-    # O'Something pattern
-    if lower.startswith("o'") and len(lower) > 2:
-        return "O'" + lower[2:].capitalize()
+    # O'Something / D'Something pattern
+    if lower[:2] in ("o'", "d'") and len(lower) > 2:
+        return lower[0].upper() + "'" + lower[2:].capitalize()
 
     # Mc/Mac prefix
     if lower.startswith("mc") and len(lower) > 2:
@@ -108,7 +185,11 @@ def clean_person_name(raw_name: str) -> str:
       "Komin Robert Patrick Jr." → "Robert Patrick Komin Jr."
       "O'BRIEN JAMES M"    → "James M. O'Brien"
     """
-    tokens = raw_name.strip().split()
+    # EDGAR sometimes emits a comma between surname and given name
+    # ("Barbe, Cohen Jana"). It is a separator, never part of the name, and
+    # left in place it rides along into the reordered output as "Jana Barbe,
+    # Cohen". Strip before tokenizing so downstream comparisons see bare words.
+    tokens = [t for t in raw_name.replace(",", " ").strip().split() if t]
     if not tokens:
         return raw_name
 
@@ -124,17 +205,32 @@ def clean_person_name(raw_name: str) -> str:
     if not tokens:
         return raw_name  # all suffixes, shouldn't happen
 
-    # Fix EDGAR stripping apostrophes from O'Something names ("O HERN" → "O'Hern")
-    if len(tokens) >= 2 and tokens[0].upper() == "O" and len(tokens[0]) == 1:
-        tokens[0] = "O'" + tokens[1]
+    # EDGAR also emits the suffix directly after the surname:
+    # "Ruch, Jr. Charles E." -> once the comma is gone, ["Ruch","Jr.","Charles","E."].
+    # The end-of-string loop above cannot see it, so it survived into the output
+    # as a leading "Jr. Charles E. Ruch". Pull it out to join the real suffixes.
+    _suffix_stems = {s.rstrip('.') for s in SUFFIXES}
+    if len(tokens) >= 3 and tokens[1].lower().rstrip('.') in _suffix_stems:
+        suffixes.insert(0, _format_suffix(tokens.pop(1)))
+
+    # Fix EDGAR stripping apostrophes from O'Something and D'Something names
+    # ("O HERN" → "O'Hern", "D AMBROSE" → "D'Ambrose"). A bare single-letter
+    # surname is otherwise meaningless, so this is safe.
+    if len(tokens) >= 2 and len(tokens[0]) == 1 and tokens[0].upper() in {"O", "D"}:
+        tokens[0] = tokens[0].upper() + "'" + tokens[1]
         tokens.pop(1)
 
     # First token(s) are the last name in EDGAR format.
     # Handle multi-word last names with prefixes (DE LA CRUZ, VAN DER BERG, etc.)
     last_parts = [tokens[0]]
     i = 1
+    # Compound surname with no particle to mark it ("SIMMONS SMITH CATHERINE").
+    # Checked before the prefix branch, which handles the particle-marked form.
+    if _has_compound_surname(tokens):
+        last_parts = tokens[:2]
+        i = 2
     # If first token is a prefix (DE, VAN, VON, etc.), consume following prefix/name tokens
-    if tokens[0].lower() in LAST_NAME_PREFIXES and len(tokens) > 2:
+    elif tokens[0].lower() in LAST_NAME_PREFIXES and len(tokens) > 2:
         while i < len(tokens) - 1:  # keep at least one token for first name
             if tokens[i].lower() in LAST_NAME_PREFIXES:
                 last_parts.append(tokens[i])
