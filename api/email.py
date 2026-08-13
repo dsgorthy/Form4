@@ -21,14 +21,20 @@ def send_email(
     html: str,
     *,
     reply_to: Optional[str] = None,
+    from_address: Optional[str] = None,
 ) -> bool:
-    """Send a transactional email via Resend. Returns True on success."""
+    """Send a transactional email via Resend. Returns True on success.
+
+    from_address overrides the default alerts@ sender. Use it for mail a
+    person is meant to reply to — a founder note should not arrive from an
+    alerting address. Any override must be on a Resend-verified domain.
+    """
     if not RESEND_API_KEY:
         logger.warning("RESEND_API_KEY not set, skipping email to %s", to)
         return False
 
     payload: dict = {
-        "from": FROM_ADDRESS,
+        "from": from_address or FROM_ADDRESS,
         "to": [to],
         "subject": subject,
         "html": html,

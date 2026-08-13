@@ -237,6 +237,7 @@ def comp_grant_email(
     first_name: str = "",
     until_date: str = "",
     unsubscribe_url: str = "",
+    refunded: bool = False,
 ) -> tuple[str, str]:
     """Returns (subject, html) for the note announcing a comped Pro window.
 
@@ -246,41 +247,55 @@ def comp_grant_email(
     founder note rather than a marketing blast.
 
     first_name: may be empty — Clerk has no name for some accounts.
-    until_date: human-readable comp end, e.g. "November 11".
+    until_date: human-readable comp end, e.g. "November 11th".
+    refunded: state the refund explicitly (paying customers hit by the outage).
     """
     greeting = f"Hi {first_name}," if first_name else "Hi there,"
-    through = f" through {until_date}" if until_date else ""
+    # until_date arrives already human-formatted, e.g. "November 11th".
+    expires = f" (expires on {until_date})" if until_date else ""
+
+    # Paying customers caught by the outage were refunded; say so explicitly
+    # rather than letting the comp stand in for it.
+    refund_para = ""
+    if refunded:
+        refund_para = """
+    <p style="margin:0 0 16px;font-size:14px;color:#8888A0;line-height:1.6;">
+      I've refunded your payment in full. I appreciate your business.
+    </p>"""
 
     content = f"""\
     <p style="margin:0 0 16px;font-size:14px;color:#8888A0;line-height:1.6;">{greeting}</p>
     <p style="margin:0 0 16px;font-size:14px;color:#8888A0;line-height:1.6;">
-      You signed up in July and got the standard 7-day trial. It ran out, and after that
-      Form4 would have shown you a thinner version of itself &mdash; filings without the
-      scores or track records that make them worth reading.
+      I'm Derek, the founder of Form4. I'm reaching out to ask for your feedback
+      and to apologize for the last couple of weeks.
     </p>
     <p style="margin:0 0 16px;font-size:14px;color:#8888A0;line-height:1.6;">
-      That's a poor first impression of the product, so I've turned
-      <strong style="color:#3B82F6;">Pro back on for your account{through}</strong>.
-      No card, nothing to activate &mdash; it's already live.
-    </p>
-    <p style="margin:0 0 8px;font-size:13px;font-weight:600;color:#E8E8ED;">Worth your time first:</p>
-    <ul style="margin:0 0 16px;padding:0 0 0 18px;font-size:13px;color:#8888A0;line-height:1.8;">
-      <li><strong style="color:#E8E8ED;">The feed</strong> &mdash; every new Form 4 filing, graded</li>
-      <li><strong style="color:#E8E8ED;">The leaderboard</strong> &mdash; insiders ranked by how their past buys actually performed</li>
-      <li><strong style="color:#E8E8ED;">Clusters</strong> &mdash; several insiders buying the same stock in the same window</li>
-    </ul>
+      We ran into an unexpected error and the site was down for a number of days.
+      If you tried to access the site during that time and saw an error, that's why.
+    </p>{refund_para}
     <p style="margin:0 0 16px;font-size:14px;color:#8888A0;line-height:1.6;">
-      If it isn't useful, reply and tell me why &mdash; I read every one. If it is,
-      I'd like to know which part.
+      In order to make up for this, I've turned on
+      <strong style="color:#3B82F6;">Pro for your account for the next three
+      months for free</strong>{expires}.
+    </p>
+    <p style="margin:0 0 16px;font-size:14px;color:#8888A0;line-height:1.6;">
+      I'd appreciate any feedback that you have on Form4 Pro during this time.
+      What's missing? What's confusing? What do you wish Form4 did? Any feedback
+      is helpful and I really appreciate your understanding.
+    </p>
+    <p style="margin:0 0 16px;font-size:14px;color:#8888A0;line-height:1.6;">
+      If you have any questions, concerns, and/or feedback, just reply to this
+      email at any time.
     </p>
     <p style="margin:0;font-size:14px;color:#8888A0;line-height:1.6;">
-      &mdash; Derek<br>
-      <span style="font-size:12px;color:#55556A;">Founder, Form4</span>
+      Thanks,<br>
+      Derek<br>
+      <span style="font-size:12px;color:#55556A;">Form4</span>
     </p>"""
 
     return (
-        "Your Form4 Pro access is back on — 3 months, no charge",
-        _layout(content, "Open the Feed", f"{APP_URL}/", unsubscribe_url),
+        "Sorry for the downtime, and 3 months of Pro",
+        _layout(content, "Take a look", f"{APP_URL}/", unsubscribe_url),
     )
 
 
