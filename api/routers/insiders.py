@@ -73,6 +73,29 @@ def resolve_insider_id(conn, identifier: str) -> int | None:
     return row["insider_id"] if row else None
 
 
+@router.get("/slug-aliases")
+def get_slug_aliases() -> dict:
+    """Retired slug -> current slug, for canonical redirects in middleware.
+
+    MUST stay declared above /{identifier}: FastAPI matches in declaration
+    order, so the dynamic route would otherwise swallow this path and treat
+    "slug-aliases" as an insider identifier.
+
+    Returned whole rather than queried per-request. The map is small (hundreds
+    of entries, only growing when a name correction retires a slug) and the
+    caller caches it, so canonical URLs — the overwhelming majority — cost no
+    lookup at all. Unauthenticated: it is public URL structure, nothing more.
+    """
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT a.old_slug, i.slug
+                 FROM insider_slug_aliases a
+                 JOIN insiders i ON i.insider_id = a.insider_id
+                WHERE i.slug IS NOT NULL"""
+        ).fetchall()
+    return {r["old_slug"]: r["slug"] for r in rows}
+
+
 @router.get("/{identifier}")
 def get_insider(identifier: str, user: UserContext = Depends(get_current_user)) -> dict:
     """Insider profile. Accepts a name slug, encoded sqids ID, or CIK.
