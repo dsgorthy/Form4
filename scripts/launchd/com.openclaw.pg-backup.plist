@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Nightly Postgres backups. STUDIO ONLY — never load on the Mini (see the
+  Studio-only plist guard in ~/.local/bin/studio).
+
+  03:15 PT: after the 17:30/17:45 PT ingest jobs and before backfill-returns
+  at 05:00, so a dump captures a settled database rather than one mid-write.
+
+  Install (on Studio):
+    cp scripts/launchd/com.openclaw.pg-backup.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.openclaw.pg-backup.plist
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.openclaw.pg-backup</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/derekg/trading-framework/scripts/backup_databases.sh</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/derekg/trading-framework</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>RETENTION_DAYS</key>
+    <string>7</string>
+  </dict>
+
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>3</integer>
+    <key>Minute</key>
+    <integer>15</integer>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/Users/derekg/trading-framework/logs/pg-backup.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/derekg/trading-framework/logs/pg-backup.err</string>
+</dict>
+</plist>
