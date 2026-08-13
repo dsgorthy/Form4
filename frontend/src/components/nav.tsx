@@ -59,18 +59,30 @@ function ExploreDropdown({ pathname }: { pathname: string }) {
   );
 }
 
+// Primary nav = the four things worth a click from a cold visitor.
+//
+//   Portfolio      the only proof the signal works; default landing, converts
+//   Today's Trades the daily-habit page, the reason to come back tomorrow
+//   Leaderboard    Career Grade V3 is the most defensible thing we compute.
+//                  Its top 10 was un-gated on 2026-08-12 precisely so the IP
+//                  is visible to people deciding whether to pay — leaving it
+//                  in a dropdown defeats that entirely.
+//   Congress       highest-recognition hook in the category. It was buried
+//                  while its data sat 4.5 months stale; the feed went live
+//                  again 2026-08-12, so it has earned the slot back.
 const primaryLinks = [
   { href: "/portfolio", label: "Portfolio" },
   { href: "/feed", label: "Today's Trades" },
+  { href: "/leaderboard", label: "Leaderboard" },
+  { href: "/congress", label: "Congress" },
 ];
 
-// Research moved out of primary nav 2026-08-12: two posts does not earn
-// top-level placement. Promote it back when the publishing cadence justifies it.
+// Secondary. Screener and Clusters are real tools but answer a question the
+// visitor only has once they're already engaged. Research stays demoted until
+// the publishing cadence justifies promotion (two posts does not).
 const exploreLinks = [
   { href: "/screener", label: "Screener" },
-  { href: "/leaderboard", label: "Leaderboard" },
   { href: "/clusters", label: "Clusters" },
-  { href: "/congress", label: "Congress" },
   { href: "/research", label: "Research" },
 ];
 
