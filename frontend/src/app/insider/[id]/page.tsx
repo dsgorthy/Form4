@@ -14,7 +14,7 @@ import { InsiderTradesTable } from "@/components/insider-trades-table";
 import { InsiderScoreChart } from "@/components/insider-score-chart";
 import { TickerDisplay, companyToSlug } from "@/components/ui/ticker-display";
 import type { InsiderProfile, InsiderCompany, Filing, PaginatedResponse } from "@/lib/types";
-import { insiderPath } from "@/lib/insider-url";
+import { insiderPath, idFromSlug } from "@/lib/insider-url";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
@@ -41,7 +41,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
     return {
       // Canonical points at the slugged form so the bare-ID URL (still valid,
       // and what older links use) does not split ranking signal with it.
-      alternates: { canonical: `https://form4.app${insiderPath(profile.name, id)}` },
+      alternates: { canonical: `https://form4.app${insiderPath(profile.name, idFromSlug(id), (profile as any).slug)}` },
       title: `${profile.name} — Insider Profile`,
       description,
       openGraph: { title: `${profile.name} — Insider Profile`, description },

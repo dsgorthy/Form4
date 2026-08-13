@@ -24,7 +24,7 @@ interface SitemapData {
   // can render against the old API and emit /insider/undefined straight into
   // Google. Accept both shapes so a version skew degrades to an ugly-but-
   // valid URL instead of a poisoned sitemap.
-  insiders: ({ id: string; name: string } | string)[];
+  insiders: ({ id: string; name: string; slug?: string } | string)[];
   filings: string[];
 }
 
@@ -62,7 +62,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     .map((ins) => (typeof ins === "string" ? { id: ins, name: "" } : ins))
     .filter((ins) => ins && ins.id)          // never emit /insider/undefined
     .map((ins) => ({
-      url: `${BASE}${insiderPath(ins.name, ins.id)}`,
+      url: `${BASE}${insiderPath(ins.name, ins.id, ins.slug)}`,
       changeFrequency: "monthly" as const,
       priority: 0.6,
     }));

@@ -20,6 +20,50 @@ from api.price_dates import enrich_items_with_price_end
 router = APIRouter(prefix="/api/v1/insiders", tags=["insiders"])
 
 
+
+def resolve_insider_id(conn, identifier: str) -> int | None:
+    """Resolve a URL segment to an insider_id.
+
+    Order matters. Clean slugs contain hyphens ("roger-s-penske"), so the
+    legacy "strip everything after the last hyphen" rule would mangle them
+    into "penske" and 404. The stored slug is therefore tried FIRST, as an
+    exact match — which also covers disambiguated slugs, since those are
+    stored whole ("john-smith-x7hq9r").
+
+      1. exact slug           /insider/roger-s-penske        (current URLs)
+      2. bare sqid            /insider/mgwdq7                (API clients)
+      3. trailing-segment id  /insider/roger-s-penske-mgwdq7 (pre-slug URLs,
+                                                              already indexed)
+      4. CIK                  /insider/0001234567
+
+    Every previously-published URL shape still resolves, so nothing that was
+    linked or crawled breaks.
+    """
+    if not identifier:
+        return None
+
+    row = conn.execute(
+        "SELECT insider_id FROM insiders WHERE slug = ?", (identifier,)
+    ).fetchone()
+    if row:
+        return row["insider_id"]
+
+    decoded = decode_insider_id(identifier)
+    if decoded is not None:
+        return decoded
+
+    trailing = identifier_from_slug(identifier)
+    if trailing != identifier:
+        decoded = decode_insider_id(trailing)
+        if decoded is not None:
+            return decoded
+
+    row = conn.execute(
+        "SELECT insider_id FROM insiders WHERE cik = ?", (identifier,)
+    ).fetchone()
+    return row["insider_id"] if row else None
+
+
 @router.get("/{identifier}")
 def get_insider(identifier: str, user: UserContext = Depends(get_current_user)) -> dict:
     """Insider profile. Accepts a name slug, encoded sqids ID, or CIK.
@@ -42,15 +86,15 @@ def get_insider(identifier: str, user: UserContext = Depends(get_current_user)) 
     with get_db() as conn:
         # Try as sqids-encoded insider_id first, then as CIK
         insider = None
-        decoded_id = decode_insider_id(identifier)
+        decoded_id = resolve_insider_id(conn, identifier)
         if decoded_id is not None:
             insider = conn.execute(
-                "SELECT i.insider_id, COALESCE(i.display_name, i.name) AS name, i.name_normalized, i.cik, COALESCE(i.is_entity, 0) as is_entity FROM insiders i WHERE i.insider_id = ?",
+                "SELECT i.insider_id, COALESCE(i.display_name, i.name) AS name, i.name_normalized, i.cik, i.slug, COALESCE(i.is_entity, 0) as is_entity FROM insiders i WHERE i.insider_id = ?",
                 (decoded_id,),
             ).fetchone()
         if insider is None:
             insider = conn.execute(
-                "SELECT i.insider_id, COALESCE(i.display_name, i.name) AS name, i.name_normalized, i.cik, COALESCE(i.is_entity, 0) as is_entity FROM insiders i WHERE i.cik = ?",
+                "SELECT i.insider_id, COALESCE(i.display_name, i.name) AS name, i.name_normalized, i.cik, i.slug, COALESCE(i.is_entity, 0) as is_entity FROM insiders i WHERE i.cik = ?",
                 (identifier,),
             ).fetchone()
 
@@ -261,7 +305,7 @@ def get_insider_score_history(
     """PIT score progression over time for an insider across all tickers."""
     identifier = identifier_from_slug(identifier)
     with get_db() as conn:
-        decoded_id = decode_insider_id(identifier)
+        decoded_id = resolve_insider_id(conn, identifier)
         if decoded_id is None:
             row = conn.execute("SELECT insider_id FROM insiders WHERE cik = ?", (identifier,)).fetchone()
             decoded_id = row["insider_id"] if row else None
@@ -318,7 +362,7 @@ def get_insider_trades(
     identifier = identifier_from_slug(identifier)
     with get_db() as conn:
         insider = None
-        decoded_id = decode_insider_id(identifier)
+        decoded_id = resolve_insider_id(conn, identifier)
         if decoded_id is not None:
             insider = conn.execute(
                 "SELECT insider_id FROM insiders WHERE insider_id = ?", (decoded_id,)
@@ -428,7 +472,7 @@ def get_insider_companies(identifier: str, user: UserContext = Depends(get_curre
     identifier = identifier_from_slug(identifier)
     with get_db() as conn:
         insider = None
-        decoded_id = decode_insider_id(identifier)
+        decoded_id = resolve_insider_id(conn, identifier)
         if decoded_id is not None:
             insider = conn.execute(
                 "SELECT insider_id FROM insiders WHERE insider_id = ?", (decoded_id,)
@@ -520,7 +564,7 @@ def get_return_distribution(
 
     with get_db() as conn:
         insider = None
-        decoded_id = decode_insider_id(identifier)
+        decoded_id = resolve_insider_id(conn, identifier)
         if decoded_id is not None:
             insider = conn.execute(
                 "SELECT insider_id FROM insiders WHERE insider_id = ?", (decoded_id,)

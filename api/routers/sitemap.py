@@ -57,7 +57,8 @@ def sitemap_urls(
             # shape search engines get nothing from.
             insider_rows = conn.execute("""
                 SELECT tr.insider_id,
-                       COALESCE(i.display_name, i.name) AS name
+                       COALESCE(i.display_name, i.name) AS name,
+                       i.slug
                   FROM insider_track_records tr
                   LEFT JOIN insiders i ON i.insider_id = tr.insider_id
                  WHERE tr.buy_count >= 2
@@ -65,7 +66,13 @@ def sitemap_urls(
                  LIMIT ?
             """, (limit_insiders,)).fetchall()
             insiders = [
-                {"id": encode_insider_id(r["insider_id"]), "name": r["name"] or ""}
+                {
+                    "id": encode_insider_id(r["insider_id"]),
+                    "name": r["name"] or "",
+                    # Prefer the stored slug; the client only falls back to
+                    # deriving one from the name when this is absent.
+                    "slug": r["slug"] or "",
+                }
                 for r in insider_rows if r["insider_id"]
             ]
         except Exception:
