@@ -82,7 +82,6 @@ def get_insider(identifier: str, user: UserContext = Depends(get_current_user)) 
     on what should be one of the strongest acquisition surfaces the product
     has.
     """
-    identifier = identifier_from_slug(identifier)
     with get_db() as conn:
         # Try as sqids-encoded insider_id first, then as CIK
         insider = None
@@ -303,7 +302,6 @@ def get_insider_score_history(
     user: UserContext = Depends(require_pro),
 ) -> dict:
     """PIT score progression over time for an insider across all tickers."""
-    identifier = identifier_from_slug(identifier)
     with get_db() as conn:
         decoded_id = resolve_insider_id(conn, identifier)
         if decoded_id is None:
@@ -359,7 +357,6 @@ def get_insider_trades(
     user: UserContext = Depends(get_current_user),
 ) -> dict:
     """Paginated trade history for an insider. Accepts encoded sqids ID or CIK."""
-    identifier = identifier_from_slug(identifier)
     with get_db() as conn:
         insider = None
         decoded_id = resolve_insider_id(conn, identifier)
@@ -469,7 +466,6 @@ def get_insider_trades(
 @router.get("/{identifier}/companies")
 def get_insider_companies(identifier: str, user: UserContext = Depends(get_current_user)) -> dict:
     """Company history for an insider. Accepts encoded sqids ID or CIK."""
-    identifier = identifier_from_slug(identifier)
     with get_db() as conn:
         insider = None
         decoded_id = resolve_insider_id(conn, identifier)
@@ -559,7 +555,6 @@ def get_return_distribution(
     user: UserContext = Depends(require_pro),
 ) -> dict:
     """Binned return distribution for an insider's trades."""
-    identifier = identifier_from_slug(identifier)
     col = _WINDOW_COL[window]
 
     with get_db() as conn:
