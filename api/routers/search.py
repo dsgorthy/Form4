@@ -33,13 +33,13 @@ def search(q: str = Query(..., min_length=1, max_length=100), request: Request =
                    COUNT(*) AS trade_count,
                    SUM(value) AS total_value
             FROM trades
-            WHERE ticker != 'NONE' AND (ticker LIKE ? OR company LIKE ?)
+            WHERE ticker != 'NONE' AND (ticker ILIKE ? OR company ILIKE ?)
               AND trans_code IN ('P', 'S')
               AND is_derivative = 0
             GROUP BY ticker
             ORDER BY
                 CASE WHEN ticker = ? THEN 0
-                     WHEN ticker LIKE ? THEN 1
+                     WHEN ticker ILIKE ? THEN 1
                      ELSE 2
                 END,
                 total_value DESC
@@ -61,7 +61,7 @@ def search(q: str = Query(..., min_length=1, max_length=100), request: Request =
                    itr.score, itr.score_tier, itr.primary_title, itr.primary_ticker
             FROM insiders i
             LEFT JOIN insider_track_records itr ON i.insider_id = itr.insider_id
-            WHERE i.name LIKE ? OR i.name_normalized LIKE ? OR i.display_name LIKE ?
+            WHERE i.name ILIKE ? OR i.name_normalized ILIKE ? OR i.display_name ILIKE ?
             ORDER BY
                 CASE WHEN lower(COALESCE(i.display_name, i.name)) = lower(?) THEN 0
                      WHEN lower(COALESCE(i.display_name, i.name)) LIKE lower(?) THEN 1
@@ -80,13 +80,13 @@ def search(q: str = Query(..., min_length=1, max_length=100), request: Request =
         # "no more results".
         insider_total = conn.execute(
             """SELECT count(*) AS n FROM insiders i
-                WHERE i.name LIKE ? OR i.name_normalized LIKE ? OR i.display_name LIKE ?""",
+                WHERE i.name ILIKE ? OR i.name_normalized ILIKE ? OR i.display_name ILIKE ?""",
             (query_like, query_like, query_like),
         ).fetchone()["n"]
 
         ticker_total = conn.execute(
             """SELECT count(DISTINCT ticker) AS n FROM trades
-                WHERE ticker != 'NONE' AND (ticker LIKE ? OR company LIKE ?)
+                WHERE ticker != 'NONE' AND (ticker ILIKE ? OR company ILIKE ?)
                   AND trans_code IN ('P', 'S') AND is_derivative = 0""",
             (f"{query_upper}%", query_like),
         ).fetchone()["n"]
