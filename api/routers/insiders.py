@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from api.auth import UserContext
+from api.auth import UserContext, get_current_user
 from api.db import get_db
 from api.filters import add_trans_code_filter, filing_group_by
 from api.gating import require_pro
@@ -21,8 +21,23 @@ router = APIRouter(prefix="/api/v1/insiders", tags=["insiders"])
 
 
 @router.get("/{identifier}")
-def get_insider(identifier: str, user: UserContext = Depends(require_pro)) -> dict:
-    """Insider profile with full track record. Accepts encoded sqids ID or CIK."""
+def get_insider(identifier: str, user: UserContext = Depends(get_current_user)) -> dict:
+    """Insider profile. Accepts a name slug, encoded sqids ID, or CIK.
+
+    PUBLIC tier (anonymous, and therefore Googlebot): identity and activity —
+    name, title, CIK, volume by type, ticker list, filing counts. Enough for a
+    real <h1>, title tag and description, which is what makes the page worth
+    indexing at all.
+
+    PRO tier: the analytical layer — track record, scores, percentiles, win
+    rates, sell pattern, PIT grades.
+
+    This was require_pro until 2026-08-13, which 403'd every crawler. The
+    result was a page whose title was the literal string "Insider Profile"
+    with the person's name appearing nowhere in the server-rendered body —
+    on what should be one of the strongest acquisition surfaces the product
+    has.
+    """
     identifier = identifier_from_slug(identifier)
     with get_db() as conn:
         # Try as sqids-encoded insider_id first, then as CIK
@@ -224,6 +239,17 @@ def get_insider(identifier: str, user: UserContext = Depends(require_pro)) -> di
         }
     result.update(best_pit)
     result["ticker_grades"] = ticker_grades
+
+    # Non-Pro sees who this is and what they did; not how well it worked.
+    if not user.is_pro:
+        result["track_record"] = None
+        result["filing_stats"] = {}
+        result["sell_pattern"] = None
+        result["ticker_grades"] = []
+        for f in ("score", "score_tier", "percentile", "best_career_score",
+                  "best_career_grade", "best_pit_score", "best_pit_grade"):
+            result.pop(f, None)
+        result["gated"] = True
     return result
 
 
@@ -286,7 +312,7 @@ def get_insider_trades(
     trans_codes: str = Query(default="P,S"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
-    user: UserContext = Depends(require_pro),
+    user: UserContext = Depends(get_current_user),
 ) -> dict:
     """Paginated trade history for an insider. Accepts encoded sqids ID or CIK."""
     identifier = identifier_from_slug(identifier)
@@ -397,7 +423,7 @@ def get_insider_trades(
 
 
 @router.get("/{identifier}/companies")
-def get_insider_companies(identifier: str, user: UserContext = Depends(require_pro)) -> dict:
+def get_insider_companies(identifier: str, user: UserContext = Depends(get_current_user)) -> dict:
     """Company history for an insider. Accepts encoded sqids ID or CIK."""
     identifier = identifier_from_slug(identifier)
     with get_db() as conn:
