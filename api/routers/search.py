@@ -63,10 +63,17 @@ def search(q: str = Query(..., min_length=1, max_length=100), request: Request =
             LEFT JOIN insider_track_records itr ON i.insider_id = itr.insider_id
             WHERE i.name ILIKE ? OR i.name_normalized ILIKE ? OR i.display_name ILIKE ?
             ORDER BY
-                CASE WHEN lower(COALESCE(i.display_name, i.name)) = lower(?) THEN 0
-                     WHEN lower(COALESCE(i.display_name, i.name)) LIKE lower(?) THEN 1
-                     ELSE 2
-                END,
+                -- Exact name always wins: typing "Penske Corp." in full is
+                -- unambiguous intent.
+                CASE WHEN lower(COALESCE(i.display_name, i.name)) = lower(?) THEN 0 ELSE 1 END,
+                -- Then people before entities. The Companies group already
+                -- covers the corporate angle (PAG surfaces there for
+                -- "penske"), so an LLC or trust ranking above a named
+                -- executive inside the INSIDERS list is nearly always the
+                -- wrong answer. This deliberately outranks prefix matching:
+                -- "penske" should lead with Roger S. Penske, not Penske Corp.
+                COALESCE(i.is_entity, 0),
+                CASE WHEN lower(COALESCE(i.display_name, i.name)) LIKE lower(?) THEN 0 ELSE 1 END,
                 itr.score DESC NULLS LAST,
                 COALESCE(i.display_name, i.name)
             LIMIT ?
