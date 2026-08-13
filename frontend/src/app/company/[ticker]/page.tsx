@@ -7,10 +7,7 @@ import { fetchAPI } from "@/lib/api";
 import { fetchAPIAuth } from "@/lib/auth";
 import { ProGate } from "@/components/pro-gate";
 import { formatCurrency } from "@/lib/format";
-import { InsiderTradeChart } from "@/components/insider-trade-chart";
 import { WatchButton } from "@/components/watch-button";
-import { TradesTable } from "@/components/trades-table";
-import { CongressTable } from "@/components/congress-table";
 import { InsiderRoster } from "@/components/insider-roster";
 import type { Filing, PaginatedResponse } from "@/lib/types";
 
@@ -66,6 +63,10 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 const TRADES_LIMIT = 25;
 const CONGRESS_LIMIT = 10;
+
+// How many trades the SEO surface renders. Enough to be substantive
+// content for a crawler, few enough that it stays a teaser for the tool.
+const SEO_TRADE_ROWS = 15;
 
 export default async function CompanyPage({ params }: { params: Promise<{ ticker: string }> }) {
   const { ticker } = await params;
@@ -134,12 +135,29 @@ export default async function CompanyPage({ params }: { params: Promise<{ ticker
         </div>
       )}
 
-      {/* Trade Scatter Chart */}
-      <div className="mb-8">
-        <InsiderTradeChart ticker={overview.ticker} />
-      </div>
+      {/* Primary route into the product. /company/[ticker] is an SEO surface:
+          indexable, public, deliberately a SUBSET. The screener is the actual
+          tool, so every visitor who wants to DO something goes there. */}
+      <Link
+        href={`/screener?ticker=${overview.ticker}`}
+        className="mb-8 flex items-center justify-between gap-4 rounded-lg border border-[#3B82F6]/40 bg-[#3B82F6]/10 px-5 py-4 transition-colors hover:border-[#3B82F6] hover:bg-[#3B82F6]/15"
+      >
+        <div>
+          <div className="text-sm font-semibold text-[#E8E8ED]">
+            Open {overview.ticker} in the Screener
+          </div>
+          <div className="mt-0.5 text-xs text-[#8888A0]">
+            Full trade history, insider track records, price chart and
+            congressional activity
+          </div>
+        </div>
+        <span className="whitespace-nowrap text-sm font-medium text-[#3B82F6]">
+          Open &rarr;
+        </span>
+      </Link>
 
-      {/* Insider Roster */}
+      {/* Insider Roster — names + grades are the most valuable indexable
+          content on the page, so it stays. */}
       <div className="mb-8">
         <SectionLabel>Insider Roster ({overview.insiders.length})</SectionLabel>
         <ProGate label="Insider Track Records">
@@ -147,16 +165,53 @@ export default async function CompanyPage({ params }: { params: Promise<{ ticker
         </ProGate>
       </div>
 
-      {/* Political Activity (Congress) — paginated */}
-      {congressData && (
-        <CongressTable
-          ticker={ticker}
-          initialData={congressData as never}
-        />
-      )}
-
-      {/* All Trades — paginated */}
-      <TradesTable ticker={ticker} initialData={trades} />
+      {/* Recent trades — a static, crawlable subset. The paginated
+          TradesTable, the price chart and the congress table are tool
+          features and live in the screener; rendering them here duplicated
+          the tool on a page whose job is to rank in search. */}
+      <div className="mb-8">
+        <SectionLabel>Recent Insider Trades</SectionLabel>
+        <div className="overflow-x-auto rounded-lg border border-[#2A2A3A]">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-[#2A2A3A] text-xs uppercase text-[#55556A]">
+                <th className="px-4 py-2 text-left font-medium">Insider</th>
+                <th className="px-4 py-2 text-left font-medium">Title</th>
+                <th className="px-4 py-2 text-left font-medium">Type</th>
+                <th className="px-4 py-2 text-right font-medium">Value</th>
+                <th className="px-4 py-2 text-right font-medium">Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(trades.items || []).slice(0, SEO_TRADE_ROWS).map((t) => (
+                <tr key={t.trade_id} className="border-b border-[#2A2A3A]/50 hover:bg-[#1A1A26]">
+                  <td className="px-4 py-2 text-[#E8E8ED]">{t.insider_name}</td>
+                  <td className="px-4 py-2 text-[#8888A0]">
+                    {t.normalized_title || t.title || "—"}
+                  </td>
+                  <td className="px-4 py-2">
+                    <span className={t.trade_type === "buy" ? "text-[#22C55E]" : "text-[#EF4444]"}>
+                      {t.trade_type === "buy" ? "Buy" : "Sell"}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2 text-right font-mono text-[#E8E8ED]">
+                    {formatCurrency(t.value)}
+                  </td>
+                  <td className="px-4 py-2 text-right font-mono text-[#55556A]">{t.trade_date}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {trades.total > SEO_TRADE_ROWS && (
+          <Link
+            href={`/screener?ticker=${overview.ticker}`}
+            className="mt-3 inline-block text-sm text-[#3B82F6] transition-colors hover:text-[#60A5FA]"
+          >
+            View all {trades.total.toLocaleString()} trades in the Screener &rarr;
+          </Link>
+        )}
+      </div>
     </div>
   );
 }
