@@ -311,13 +311,20 @@ def realtime_5min_loop(context: SensorEvaluationContext):
 
     Idempotent at the signal-write layer, and the strategy's emit logic
     dedupes alerts via the cooldown window (so re-running doesn't spam).
+
+    Partition key is the EASTERN date. It used to be the UTC date, which rolls
+    over at 20:00 ET (19:00 in winter) — so for the last two hours of EDGAR's
+    acceptance window this asked for TOMORROW's partition and ingested nothing,
+    silently, every day. Those are peak Form 4 hours: the late-acceptance
+    filings that turned out to be the entire insider parity gap land in exactly
+    that window.
     """
-    today_utc = datetime.now(timezone.utc).date().isoformat()
+    today_et = datetime.now(ZoneInfo("America/New_York")).date().isoformat()
     bucket = int(time.time() // 300)
     return SensorResult(
         run_requests=[RunRequest(
-            run_key=f"realtime-{today_utc}-{bucket}",
-            partition_key=today_utc,
+            run_key=f"realtime-{today_et}-{bucket}",
+            partition_key=today_et,
         )],
     )
 
