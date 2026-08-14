@@ -1047,9 +1047,13 @@ def _get_latest_price(alpaca: PaperBackend, ticker: str) -> Optional[float]:
     """Fetch latest trade price from Alpaca data API.
 
     Uses the strategy's trading credentials (which carry data-API entitlement
-    on paper accounts). The old paths — path-traversal hack on paper-api and
-    the dedicated ALPACA_DATA_API_KEY — both broke ~2026-05-26 (404 and 401
-    respectively). Per-strategy trading keys are the working route.
+    on paper accounts). The path-traversal hack on paper-api broke ~2026-05-26
+    with a 404; per-strategy trading keys are the working route.
+
+    ALPACA_DATA_API_KEY also 401'd from ~2026-05-26 until 2026-08-14, when it
+    was repointed at the quality_momentum paper credentials — Alpaca execution
+    is deprecated and every strategy is alert_only, so the read-only/trading
+    split it used to enforce no longer protects anything.
     """
     import requests as _req
     try:
@@ -1852,11 +1856,19 @@ def _save_peak_returns(state_path: Path) -> None:
 
 def _compute_sma50(alpaca: PaperBackend, ticker: str) -> Optional[float]:
     """Fetch 55 daily bars from Alpaca and compute 50-day SMA of close."""
+    # `start` is required. Without it Alpaca returns TODAY only — one bar — so
+    # this function could never reach its 50-bar minimum and returned None on
+    # every call regardless of credentials. And bars come back oldest-first
+    # from `start`, not newest-first, so a bare limit=55 would have fetched the
+    # wrong 55 anyway. Ask for a wide window and take the tail.
+    _start = (datetime.now(timezone.utc) - timedelta(days=180)).strftime("%Y-%m-%d")
+    _params = {"timeframe": "1Day", "limit": 500, "start": _start}
+
     try:
         data = alpaca._request(
             "GET",
             f"/../../v2/stocks/{ticker}/bars",
-            params={"timeframe": "1Day", "limit": 55},
+            params=_params,
         )
     except Exception:
         # Fallback: direct request to data API (shared read-only credentials)
@@ -1865,7 +1877,7 @@ def _compute_sma50(alpaca: PaperBackend, ticker: str) -> Optional[float]:
             resp = _req.get(
                 f"https://data.alpaca.markets/v2/stocks/{ticker}/bars",
                 headers=_data_api_headers(),
-                params={"timeframe": "1Day", "limit": 55},
+                params=_params,
                 timeout=15,
             )
             if resp.status_code != 200:

@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import subprocess
 import sys
 import urllib.request
@@ -217,25 +218,51 @@ def main() -> int:
     return 1 if problems else 0
 
 
+# Postgres renders a whole-hour UTC offset as "-07", not "-07:00". Python's
+# fromisoformat only learned to accept that in 3.11, and this script runs on
+# /usr/bin/python3 — Apple's system Python, 3.9.6.
+_BARE_HOUR_OFFSET = re.compile(r"(T\d{2}:\d{2}:\d{2}(?:\.\d+)?)([+-]\d{2})$")
+
+# What a naive timestamp means. trades.created_at defaults to now(), which on
+# Studio renders LOCAL time — so assuming UTC for a naive value backdates it by
+# the offset and invents staleness that isn't there.
+_DB_TZ = ZoneInfo("America/Los_Angeles")
+
+
 def _parse_ts(val: str) -> "datetime | None":
-    """Parse a Postgres timestamp. `trades.created_at` is TEXT defaulting to
-    now(), so the stored format varies with whatever wrote the row — with or
-    without microseconds, with or without an offset. A naive value is treated
-    as UTC, which is what now() produces on Studio.
+    """Parse a Postgres timestamp written into a TEXT column.
+
+    created_at is TEXT with a now() default, so the format varies with whatever
+    wrote the row: with or without microseconds, with or without an offset, and
+    with the offset in either "-07" or "-07:00" form.
+
+    This got it wrong once and paged about a 7-hour ingest stall while the feed
+    was six minutes old. Two compounding mistakes: fromisoformat rejected "-07"
+    on 3.9, and the strptime fallback sliced the string to 26 characters, which
+    silently discarded the offset it was falling back to handle. The naive
+    result was then stamped UTC — turning Pacific into a 7-hour delay, which is
+    exactly the offset.
     """
     raw = val.strip().replace(" ", "T", 1)
+    raw = _BARE_HOUR_OFFSET.sub(r"\1\2:00", raw)
+
     try:
         ts = datetime.fromisoformat(raw)
     except ValueError:
-        for fmt in ("%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
+        # %z consumes the offset when present; the naive formats come after so
+        # an offset is never dropped by falling through to them.
+        for fmt in (
+            "%Y-%m-%dT%H:%M:%S.%f%z", "%Y-%m-%dT%H:%M:%S%z",
+            "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d",
+        ):
             try:
-                ts = datetime.strptime(raw[:26], fmt)
+                ts = datetime.strptime(raw, fmt)
                 break
             except ValueError:
                 continue
         else:
             return None
-    return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+    return ts if ts.tzinfo else ts.replace(tzinfo=_DB_TZ)
 
 
 def _finish(problems: list[str], topic: str, dry_run: bool) -> None:
