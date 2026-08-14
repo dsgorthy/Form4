@@ -84,6 +84,21 @@ FRESHNESS_HOURLY = [
 EDGAR_OPEN_ET = (6, 22)
 
 
+def _header_safe(text: str) -> str:
+    """Make a string safe to put in an HTTP header.
+
+    Headers are latin-1; urllib raises on anything outside it. The body is
+    sent as explicit UTF-8 and is unaffected — this is only for Title.
+
+    Found 2026-08-14 by sending a test push whose title contained an em-dash:
+    the request threw, the exception was swallowed by the handler below, and
+    the alert vanished with only a line on stderr that nothing reads. An alert
+    channel that drops messages on a character class is worse than no channel,
+    because it looks healthy right up until the message that mattered.
+    """
+    return text.encode("latin-1", "replace").decode("latin-1")
+
+
 def notify(title: str, message: str, topic: str) -> None:
     """Push to ntfy. Topic is treated as a secret (it is the auth)."""
     if not topic:
@@ -92,12 +107,29 @@ def notify(title: str, message: str, topic: str) -> None:
     req = urllib.request.Request(
         f"https://ntfy.sh/{topic}",
         data=message.encode("utf-8"),
-        headers={"Title": title, "Priority": "high", "Tags": "rotating_light"},
+        headers={
+            "Title": _header_safe(title),
+            "Priority": "high",
+            "Tags": "rotating_light",
+        },
     )
     try:
         urllib.request.urlopen(req, timeout=15)
     except Exception as exc:  # noqa: BLE001
-        print(f"  [ntfy push failed: {exc}]", file=sys.stderr)
+        # Last resort: retry with a title that cannot possibly offend, so a
+        # formatting problem downgrades the alert instead of deleting it.
+        print(f"  [ntfy push failed: {exc}; retrying with plain title]", file=sys.stderr)
+        try:
+            urllib.request.urlopen(
+                urllib.request.Request(
+                    f"https://ntfy.sh/{topic}",
+                    data=message.encode("utf-8"),
+                    headers={"Title": "Studio watchdog alert", "Priority": "high"},
+                ),
+                timeout=15,
+            )
+        except Exception as exc2:  # noqa: BLE001
+            print(f"  [ntfy retry also failed: {exc2}]", file=sys.stderr)
 
 
 def ssh_psql(db: str, sql: str) -> str | None:

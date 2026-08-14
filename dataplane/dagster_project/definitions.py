@@ -151,7 +151,12 @@ def ntfy_on_run_failure(context: RunFailureSensorContext):
             f"https://ntfy.sh/{topic}",
             data=f"{run.job_name} failed (partition {partition})\n{error}",
             headers={
-                "Title": "Dataplane run failed",
+                # HTTP headers are latin-1, so a non-ASCII Title raises and the
+                # alert is swallowed by the handler below — a dropped page that
+                # looks delivered. The body is fine (requests encodes UTF-8).
+                # This title is a literal today, but the failure is silent
+                # enough not to rely on nobody interpolating a name into it.
+                "Title": "Dataplane run failed".encode("latin-1", "replace").decode("latin-1"),
                 "Priority": "high",
                 "Tags": "rotating_light",
             },

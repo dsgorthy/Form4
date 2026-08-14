@@ -84,3 +84,29 @@ class TestAgeIsSane:
         assert ts is not None
         age_h = (datetime.now(timezone.utc) - ts).total_seconds() / 3600
         assert age_h > 24
+
+
+class TestAlertHeaderEncoding:
+    """HTTP headers are latin-1; an unencodable Title kills the whole push.
+
+    Found by sending a test alert whose title contained an em-dash: urllib
+    raised, the handler swallowed it, and the notification vanished leaving
+    only a line on stderr. A channel that silently drops messages is worse
+    than no channel — it looks healthy until the one that mattered.
+    """
+
+    @pytest.mark.parametrize("title", [
+        "Watchdog test — alert",      # em-dash: the exact character that failed
+        "Watchdog ✅ 日本語",           # emoji + CJK
+        "naïve café",                 # latin-1 representable, must survive intact
+    ])
+    def test_title_always_encodes_as_a_header(self, title):
+        # The only thing that matters: urllib can put it in a header.
+        watchdog._header_safe(title).encode("latin-1")
+
+    def test_latin1_characters_are_preserved(self):
+        assert watchdog._header_safe("naïve café") == "naïve café"
+
+    def test_plain_title_is_untouched(self):
+        assert watchdog._header_safe("Studio watchdog: 3 problem(s)") == \
+            "Studio watchdog: 3 problem(s)"
