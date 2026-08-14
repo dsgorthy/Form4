@@ -67,8 +67,24 @@ logger = logging.getLogger("dataplane.congress.trades_raw")
 # The scraper lives in the trading-framework repo, outside the dataplane
 # package. Import the fetch+parse function only — never its SQLite sink.
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
+
+
+def _ensure_repo_on_path() -> None:
+    """Put the repo root on sys.path, idempotently.
+
+    Called again immediately before the deferred scraper import rather than
+    relying solely on the module-level call. Dagster executes each op in a
+    subprocess, and doing this once at module scope was not enough: the
+    nightly daily_signals job failed with "No module named 'pipelines'" on
+    both 2026-08-12 and 2026-08-13 while the same import succeeded from the
+    CLI and from a plain interpreter. Cheap to repeat, and it removes the
+    dependency on how the module happened to get loaded.
+    """
+    if str(_REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(_REPO_ROOT))
+
+
+_ensure_repo_on_path()
 
 # Capitol Trades pages newest-first, so a day partition is reached by
 # walking pages until the page's newest row predates the target day.
@@ -109,6 +125,7 @@ class CongressTradesRawV1(Signal):
 
     def materialize_partition(self, partition_date: datetime) -> List[SignalObservation]:
         """Emit every disclosure published on the partition date."""
+        _ensure_repo_on_path()
         from pipelines.congress_scraper.scrape_capitol_trades import scrape_page
 
         day = partition_date.strftime("%Y-%m-%d")
