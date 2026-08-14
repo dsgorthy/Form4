@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -15,6 +16,44 @@ from api.price_dates import enrich_items_with_price_end
 from api.trade_grade import enrich_items_with_trade_grade
 
 router = APIRouter(prefix="/api/v1/filings", tags=["filings"])
+
+# ── pagination total cache ───────────────────────────────────────────
+#
+# The COUNT is the expensive half of this endpoint. It groups the whole trades
+# table — 1.74M rows down to 1.6M filings — and measured 1.8s of a 2.5s
+# request on 2026-08-14, after a VACUUM had already taken the endpoint from
+# 4.9s to 2.5s (the index-only scan was doing 154k heap fetches against a
+# stale visibility map).
+#
+# That number is identical for every user on the same filter and only moves as
+# new filings land, on a 5-minute ingest cadence. Recomputing it per request
+# buys nothing: a total that is up to two minutes stale is invisible on a
+# paginated feed, while a 1.8s wait is not.
+#
+# Deliberately in-process rather than Redis: there is no shared cache in this
+# stack, each API worker warming its own copy is fine at this scale, and a
+# cache that can fail is a new failure mode for the site's busiest route.
+_COUNT_TTL_S = 120
+_COUNT_CACHE_MAX = 256
+_count_cache: dict[str, tuple[float, int]] = {}
+
+
+def _cached_total(key: str, compute) -> int:
+    """Memoize a pagination total for _COUNT_TTL_S seconds.
+
+    Eviction is a full clear rather than LRU: filter combinations are a long
+    tail, the entries are two ints, and the cost of being wrong is one
+    recomputation. Bounded is the only property that matters here.
+    """
+    now = time.monotonic()
+    hit = _count_cache.get(key)
+    if hit is not None and now - hit[0] < _COUNT_TTL_S:
+        return hit[1]
+    total = compute()
+    if len(_count_cache) >= _COUNT_CACHE_MAX:
+        _count_cache.clear()
+    _count_cache[key] = (now, total)
+    return total
 
 
 @router.get("")
@@ -113,27 +152,34 @@ def list_filings(
     with get_db() as conn:
         # For grade-filtered queries, skip expensive COUNT (full GROUP BY scan)
         # and use a fast estimate from the indexed signal_grade column instead.
+        cache_key = repr((grade_filter_active, where_clause, count_join, params))
         if grade_filter_active:
-            count_row = conn.execute(
-                f"SELECT COUNT(*) AS cnt FROM trades t WHERE {where_clause}",
-                params,
-            ).fetchone()
-            # Rough estimate: each filing averages ~2.5 lots
-            total = count_row["cnt"] // 2
+            def _compute_total():
+                row = conn.execute(
+                    f"SELECT COUNT(*) AS cnt FROM trades t WHERE {where_clause}",
+                    params,
+                ).fetchone()
+                # Rough estimate: each filing averages ~2.5 lots
+                return row["cnt"] // 2
+
+            total = _cached_total(cache_key, _compute_total)
         else:
-            count_row = conn.execute(
-                f"""
-                SELECT COUNT(*) AS cnt FROM (
-                    SELECT 1
-                    FROM trades t
-                    {count_join}
-                    WHERE {where_clause}
-                    GROUP BY COALESCE(t.txn_group_id::text, t.accession), t.ticker, t.trade_type
-                )
-                """,
-                params,
-            ).fetchone()
-            total = count_row["cnt"]
+            def _compute_total():
+                row = conn.execute(
+                    f"""
+                    SELECT COUNT(*) AS cnt FROM (
+                        SELECT 1
+                        FROM trades t
+                        {count_join}
+                        WHERE {where_clause}
+                        GROUP BY COALESCE(t.txn_group_id::text, t.accession), t.ticker, t.trade_type
+                    )
+                    """,
+                    params,
+                ).fetchone()
+                return row["cnt"]
+
+            total = _cached_total(cache_key, _compute_total)
 
         # Two-phase query: GROUP BY txn_group_id to collapse duplicate filers
         # reporting the same economic event. Picks the "best" insider (highest
