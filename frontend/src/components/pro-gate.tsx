@@ -9,14 +9,30 @@ interface ProGateProps {
   label?: string;
   /** Compact mode: blur only, no CTA overlay. Use for inline table cells. */
   compact?: boolean;
+  /**
+   * What clears the gate.
+   *
+   *   "pro"  Pro/trial only — the default, and what every existing caller means.
+   *   "auth" any signed-in account, free included.
+   *
+   * "auth" exists for /explore. All search now lands there, so it is where a
+   * cold visitor arrives, and the job of the blur is to convert them into an
+   * account rather than to sell Pro. Gating that on isPro would blur the tool
+   * for signed-in free users too, which is not the deal.
+   */
+  requires?: "pro" | "auth";
 }
 
 /**
  * Inline blurred overlay for gated content within free pages.
- * Wraps children with blur + gradient fade + centered upgrade CTA.
- * Pro and trial users see content normally.
+ * Wraps children with blur + gradient fade + centered CTA.
  */
-export function ProGate({ children, label = "Unlock with Pro", compact = false }: ProGateProps) {
+export function ProGate({
+  children,
+  label = "Unlock with Pro",
+  compact = false,
+  requires = "pro",
+}: ProGateProps) {
   const { isSignedIn, isLoaded } = useAuth();
   const { user } = useUser();
 
@@ -24,7 +40,8 @@ export function ProGate({ children, label = "Unlock with Pro", compact = false }
     return <div className="relative">{children}</div>;
   }
 
-  if (isPro(user)) {
+  const cleared = requires === "auth" ? !!isSignedIn : isPro(user);
+  if (cleared) {
     return <>{children}</>;
   }
 
@@ -34,7 +51,9 @@ export function ProGate({ children, label = "Unlock with Pro", compact = false }
     );
   }
 
-  // Different CTA for signed-out vs signed-in free users
+  // Different CTA for signed-out vs signed-in free users. Under requires="auth"
+  // only the signed-out branch is ever reachable, since being signed in clears
+  // the gate outright.
   const ctaHref = isSignedIn ? "/pricing" : "/sign-up";
   const ctaLabel = isSignedIn ? "Upgrade to Pro" : "Start Free Trial";
   const subtitle = isSignedIn

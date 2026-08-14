@@ -16,11 +16,26 @@ router = APIRouter(prefix="/api/v1/search", tags=["search"])
 # other type — "smith" matches 10 companies but 783 insiders.
 RESULT_LIMIT = 8
 
+# The dropdown wants 8; the /explore?q= results page wants a page's worth of
+# each type. Capped because the ranking ORDER BY is the expensive part of the
+# query and nobody browses past the first page of a name search.
+MAX_RESULT_LIMIT = 50
+
 
 @router.get("")
 @limiter.limit("30/minute")
-def search(q: str = Query(..., min_length=1, max_length=100), request: Request = None, user: UserContext = Depends(get_current_user)) -> dict:
-    """Search for tickers and insiders. Returns top 5 of each."""
+def search(
+    q: str = Query(..., min_length=1, max_length=100),
+    limit: int = Query(RESULT_LIMIT, ge=1, le=MAX_RESULT_LIMIT),
+    request: Request = None,
+    user: UserContext = Depends(get_current_user),
+) -> dict:
+    """Search tickers and insiders.
+
+    `limit` applies per type, not in total — the caller allocates between the
+    two groups itself, since which one carries the match varies by query.
+    Totals are returned unclamped so the caller can say "8 of 6,257".
+    """
     query = q.strip()
     query_upper = query.upper()
     query_like = f"%{query}%"
@@ -45,7 +60,7 @@ def search(q: str = Query(..., min_length=1, max_length=100), request: Request =
                 total_value DESC
             LIMIT ?
             """,
-            (f"{query_upper}%", query_like, query_upper, f"{query_upper}%", RESULT_LIMIT),
+            (f"{query_upper}%", query_like, query_upper, f"{query_upper}%", limit),
         ).fetchall()
 
         # Insider matches: search by name
@@ -78,7 +93,7 @@ def search(q: str = Query(..., min_length=1, max_length=100), request: Request =
                 COALESCE(i.display_name, i.name)
             LIMIT ?
             """,
-            (query_like, query_like, query_like, query, f"{query}%", RESULT_LIMIT),
+            (query_like, query_like, query_like, query, f"{query}%", limit),
         ).fetchall()
 
         # Totals so the UI can say "8 of 6,257" instead of implying the five

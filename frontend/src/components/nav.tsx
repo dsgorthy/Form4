@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { UserButton, useUser, useAuth } from "@clerk/nextjs";
-import { SearchBar } from "@/components/search-bar";
+import { EntitySearch } from "@/components/entity-search";
 import { isPro, getUserTier, getTrialDaysLeft } from "@/lib/subscription";
 import { ProBadge } from "@/components/pro-badge";
 import { NotificationBell } from "@/components/notification-bell";
@@ -134,7 +134,7 @@ export function Nav() {
         {/* Right side */}
         <div className="ml-auto flex items-center gap-3">
           <div className="hidden md:block">
-            <SearchBar />
+            <EntitySearch />
           </div>
           {isLoaded && isSignedIn && (
             <>
@@ -217,7 +217,7 @@ export function Nav() {
         <div className="md:hidden border-t border-[#2A2A3A] bg-[#0A0A0F] px-4 pb-4 pt-2 space-y-1">
           {/* Search */}
           <div className="pb-2">
-            <SearchBar />
+            <EntitySearch />
           </div>
 
           {/* Primary links */}

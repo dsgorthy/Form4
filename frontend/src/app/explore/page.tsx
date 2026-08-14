@@ -1,10 +1,16 @@
 export const dynamic = "force-dynamic";
 
+import type { Metadata } from "next";
 import Link from "next/link";
 import { fetchAPIAuth } from "@/lib/auth";
 import { formatCurrency } from "@/lib/format";
 import { InsiderTradeChart } from "@/components/insider-trade-chart";
-import { ExploreSearch } from "@/components/explore-search";
+import { EntitySearch } from "@/components/entity-search";
+import {
+  ExploreResultsView,
+  type ResultsTicker,
+  type ResultsInsider,
+} from "@/components/explore-results-view";
 import {
   ExploreInsiderView,
   type InsiderProfileLite,
@@ -14,6 +20,7 @@ import { WatchButton } from "@/components/watch-button";
 import { TradesTable } from "@/components/trades-table";
 import { CongressTable } from "@/components/congress-table";
 import { InsiderRoster } from "@/components/insider-roster";
+import { ProGate } from "@/components/pro-gate";
 import type { Filing, PaginatedResponse } from "@/lib/types";
 
 interface CompanyOverview {
@@ -53,19 +60,90 @@ interface Props {
   searchParams: Promise<{
     ticker?: string;
     insider?: string;
+    q?: string;
   }>;
 }
 
-// One route, two displays. ?ticker= and ?insider= are mutually exclusive;
-// insider wins if both are somehow present so a stale ticker default cannot
-// hijack an explicit insider link.
+// One route, three displays, resolved in priority order:
+//   ?q=       an ambiguous term -> faceted results, pick from a list
+//   ?insider= one person
+//   ?ticker=  one company (the default)
+//
+// ?q= wins because it is the only one a user reaches WITHOUT having already
+// chosen an entity; the other two are the outcome of that choice. ?insider=
+// beats ?ticker= so a stale ticker default cannot hijack an explicit link.
+
+/**
+ * Explore holds the same content as the public /company and /insider pages —
+ * it is the signed-in view of the same entity. Now that ALL search routes
+ * here, both surfaces are reachable for every entity, and without a canonical
+ * they compete: Google picks a winner between them and it may not be the one
+ * built to rank.
+ *
+ * So each tool view points at its public twin, and ?q= is noindex outright —
+ * a search results page is thin content by construction, and indexing one
+ * generates a URL per query anyone ever typed.
+ *
+ * follow stays true on ?q= so the links out to real entities are still
+ * crawled; it is the results page itself that should not be in the index.
+ */
+export async function generateMetadata({ searchParams }: Props): Promise<Metadata> {
+  const sp = await searchParams;
+  const q = sp.q?.trim();
+  const insider = sp.insider?.trim();
+  const ticker = sp.ticker?.trim();
+
+  if (q) {
+    return {
+      title: `Search: ${q}`,
+      robots: { index: false, follow: true },
+    };
+  }
+
+  if (insider) {
+    // Resolve to the stored slug rather than echoing the param: the API also
+    // accepts a bare sqid and a retired slug, and a canonical pointing at
+    // either of those defeats the point of having one.
+    try {
+      const res = await fetch(
+        `${process.env.API_URL_INTERNAL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1"}/insiders/${insider}`,
+        { next: { revalidate: 300 } },
+      );
+      if (res.ok) {
+        const profile = await res.json();
+        const slug = profile.slug || insider;
+        return {
+          title: `${profile.name} — Explore`,
+          alternates: { canonical: `https://form4.app/insider/${slug}` },
+        };
+      }
+    } catch {}
+    return { title: "Explore" };
+  }
+
+  if (ticker) {
+    const t = ticker.toUpperCase();
+    return {
+      title: `${t} — Explore`,
+      alternates: { canonical: `https://form4.app/company/${t}` },
+    };
+  }
+
+  return { title: "Explore — Companies and Insiders" };
+}
 
 const TRADES_LIMIT = 25;
 const CONGRESS_LIMIT = 10;
+const SEARCH_LIMIT = 50;
 
 export default async function ExplorePage({ searchParams }: Props) {
   const sp = await searchParams;
+  const queryParam = sp.q?.trim();
   const insiderParam = sp.insider?.trim();
+
+  if (queryParam) {
+    return <QueryMode term={queryParam} />;
+  }
 
   if (insiderParam) {
     return <InsiderMode identifier={insiderParam} />;
@@ -105,14 +183,18 @@ export default async function ExplorePage({ searchParams }: Props) {
 
   return (
     <div>
-      {/* Header — when no company loaded, show full intro + centered search */}
+      {/* Empty state is the ONLY place this page renders a search input. The
+          nav bar carries it everywhere else, so the hero shows once, on
+          arrival, and is gone as soon as there is something to look at. The
+          page used to render a search bar three times, in a different position
+          per mode, which read as the bar jumping around mid-search. */}
       {!overview && (
         <div className="mb-8">
           <h1 className="text-2xl font-bold text-[#E8E8ED] mb-1">Explore</h1>
           <p className="text-sm text-[#55556A] mb-4">
             Look up any company or insider — trade history, track records, and political overlap
           </p>
-          <ExploreSearch />
+          <EntitySearch variant="hero" />
         </div>
       )}
 
@@ -127,26 +209,21 @@ export default async function ExplorePage({ searchParams }: Props) {
       {/* Company content */}
       {overview && trades && (
         <div>
-          {/* Company header + inline search */}
-          <div className="flex flex-col gap-4 mb-8 md:flex-row md:items-start md:justify-between md:gap-6">
-            <div>
-              <div className="flex items-center gap-3">
-                <h2 className="text-2xl md:text-3xl font-bold font-mono text-[#E8E8ED]">
-                  {overview.ticker}
-                </h2>
-                <WatchButton ticker={overview.ticker} />
-              </div>
-              <p className="text-[#8888A0] mt-1">{overview.company}</p>
-              <div className="flex flex-wrap items-center gap-2 md:gap-4 mt-2 text-xs text-[#55556A]">
-                <span>{overview.total_trades} total trades</span>
-                <span>{formatCurrency(overview.total_value)} total value</span>
-                <span>
-                  {overview.first_trade} to {overview.last_trade}
-                </span>
-              </div>
+          {/* Company header */}
+          <div className="mb-8">
+            <div className="flex items-center gap-3">
+              <h2 className="text-2xl md:text-3xl font-bold font-mono text-[#E8E8ED]">
+                {overview.ticker}
+              </h2>
+              <WatchButton ticker={overview.ticker} />
             </div>
-            <div className="shrink-0 w-full md:w-auto md:min-w-[320px]">
-              <ExploreSearch />
+            <p className="text-[#8888A0] mt-1">{overview.company}</p>
+            <div className="flex flex-wrap items-center gap-2 md:gap-4 mt-2 text-xs text-[#55556A]">
+              <span>{overview.total_trades} total trades</span>
+              <span>{formatCurrency(overview.total_value)} total value</span>
+              <span>
+                {overview.first_trade} to {overview.last_trade}
+              </span>
             </div>
           </div>
 
@@ -164,29 +241,40 @@ export default async function ExplorePage({ searchParams }: Props) {
             </div>
           )}
 
-          {/* Trade Scatter Chart */}
-          <div className="mb-8">
-            <InsiderTradeChart ticker={overview.ticker} />
-          </div>
+          {/* Everything above here stays visible to a signed-out visitor: the
+              ticker, the totals, the date range and the convergence banner.
+              That is the teaser, and it has to be genuinely informative or the
+              blur reads as a bait wall rather than a preview.
 
-          {/* Insider Roster */}
-          <div className="mb-8">
-            <SectionLabel>
-              Insider Roster ({overview.insiders.length})
-            </SectionLabel>
-            <InsiderRoster insiders={overview.insiders} gated />
-          </div>
+              Everything below is the payload, and it is what an account buys.
+              requires="auth" not "pro" — the job here is to convert a cold
+              visitor into a signup, and a signed-in free user should get the
+              tool. */}
+          <ProGate requires="auth" label="Sign in to see the full picture">
+            {/* Trade Scatter Chart */}
+            <div className="mb-8">
+              <InsiderTradeChart ticker={overview.ticker} />
+            </div>
 
-          {/* Political Activity (Congress) — paginated */}
-          {congressData && (
-            <CongressTable
-              ticker={ticker}
-              initialData={congressData as never}
-            />
-          )}
+            {/* Insider Roster */}
+            <div className="mb-8">
+              <SectionLabel>
+                Insider Roster ({overview.insiders.length})
+              </SectionLabel>
+              <InsiderRoster insiders={overview.insiders} gated />
+            </div>
 
-          {/* All Trades — paginated */}
-          <TradesTable ticker={ticker} initialData={trades} />
+            {/* Political Activity (Congress) — paginated */}
+            {congressData && (
+              <CongressTable
+                ticker={ticker}
+                initialData={congressData as never}
+              />
+            )}
+
+            {/* All Trades — paginated */}
+            <TradesTable ticker={ticker} initialData={trades} />
+          </ProGate>
         </div>
       )}
     </div>
@@ -226,13 +314,6 @@ async function InsiderMode({ identifier }: { identifier: string }) {
 
   return (
     <div>
-      <div className="mb-8">
-        <h1 className="mb-1 text-2xl font-bold text-[#E8E8ED]">Explore</h1>
-        <p className="mb-4 text-sm text-[#8888A0]">
-          Look up any company or insider.
-        </p>
-        <ExploreSearch />
-      </div>
       {error && (
         <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] px-4 py-6 text-sm text-[#8888A0]">
           {error}
@@ -241,6 +322,46 @@ async function InsiderMode({ identifier }: { identifier: string }) {
       {profile && (
         <ExploreInsiderView profile={profile} companies={companies} trades={trades} />
       )}
+    </div>
+  );
+}
+
+
+/**
+ * Faceted results for an ambiguous term. Reached from the search dropdown's
+ * group counts and from Enter-with-no-selection, which used to guess that the
+ * raw text was a ticker.
+ */
+async function QueryMode({ term }: { term: string }) {
+  let data: {
+    tickers: ResultsTicker[];
+    insiders: ResultsInsider[];
+    ticker_total?: number;
+    insider_total?: number;
+  } | null = null;
+
+  try {
+    data = await fetchAPIAuth(`/search`, {
+      q: term,
+      limit: String(SEARCH_LIMIT),
+    });
+  } catch {
+    // An empty result set and a failed lookup should not look different to
+    // the user here — both mean "nothing to show for this term".
+  }
+
+  return (
+    <div>
+      <div className="mb-8">
+        <EntitySearch variant="hero" initial={term} />
+      </div>
+      <ExploreResultsView
+        term={term}
+        tickers={data?.tickers ?? []}
+        insiders={data?.insiders ?? []}
+        tickerTotal={data?.ticker_total ?? data?.tickers.length ?? 0}
+        insiderTotal={data?.insider_total ?? data?.insiders.length ?? 0}
+      />
     </div>
   );
 }

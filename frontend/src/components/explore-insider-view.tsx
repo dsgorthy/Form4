@@ -3,6 +3,7 @@ import { formatCurrency } from "@/lib/format";
 import { InsiderGradeBadge } from "@/components/insider-grade-badge";
 import { InsiderTradesTable } from "@/components/insider-trades-table";
 import { insiderPath } from "@/lib/insider-url";
+import { ProGate } from "@/components/pro-gate";
 import type { Filing, PaginatedResponse } from "@/lib/types";
 
 /**
@@ -97,6 +98,10 @@ export function ExploreInsiderView({
         </div>
       )}
 
+      {/* Name, grades and trade counts stay visible for a signed-out visitor —
+          that is the teaser, and it has to stand on its own. The tables below
+          are the payload. Mirrors the company view in explore/page.tsx. */}
+      <ProGate requires="auth" label="Sign in to see this insider's full record">
       {companies.length > 0 && (
         <div className="mb-8">
           <SectionLabel>Companies Traded ({companies.length})</SectionLabel>
@@ -145,6 +150,7 @@ export function ExploreInsiderView({
           />
         </div>
       )}
+      </ProGate>
     </div>
   );
 }
