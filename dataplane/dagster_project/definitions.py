@@ -19,11 +19,13 @@ import requests
 from dagster import (
     AssetKey,
     AssetSelection,
+    DagsterRunStatus,
     DefaultScheduleStatus,
     DefaultSensorStatus,
     Definitions,
     RunFailureSensorContext,
     RunRequest,
+    RunsFilter,
     ScheduleDefinition,
     SensorEvaluationContext,
     SensorResult,
@@ -225,6 +227,29 @@ def insider_filings_shadow_5min(context: SensorEvaluationContext):
         return SkipReason("weekend — EDGAR accepts no filings")
     if not (6 <= now_et.hour < 22):
         return SkipReason(f"{now_et:%H:%M} ET is outside EDGAR acceptance hours")
+
+    # Never stack runs. The FIRST run of a day is a cold fetch of every filing
+    # so far — minutes, not seconds — and it overruns the 5-minute tick. Left
+    # unguarded the sensor queues a second run against the same partition doing
+    # the same work, and they race on the same upsert. Observed 2026-08-13:
+    # two runs stacked within 5 minutes of enabling the sensor.
+    #
+    # Skipping is free: the next tick is 5 minutes away and the partition is
+    # re-materialized from scratch each time, so nothing is lost by waiting.
+    in_flight = context.instance.get_runs(
+        filters=RunsFilter(
+            job_name="insider_filings_shadow",
+            statuses=[
+                DagsterRunStatus.QUEUED,
+                DagsterRunStatus.NOT_STARTED,
+                DagsterRunStatus.STARTING,
+                DagsterRunStatus.STARTED,
+            ],
+        ),
+        limit=1,
+    )
+    if in_flight:
+        return SkipReason("previous shadow run still in flight")
 
     bucket = int(time.time() // 300)
     return SensorResult(
