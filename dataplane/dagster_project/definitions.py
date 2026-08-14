@@ -12,7 +12,7 @@ assets/signals.py).
 import os
 import shutil
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import requests
@@ -27,12 +27,14 @@ from dagster import (
     RunRequest,
     RunsFilter,
     ScheduleDefinition,
+    ScheduleEvaluationContext,
     SensorEvaluationContext,
     SensorResult,
     SkipReason,
     build_schedule_from_partitioned_job,
     define_asset_job,
     run_failure_sensor,
+    schedule,
     sensor,
 )
 from dagster_dbt import DbtCliResource
@@ -260,6 +262,44 @@ def insider_filings_shadow_5min(context: SensorEvaluationContext):
     )
 
 
+# The 5-minute loop only ever touches TODAY. Anything EDGAR accepts after a
+# day's last run is stranded permanently, because no later run revisits a
+# closed partition. That single gap was the entire parity deficit: measured
+# 2026-08-13, the ~20 filings/day missing from the candidate feed were all
+# late-afternoon acceptances (16:05-21:13 ET), and re-materializing 08-11 and
+# 08-12 took recall from 97.91%/98.30% to 100.00% on both days. Nothing was
+# wrong with discovery or parsing.
+#
+# 23:30 ET, after EDGAR's 22:00 acceptance cutoff, so the days being settled
+# are closed. Two days back covers same-day stragglers plus anything EFTS
+# indexed a day late. Cheap: the incremental accession filter means a settled
+# day re-fetches nothing, only the EFTS metadata query is paid again.
+#
+# Ordering matters — this runs before the 06:30 PT parity recording, so the
+# gate scores a settled day rather than an unfinished one.
+
+_SETTLE_DAYS = 2
+
+
+@schedule(
+    name="insider_filings_settle_nightly",
+    job=insider_filings_shadow_job,
+    cron_schedule="30 23 * * 1-5",
+    execution_timezone="America/New_York",
+    default_status=DefaultScheduleStatus.RUNNING,
+)
+def insider_filings_settle_nightly(context: ScheduleEvaluationContext):
+    """Re-materialize the last few closed partitions to catch late filings."""
+    today_et = context.scheduled_execution_time.date()
+    return [
+        RunRequest(
+            run_key=f"insider-settle-{today_et - timedelta(days=n)}",
+            partition_key=(today_et - timedelta(days=n)).isoformat(),
+        )
+        for n in range(0, _SETTLE_DAYS + 1)
+    ]
+
+
 @sensor(
     name="realtime_5min_loop",
     job=realtime_strategy_job,
@@ -288,7 +328,7 @@ defs = Definitions(
     jobs=[daily_signals_job, dbt_marts_job, form4_pipeline_job,
           realtime_strategy_job, insider_filings_shadow_job],
     schedules=[daily_signals_schedule, dbt_marts_schedule,
-               form4_pipeline_schedule],
+               form4_pipeline_schedule, insider_filings_settle_nightly],
     sensors=[ntfy_on_run_failure, realtime_5min_loop,
              insider_filings_shadow_5min],
     resources={
