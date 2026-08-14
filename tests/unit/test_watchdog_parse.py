@@ -110,3 +110,22 @@ class TestAlertHeaderEncoding:
     def test_plain_title_is_untouched(self):
         assert watchdog._header_safe("Studio watchdog: 3 problem(s)") == \
             "Studio watchdog: 3 problem(s)"
+
+
+class TestJobSuccessBudgets:
+    """A job that fails is invisible to the data-age checks."""
+
+    def test_every_job_has_a_budget_over_its_cadence(self):
+        # Both jobs run nightly; a budget under 24h would page on a normal day.
+        for job, budget_h in watchdog.JOB_SUCCESS:
+            assert budget_h > 24, f"{job} budget {budget_h}h fires on a normal night"
+
+    def test_sql_selects_only_successful_runs(self):
+        sql = watchdog.JOB_SUCCESS_SQL.format(job="daily_signals")
+        assert "status = 'SUCCESS'" in sql
+        assert "daily_signals" in sql
+
+    def test_congress_budget_tightened(self):
+        # 10 days let a 2-day stall on a daily feed pass unnoticed.
+        budget = next(b for lbl, _, _, b in watchdog.FRESHNESS if lbl == "congress")
+        assert budget <= 5

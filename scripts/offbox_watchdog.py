@@ -17,6 +17,9 @@ Checks:
   3. Data freshness: trades / daily_prices / insider_ticker_scores /
      congress_trades, each against a staleness budget in days
   4. Dataplane freshness: newest signal_observations row
+  5. Intraday ingest: hours since the last row was WRITTEN, during EDGAR hours
+  6. Nightly jobs actually SUCCEEDED — a failing job is invisible to (3),
+     which measures data age and cannot tell a stalled feed from a slow one
 
 Exit 0 = all good, 1 = at least one problem (and an ntfy push was attempted).
 
@@ -54,8 +57,14 @@ FRESHNESS = [
      "SELECT max(date) FROM prices.daily_prices", 4),
     ("PIT scores", "form4",
      "SELECT max(as_of_date)::text FROM insider_ticker_scores", 4),
+    # 10 days was set when congress was a manual scrape. It is a daily
+    # dataplane feed now, and that budget is what let a 2-day stall on
+    # 2026-08-12/13 pass unnoticed. 5 still survives a long weekend —
+    # disclosures are sporadic and a quiet Friday-to-Monday is normal — while
+    # putting a real stall inside the same week. The job-success check below
+    # is the primary signal; this is defence in depth.
     ("congress", "form4",
-     "SELECT max(filing_date) FROM congress_trades", 10),
+     "SELECT max(filing_date) FROM congress_trades", 5),
     ("dataplane observations", "pyrrho_data_dev",
      "SELECT max(as_of_date)::date::text FROM signal_observations", 3),
 ]
@@ -82,6 +91,29 @@ FRESHNESS_HOURLY = [
 # there is nothing to ingest, so silence is correct rather than a fault, and
 # alerting on it would train us to ignore the pager.
 EDGAR_OPEN_ET = (6, 22)
+
+# (job name, max hours since its last SUCCESS)
+#
+# Data-age checks cannot see a job that fails. daily_signals failed on
+# 2026-08-12 and 08-13 and every freshness budget stayed green throughout,
+# because congress carries a 10-day budget and the other signals in that job
+# have a legitimate 1-day as_of lag that makes "yesterday" look normal.
+#
+# This asks a different question: did the job SUCCEED. Keyed on run status
+# rather than observation recency precisely because of that lag — a signal can
+# be a day behind by design and still be perfectly healthy.
+#
+# Budgets are one cadence plus room for a slow run and a retry, so a single
+# late night is quiet and two consecutive failures are not.
+JOB_SUCCESS = [
+    ("daily_signals",   30),   # nightly 21:30 PT
+    ("form4_pipeline",  30),   # nightly 17:30 PT weekdays
+]
+
+JOB_SUCCESS_SQL = (
+    "SELECT EXTRACT(epoch FROM (NOW() - max(create_timestamp)))/3600 "
+    "FROM runs WHERE pipeline_name = '{job}' AND status = 'SUCCESS'"
+)
 
 
 def _header_safe(text: str) -> str:
@@ -245,6 +277,30 @@ def main() -> int:
                 f"{label} has not ingested for {age_h:.1f}h "
                 f"(budget {budget_h}h, latest {ts_utc:%Y-%m-%d %H:%M}Z)"
             )
+
+    # Did the nightly jobs actually SUCCEED? Weekends are exempt: both jobs
+    # are weekday-only or have nothing to do, so Saturday and Sunday silence
+    # is correct.
+    if date.today().weekday() < 5:
+        for job, budget_h in JOB_SUCCESS:
+            val = ssh_psql("dagster_runs", JOB_SUCCESS_SQL.format(job=job))
+            if not val:
+                problems.append(f"{job}: no successful run on record")
+                print(f"  FAIL {job}: never succeeded")
+                continue
+            try:
+                age_h = float(val)
+            except ValueError:
+                print(f"  FAIL {job}: unparseable age {val!r}")
+                problems.append(f"{job}: unparseable last-success age {val!r}")
+                continue
+            ok = age_h <= budget_h
+            print(f"  {'OK  ' if ok else 'FAIL'} {job} last success: "
+                  f"{age_h:.1f}h ago (budget {budget_h}h)")
+            if not ok:
+                problems.append(
+                    f"{job} has not succeeded in {age_h:.1f}h (budget {budget_h}h)"
+                )
 
     _finish(problems, topic, args.dry_run)
     return 1 if problems else 0
