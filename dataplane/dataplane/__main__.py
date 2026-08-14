@@ -93,11 +93,14 @@ def _cmd_parity(args: argparse.Namespace) -> int:
         f"[{result.from_date} → {result.to_date}]"
     )
     print(f"  key fields:   {', '.join(result.key_fields)}")
-    print(f"  rows in A:    {result.count_a:>8,}")
-    print(f"  rows in B:    {result.count_b:>8,}")
+    print(f"  rows in A:    {result.count_a:>8,}  ({result.distinct_a:,} distinct)")
+    print(f"  rows in B:    {result.count_b:>8,}  ({result.distinct_b:,} distinct)")
     print(f"  matched:      {result.matched:>8,}")
     print(f"  only in A:    {result.only_in_a:>8,}")
     print(f"  only in B:    {result.only_in_b:>8,}")
+    if result.distinct_b:
+        print(f"  recall (B):   {result.matched / result.distinct_b * 100:>7.2f}%"
+              "   <- cutover gate reads this")
     if result.count_a and result.count_b:
         coverage_a = 100 * result.matched / result.count_a
         coverage_b = 100 * result.matched / result.count_b

@@ -48,6 +48,13 @@ class ParityResult:
     key_fields: Tuple[str, ...]
     count_a: int = 0
     count_b: int = 0
+    # Distinct fingerprints, which is what `matched` counts. Recall must be
+    # computed against these, not against count_*: a signal can emit the same
+    # fingerprint twice (the bridge does), and dividing a distinct numerator by
+    # a row-count denominator silently understates agreement. Measured
+    # 2026-08-13: 94.9% by rows vs 98.1% by distinct keys on the same day.
+    distinct_a: int = 0
+    distinct_b: int = 0
     matched: int = 0
     only_in_a: int = 0
     only_in_b: int = 0
@@ -115,6 +122,8 @@ def compare(
     only_a = a_set - b_set
     only_b = b_set - a_set
 
+    result.distinct_a = len(a_set)
+    result.distinct_b = len(b_set)
     result.matched = len(matched_set)
     result.only_in_a = len(only_a)
     result.only_in_b = len(only_b)

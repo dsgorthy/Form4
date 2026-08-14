@@ -17,6 +17,7 @@ disambiguated by a deterministic md5 of (accession, trade_index) modulo 1e6.
 from __future__ import annotations
 
 import hashlib
+import os
 import sys
 import time
 from datetime import datetime, timedelta, timezone
@@ -142,6 +143,24 @@ class InsiderFilingsRawV1(Signal):
         # Filter to filings whose EDGAR file_date matches the partition.
         filings = [f for f in filings_wide if f.get("filing_date") == day]
 
+        # Skip filings already ingested for this partition.
+        #
+        # Stage 2 costs one EDGAR document fetch per filing, and a day holds
+        # 1-2k Form 4s. Re-materializing today's partition on a 5-minute
+        # cadence without this would re-fetch every filing already seen —
+        # hundreds of thousands of redundant requests a day, which is both
+        # pointless and a fair-access problem with the SEC. With it, a
+        # mid-afternoon run only pays for filings that landed in the last
+        # 5 minutes.
+        #
+        # The upsert is still the correctness boundary; this is purely a
+        # cost filter. Set PYRRHO_FORCE_REFETCH=1 to bypass it when a parser
+        # fix needs to re-read filings already on disk.
+        if not os.environ.get("PYRRHO_FORCE_REFETCH"):
+            seen = self._ingested_accessions(day)
+            if seen:
+                filings = [f for f in filings if f.get("accession") not in seen]
+
         # Stage 2: fetch + parse each filing
         for filing in filings:
             cik = filing["cik"]
@@ -190,6 +209,34 @@ class InsiderFilingsRawV1(Signal):
                 ))
 
         return observations
+
+    def _ingested_accessions(self, day: str) -> set:
+        """Accessions already written for this partition.
+
+        Widened by a day on each side because as_of_date is the SEC
+        acceptance timestamp, not the filing date, and the two straddle
+        midnight for filings accepted late. Over-collecting here is safe —
+        the worst case is skipping a filing that a neighbouring partition
+        already ingested, which is the desired outcome anyway.
+
+        Returns an empty set on any failure, which degrades to the previous
+        fetch-everything behaviour rather than dropping the run.
+        """
+        if self._conn is None:
+            return set()
+        try:
+            with self._conn.cursor() as cur:
+                cur.execute(
+                    """SELECT DISTINCT value->>'accession'
+                         FROM signal_observations
+                        WHERE signal_id = %s
+                          AND as_of_date >= %s::date - 1
+                          AND as_of_date <  %s::date + 2""",
+                    (f"{self.signal_id}.{self.version}", day, day),
+                )
+                return {r[0] for r in cur.fetchall() if r[0]}
+        except Exception:
+            return set()
 
 
 def _resolve_accepted_ts(

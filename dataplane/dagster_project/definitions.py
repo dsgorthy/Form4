@@ -13,6 +13,7 @@ import os
 import shutil
 import time
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 import requests
 from dagster import (
@@ -178,6 +179,62 @@ realtime_strategy_job = define_asset_job(
 )
 
 
+# ── B2: insider ingest 5-min shadow ──────────────────────────────────
+#
+# Runs the dataplane-native EDGAR ingestor (insider.filings.raw.v1) on the
+# same 5-minute cadence we promise users, alongside the form4 bridge, so
+# parity can be measured under real conditions before the cutover in B4.
+#
+# Deliberately a SEPARATE sensor from realtime_5min_loop rather than another
+# key in _REALTIME_KEYS: that job feeds the live strategy, and an unproven
+# feed must not be able to delay or fail live alerting. Toggling one must not
+# toggle the other.
+#
+# Writes to signal_observations under its own signal_id, so "shadow" needs no
+# special plumbing — it is already isolated from form4.trades. Nothing reads
+# it until B4.
+
+_SHADOW_KEYS = [AssetKey(["insider", "filings", "raw", "v1.0.0"])]
+
+insider_filings_shadow_job = define_asset_job(
+    name="insider_filings_shadow",
+    selection=AssetSelection.keys(*_SHADOW_KEYS),
+    partitions_def=daily_partitions,
+)
+
+
+@sensor(
+    name="insider_filings_shadow_5min",
+    job=insider_filings_shadow_job,
+    minimum_interval_seconds=300,
+    default_status=DefaultSensorStatus.RUNNING,
+)
+def insider_filings_shadow_5min(context: SensorEvaluationContext):
+    """Re-materialize today's insider.filings.raw partition every 5 minutes.
+
+    Partition key is the EASTERN date, not UTC. EDGAR dates a filing by ET,
+    so after 20:00 ET a UTC-derived key asks for tomorrow's partition and
+    ingests nothing — the bug realtime_5min_loop still has.
+
+    Skips outside EDGAR's acceptance window (06:00-22:00 ET, weekdays);
+    there is nothing new to fetch then, and the signal's own EFTS query is
+    the expensive part of an empty run.
+    """
+    now_et = datetime.now(ZoneInfo("America/New_York"))
+    if now_et.weekday() >= 5:
+        return SkipReason("weekend — EDGAR accepts no filings")
+    if not (6 <= now_et.hour < 22):
+        return SkipReason(f"{now_et:%H:%M} ET is outside EDGAR acceptance hours")
+
+    bucket = int(time.time() // 300)
+    return SensorResult(
+        run_requests=[RunRequest(
+            run_key=f"insider-shadow-{now_et.date().isoformat()}-{bucket}",
+            partition_key=now_et.date().isoformat(),
+        )],
+    )
+
+
 @sensor(
     name="realtime_5min_loop",
     job=realtime_strategy_job,
@@ -204,10 +261,11 @@ defs = Definitions(
     assets=[*signal_assets, congress_trades_form4_sync,
             *form4_pipeline_assets, dataplane_dbt_assets],
     jobs=[daily_signals_job, dbt_marts_job, form4_pipeline_job,
-          realtime_strategy_job],
+          realtime_strategy_job, insider_filings_shadow_job],
     schedules=[daily_signals_schedule, dbt_marts_schedule,
                form4_pipeline_schedule],
-    sensors=[ntfy_on_run_failure, realtime_5min_loop],
+    sensors=[ntfy_on_run_failure, realtime_5min_loop,
+             insider_filings_shadow_5min],
     resources={
         "dataplane_conn": dataplane_resource(),
         "form4_conn":     form4_resource(),
