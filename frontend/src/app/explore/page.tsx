@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import type { Metadata } from "next";
+import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
 import { fetchAPIAuth } from "@/lib/auth";
 import { formatCurrency } from "@/lib/format";
@@ -20,7 +21,7 @@ import { WatchButton } from "@/components/watch-button";
 import { TradesTable } from "@/components/trades-table";
 import { CongressTable } from "@/components/congress-table";
 import { InsiderRoster } from "@/components/insider-roster";
-import { ProGate } from "@/components/pro-gate";
+import { SignInTeaser } from "@/components/signin-teaser";
 import type { Filing, PaginatedResponse } from "@/lib/types";
 
 interface CompanyOverview {
@@ -151,6 +152,13 @@ export default async function ExplorePage({ searchParams }: Props) {
 
   const ticker = sp.ticker?.toUpperCase() || "AAPL";
 
+  // Read auth BEFORE fetching. A signed-out visitor gets the teaser, so the
+  // trades, roster and congress data are never fetched and never serialized
+  // into the response — no flash of content, nothing to read in view-source,
+  // and a faster reply to the visitor most likely to bounce.
+  const { userId } = await auth();
+  const signedIn = !!userId;
+
   let overview: CompanyOverview | null = null;
   let trades: PaginatedResponse<Filing> | null = null;
   let congressData: { ticker: string; trades: unknown[]; total: number; limit: number; offset: number } | null = null;
@@ -158,17 +166,20 @@ export default async function ExplorePage({ searchParams }: Props) {
 
   if (ticker) {
     try {
-      [overview, trades] = await Promise.all([
-        fetchAPIAuth<CompanyOverview>(`/companies/${ticker}`),
-        fetchAPIAuth<PaginatedResponse<Filing>>(`/companies/${ticker}/trades`, {
-          limit: String(TRADES_LIMIT),
-        }),
-      ]);
+      // The overview IS the teaser (ticker, name, totals, date range), so it
+      // is fetched either way.
+      overview = await fetchAPIAuth<CompanyOverview>(`/companies/${ticker}`);
+      if (signedIn) {
+        trades = await fetchAPIAuth<PaginatedResponse<Filing>>(
+          `/companies/${ticker}/trades`,
+          { limit: String(TRADES_LIMIT) },
+        );
+      }
     } catch {
       error = `No data found for "${ticker}"`;
     }
 
-    if (overview) {
+    if (overview && signedIn) {
       try {
         congressData = await fetchAPIAuth<{
           ticker: string;
@@ -207,7 +218,7 @@ export default async function ExplorePage({ searchParams }: Props) {
       )}
 
       {/* Company content */}
-      {overview && trades && (
+      {overview && (
         <div>
           {/* Company header */}
           <div className="mb-8">
@@ -241,16 +252,20 @@ export default async function ExplorePage({ searchParams }: Props) {
             </div>
           )}
 
-          {/* Everything above here stays visible to a signed-out visitor: the
-              ticker, the totals, the date range and the convergence banner.
-              That is the teaser, and it has to be genuinely informative or the
-              blur reads as a bait wall rather than a preview.
+          {/* Everything above stays visible to a signed-out visitor: ticker,
+              totals, date range, convergence banner. That is the teaser, and
+              it has to be genuinely informative or the wall reads as bait.
 
-              Everything below is the payload, and it is what an account buys.
-              requires="auth" not "pro" — the job here is to convert a cold
-              visitor into a signup, and a signed-in free user should get the
-              tool. */}
-          <ProGate requires="auth" label="Sign in to see the full picture">
+              Everything below is what an account buys. Keyed on signed-in
+              rather than Pro — the job here is converting a cold visitor into
+              a signup, and a signed-in free user should get the tool. */}
+          {!signedIn ? (
+            <SignInTeaser
+              headline={`See every insider trade at ${overview.ticker}`}
+              detail={`${overview.total_trades.toLocaleString()} trades from ${overview.insiders.length} insiders, with track records, grades and political overlap.`}
+            />
+          ) : (
+          <>
             {/* Trade Scatter Chart */}
             <div className="mb-8">
               <InsiderTradeChart ticker={overview.ticker} />
@@ -273,8 +288,9 @@ export default async function ExplorePage({ searchParams }: Props) {
             )}
 
             {/* All Trades — paginated */}
-            <TradesTable ticker={ticker} initialData={trades} />
-          </ProGate>
+            {trades && <TradesTable ticker={ticker} initialData={trades} />}
+          </>
+          )}
         </div>
       )}
     </div>
@@ -283,6 +299,9 @@ export default async function ExplorePage({ searchParams }: Props) {
 
 
 async function InsiderMode({ identifier }: { identifier: string }) {
+  const { userId } = await auth();
+  const signedIn = !!userId;
+
   let profile: InsiderProfileLite | null = null;
   let companies: InsiderCompanyRow[] = [];
   let trades: PaginatedResponse<Filing> | null = null;
@@ -297,7 +316,7 @@ async function InsiderMode({ identifier }: { identifier: string }) {
   // Companies and trades are best-effort: a failure here should degrade the
   // page, not blank it, the way the all-or-nothing Promise.all on the public
   // profile page used to.
-  if (profile) {
+  if (profile && signedIn) {
     try {
       const res = await fetchAPIAuth<{ companies: InsiderCompanyRow[] }>(
         `/insiders/${identifier}/companies`,
@@ -320,7 +339,19 @@ async function InsiderMode({ identifier }: { identifier: string }) {
         </div>
       )}
       {profile && (
-        <ExploreInsiderView profile={profile} companies={companies} trades={trades} />
+        <ExploreInsiderView
+          profile={profile}
+          companies={companies}
+          trades={trades}
+          teaser={
+            signedIn ? undefined : (
+              <SignInTeaser
+                headline={`See ${profile.name}'s full trading record`}
+                detail="Every filing, the companies they trade, and how those trades actually performed."
+              />
+            )
+          }
+        />
       )}
     </div>
   );
