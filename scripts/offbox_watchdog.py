@@ -31,7 +31,8 @@ import os
 import subprocess
 import sys
 import urllib.request
-from datetime import date, datetime
+from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 STUDIO = "100.78.9.66"
@@ -57,6 +58,29 @@ FRESHNESS = [
     ("dataplane observations", "pyrrho_data_dev",
      "SELECT max(as_of_date)::date::text FROM signal_observations", 3),
 ]
+
+# (label, database, SQL returning one timestamp, max age in HOURS)
+#
+# The day-granularity checks above cannot see an intraday outage: they read
+# filing_date, which only advances once a day, so a feed that dies at 09:00
+# still looks current until tomorrow. With ingest on a 5-minute cadence, a
+# 4-day budget means a total stall could run most of a week while the site
+# serves stale data as if it were live. These read the INGEST timestamp
+# instead — when a row was last written, not what date it describes.
+#
+# Budget is measured, not guessed. Over 21 days of EDGAR-hours ingests
+# (2026-08-13, n=9,765): p99 gap 6.6 min, p99.9 gap 42 min. The only larger
+# gap in the window was the known 18-day outage. 3 hours is ~4x p99.9 — quiet
+# in normal operation, and it catches a real stall the same morning.
+FRESHNESS_HOURLY = [
+    ("insider trades ingest", "form4",
+     "SELECT max(created_at) FROM trades", 3),
+]
+
+# EDGAR accepts Form 4 filings 06:00-22:00 ET on weekdays. Outside that window
+# there is nothing to ingest, so silence is correct rather than a fault, and
+# alerting on it would train us to ignore the pager.
+EDGAR_OPEN_ET = (6, 22)
 
 
 def notify(title: str, message: str, topic: str) -> None:
@@ -157,8 +181,61 @@ def main() -> int:
         if not ok:
             problems.append(f"{label} is {age}d stale (budget {budget}d, latest {d})")
 
+    now_et = datetime.now(ZoneInfo("America/New_York"))
+    edgar_open = (
+        now_et.weekday() < 5 and EDGAR_OPEN_ET[0] <= now_et.hour < EDGAR_OPEN_ET[1]
+    )
+    for label, db, sql, budget_h in FRESHNESS_HOURLY:
+        if not edgar_open:
+            print(f"  SKIP {label}: {now_et:%a %H:%M} ET, EDGAR closed")
+            continue
+        val = ssh_psql(db, sql)
+        if not val:
+            problems.append(f"{label}: query returned nothing")
+            print(f"  FAIL {label}: no value")
+            continue
+        ts = _parse_ts(val)
+        if ts is None:
+            problems.append(f"{label}: unparseable timestamp {val!r}")
+            print(f"  FAIL {label}: unparseable {val!r}")
+            continue
+        # Normalize before printing: created_at often carries a -07 offset,
+        # so formatting the raw value with a "Z" suffix labels Pacific time as
+        # UTC and makes a healthy feed look 7 hours stale to anyone reading it.
+        ts_utc = ts.astimezone(timezone.utc)
+        age_h = (datetime.now(timezone.utc) - ts).total_seconds() / 3600.0
+        ok = age_h <= budget_h
+        print(f"  {'OK  ' if ok else 'FAIL'} {label}: {ts_utc:%Y-%m-%d %H:%M}Z "
+              f"({age_h:.1f}h old, budget {budget_h}h)")
+        if not ok:
+            problems.append(
+                f"{label} has not ingested for {age_h:.1f}h "
+                f"(budget {budget_h}h, latest {ts_utc:%Y-%m-%d %H:%M}Z)"
+            )
+
     _finish(problems, topic, args.dry_run)
     return 1 if problems else 0
+
+
+def _parse_ts(val: str) -> "datetime | None":
+    """Parse a Postgres timestamp. `trades.created_at` is TEXT defaulting to
+    now(), so the stored format varies with whatever wrote the row — with or
+    without microseconds, with or without an offset. A naive value is treated
+    as UTC, which is what now() produces on Studio.
+    """
+    raw = val.strip().replace(" ", "T", 1)
+    try:
+        ts = datetime.fromisoformat(raw)
+    except ValueError:
+        for fmt in ("%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
+            try:
+                ts = datetime.strptime(raw[:26], fmt)
+                break
+            except ValueError:
+                continue
+        else:
+            return None
+    return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
 
 
 def _finish(problems: list[str], topic: str, dry_run: bool) -> None:
