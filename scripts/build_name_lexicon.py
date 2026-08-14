@@ -34,9 +34,12 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "strategies" / "insider_catalog"))
 
 from config.database import get_connection  # noqa: E402
+from strategies.insider_catalog.entity_resolution import is_entity_name  # noqa: E402
 
 OUT = Path(__file__).resolve().parents[1] / "strategies" / "insider_catalog" / "name_lexicon.json"
 
@@ -69,13 +72,25 @@ def main() -> int:
     ).fetchall()
     conn.close()
 
+    # Organizations must not train a HUMAN name lexicon. Two-token company
+    # names ("NESTLE SA", "Danone S.A.") are the exact shape used as ground
+    # truth, so leaving them in taught the lexicon that "nestle" is a surname —
+    # which then vouched for those same rows as people. Filtering on the
+    # is_entity flag alone is not enough here: the rows being fixed are the
+    # ones that flag gets wrong, so match on the name itself.
     given, surname = Counter(), Counter()
+    skipped_entities = 0
     for r in rows:
         t = r["name"].split()
-        if len(t) == 2 and not is_initial(t[1]) and norm(t[1]) not in SUFFIXES:
-            surname[norm(t[0])] += 1
-            given[norm(t[1])] += 1
+        if len(t) != 2 or is_initial(t[1]) or norm(t[1]) in SUFFIXES:
+            continue
+        if is_entity_name(r["name"]):
+            skipped_entities += 1
+            continue
+        surname[norm(t[0])] += 1
+        given[norm(t[1])] += 1
     trained = sum(given.values())
+    print(f"  excluded {skipped_entities} organization-shaped 2-token names")
 
     def ratio(tok: str) -> float:
         return (given[tok] + 1) / (surname[tok] + 1)

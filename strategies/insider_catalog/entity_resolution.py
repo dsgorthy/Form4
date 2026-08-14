@@ -28,7 +28,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from config.database import get_connection
 
-from backfill import DB_PATH, normalize_name
+try:  # works when run from this directory (how the ingest scripts invoke it)
+    from backfill import DB_PATH, normalize_name
+except ModuleNotFoundError:  # ...and when imported as part of the package
+    from strategies.insider_catalog.backfill import DB_PATH, normalize_name
 
 logging.basicConfig(
     level=logging.INFO,
@@ -46,9 +49,58 @@ ENTITY_PATTERNS = [
     r'\bmanagement\b', r'\binvestments?\b', r'\blimited\b', r'\bltd\.?\b',
     r'\benterprise[s]?\b', r'\bassociates?\b', r'\badvisors?\b',
     r'\bfamily\b', r'\bestate\b', r'\bfoundation\b', r'\bventures?\b',
+
+    # "partners?" does NOT match "partnership" — \b lands before "hip" — which
+    # is how "Bulldog Investors General Partnership" stayed classified as a
+    # person and got name-rotated into "Investors General Partnership Bulldog".
+    r'\bpartnerships?\b',
+
+    # Non-US legal forms. Form 4 reporting owners include a lot of foreign
+    # holders, and normalize_name does not strip periods, so the punctuated
+    # spellings have to be matched explicitly ("Iberdrola, S.A.").
+    r'\bplc\b', r'\bgmbh\b', r'\bs\.?a\.?r\.?l\.?\b', r'\bscsp\b',
+    r'\bs\.?p\.?a\.?\b', r'\bsrl\b', r'\bpte\b', r'\bpty\b',
+    r'\bcooperatief\b', r'\bcoop\b', r'\bsicav\b',
+    r'\bl\.?l\.?p\.?\b', r'\bl\.?l\.?l\.?p\.?\b',
+
+    # US forms and vehicle types seen in the live table.
+    r'\bmhc\b',            # mutual holding company
+    r'\bgrat\b',           # grantor retained annuity trust
+    r'\bconservatorship\b', r'\bbancorp\b', r'\bbanc\b',
+    r'\bcompany\b', r'\bsecurities\b', r'\binsurance\b',
+]
+
+# Two-letter legal forms that are ALSO human surnames and initials:
+#   "NESTLE SA"        -> entity
+#   "SA THOMAS A"      -> person, surname Sa
+#   "Paul de Sa"       -> person
+#   "Smith Hatton C.V."-> person, C.V. are middle initials
+# Matching these outright misclassifies real people, so they only count as
+# evidence when nothing else in the name reads as human. See is_entity_name.
+AMBIGUOUS_PATTERNS = [
+    r'\bs\.?a\.?b\.?\b', r'\bs\.?a\.?\b', r'\bc\.?v\.?\b',
+    r'\bn\.?v\.?\b', r'\bb\.?v\.?\b', r'\bu\.?a\.?\b',
 ]
 
 _ENTITY_RE = re.compile('|'.join(ENTITY_PATTERNS), re.IGNORECASE)
+_AMBIGUOUS_RE = re.compile('|'.join(AMBIGUOUS_PATTERNS), re.IGNORECASE)
+
+
+def _human_name_tokens() -> tuple[frozenset, frozenset]:
+    """Confident given names / surnames, learned in name_cleaner's lexicon.
+
+    Imported lazily so a missing or unreadable lexicon degrades this module to
+    strong-pattern-only matching instead of failing at import time.
+    """
+    try:
+        from name_cleaner import GIVEN_TOKENS, SURNAME_TOKENS
+        return GIVEN_TOKENS, SURNAME_TOKENS
+    except Exception:
+        try:
+            from strategies.insider_catalog.name_cleaner import GIVEN_TOKENS, SURNAME_TOKENS
+            return GIVEN_TOKENS, SURNAME_TOKENS
+        except Exception:
+            return frozenset(), frozenset()
 
 
 def is_entity_name(name: str) -> bool:
@@ -56,7 +108,26 @@ def is_entity_name(name: str) -> bool:
     if not name:
         return False
     name_norm = normalize_name(name)
-    return bool(_ENTITY_RE.search(name_norm))
+    if _ENTITY_RE.search(name_norm):
+        return True
+    if _AMBIGUOUS_RE.search(name_norm):
+        # A two-letter form is only believable when nothing else in the name
+        # reads as a person. Abstaining leaves the row as-is, which is the
+        # safe direction: a missed entity keeps today's behaviour, while a
+        # person wrongly flipped drops off the leaderboard and gets
+        # entity-cased.
+        given, surname = _human_name_tokens()
+        # Judge only the OTHER tokens. "Sa" and "Vu" are themselves surnames,
+        # so including the matched token would make every "<Company> SA" look
+        # human and defeat the check.
+        tokens = {
+            t for t in (x.lower().strip(".,'\"") for x in name_norm.split())
+            if t and not _AMBIGUOUS_RE.fullmatch(t)
+        }
+        if tokens & given or tokens & surname:
+            return False
+        return True
+    return False
 
 
 # ── Schema migration ────────────────────────────────────────────────────
