@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Daily parity recording for the insider ingest cutover (B2 -> B4).
+  STUDIO ONLY — never load on the Mini (see the Studio-only plist guard in
+  ~/.local/bin/studio). The Mini has no dataplane DB.
+
+  The cutover gate is "recall >= 99.5% held for N consecutive days". A number
+  someone remembers to measure by hand is not a gate — the streak has to be
+  recorded every day, including the days nobody looks.
+
+  06:30 PT: after EDGAR's 22:00 ET acceptance cutoff, so yesterday's partition
+  is closed on both sides and the day being scored is final. Re-running a day
+  overwrites it, so late-arriving filings that improve an earlier day are
+  picked up by the trailing window rather than being frozen in.
+
+  Trailing 3 days, not 1: cheap, and it repairs earlier days as late filings
+  land instead of leaving a stale low reading in the history.
+
+  Install (on Studio):
+    cp scripts/launchd/com.openclaw.parity-record.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.openclaw.parity-record.plist
+
+  Read the result:
+    psql -d pyrrho_data_dev -c \
+      "SELECT trade_day, coverage_b FROM parity_history ORDER BY trade_day DESC LIMIT 10"
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.openclaw.parity-record</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/derekg/dataplane_venv/bin/python</string>
+    <string>/Users/derekg/trading-framework/scripts/record_parity.py</string>
+    <string>--days</string>
+    <string>3</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/derekg/trading-framework</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <!-- Unix socket, not loopback TCP: the 2026-08-11 outage was Dagster
+         exhausting ephemeral ports against 127.0.0.1. -->
+    <key>PYRRHO_DATAPLANE_DSN</key>
+    <string>dbname=pyrrho_data_dev host=/tmp</string>
+  </dict>
+
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>6</integer>
+    <key>Minute</key>
+    <integer>30</integer>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/Users/derekg/trading-framework/logs/parity-record.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/derekg/trading-framework/logs/parity-record.err</string>
+
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>
