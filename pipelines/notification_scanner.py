@@ -77,19 +77,53 @@ def _open_notifications_db() -> ConnectionWrapper:
     return get_notif_connection()
 
 
+def _as_date_str(value) -> str:
+    """Date part of a watermark, for tables whose columns are still text dates.
+
+    The watermark is a timestamp so the filing-driven scanners can advance
+    intraday. strategy_portfolio and congress_trades have no timestamp column,
+    and their events are daily anyway — a simulated position opens a handful of
+    times a day, politicians file periodic reports — so those scanners compare
+    on the date part and lose nothing.
+    """
+    if hasattr(value, "strftime"):
+        return value.strftime("%Y-%m-%d")
+    return str(value)[:10]
+
+
+def _default_watermark(latest):
+    """One day back, when a scanner has no watermark yet.
+
+    `latest` is a timestamp for the filing-driven scanners and a date string
+    for the daily ones, so this cannot assume either type. Over-scanning
+    replays events that dedup_key already suppresses; under-scanning drops
+    them permanently, so a day back is the safe direction to err.
+    """
+    if hasattr(latest, "strftime"):
+        return latest - timedelta(days=1)
+    return (datetime.strptime(str(latest)[:10], "%Y-%m-%d")
+            - timedelta(days=1)).strftime("%Y-%m-%d")
+
+
 def _get_watermark(nconn: ConnectionWrapper, event_type: str) -> str | None:
     row = nconn.execute(
-        "SELECT last_processed_date FROM scan_watermarks WHERE event_type = ?",
+        "SELECT last_processed_at FROM scan_watermarks WHERE event_type = ?",
         (event_type,),
     ).fetchone()
-    return row["last_processed_date"] if row else None
+    return row["last_processed_at"] if row else None
 
 
 def _set_watermark(nconn: ConnectionWrapper, event_type: str, date: str) -> None:
     nconn.execute(
-        "INSERT INTO scan_watermarks (event_type, last_processed_date) VALUES (?, ?) "
-        "ON CONFLICT (event_type) DO UPDATE SET last_processed_date = excluded.last_processed_date",
-        (event_type, date),
+        # Both columns through the transition: last_processed_at is what the
+        # scanners now read, last_processed_date is kept in step so reverting
+        # to the previous scanner does not replay a day of events.
+        "INSERT INTO scan_watermarks (event_type, last_processed_at, last_processed_date) "
+        "VALUES (?, ?, ?) "
+        "ON CONFLICT (event_type) DO UPDATE SET "
+        "  last_processed_at = excluded.last_processed_at, "
+        "  last_processed_date = excluded.last_processed_date",
+        (event_type, date, _as_date_str(date)),
     )
 
 
@@ -200,8 +234,8 @@ def _dedup_key(event_type: str, *parts: str) -> str:
 def scan_high_value_filings(iconn: ConnectionWrapper, nconn: ConnectionWrapper, latest: str) -> int:
     """Detect Tier 2+ insider buys/sells above user's $ threshold."""
     watermark = _get_watermark(nconn, "high_value_filing") or (
-        datetime.strptime(latest, "%Y-%m-%d") - timedelta(days=1)
-    ).strftime("%Y-%m-%d")
+        _default_watermark(latest)
+    )
 
     rows = iconn.execute(
         """SELECT MIN(t.trade_id) AS trade_id,
@@ -213,7 +247,7 @@ def scan_high_value_filings(iconn: ConnectionWrapper, nconn: ConnectionWrapper, 
                   MAX(t.pit_grade) AS pit_grade
            FROM trades t
            JOIN insiders i ON t.insider_id = i.insider_id
-           WHERE t.filing_date > ? AND t.filing_date <= ?
+           WHERE t.ingested_at > ? AND t.ingested_at <= ?
              AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
              AND t.pit_grade IN ('A+', 'A', 'B')
            GROUP BY t.insider_id, t.ticker, t.trade_type, t.trade_date
@@ -257,8 +291,8 @@ def scan_high_value_filings(iconn: ConnectionWrapper, nconn: ConnectionWrapper, 
 def scan_cluster_formations(iconn: ConnectionWrapper, nconn: ConnectionWrapper, latest: str) -> int:
     """Detect 2+ insiders trading same ticker within 14-day window."""
     watermark = _get_watermark(nconn, "cluster_formation") or (
-        datetime.strptime(latest, "%Y-%m-%d") - timedelta(days=1)
-    ).strftime("%Y-%m-%d")
+        _default_watermark(latest)
+    )
 
     rows = iconn.execute(
         """SELECT t.ticker, t.trade_type, MAX(t.company) AS company,
@@ -266,7 +300,7 @@ def scan_cluster_formations(iconn: ConnectionWrapper, nconn: ConnectionWrapper, 
                   SUM(t.value) AS total_value,
                   MAX(t.filing_date) AS latest_filing
            FROM trades t
-           WHERE t.filing_date > ? AND t.filing_date <= ?
+           WHERE t.ingested_at > ? AND t.ingested_at <= ?
              AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
            GROUP BY t.ticker, t.trade_type
            HAVING COUNT(DISTINCT COALESCE(t.effective_insider_id, t.insider_id)) >= 2""",
@@ -296,6 +330,12 @@ def scan_cluster_formations(iconn: ConnectionWrapper, nconn: ConnectionWrapper, 
 def scan_activity_spikes(iconn: ConnectionWrapper, nconn: ConnectionWrapper, latest: str) -> int:
     """Detect tickers with activity 2x+ above 90-day baseline.
     Only considers open-market trades (P/S) and excludes routine/10b5-1 sells."""
+    # Text date columns on this side, and the underlying events are daily,
+    # so compare on the date part. latest_ts is kept so the watermark
+    # written back stays a timestamp for every event type.
+    latest_ts = latest
+    latest = _as_date_str(latest)
+
     # Recent 7 days — open-market only, exclude routine
     recent = iconn.execute(
         """SELECT ticker, trade_type, MAX(company) AS company,
@@ -355,6 +395,12 @@ def scan_activity_spikes(iconn: ConnectionWrapper, nconn: ConnectionWrapper, lat
 
 def scan_congress_convergence(iconn: ConnectionWrapper, nconn: ConnectionWrapper, latest: str) -> int:
     """Detect tickers where insiders and politicians both bought recently."""
+    # Text date columns on this side, and the underlying events are daily,
+    # so compare on the date part. latest_ts is kept so the watermark
+    # written back stays a timestamp for every event type.
+    latest_ts = latest
+    latest = _as_date_str(latest)
+
     # Check if congress_trades table exists
     table_check = iconn.execute(
         "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'congress_trades'"
@@ -419,8 +465,8 @@ def scan_congress_convergence(iconn: ConnectionWrapper, nconn: ConnectionWrapper
 def scan_watchlist_activity(iconn: ConnectionWrapper, nconn: ConnectionWrapper, latest: str) -> int:
     """Notify users about any new filings on their watched tickers."""
     watermark = _get_watermark(nconn, "watchlist_activity") or (
-        datetime.strptime(latest, "%Y-%m-%d") - timedelta(days=1)
-    ).strftime("%Y-%m-%d")
+        _default_watermark(latest)
+    )
 
     # Get all watched tickers across all users
     all_watchlist = nconn.execute(
@@ -453,7 +499,7 @@ def scan_watchlist_activity(iconn: ConnectionWrapper, nconn: ConnectionWrapper, 
                    SUM(t.value) AS total_value
             FROM trades t
             JOIN insiders i ON t.insider_id = i.insider_id
-            WHERE t.filing_date > ? AND t.filing_date <= ?
+            WHERE t.ingested_at > ? AND t.ingested_at <= ?
               AND t.ticker IN ({placeholders})
               AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
             GROUP BY t.insider_id, t.ticker, t.trade_type, t.trade_date
@@ -517,9 +563,17 @@ def _maybe_send_realtime_email(nconn: ConnectionWrapper, user: dict, title: str,
 
 def scan_portfolio_alerts(iconn: ConnectionWrapper, nconn: ConnectionWrapper, latest: str) -> int:
     """Detect new entries/exits in the Form4 Insider Portfolio strategy."""
-    watermark = _get_watermark(nconn, "portfolio_alert") or (
-        datetime.strptime(latest, "%Y-%m-%d") - timedelta(days=1)
-    ).strftime("%Y-%m-%d")
+    # Text date columns on this side, and the underlying events are daily,
+    # so compare on the date part. latest_ts is kept so the watermark
+    # written back stays a timestamp for every event type.
+    latest_ts = latest
+    latest = _as_date_str(latest)
+
+    # Date string on both sides: entry_date/exit_date are text, and the stored
+    # watermark is now a timestamp.
+    watermark = _as_date_str(
+        _get_watermark(nconn, "portfolio_alert") or _default_watermark(latest)
+    )
 
     # Check for new entries (trades that started after watermark)
     new_entries = iconn.execute(
@@ -583,7 +637,7 @@ def scan_portfolio_alerts(iconn: ConnectionWrapper, nconn: ConnectionWrapper, la
                 count += 1
                 _maybe_send_realtime_email(nconn, user, title, body)
 
-    _set_watermark(nconn, "portfolio_alert", latest)
+    _set_watermark(nconn, "portfolio_alert", latest_ts)
     nconn.commit()
     return count
 
@@ -656,7 +710,9 @@ def main() -> None:
     nconn = _open_notifications_db()
 
     try:
-        latest_row = iconn.execute("SELECT MAX(filing_date) AS d FROM trades").fetchone()
+        # NOW(), not MAX(filing_date): the old bound was a date, so a scan
+        # could only advance a day at a time no matter how often it ran.
+        latest_row = iconn.execute("SELECT NOW() AS d FROM trades LIMIT 1").fetchone()
         latest = latest_row["d"]
         if not latest:
             logger.info("No trades in database, nothing to scan")
