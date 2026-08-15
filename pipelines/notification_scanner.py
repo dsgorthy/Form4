@@ -29,6 +29,8 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
+from pipelines.alert_filters import any_filter_matches  # noqa: E402
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -127,14 +129,45 @@ def _set_watermark(nconn: ConnectionWrapper, event_type: str, date: str) -> None
     )
 
 
+def _get_user_filters(nconn: ConnectionWrapper, user_id: str, event_type: str) -> list[dict]:
+    """A user's enabled filters for this event type, conditions attached.
+
+    event_type IS NULL on a filter means "every event type", so a user can
+    write one rule that applies everywhere rather than repeating it per type.
+    """
+    filters = nconn.execute(
+        """SELECT filter_id, name FROM alert_filters
+            WHERE user_id = ? AND enabled
+              AND (event_type IS NULL OR event_type = ?)""",
+        (user_id, event_type),
+    ).fetchall()
+    out = []
+    for f in filters:
+        conds = nconn.execute(
+            "SELECT field, op, value FROM alert_filter_conditions WHERE filter_id = ?",
+            (f["filter_id"],),
+        ).fetchall()
+        out.append({"filter_id": f["filter_id"], "name": f["name"],
+                    "conditions": [dict(c) for c in conds]})
+    return out
+
+
 def _get_subscribed_users(nconn: ConnectionWrapper, event_type: str) -> list[dict]:
-    """Get all users who have this event type enabled."""
+    """Users with this event type enabled, each with their filters attached.
+
+    A user with no filters keeps the legacy notification_preferences behaviour
+    exactly — min_trade_value and min_insider_tier — so nobody's current
+    settings change when this ships.
+    """
     rows = nconn.execute(
         f"""SELECT user_id, email_enabled, email_frequency, min_trade_value, min_insider_tier
             FROM notification_preferences
             WHERE {event_type} = 1 AND (email_enabled = 1 OR in_app_enabled = 1)""",
     ).fetchall()
-    return [dict(r) for r in rows]
+    users = [dict(r) for r in rows]
+    for u in users:
+        u["filters"] = _get_user_filters(nconn, u["user_id"], event_type)
+    return users
 
 
 # ---------------------------------------------------------------------------
@@ -255,9 +288,9 @@ def scan_high_value_filings(iconn: ConnectionWrapper, nconn: ConnectionWrapper, 
         (watermark, latest),
     ).fetchall()
 
-    # Map PIT grade to integer tier for user min_insider_tier comparison
-    # (preserves legacy tier-based notification preferences):
-    #   A+, A => tier 3 ("elite"); B => tier 2 ("top"); other => tier 1
+    # Legacy tier mapping, kept ONLY for users who have not defined filters.
+    # It collapses A+ and A into tier 3, so "only A+" is inexpressible — which
+    # is why alert_filters compares grades directly instead.
     _GRADE_TO_TIER = {"A+": 3, "A": 3, "B": 2}
 
     count = 0
@@ -267,10 +300,21 @@ def scan_high_value_filings(iconn: ConnectionWrapper, nconn: ConnectionWrapper, 
         r = dict(row)
         r_tier = _GRADE_TO_TIER.get(r.get("pit_grade"), 1)
         for user in users:
-            if r["total_value"] < user["min_trade_value"]:
-                continue
-            if r_tier < user["min_insider_tier"]:
-                continue
+            # A user with filters is governed by them alone; the legacy
+            # thresholds are the fallback, not an additional gate on top.
+            # A user with filters is governed by them ALONE. The legacy
+            # threshold + tier pair is the fallback for users who have not
+            # defined any, not an extra gate stacked on top — otherwise a
+            # filter for "A+ only" would still be silently narrowed by
+            # whatever min_insider_tier happened to be set to.
+            if user.get("filters"):
+                if not any_filter_matches(r, user["filters"]):
+                    continue
+            else:
+                if r["total_value"] < user["min_trade_value"]:
+                    continue
+                if r_tier < user["min_insider_tier"]:
+                    continue
 
             title_str = r["title"] or "Insider"
             action = "bought" if r["trade_type"] == "buy" else "sold"
