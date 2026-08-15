@@ -88,8 +88,17 @@ class InsiderFilingsRawV1(Signal):
     business_hours_only = False
     description = "Raw Form 4 filings ingested directly from EDGAR EFTS."
     materialization_mode = "per_partition_events"
-    # Off the nightly schedule until parity vs insider.trades.raw holds ≥99.5%
-    # for 30 days. CLI backfills + Dagster UI manual triggers still work.
+    # Off the nightly schedule until the cutover. The gate was "≥99.5% for 30
+    # days"; on 2026-08-15 Derek dropped the day-count in favour of a single
+    # substantive bar — enrichment parity (B3) — on the evidence that recall
+    # has been 100.000% for four straight days and this feed is a strict
+    # SUPERSET of the bridge (27 rows on 08-14 the bridge never had, including
+    # a late-filed 07-01 trade). Matching the incumbent was never the
+    # interesting question once it started beating it.
+    #
+    # Still not enough to flip: nothing yet writes this feed back to
+    # form4.trades, which is what the product reads. See
+    # insider_trades_form4_sync. CLI backfills + UI triggers still work.
     auto_schedule = False
     upstream = [
         Upstream("external.edgar.efts", pit_lag=timedelta(0)),

@@ -42,6 +42,7 @@ from dagster_dbt import DbtCliResource
 from dagster_project.assets.congress_sync import congress_trades_form4_sync
 from dagster_project.assets.dbt import dataplane_dbt_assets, dbt_project
 from dagster_project.assets.form4_pipeline import form4_pipeline_assets
+from dagster_project.assets.insider_sync import insider_trades_form4_sync
 from dagster_project.assets.signals import (
     build_signal_assets,
     daily_partitions,
@@ -336,6 +337,7 @@ def realtime_5min_loop(context: SensorEvaluationContext):
 
 defs = Definitions(
     assets=[*signal_assets, congress_trades_form4_sync,
+            insider_trades_form4_sync,
             *form4_pipeline_assets, dataplane_dbt_assets],
     jobs=[daily_signals_job, dbt_marts_job, form4_pipeline_job,
           realtime_strategy_job, insider_filings_shadow_job],
