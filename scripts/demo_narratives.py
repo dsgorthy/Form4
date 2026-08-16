@@ -336,6 +336,22 @@ def hash_payload(payload: dict) -> str:
     ).hexdigest()[:16]
 
 
+def _unfence(content: str) -> str:
+    """Strip a markdown code fence if the model wrapped its JSON in one.
+
+    format="json" is meant to guarantee bare JSON, and with reasoning enabled it
+    did. With think=False the model started answering in ```json fences instead,
+    which json.loads rejects at char 0 — the same error text as an empty
+    response, for a completely different reason. Cheap to tolerate both.
+    """
+    c = content.strip()
+    if c.startswith("```"):
+        c = c.split("\n", 1)[-1] if "\n" in c else c
+        if c.rstrip().endswith("```"):
+            c = c.rstrip()[:-3]
+    return c.strip()
+
+
 def call_ollama(payload: dict) -> tuple[dict | None, str | None, int]:
     """Returns (parsed_json, error_str, generation_ms)."""
     t0 = time.monotonic()
@@ -349,6 +365,17 @@ def call_ollama(payload: dict) -> tuple[dict | None, str | None, int]:
         ],
         "stream": False,
         "format": "json",
+        # glm-4.7-flash is a reasoning model, and Ollama returns its chain of
+        # thought in message.thinking, separate from message.content. Left on,
+        # it spent thousands of tokens reasoning about a task that is really
+        # "restate these numbers as four sentences" — and once num_predict
+        # bounded the response, the cap landed inside the reasoning phase, so
+        # content came back EMPTY and every row failed to parse.
+        #
+        # Measured on the same trade: thinking on, 156.7s and 0 chars of
+        # content; thinking off, 42.7s and a complete answer. Off is both
+        # correct and 3.7x faster.
+        "think": False,
         # num_predict bounds the worst case. The four narrative fields come to
         # ~280 tokens when the model stops on its own, but nothing capped it, so
         # a run-on generation was free to spend the entire timeout — measured
@@ -368,7 +395,7 @@ def call_ollama(payload: dict) -> tuple[dict | None, str | None, int]:
 
     try:
         content = r.json()["message"]["content"]
-        parsed = json.loads(content)
+        parsed = json.loads(_unfence(content))
         return parsed, None, int((time.monotonic() - t0) * 1000)
     except (KeyError, json.JSONDecodeError) as exc:
         return None, f"parse error: {exc} — raw: {r.text[:200]}", int((time.monotonic() - t0) * 1000)
