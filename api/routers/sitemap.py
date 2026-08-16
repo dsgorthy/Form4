@@ -62,7 +62,20 @@ def sitemap_urls(
                   FROM insider_track_records tr
                   LEFT JOIN insiders i ON i.insider_id = tr.insider_id
                  WHERE tr.buy_count >= 2
-                 ORDER BY tr.score DESC NULLS LAST
+                 -- Tiebreakers are load-bearing, not tidiness. 13,090 insiders
+                 -- are eligible and 6,335 of them have a NULL score, so the
+                 -- LIMIT cuts through the middle of one enormous tied block.
+                 -- Ordering by score alone leaves Postgres free to return a
+                 -- different subset every run: measured 2026-08-15, 1,347
+                 -- insider URLs (13%) churned in and out of the sitemap
+                 -- between two generations. A URL that appears and vanishes
+                 -- between crawls is a stability signal we do not want to
+                 -- send, and it left which insiders get indexed to chance.
+                 --
+                 -- buy_count before insider_id so the unscored insiders we do
+                 -- include are the most active ones rather than the
+                 -- lowest-numbered.
+                 ORDER BY tr.score DESC NULLS LAST, tr.buy_count DESC, tr.insider_id
                  LIMIT ?
             """, (limit_insiders,)).fetchall()
             insiders = [
