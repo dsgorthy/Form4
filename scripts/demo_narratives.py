@@ -24,6 +24,8 @@ LLM: Ollama on Studio (GLM-4.7-flash), JSON output mode, ~5s per trade.
 from __future__ import annotations
 
 import argparse
+import contextlib
+import fcntl
 import hashlib
 import json
 import logging
@@ -47,6 +49,21 @@ logger = logging.getLogger(__name__)
 OLLAMA_URL = "http://localhost:11434/api/chat"
 OLLAMA_MODEL = "glm-4.7-flash"
 OLLAMA_TIMEOUT = 120.0          # GLM-4.7 needs a generous timeout on cold start
+
+# Stop retrying a trade after this many failed attempts. The job fires every
+# 5 minutes across a 24h window, so without a bound a trade that cannot be
+# generated is retried ~288 times — each attempt waiting out the full timeout
+# above — and then ages out of the window unwritten anyway. Three attempts
+# still covers the transient case the retry was written for.
+MAX_ATTEMPTS = 3
+
+# Only one run at a time. A run processing 20 trades that each time out takes
+# 40 minutes, and launchd starts another every 5, so the job stampeded itself:
+# up to 8 instances queued against one Ollama, which is how a backend that can
+# serve one request at a time produces "server busy" 503s and timeouts against
+# itself. The lock is what makes the 5-minute schedule mean "check every 5
+# minutes", not "start another one regardless".
+LOCK_PATH = "/tmp/form4-enrich-narratives.lock"
 
 
 SYSTEM_PROMPT = """You are an equity analyst writing for sophisticated traders.
@@ -347,8 +364,8 @@ def upsert_narrative(conn, trade_id: int, payload: dict, narrative: dict | None,
     conn.execute(
         """INSERT INTO trade_narrative (
               trade_id, inputs_sha, summary, price_context, catalysts, risks,
-              input_data, model_name, generation_ms, error
-           ) VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?)
+              input_data, model_name, generation_ms, error, attempts
+           ) VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, 1)
            ON CONFLICT (trade_id) DO UPDATE SET
               generated_at = NOW(),
               inputs_sha = EXCLUDED.inputs_sha,
@@ -359,7 +376,12 @@ def upsert_narrative(conn, trade_id: int, payload: dict, narrative: dict | None,
               input_data = EXCLUDED.input_data,
               model_name = EXCLUDED.model_name,
               generation_ms = EXCLUDED.generation_ms,
-              error = EXCLUDED.error""",
+              error = EXCLUDED.error,
+              -- Reset on success so a trade whose inputs later change is not
+              -- permanently barred by attempts spent before it worked.
+              attempts = CASE WHEN EXCLUDED.summary IS NULL
+                              THEN trade_narrative.attempts + 1
+                              ELSE 0 END""",
         (
             trade_id, inputs_sha,
             narrative.get("summary"),
@@ -373,6 +395,27 @@ def upsert_narrative(conn, trade_id: int, payload: dict, narrative: dict | None,
         ),
     )
     conn.commit()
+
+
+@contextlib.contextmanager
+def single_instance(path: str):
+    """Yield True if this process took the lock, False if a run is already up.
+
+    flock, not a PID file: the kernel drops the lock when the process exits by
+    any route, so a run killed mid-flight cannot wedge the schedule the way a
+    stale PID file would. Non-blocking — a second instance should skip its turn
+    and let the next 5-minute tick try, not queue up behind the first.
+    """
+    fh = open(path, "w")
+    try:
+        try:
+            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            yield False
+            return
+        yield True
+    finally:
+        fh.close()
 
 
 def main():
@@ -401,6 +444,14 @@ def main():
     else:
         since_str = date.fromordinal(date.today().toordinal() - 30).isoformat()
 
+    with single_instance(LOCK_PATH) as acquired:
+        if not acquired:
+            logger.info("Another run holds %s — skipping this tick.", LOCK_PATH)
+            return
+        _main_locked(args, since_str)
+
+
+def _main_locked(args, since_str: str) -> None:
     if args.no_pipeline_run:
         _run(since_str, args.limit, args.regenerate, telemetry=None)
         return
@@ -435,9 +486,15 @@ def _run(since_str: str, limit: int, regenerate: bool, telemetry) -> dict:
         # rows (summary IS NULL, error column populated) get retried — the
         # most common failure is Ollama timeout on dense input, which often
         # succeeds on retry once cache warms or load drops.
+        # Skip both the done and the given-up. Previously only rows with a
+        # summary were skipped, so every permanently-failing trade came back
+        # every 5 minutes and spent the whole run's budget before a single
+        # fresh trade was reached.
         already = {
             r["trade_id"] for r in conn.execute(
-                "SELECT trade_id FROM trade_narrative WHERE summary IS NOT NULL"
+                "SELECT trade_id FROM trade_narrative "
+                " WHERE summary IS NOT NULL OR attempts >= ?",
+                (MAX_ATTEMPTS,),
             ).fetchall()
         }
         before = len(trades)
@@ -457,6 +514,12 @@ def _run(since_str: str, limit: int, regenerate: bool, telemetry) -> dict:
 
     matched = 0
     failed = 0
+    # A transport failure means we never got an answer out of the model —
+    # connection refused, timeout, 5xx. Distinct from a parse error, which
+    # means the model answered with something unusable and is a real per-trade
+    # failure rather than evidence the backend is gone.
+    transport_failures = 0
+    last_error = None
     for i, t in enumerate(trades, 1):
         t = dict(t)
         ticker = t["ticker"]
@@ -474,8 +537,22 @@ def _run(since_str: str, limit: int, regenerate: bool, telemetry) -> dict:
             status = "ok"
         else:
             failed += 1
+            last_error = error
+            if error and not error.startswith("parse error"):
+                transport_failures += 1
             status = f"FAIL: {error[:30]}"
         print(f"{i:>3}  {ticker:6}  {insider:28}  ${amt:>11,.0f}  {status} ({ms}ms)")
+
+    # A run where nothing succeeded and every failure was a transport error is
+    # an outage, not N unlucky trades: Ollama is down, out of memory, or
+    # thrashing. Raising surfaces it as a failed pipeline_run, which the
+    # watchdog already alerts on. Without this the job exited 0 while writing
+    # nothing, which is why a months-long failure went unnoticed.
+    if matched == 0 and transport_failures and transport_failures == failed:
+        raise RuntimeError(
+            f"narrative backend unavailable: {failed}/{failed} attempts failed "
+            f"with transport errors (last: {last_error})"
+        )
 
     return {"candidates_after_filter": candidates_total, "matched": matched,
             "failed": failed, "skipped": skipped}
