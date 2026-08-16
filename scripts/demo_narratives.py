@@ -349,7 +349,14 @@ def call_ollama(payload: dict) -> tuple[dict | None, str | None, int]:
         ],
         "stream": False,
         "format": "json",
-        "options": {"temperature": 0.2},  # deterministic-ish output
+        # num_predict bounds the worst case. The four narrative fields come to
+        # ~280 tokens when the model stops on its own, but nothing capped it, so
+        # a run-on generation was free to spend the entire timeout — measured
+        # 339s for a 284-token answer under GPU contention, against 103s when
+        # capped. 900 leaves ~3x headroom over a natural completion, so this
+        # truncates nothing in practice while making a pathological generation
+        # fail fast instead of eating the whole budget.
+        "options": {"temperature": 0.2, "num_predict": 900},
     }
     try:
         r = httpx.post(OLLAMA_URL, json=body, timeout=OLLAMA_TIMEOUT)
