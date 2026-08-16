@@ -46,6 +46,10 @@ export async function generateMetadata({ params }: { params: Promise<{ ticker: s
     return {
       title,
       description,
+      // /explore?ticker= canonicalises to this page, so this page must declare
+      // itself canonical — otherwise the consolidation points at a URL that
+      // expresses no preference of its own.
+      alternates: { canonical: `https://form4.app/company/${ticker}` },
       openGraph: { title, description },
     };
   } catch {
@@ -55,9 +59,14 @@ export async function generateMetadata({ params }: { params: Promise<{ ticker: s
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A] mb-3">
+    // <h2>, not a styled <div>. These label the real content sections of an
+    // indexed page — "Insider Roster", "Recent Insider Trades" — and as divs
+    // they carried no structure at all: every SEO surface rendered exactly one
+    // heading, the H1, with nothing beneath it. Tailwind's preflight zeroes
+    // heading margins so this is visually identical.
+    <h2 className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A] mb-3">
       {children}
-    </div>
+    </h2>
   );
 }
 
@@ -111,7 +120,18 @@ export default async function CompanyPage({ params }: { params: Promise<{ ticker
       {/* Header */}
       <div className="mb-8">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl md:text-3xl font-bold font-mono text-[#E8E8ED]">{overview.ticker}</h1>
+          <h1 className="text-2xl md:text-3xl font-bold font-mono text-[#E8E8ED]">
+            {overview.ticker}{" "}
+            {/* Explicit space: JSX trims whitespace at line boundaries, so
+                without it the heading extracts as "NVDANVIDIA CORP" — one
+                garbage token where two real search terms should be.
+                The company name carries the search term — people search
+                "NVIDIA insider trading", not "NVDA". Visually secondary so the
+                ticker still reads as the headline. */}
+            <span className="ml-3 font-sans text-base font-normal text-[#8888A0] md:text-lg">
+              {overview.company} insider trading
+            </span>
+          </h1>
           <WatchButton ticker={overview.ticker} />
         </div>
         <p className="text-[#8888A0] mt-1">{overview.company}</p>

@@ -104,9 +104,14 @@ function ReturnRow({ label, value, tradeType }: { label: string; value?: number 
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A] mb-3">
+    // <h2>, not a styled <div>. These label the real content sections of an
+    // indexed page — "Insider Roster", "Recent Insider Trades" — and as divs
+    // they carried no structure at all: every SEO surface rendered exactly one
+    // heading, the H1, with nothing beneath it. Tailwind's preflight zeroes
+    // heading margins so this is visually identical.
+    <h2 className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A] mb-3">
       {children}
-    </div>
+    </h2>
   );
 }
 
@@ -149,8 +154,17 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
       </nav>
 
       {/* Header */}
-      <div className="flex flex-wrap items-center gap-3 sm:gap-4 mb-8">
+      {/* h1, not a bare div. Filing pages are the largest section of the
+          sitemap — 32,935 of 52,304 — and they were shipping four h2s with no
+          h1 above them, which is a broken outline on two thirds of the
+          indexed site. The heading states what the page is: who traded what. */}
+      <h1 className="flex flex-wrap items-center gap-3 sm:gap-4 mb-8 text-2xl sm:text-3xl font-bold">
         <TickerDisplay ticker={filing.ticker} company={filing.company} href={null} className="text-2xl sm:text-3xl font-bold" />
+        {" "}
+        <span className="sr-only">
+          {filing.insider_name} {filing.trade_type === "buy" ? "bought" : "sold"}{" "}
+          {filing.company || filing.ticker} shares — SEC Form 4
+        </span>
         <Badge
           variant="outline"
           className={`text-sm font-mono ${
@@ -164,7 +178,7 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
         {filing.ticker !== "NONE" && (
           <span className="text-[#8888A0] text-sm sm:text-base break-words">{filing.company}</span>
         )}
-      </div>
+      </h1>
 
       {/* SEC Link prominent */}
       {filing.accession && (

@@ -75,9 +75,14 @@ function StatBox({
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A] mb-3">
+    // <h2>, not a styled <div>. These label the real content sections of an
+    // indexed page — "Insider Roster", "Recent Insider Trades" — and as divs
+    // they carried no structure at all: every SEO surface rendered exactly one
+    // heading, the H1, with nothing beneath it. Tailwind's preflight zeroes
+    // heading margins so this is visually identical.
+    <h2 className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A] mb-3">
       {children}
-    </div>
+    </h2>
   );
 }
 
