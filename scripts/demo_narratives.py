@@ -48,7 +48,18 @@ logger = logging.getLogger(__name__)
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
 OLLAMA_MODEL = "glm-4.7-flash"
-OLLAMA_TIMEOUT = 120.0          # GLM-4.7 needs a generous timeout on cold start
+# Measured on Studio 2026-08-16: a warm request returns in 12-16s, a COLD one
+# — model not resident, weights read from disk — took 294s. 120s sat between
+# the two, so every request that happened to land on a cold model failed, and
+# then the retry landed cold again because the failure did not warm anything.
+# That is the whole of the 259 accumulated "ollama HTTP error: timed out" rows.
+#
+# The eviction is real and will keep happening: Tailorly drives devstral on the
+# same Ollama, so glm-4.7-flash gets pushed out between narrative runs. Sizing
+# the timeout above a cold load is what makes the job survive sharing the box.
+# With the single-instance lock in place a slow run no longer stacks up behind
+# itself, so a long ceiling costs a delayed batch rather than a stampede.
+OLLAMA_TIMEOUT = 420.0
 
 # Stop retrying a trade after this many failed attempts. The job fires every
 # 5 minutes across a 24h window, so without a bound a trade that cannot be

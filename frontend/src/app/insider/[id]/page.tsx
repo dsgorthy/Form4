@@ -6,7 +6,7 @@ import { notFound } from "next/navigation";
 import { fetchAPI } from "@/lib/api";
 import { fetchAPIAuth } from "@/lib/auth";
 import { formatCurrency, formatPercent } from "@/lib/format";
-import { formatTitle } from "@/lib/title-format";
+import { formatTitle, titleSummary, titleTags } from "@/lib/title-format";
 import { InsiderGradeBadge } from "@/components/insider-grade-badge";
 import { TradeOutcomeTimeline } from "@/components/trade-outcome-timeline";
 import { UpgradePrompt } from "@/components/upgrade-prompt";
@@ -236,7 +236,7 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                 the text Google lifts as the snippet. */}
             <InsiderSummary
               name={profile.name}
-              title={title}
+              title={titleSummary(primaryTitle)}
               companyName={primary?.company}
               ticker={primary?.ticker}
               nCompanies={cos.length}

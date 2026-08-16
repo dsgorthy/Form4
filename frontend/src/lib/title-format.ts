@@ -55,6 +55,62 @@ const RAW_PATTERNS: [RegExp, string][] = [
 ];
 
 /**
+ * Seniority order for multi-role titles.
+ *
+ * Titles are stored as semicolon-joined canonical tags in no meaningful order —
+ * in practice roughly alphabetical, which is why "10% Owner;CEO;Chairman" leads
+ * with the least informative role of the three. Rendering them in stored order
+ * buries the one fact a reader actually wants.
+ *
+ * Ordered by how much the role says about the trade: an officer with operational
+ * visibility outranks a board seat, which outranks a pure ownership stake.
+ * Anything unlisted sorts last but keeps its relative order.
+ */
+const TITLE_RANK = [
+  "CEO", "Chairman", "Pres", "COO", "CFO",
+  "CTO", "CLO", "CMO", "CIO", "CAO", "CSO", "CPO", "CRO", "CHRO", "CCO",
+  "Founder", "VP", "Dir", "Secretary", "Treasurer", "Controller", "10% Owner",
+];
+
+function rankOf(tag: string): number {
+  const i = TITLE_RANK.indexOf(tag);
+  return i === -1 ? TITLE_RANK.length : i;
+}
+
+/**
+ * Title as an ordered list of role tags, most senior first.
+ * Use for chip/badge rendering, where each role is its own visual element.
+ */
+export function titleTags(title: string | null | undefined): string[] {
+  const formatted = formatTitle(title);
+  if (!formatted) return [];
+  return formatted
+    .split(", ")
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .sort((a, b) => rankOf(a) - rankOf(b));
+}
+
+/**
+ * Title for running prose — a sentence, a page subtitle, a search snippet.
+ *
+ * "CFO;President;VP" is unreadable, and even a cleaned "CFO, Pres, VP" is three
+ * facts where the reader wants one. A person is introduced by their most senior
+ * role; the full list belongs in the table, where there is room for it. Two are
+ * joined with "&" because pairs like "CEO & Chairman" are a real, single
+ * identity rather than a list. Beyond two, the tail is counted, not spelled out.
+ */
+export function titleSummary(
+  title: string | null | undefined,
+  max: number = 2,
+): string {
+  const tags = titleTags(title);
+  if (tags.length === 0) return "";
+  if (tags.length <= max) return tags.join(" & ");
+  return `${tags.slice(0, max).join(" & ")} +${tags.length - max}`;
+}
+
+/**
  * Format a title for display. Handles both normalized (semicolon-separated canonical tags)
  * and raw SEC titles.
  */

@@ -5,7 +5,7 @@ import { useUser } from "@clerk/nextjs";
 import { isPro } from "@/lib/subscription";
 import Link from "next/link";
 import { formatCurrency } from "@/lib/format";
-import { formatTitle } from "@/lib/title-format";
+import { titleSummary, titleTags } from "@/lib/title-format";
 import { InsiderGradeBadge } from "@/components/insider-grade-badge";
 import { ProGate } from "@/components/pro-gate";
 import { Pagination } from "@/components/pagination";
@@ -84,7 +84,7 @@ export function InsiderRoster({ insiders, gated = false }: InsiderRosterProps) {
             </div>
             <div className="flex items-center justify-between mt-1.5">
               <div className="text-xs text-[#55556A] truncate">
-                {formatTitle(ins.normalized_title || ins.title) || "\u2014"}
+                {titleSummary(ins.normalized_title || ins.title) || "\u2014"}
               </div>
               <span className="text-xs text-[#55556A] shrink-0 ml-2">
                 {ins.trade_count} trades
@@ -142,10 +142,13 @@ export function InsiderRoster({ insiders, gated = false }: InsiderRosterProps) {
                 </td>
                 <td className="px-4 py-3 text-xs max-w-[240px]">
                   {(() => {
-                    const ft = formatTitle(ins.normalized_title || ins.title);
-                    return ft ? (
+                    // Seniority-ordered: "10% Owner;CEO;Chairman" is stored
+                    // alphabetically, so unsorted chips lead with the least
+                    // informative role.
+                    const tags = titleTags(ins.normalized_title || ins.title);
+                    return tags.length ? (
                       <div className="flex flex-wrap gap-1">
-                        {ft.split(", ").map((tag) => (
+                        {tags.map((tag) => (
                           <span
                             key={tag}
                             className="inline-block rounded px-1.5 py-0.5 text-[10px] font-medium border border-[#2A2A3A] bg-[#1A1A26] text-[#8888A0]"

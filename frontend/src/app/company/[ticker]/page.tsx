@@ -8,6 +8,7 @@ import { fetchAPIAuth } from "@/lib/auth";
 import { ProGate } from "@/components/pro-gate";
 import { FollowCta } from "@/components/follow-cta";
 import { formatCurrency } from "@/lib/format";
+import { titleSummary } from "@/lib/title-format";
 import { WatchButton } from "@/components/watch-button";
 import { CompanySummary } from "@/components/entity-summary";
 import { companyJsonLd, jsonLdScript } from "@/lib/structured-data";
@@ -173,7 +174,7 @@ export default async function CompanyPage({ params }: { params: Promise<{ ticker
           sellValue6mo={overview.sell_value_6mo ?? 0}
           firstTrade={overview.first_trade}
           topInsiderName={topFiler?.name}
-          topInsiderTitle={topFiler?.normalized_title || topFiler?.title}
+          topInsiderTitle={titleSummary(topFiler?.normalized_title || topFiler?.title)}
         />
         <div className="flex flex-wrap items-center gap-2 md:gap-4 mt-2 text-xs text-[#55556A]">
           <span>{overview.total_trades} total trades</span>
