@@ -130,6 +130,9 @@ export interface InsiderProfile {
     buy_win_rate_90d: number | null;
     buy_avg_return_90d: number | null;
     buy_avg_abnormal_90d: number | null;
+    // First/last dates are part of the public volume shape the API returns to
+    // anonymous visitors, alongside buy_count / sell_count / n_tickers.
+    buy_first_date: string | null;
     buy_last_date: string | null;
     sell_count: number;
     sell_win_rate_7d: number | null;
@@ -140,6 +143,7 @@ export interface InsiderProfile {
     sell_win_rate_90d: number | null;
     sell_avg_return_90d: number | null;
     sell_avg_abnormal_90d: number | null;
+    sell_first_date: string | null;
     sell_last_date: string | null;
     primary_title: string;
     primary_ticker: string;

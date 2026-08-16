@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useUser, useAuth } from "@clerk/nextjs";
 import { isPro } from "@/lib/subscription";
+import { GATED_CLASS } from "@/lib/structured-data";
 
 interface ProGateProps {
   children: React.ReactNode;
@@ -21,6 +22,17 @@ interface ProGateProps {
    * for signed-in free users too, which is not the deal.
    */
   requires?: "pro" | "auth";
+  /**
+   * Entity this block is about ("NVDA", "Jen Hsun Huang"). When set, the CTA is
+   * framed as following that entity rather than as a generic upgrade.
+   *
+   * A visitor who lands here from search has no relationship with the product
+   * and mostly will not buy anything today, but a meaningful share will agree
+   * to hear about the next filing — so the ask that closes a gated block should
+   * be the cheap one. Sign-up starts the 7-day Pro trial, which is what makes
+   * the promise real: watchlists are Pro, and the CTA would be a lie otherwise.
+   */
+  watch?: string;
 }
 
 /**
@@ -32,6 +44,7 @@ export function ProGate({
   label = "Unlock with Pro",
   compact = false,
   requires = "pro",
+  watch,
 }: ProGateProps) {
   const { isSignedIn, isLoaded } = useAuth();
   const { user } = useUser();
@@ -45,9 +58,16 @@ export function ProGate({
     return <>{children}</>;
   }
 
+  // GATED_CLASS is what the page's JSON-LD names in hasPart.cssSelector. It has
+  // to be on the real gated elements or the paywall declaration describes
+  // nothing, and an undeclared wall in front of a crawler is indistinguishable
+  // from cloaking. Applying it here means every gate carries it by construction
+  // rather than by every call site remembering to.
   if (compact) {
     return (
-      <span className="blur-sm select-none pointer-events-none">{children}</span>
+      <span className={`${GATED_CLASS} blur-sm select-none pointer-events-none`}>
+        {children}
+      </span>
     );
   }
 
@@ -55,13 +75,21 @@ export function ProGate({
   // only the signed-out branch is ever reachable, since being signed in clears
   // the gate outright.
   const ctaHref = isSignedIn ? "/pricing" : "/sign-up";
-  const ctaLabel = isSignedIn ? "Upgrade to Pro" : "Start Free Trial";
+  const ctaLabel = watch
+    ? isSignedIn
+      ? `Upgrade to follow ${watch}`
+      : `Follow ${watch}`
+    : isSignedIn
+      ? "Upgrade to Pro"
+      : "Start Free Trial";
   const subtitle = isSignedIn
     ? undefined
-    : "7 days of full Pro access — no credit card required";
+    : watch
+      ? `Get alerted on the next ${watch} filing — 7-day free trial, no card required`
+      : "7 days of full Pro access — no credit card required";
 
   return (
-    <div className="relative">
+    <div className={`${GATED_CLASS} relative`}>
       <div className="blur-sm select-none pointer-events-none">{children}</div>
       <div className="absolute inset-0 z-10 bg-gradient-to-b from-transparent via-[#0A0A0F]/60 to-[#0A0A0F]/90 flex items-center justify-center">
         <div className="text-center">

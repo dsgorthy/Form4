@@ -7,6 +7,9 @@ import { fetchAPI } from "@/lib/api";
 import { fetchAPIAuth } from "@/lib/auth";
 import { formatCurrency, formatPercent, isReturnUnavailable, unavailableReason } from "@/lib/format";
 import { InsiderGradeBadge } from "@/components/insider-grade-badge";
+import { FilingSummary } from "@/components/entity-summary";
+import { FollowCta } from "@/components/follow-cta";
+import { filingJsonLd, jsonLdScript } from "@/lib/structured-data";
 import { Badge } from "@/components/ui/badge";
 import { TickerDisplay, companyToSlug } from "@/components/ui/ticker-display";
 import { SignalBadges } from "@/components/signal-badge";
@@ -140,6 +143,21 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
 
   return (
     <div>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={jsonLdScript(
+          filingJsonLd({
+            id,
+            insiderName: filing.insider_name,
+            company: filing.company,
+            ticker: filing.ticker,
+            tradeType: filing.trade_type,
+            tradeDate: filing.trade_date,
+            filingDate: filing.filing_date,
+            value: filing.value,
+          }),
+        )}
+      />
       {/* Breadcrumb */}
       <nav className="flex flex-wrap items-center gap-2 text-sm text-[#55556A] mb-6">
         <Link href="/" className="hover:text-[#8888A0] transition-colors">
@@ -179,6 +197,21 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
           <span className="text-[#8888A0] text-sm sm:text-base break-words">{filing.company}</span>
         )}
       </h1>
+
+      {/* Directly under the H1: the sentence Google quotes. A filing page is
+          thin by nature, so this prose is a meaningful share of its content. */}
+      <FilingSummary
+        insiderName={filing.insider_name}
+        title={filing.title}
+        company={filing.ticker !== "NONE" ? filing.company : null}
+        ticker={filing.ticker}
+        tradeType={filing.trade_type}
+        qty={filing.qty}
+        price={filing.price}
+        value={filing.value}
+        tradeDate={filing.trade_date}
+        filingDate={filing.filing_date}
+      />
 
       {/* SEC Link prominent */}
       {filing.accession && (
@@ -571,6 +604,17 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
           </div>
         </div>
       )}
+
+      {/* Retention, not a wall. This page withholds nothing from an anonymous
+          visitor, so marksGate is false — the JSON-LD declares the filing fully
+          free and must stay true. Filing pages are the long-tail search entry
+          points, so this is where most first visits land and the only place
+          many of them see an ask at all. */}
+      <FollowCta
+        entity={filing.ticker}
+        detail={`Every new ${filing.ticker} Form 4, within minutes of it hitting EDGAR`}
+        marksGate={false}
+      />
     </div>
   );
 }

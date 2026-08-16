@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { useUser } from "@clerk/nextjs";
+import { isPro } from "@/lib/subscription";
 import Link from "next/link";
 import { formatCurrency } from "@/lib/format";
 import { formatTitle } from "@/lib/title-format";
@@ -36,12 +38,36 @@ interface InsiderRosterProps {
 export function InsiderRoster({ insiders, gated = false }: InsiderRosterProps) {
   const [offset, setOffset] = useState(0);
   const page = insiders.slice(offset, offset + PAGE_SIZE);
+  const { user } = useUser();
+
+  // `gated` says this call site WANTS gating; whether it applies depends on the
+  // viewer. ProGate resolves that itself for the blurred cells, but the score
+  // column is dropped outright rather than blurred, so it needs the check here
+  // — otherwise a Pro subscriber loses a column they are paying for.
+  const hideScore = gated && !isPro(user);
+
+  /**
+   * The top insider's grade stays visible as a proof row.
+   *
+   * Blurring every grade is indistinguishable from having no grades, and asks
+   * a first-time visitor to pay for something they have never seen work. One
+   * unblurred example shows the analysis exists, is specific to this company,
+   * and is not a placeholder — then the wall over the remaining rows is an
+   * offer rather than an assertion. Only on the first page: a proof row that
+   * follows the reader through pagination is just an ungated column.
+   */
+  function Grade({ ins, i }: { ins: Insider; i: number }) {
+    if (!ins.pit_grade) return null;
+    const badge = <InsiderGradeBadge grade={ins.pit_grade} />;
+    if (!gated || (offset === 0 && i === 0)) return badge;
+    return <ProGate compact>{badge}</ProGate>;
+  }
 
   return (
     <div>
       {/* Mobile: Card layout */}
       <div className="md:hidden space-y-2">
-        {page.map((ins) => (
+        {page.map((ins, i) => (
           <Link
             key={ins.insider_id}
             href={`/insider/${ins.cik || ins.insider_id}`}
@@ -50,7 +76,7 @@ export function InsiderRoster({ insiders, gated = false }: InsiderRosterProps) {
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 min-w-0">
                 <span className="font-medium text-blue-400 truncate">{ins.name}</span>
-                {ins.pit_grade && <InsiderGradeBadge grade={ins.pit_grade} />}
+                <Grade ins={ins} i={i} />
               </div>
               <span className="font-mono text-sm text-[#E8E8ED] shrink-0">
                 {formatCurrency(ins.total_value)}
@@ -81,14 +107,16 @@ export function InsiderRoster({ insiders, gated = false }: InsiderRosterProps) {
               <th className="px-4 py-3 text-left text-[#55556A] font-medium">Name</th>
               <th className="px-4 py-3 text-left text-[#55556A] font-medium">Title</th>
               <th className="px-4 py-3 text-center text-[#55556A] font-medium">Tier</th>
-              <th className="px-4 py-3 text-right text-[#55556A] font-medium">Score</th>
+              {!hideScore && (
+                <th className="px-4 py-3 text-right text-[#55556A] font-medium">Score</th>
+              )}
               <th className="px-4 py-3 text-right text-[#55556A] font-medium">Trades</th>
               <th className="px-4 py-3 text-right text-[#55556A] font-medium">Value</th>
               <th className="px-4 py-3 text-right text-[#55556A] font-medium">Last Trade</th>
             </tr>
           </thead>
           <tbody>
-            {page.map((ins) => (
+            {page.map((ins, i) => (
               <tr
                 key={ins.insider_id}
                 className="border-b border-[#2A2A3A]/50 hover:bg-[#1A1A26]/30 transition-colors"
@@ -132,21 +160,22 @@ export function InsiderRoster({ insiders, gated = false }: InsiderRosterProps) {
                   })()}
                 </td>
                 <td className="px-4 py-3 text-center">
-                  {ins.pit_grade || ins.score_tier != null ? (
-                    <InsiderGradeBadge grade={ins.pit_grade} />
+                  {ins.pit_grade ? (
+                    <Grade ins={ins} i={i} />
                   ) : (
                     <span className="text-[#55556A]">{"\u2014"}</span>
                   )}
                 </td>
-                <td className="px-4 py-3 text-right font-mono text-[#E8E8ED]">
-                  {gated ? (
-                    <ProGate compact>
-                      <span>{ins.score?.toFixed(2) ?? "\u2014"}</span>
-                    </ProGate>
-                  ) : (
+                {/* Dropped rather than blurred when gated. The API nulls score
+                    for non-Pro, so a blur here covers an em-dash — a wall with
+                    nothing behind it, which teaches the visitor the wall is
+                    empty. The grade column carries the gated signal instead,
+                    and it has real values behind it. */}
+                {!hideScore && (
+                  <td className="px-4 py-3 text-right font-mono text-[#E8E8ED]">
                     <span>{ins.score?.toFixed(2) ?? "\u2014"}</span>
-                  )}
-                </td>
+                  </td>
+                )}
                 <td className="px-4 py-3 text-right font-mono text-[#E8E8ED]">
                   {ins.trade_count}
                 </td>

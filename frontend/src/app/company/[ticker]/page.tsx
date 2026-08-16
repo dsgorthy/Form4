@@ -6,8 +6,11 @@ import { notFound } from "next/navigation";
 import { fetchAPI } from "@/lib/api";
 import { fetchAPIAuth } from "@/lib/auth";
 import { ProGate } from "@/components/pro-gate";
+import { FollowCta } from "@/components/follow-cta";
 import { formatCurrency } from "@/lib/format";
 import { WatchButton } from "@/components/watch-button";
+import { CompanySummary } from "@/components/entity-summary";
+import { companyJsonLd, jsonLdScript } from "@/lib/structured-data";
 import { InsiderRoster } from "@/components/insider-roster";
 import type { Filing, PaginatedResponse } from "@/lib/types";
 
@@ -18,6 +21,11 @@ interface CompanyOverview {
   total_value: number;
   first_trade: string;
   last_trade: string;
+  // Aggregates for the summary sentence. Optional so a frontend deployed ahead
+  // of the API degrades to a shorter sentence rather than rendering NaN.
+  distinct_insiders?: number;
+  buy_value_6mo?: number;
+  sell_value_6mo?: number;
   insiders: {
     insider_id: string;
     name: string;
@@ -104,8 +112,28 @@ export default async function CompanyPage({ params }: { params: Promise<{ ticker
     }>(`/congress/by-ticker/${ticker}`, { limit: String(CONGRESS_LIMIT) });
   } catch {}
 
+  // "Most active filer" by trade COUNT, not dollar value — a single large sale
+  // makes someone the biggest, not the most active, and the sentence claims
+  // activity.
+  const topFiler = [...overview.insiders].sort(
+    (a, b) => (b.trade_count ?? 0) - (a.trade_count ?? 0),
+  )[0];
+
   return (
     <div>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={jsonLdScript(
+          companyJsonLd({
+            ticker: overview.ticker,
+            company: overview.company,
+            totalTrades: overview.total_trades,
+            distinctInsiders: overview.distinct_insiders ?? overview.insiders.length,
+            firstTrade: overview.first_trade,
+            lastTrade: overview.last_trade,
+          }),
+        )}
+      />
       {/* Breadcrumb */}
       <nav className="flex items-center gap-2 text-sm text-[#55556A] mb-6">
         <Link href="/" className="hover:text-[#8888A0] transition-colors">
@@ -134,7 +162,19 @@ export default async function CompanyPage({ params }: { params: Promise<{ ticker
           </h1>
           <WatchButton ticker={overview.ticker} />
         </div>
-        <p className="text-[#8888A0] mt-1">{overview.company}</p>
+        {/* Replaces a bare repeat of the company name, which the H1 already
+            carries. Google quotes a sentence; it cannot quote a stat row. */}
+        <CompanySummary
+          ticker={overview.ticker}
+          company={overview.company}
+          totalTrades={overview.total_trades}
+          distinctInsiders={overview.distinct_insiders ?? overview.insiders.length}
+          buyValue6mo={overview.buy_value_6mo ?? 0}
+          sellValue6mo={overview.sell_value_6mo ?? 0}
+          firstTrade={overview.first_trade}
+          topInsiderName={topFiler?.name}
+          topInsiderTitle={topFiler?.normalized_title || topFiler?.title}
+        />
         <div className="flex flex-wrap items-center gap-2 md:gap-4 mt-2 text-xs text-[#55556A]">
           <span>{overview.total_trades} total trades</span>
           <span>{formatCurrency(overview.total_value)} total value</span>
@@ -180,9 +220,16 @@ export default async function CompanyPage({ params }: { params: Promise<{ ticker
           content on the page, so it stays. */}
       <div className="mb-8">
         <SectionLabel>Insider Roster ({overview.insiders.length})</SectionLabel>
-        <ProGate label="Insider Track Records">
-          <InsiderRoster insiders={overview.insiders} />
-        </ProGate>
+        {/* Names, titles, trade counts and dollar values are public: they are
+            the indexable substance of this page and what every competitor
+            publishes freely. Only the scoring is gated, and the top insider's
+            grade stays visible as proof. Blurring the whole roster hid the
+            content Google came for. */}
+        <InsiderRoster insiders={overview.insiders} gated />
+        <FollowCta
+          entity={ticker.toUpperCase()}
+          detail={`Grades for ${Math.max(overview.insiders.length - 1, 0)} more insiders at ${ticker.toUpperCase()}`}
+        />
       </div>
 
       {/* Recent trades — a static, crawlable subset. The paginated

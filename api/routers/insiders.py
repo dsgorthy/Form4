@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from api.auth import UserContext, get_current_user
 from api.db import get_db
 from api.filters import add_trans_code_filter, filing_group_by
-from api.gating import require_pro
+from api.gating import PUBLIC_VOLUME_FIELDS, require_pro
 from api.id_encoding import (
     decode_insider_id,
     encode_insider_id,
@@ -317,7 +317,17 @@ def get_insider(identifier: str, user: UserContext = Depends(get_current_user)) 
 
     # Non-Pro sees who this is and what they did; not how well it worked.
     if not user.is_pro:
-        result["track_record"] = None
+        # Volume survives, outcomes do not. buy_count / sell_count / n_tickers
+        # describe WHAT they did — the same figures every competitor publishes
+        # freely and that Google lifts as the result snippet ("112 transactions
+        # across 1 company"). Nulling the whole object took those with it and
+        # left the summary sentence as a bare name, which is the one thing on
+        # this page that has to earn the click.
+        tr_full = result.get("track_record") or {}
+        result["track_record"] = (
+            {k: tr_full.get(k) for k in PUBLIC_VOLUME_FIELDS if k in tr_full}
+            or None
+        )
         result["filing_stats"] = {}
         result["sell_pattern"] = None
         result["ticker_grades"] = []

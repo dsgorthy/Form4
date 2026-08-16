@@ -113,11 +113,23 @@ def get_ticker_grades(conn: sqlite3.Connection, insider_id: int) -> list[dict]:
 
 
 def get_ticker_pit_grade(conn: sqlite3.Connection, insider_id: int, ticker: str) -> str | None:
-    """Get the PIT grade for a specific insider+ticker pair."""
+    """Get the latest known PIT grade for a specific insider+ticker pair.
+
+    "Latest known", not "latest row". A score row exists per as_of_date, but
+    blended_score is NULL until the forward-return windows behind it mature —
+    so the newest row for a pair is very often unscored, and taking it blindly
+    returned None for a pair we had graded perfectly well a month earlier.
+    That silently suppressed the grade on 12,295 of 46,138 gradable pairs
+    (27%), which on a company page reads as "we have no opinion on this
+    insider" rather than "this grade is one refresh old".
+
+    Every sibling helper in this module already guards this, either with
+    NULLS LAST or an IS NOT NULL filter. This one did not.
+    """
     row = conn.execute("""
         SELECT blended_score
         FROM insider_ticker_scores
-        WHERE insider_id = ? AND ticker = ?
+        WHERE insider_id = ? AND ticker = ? AND blended_score IS NOT NULL
         ORDER BY as_of_date DESC
         LIMIT 1
     """, (insider_id, ticker)).fetchone()

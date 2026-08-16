@@ -6,26 +6,12 @@ from fastapi import Depends, HTTPException
 
 from api.auth import UserContext, get_current_user
 
-# Fields nulled for free-tier users. score_tier stays visible as a teaser.
-TRACK_RECORD_FIELDS = [
-    "score",
-    "percentile",
-    "buy_win_rate_7d",
-    "buy_avg_return_7d",
-    "buy_avg_abnormal_7d",
-    "sell_win_rate_7d",
-    "sell_avg_return_7d",
-    "sell_avg_abnormal_7d",
-    "return_7d",
-    "return_30d",
-    "return_90d",
-    "abnormal_7d",
-    "abnormal_30d",
-    "abnormal_90d",
-    "score_recency_weighted",
-    "tier_recency",
-    "pit_blended_score",
-]
+# Field lists live in api.public_fields, which imports nothing, so the
+# public/Pro split can be unit-tested without standing up FastAPI.
+from api.public_fields import (  # noqa: E402
+    PUBLIC_VOLUME_FIELDS,
+    TRACK_RECORD_FIELDS,
+)
 
 # 90-day free window
 FREE_TIER_DAYS = 90

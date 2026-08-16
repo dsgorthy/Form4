@@ -25,6 +25,9 @@ def get_company(ticker: str, user: UserContext = Depends(get_current_user)) -> d
     if ticker == "NONE":
         raise HTTPException(status_code=404, detail="Company not found")
 
+    from datetime import date, timedelta
+    six_months_ago = (date.today() - timedelta(days=182)).isoformat()
+
     with get_db() as conn:
         # Get company name from most recent trade
         company_row = conn.execute(
@@ -33,7 +36,20 @@ def get_company(ticker: str, user: UserContext = Depends(get_current_user)) -> d
                    COUNT(*) AS total_trades,
                    SUM(value) AS total_value,
                    MIN(trade_date) AS first_trade,
-                   MAX(trade_date) AS last_trade
+                   MAX(trade_date) AS last_trade,
+                   -- Aggregates for the summary sentence under the H1. Every
+                   -- competitor that outranks us leads with figures like these
+                   -- and Google lifts them verbatim as the result snippet
+                   -- ("net sold $249.2M over the trailing 6 months").
+                   -- Conditional SUMs over a scan we already perform, so no
+                   -- extra query cost.
+                   COUNT(DISTINCT insider_id) AS distinct_insiders,
+                   SUM(CASE WHEN trade_type = 'buy'  THEN value ELSE 0 END) AS buy_value,
+                   SUM(CASE WHEN trade_type = 'sell' THEN value ELSE 0 END) AS sell_value,
+                   SUM(CASE WHEN trade_type = 'buy'
+                             AND trade_date >= ? THEN value ELSE 0 END) AS buy_value_6mo,
+                   SUM(CASE WHEN trade_type = 'sell'
+                             AND trade_date >= ? THEN value ELSE 0 END) AS sell_value_6mo
             FROM trades
             WHERE ticker = ?
               AND (is_duplicate = 0 OR is_duplicate IS NULL)
@@ -42,7 +58,7 @@ def get_company(ticker: str, user: UserContext = Depends(get_current_user)) -> d
               AND is_derivative = 0
             GROUP BY ticker
             """,
-            (ticker,),
+            (six_months_ago, six_months_ago, ticker),
         ).fetchone()
 
         if company_row is None:

@@ -15,6 +15,9 @@ import { InsiderScoreChart } from "@/components/insider-score-chart";
 import { TickerDisplay, companyToSlug } from "@/components/ui/ticker-display";
 import type { InsiderProfile, InsiderCompany, Filing, PaginatedResponse } from "@/lib/types";
 import { insiderPath, idFromSlug } from "@/lib/insider-url";
+import { InsiderSummary } from "@/components/entity-summary";
+import { FollowCta } from "@/components/follow-cta";
+import { insiderJsonLd, jsonLdScript } from "@/lib/structured-data";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
@@ -149,9 +152,23 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
   // head, and once the response is streaming the status code is already
   // settled, so the redirect never reaches the client.
   const tr = profile.track_record;
+  // Server-provided: the API sets this for any non-Pro viewer. Used instead
+  // of a client-side Clerk check so the server-rendered HTML — the only
+  // version a crawler sees — is already correct.
+  const isGated = (profile as any).gated === true;
 
   return (
     <div>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={jsonLdScript(
+          insiderJsonLd({
+            name: profile.name,
+            slug: (profile as any).slug || idFromSlug(id),
+            totalTrades: (tr?.buy_count ?? 0) + (tr?.sell_count ?? 0),
+          }),
+        )}
+      />
       {/* Breadcrumb */}
       <nav className="flex items-center gap-2 text-sm text-[#55556A] mb-6">
         <Link href="/" className="hover:text-[#8888A0] transition-colors">
@@ -193,8 +210,28 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
         const title = formatTitle((primary as any)?.normalized_title || primary?.title) || formatTitle(tr?.primary_title);
         const otherCount = cos.length > 1 ? cos.length - 1 : 0;
         const skipTitle = !title;
+        const totalTrades = (tr?.buy_count ?? 0) + (tr?.sell_count ?? 0);
+        const lastTrade = cos.length
+          ? [...cos].sort((a, b) => (b.last_trade > a.last_trade ? 1 : -1))[0].last_trade
+          : null;
+        // Earliest disclosure on record. Buys and sells carry separate first
+        // dates, and an insider may have only one of the two.
+        const firstTrade =
+          [tr?.buy_first_date, tr?.sell_first_date].filter(Boolean).sort()[0] ?? null;
         return (
           <>
+            {/* Sits directly under the H1 — the position competitors use and
+                the text Google lifts as the snippet. */}
+            <InsiderSummary
+              name={profile.name}
+              title={title}
+              companyName={primary?.company}
+              ticker={primary?.ticker}
+              nCompanies={cos.length}
+              totalTrades={totalTrades}
+              lastTrade={lastTrade}
+              firstTrade={firstTrade}
+            />
             {!skipTitle && (
               <p className="text-sm text-[#8888A0] mb-1">
                 {title}
@@ -273,8 +310,16 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
         const sellCount = fc?.sell ?? tr.sell_count;
         return (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-            <StatBox label="Track Record" value={tr.score != null ? tr.score.toFixed(2) : "\u2014"} sub={tr.percentile != null ? `${tr.percentile.toFixed(0)}th percentile` : undefined} />
-            <StatBox label="Best Window" value={tr.best_window || "\u2014"} />
+            {/* Omitted rather than shown empty when gated: the API nulls
+                score/percentile/best_window for non-Pro, and a StatBox reading
+                "\u2014" tells a first-time visitor we have no data on this
+                person — the opposite of the pitch. */}
+            {!isGated && (
+              <>
+                <StatBox label="Track Record" value={tr.score != null ? tr.score.toFixed(2) : "\u2014"} sub={tr.percentile != null ? `${tr.percentile.toFixed(0)}th percentile` : undefined} />
+                <StatBox label="Best Window" value={tr.best_window || "\u2014"} />
+              </>
+            )}
             <StatBox label="Tickers Traded" value={String(tr.n_tickers)} />
             <StatBox
               label="Total Filings"
@@ -322,8 +367,18 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
         </div>
       )}
 
-      {/* Track Records + Transaction Volume */}
-      {tr && (() => {
+      {/* Track Records + Transaction Volume.
+          Suppressed entirely when gated — every metric in these tables is
+          Pro-only, so for an anonymous visitor they render as a full grid of
+          em-dashes. The follow CTA takes their place: it states what is behind
+          the wall instead of drawing an empty one. */}
+      {isGated && (
+        <FollowCta
+          entity={profile.name}
+          detail="Win rate, average move and alpha across 7/30/90-day windows"
+        />
+      )}
+      {tr && !isGated && (() => {
         const fc = profile.filing_counts;
         const fs = profile.filing_stats;
         const buyCount = fc?.buy ?? tr.buy_count;
