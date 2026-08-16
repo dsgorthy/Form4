@@ -72,6 +72,19 @@ const TITLE_RANK = [
   "Founder", "VP", "Dir", "Secretary", "Treasurer", "Controller", "10% Owner",
 ];
 
+/**
+ * Chip abbreviations expanded back out for running text.
+ *
+ * "Pres" earns its place in a table cell, where the column is narrow and the
+ * reader is scanning. In a sentence it reads as a typo — "Jen Hsun Huang, CEO &
+ * Pres" — so prose gets the full word. Initialisms everyone already reads as
+ * words (CEO, CFO, VP) stay as they are; spelling those out would be worse.
+ */
+const PROSE_FORM: Record<string, string> = {
+  Pres: "President",
+  Dir: "Director",
+};
+
 function rankOf(tag: string): number {
   const i = TITLE_RANK.indexOf(tag);
   return i === -1 ? TITLE_RANK.length : i;
@@ -104,7 +117,7 @@ export function titleSummary(
   title: string | null | undefined,
   max: number = 2,
 ): string {
-  const tags = titleTags(title);
+  const tags = titleTags(title).map((t) => PROSE_FORM[t] ?? t);
   if (tags.length === 0) return "";
   if (tags.length <= max) return tags.join(" & ");
   return `${tags.slice(0, max).join(" & ")} +${tags.length - max}`;

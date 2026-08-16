@@ -255,7 +255,7 @@ export default async function CompanyPage({ params }: { params: Promise<{ ticker
                 <tr key={t.trade_id} className="border-b border-[#2A2A3A]/50 hover:bg-[#1A1A26]">
                   <td className="px-4 py-2 text-[#E8E8ED]">{t.insider_name}</td>
                   <td className="px-4 py-2 text-[#8888A0]">
-                    {t.normalized_title || t.title || "—"}
+                    {titleSummary(t.normalized_title || t.title) || "—"}
                   </td>
                   <td className="px-4 py-2">
                     <span className={t.trade_type === "buy" ? "text-[#22C55E]" : "text-[#EF4444]"}>
