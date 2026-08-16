@@ -231,7 +231,20 @@ def get_company_trades(
         items = null_items_track_records(items)
         for item in items:
             item["gated"] = item["trade_date"] < free_cutoff
-        items = redact_gated_items(items)
+        # Deliberately NOT redact_gated_items() here.
+        #
+        # The company page is an indexed acquisition surface, and this table is
+        # most of its substance. Redacting identity turned it into rows of
+        # "Insider ••••" with no value — on AAPL, 14 of the 15 visible rows,
+        # because everything outside the 90-day window is blanked. That is a
+        # worse page than SEC.gov, which publishes the same filings in full and
+        # for free, and it is what every competitor ranking above us shows.
+        #
+        # What the disclosure SAYS — who filed, what, when, how much — is public
+        # record and stays public. What we COMPUTE about it — returns, alpha,
+        # scores, grades — is the product and is still nulled by
+        # null_items_track_records above. The `gated` flag is still set, so the
+        # UI can mark these rows and upsell on the analysis.
     encode_response_ids(items)
 
     return {
