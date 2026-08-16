@@ -49,8 +49,17 @@ export function ProGate({
   const { isSignedIn, isLoaded } = useAuth();
   const { user } = useUser();
 
+  // Pre-hydration, and therefore what the server renders and a crawler reads
+  // without executing JS. Children show unblurred — blurring here and clearing
+  // a beat later would flash at every subscriber — but the block still carries
+  // GATED_CLASS, because this is the only markup a non-rendering crawl sees. If
+  // the class only appeared post-hydration, the JSON-LD would declare a paywall
+  // over a selector that matches nothing in the delivered HTML: full content to
+  // the crawler with no accompanying declaration, which is the exact shape the
+  // paywall markup exists to distinguish from cloaking. Serving it and marking
+  // it is Google's sanctioned pattern; serving it silently is not.
   if (!isLoaded) {
-    return <div className="relative">{children}</div>;
+    return <div className={`${GATED_CLASS} relative`}>{children}</div>;
   }
 
   const cleared = requires === "auth" ? !!isSignedIn : isPro(user);

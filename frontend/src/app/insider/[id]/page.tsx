@@ -17,7 +17,7 @@ import type { InsiderProfile, InsiderCompany, Filing, PaginatedResponse } from "
 import { insiderPath, idFromSlug } from "@/lib/insider-url";
 import { InsiderSummary } from "@/components/entity-summary";
 import { FollowCta } from "@/components/follow-cta";
-import { insiderJsonLd, jsonLdScript } from "@/lib/structured-data";
+import { GATED_CLASS, insiderJsonLd, jsonLdScript } from "@/lib/structured-data";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
@@ -157,6 +157,17 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
   // version a crawler sees — is already correct.
   const isGated = (profile as any).gated === true;
 
+  // Hoisted above the JSON-LD: a Person node with jobTitle and worksFor links
+  // this page to the employer as an entity, rather than leaving a bare name.
+  // Same derivation the summary sentence uses — by trade COUNT, since a single
+  // large sale makes someone the biggest filer, not the most active.
+  const primaryCompany = companies.companies.length
+    ? [...companies.companies].sort((a, b) => b.trade_count - a.trade_count)[0]
+    : null;
+  const primaryTitle =
+    formatTitle((primaryCompany as any)?.normalized_title || primaryCompany?.title) ||
+    formatTitle(tr?.primary_title);
+
   return (
     <div>
       <script
@@ -165,6 +176,9 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
           insiderJsonLd({
             name: profile.name,
             slug: (profile as any).slug || idFromSlug(id),
+            title: primaryTitle,
+            company: primaryCompany?.company,
+            ticker: primaryCompany?.ticker,
             totalTrades: (tr?.buy_count ?? 0) + (tr?.sell_count ?? 0),
           }),
         )}
@@ -204,10 +218,8 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
       </div>
       {(() => {
         const cos = companies.companies;
-        const primary = cos.length > 0
-          ? [...cos].sort((a, b) => b.trade_count - a.trade_count)[0]
-          : null;
-        const title = formatTitle((primary as any)?.normalized_title || primary?.title) || formatTitle(tr?.primary_title);
+        const primary = primaryCompany;
+        const title = primaryTitle;
         const otherCount = cos.length > 1 ? cos.length - 1 : 0;
         const skipTitle = !title;
         const totalTrades = (tr?.buy_count ?? 0) + (tr?.sell_count ?? 0);
@@ -373,10 +385,24 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
           em-dashes. The follow CTA takes their place: it states what is behind
           the wall instead of drawing an empty one. */}
       {isGated && (
-        <FollowCta
-          entity={profile.name}
-          detail="Win rate, average move and alpha across 7/30/90-day windows"
-        />
+        // GATED_CLASS goes on a SERVER-rendered element, not on the CTA inside
+        // it. FollowCta is a client component that renders nothing until Clerk
+        // resolves, so a crawler reading the delivered HTML would find the
+        // page's JSON-LD declaring a paywall over a selector matching nothing.
+        // This wrapper is what makes that declaration resolve, and it names
+        // what is withheld so the block is not simply a hole in the page.
+        <div className={`${GATED_CLASS} mb-8`}>
+          <SectionLabel>Track Record</SectionLabel>
+          <p className="max-w-[70ch] text-sm leading-relaxed text-[#8888A0]">
+            Win rate, average move and alpha for {profile.name}, measured over
+            7-, 30- and 90-day windows after each filing and benchmarked against
+            SPY, are part of Form4 Pro.
+          </p>
+          <FollowCta
+            entity={profile.name}
+            detail="Win rate, average move and alpha across 7/30/90-day windows"
+          />
+        </div>
       )}
       {tr && !isGated && (() => {
         const fc = profile.filing_counts;
