@@ -14,12 +14,38 @@ and nothing ever went back to look again.
 The V3 career fields do not have this problem: compute_career_grades.py runs
 daily and recomputes them at run time, by which point the prior trades have
 matured. It writes only career_blended_score and career_grade, leaving the V2
-fields exactly as ingest left them. That asymmetry is why a profile can show a
-career grade and "awaiting returns" side by side on the same row — Tim Cook's
-NKE row carries career_blended_score 0.94 (grade C) next to blended_score NULL.
+fields exactly as ingest left them.
 
-Measured 2026-08-16: 16,759 of 57,671 unscored insider-ticker pairs had matured
-returns available and were displaying "awaiting returns" anyway.
+HOW MUCH THIS ACTUALLY RECOVERS — READ BEFORE TRUSTING AN ESTIMATE
+
+Almost nothing, most days. The first full run (2026-08-17, --since 2016-01-01)
+processed all 81,468 unscored rows and recovered 0. That is the correct result,
+not a failure: trade_returns is already caught up to its ceiling, so there is no
+backlog of matured-but-unread returns to collect.
+
+Sampling why each unscored row is unscored:
+
+    84.4%  insider had no prior buy at all as of that date
+    13.2%  prior buys exist, but no price data for any of their tickers
+     2.5%  prices exist, return not computed  <- the only real gap
+     0.0%  should have scored and didn't
+
+The 13.2% is mostly not a defect. Ticker 'NONE' (5,912 trades, 1,174 insiders,
+388 companies) is non-traded issuers filing Form 4 — private BDCs, interval
+funds, employee-owned companies: Audax Private Credit, HPS Real Assets Lending,
+Fundrise, West Bay BDC, Publix. No ticker, no market price, never scoreable.
+The remainder are OTC microcaps (ENDV, IMTL, VPRB) with no price coverage.
+
+This script was originally written to fix profiles reading "awaiting returns"
+next to a career grade. That turned out to be a display bug, not a data one —
+the rows were scored the whole time, and the card said "awaiting returns"
+whenever the insider had no prior trades in that specific ticker. Fixed in
+api/pit_helpers.py + frontend insider page; nothing here was the cause.
+
+What the script is still good for: 2026 rows, whose returns are 74.8% complete
+and still landing. Re-running periodically picks those up as they mature. Expect
+single-digit or low-hundreds recoveries, and treat a large number as a signal
+that the returns backfill had stalled.
 
 THIS IS NOT A PIT VIOLATION
 

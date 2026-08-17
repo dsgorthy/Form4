@@ -82,11 +82,26 @@ def get_ticker_grades(conn: sqlite3.Connection, insider_id: int) -> list[dict]:
     """Per-ticker grades for an insider — both Recent Form and Career.
 
     Returns list of dicts: ticker, grade (Recent Form), score, career_grade,
-    career_score, trade_count. Sorted by Recent Form score DESC.
+    career_score, trade_count, career_trade_count. Sorted by Recent Form
+    score DESC.
+
+    Both counts are returned because they answer different questions and the
+    caller needs to say which one it is showing. `trade_count` is the insider's
+    prior trades IN THIS TICKER that had observable returns at as_of_date;
+    `career_trade_count` is the same across every ticker they have traded.
+
+    A scored row very often has trade_count 0 — the trade that created the row
+    is excluded by the return lag, so a first-ever trade in a ticker leaves
+    nothing behind it. The score is real, computed off the career record via
+    the ticker/global blend. Tim Cook's AAPL row scores 1.06 with 0 prior AAPL
+    trades and 6 prior trades elsewhere. Rendering that as "awaiting returns"
+    was wrong on 10,672 of 59,149 displayed pairs (18%): nothing is pending,
+    and the count cannot change, because prior history as of a past date is
+    fixed. Fall back to career_trade_count instead, and label it as such.
     """
     rows = conn.execute("""
         SELECT its.ticker, its.blended_score, its.career_blended_score,
-               its.ticker_trade_count
+               its.ticker_trade_count, its.global_trade_count
         FROM insider_ticker_scores its
         WHERE its.insider_id = ?
           AND its.as_of_date = (
@@ -108,6 +123,7 @@ def get_ticker_grades(conn: sqlite3.Connection, insider_id: int) -> list[dict]:
             "career_grade": score_to_grade(r["career_blended_score"]) if r["career_blended_score"] is not None else None,
             "career_score": round(r["career_blended_score"], 2) if r["career_blended_score"] is not None else None,
             "trade_count": r["ticker_trade_count"] or 0,
+            "career_trade_count": r["global_trade_count"] or 0,
         })
     return out
 

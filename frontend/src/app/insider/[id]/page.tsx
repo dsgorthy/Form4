@@ -349,7 +349,7 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
             Grade by Ticker
           </h3>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-            {((profile as any).ticker_grades as { ticker: string; grade: string | null; score: number | null; career_grade: string | null; career_score: number | null; trade_count: number }[]).map(
+            {((profile as any).ticker_grades as { ticker: string; grade: string | null; score: number | null; career_grade: string | null; career_score: number | null; trade_count: number; career_trade_count: number }[]).map(
               (tg, i) => (
                 <Link
                   key={tg.ticker}
@@ -369,8 +369,19 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                     )}
                     <span className="text-sm font-mono text-[#E8E8ED] truncate">{tg.ticker}</span>
                   </div>
+                  {/* Sample size behind the grade. A scored row with
+                      trade_count 0 is normal, not pending: the trade that
+                      created the row is excluded by the return lag, so a
+                      first-ever trade in this ticker leaves nothing behind it
+                      and the grade comes off the career record instead. Say
+                      which record it is. "awaiting returns" is reserved for
+                      rows carrying no score at all. */}
                   <span className="text-[10px] text-[#55556A] font-mono shrink-0 ml-2">
-                    {tg.trade_count > 0 ? `${tg.trade_count} ${tg.trade_count === 1 ? "trade" : "trades"}` : "awaiting returns"}
+                    {tg.trade_count > 0
+                      ? `${tg.trade_count} ${tg.trade_count === 1 ? "trade" : "trades"}`
+                      : tg.career_trade_count > 0
+                        ? `${tg.career_trade_count} career ${tg.career_trade_count === 1 ? "trade" : "trades"}`
+                        : "awaiting returns"}
                   </span>
                 </Link>
               ),
