@@ -114,9 +114,15 @@ def _classify_is_derivative(security_title, price, ticker, value=None) -> int:
         lowered = security_title.lower()
         if any(tok in lowered for tok in _DERIVATIVE_TITLE_TOKENS):
             return 1
+    # The allowlist has to guard BOTH numeric rules, not just the price one.
+    # 10,000 BRK.A shares is $6.9B of entirely real common stock: it clears the
+    # price test via the allowlist and was then caught by the value floor
+    # anyway, and quarantined as a "derivative".
+    allowlisted = bool(ticker) and ticker.upper() in _HIGH_PRICED_COMMON_TICKERS
+    if allowlisted:
+        return 0
     if price is not None and price > _NOTIONAL_PRICE_FLOOR:
-        if not ticker or ticker.upper() not in _HIGH_PRICED_COMMON_TICKERS:
-            return 1
+        return 1
     if value is not None and value > _NOTIONAL_VALUE_FLOOR:
         return 1
     return 0

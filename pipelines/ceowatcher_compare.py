@@ -156,6 +156,12 @@ def get_our_signals(conn, filing_date: str) -> dict[str, dict]:
     Uses a 3-day window because CEO Watcher emails often report trades
     1-2 days after the SEC filing date.
     """
+    # filing_date is TEXT. `(DATE x - INTERVAL '3 days')::text` renders
+    # '2026-08-14 00:00:00', and lexicographically '2026-08-14' sorts BEFORE
+    # that, so the earliest day of the window was silently excluded — a third
+    # of the range, every run. On 2026-08-17 that dropped nearly every trade
+    # CEO Watcher had flagged into a bogus "not in our database" bucket and
+    # reported 12% overlap. to_char keeps both sides bare YYYY-MM-DD.
     rows = conn.execute("""
         SELECT
             t.ticker,
@@ -163,8 +169,10 @@ def get_our_signals(conn, filing_date: str) -> dict[str, dict]:
             MAX(COALESCE(i.display_name, i.name)) AS insider_name,
             MAX(t.title) AS title,
             SUM(t.value) AS total_value,
+            MAX(t.value) AS largest_single_trade,
             MAX(t.signal_grade) AS signal_grade,
             MAX(t.pit_grade) AS pit_grade,
+            MAX(t.career_grade) AS career_grade,
             MAX(t.pit_blended_score) AS pit_blended_score,
             MAX(t.is_rare_reversal) AS is_rare_reversal,
             MAX(t.is_csuite) AS is_csuite,
@@ -174,10 +182,11 @@ def get_our_signals(conn, filing_date: str) -> dict[str, dict]:
         FROM trades t
         JOIN insiders i ON t.insider_id = i.insider_id
         WHERE t.filing_date BETWEEN
-              (DATE %s - INTERVAL '3 days')::text
-              AND (DATE %s + INTERVAL '1 day')::text
-          AND t.trans_code IN ('P', 'S')
+              to_char(DATE %s - 3, 'YYYY-MM-DD')
+              AND to_char(DATE %s + 1, 'YYYY-MM-DD')
+          AND t.signal_class IN ('discretionary_buy', 'discretionary_sell')
           AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
+          AND NOT COALESCE(t.value_suspect, FALSE)
         GROUP BY t.ticker, t.trade_type
         ORDER BY SUM(t.value) DESC
     """, (filing_date, filing_date)).fetchall()
@@ -209,6 +218,12 @@ def compare_signals(cw_trades: list[dict], our_signals: dict[str, dict]) -> dict
                 "cw_name": cw["name"],
                 "cw_context": cw["context"],
                 "our_value": ours["total_value"],
+                # CW reports one insider's trade; we aggregate a ticker. Carry
+                # both so the printed comparison is like-for-like instead of
+                # reading as a value mismatch when it is a granularity one.
+                "our_largest_single": ours["largest_single_trade"],
+                "our_n_insiders_note": ours["n_insiders"],
+                "our_career_grade": ours["career_grade"],
                 "our_grade": ours["signal_grade"],
                 "our_pit_grade": ours["pit_grade"],
                 "our_score": ours["pit_blended_score"],
@@ -224,7 +239,7 @@ def compare_signals(cw_trades: list[dict], our_signals: dict[str, dict]) -> dict
                 "cw_name": cw["name"],
                 "cw_title": cw["title"],
                 "cw_context": cw["context"],
-                "reason": "not in our database for this filing date",
+                "reason": "present in our data but not surfaced by our ranking",
             })
 
     # Our signals they missed (top by value, exclude matched)
