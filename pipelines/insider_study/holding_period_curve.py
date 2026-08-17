@@ -67,10 +67,18 @@ WITH cal AS (
       JOIN prices.daily_prices e ON e.ticker = ev.ticker AND e.date = ec.date
      WHERE e.close > 0
 )
+-- Winsorized at +/-100pp, matching fit_trade_model.py. The first cut of this
+-- ran unclipped and reported a +1.20% peak; per-year it turned out to be
+-- +10.37% in 2026 against -0.11%..+0.75% everywhere else, on a 46.6% win rate.
+-- A sub-even win rate with a double-digit mean is a right tail, not an edge.
+-- The median column is here so that can never hide again.
 SELECT %s AS hold,
        count(*) AS n,
-       avg((x.close / px.entry_px - 1) - (xc.spy_close / px.entry_spy - 1)) AS abn,
-       avg(x.close / px.entry_px - 1) AS raw,
+       avg(GREATEST(LEAST(
+           (x.close / px.entry_px - 1) - (xc.spy_close / px.entry_spy - 1),
+           1.0), -1.0)) AS abn,
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY
+           (x.close / px.entry_px - 1) - (xc.spy_close / px.entry_spy - 1)) AS med,
        100.0 * count(*) FILTER (
            WHERE (x.close / px.entry_px - 1) - (xc.spy_close / px.entry_spy - 1) > 0
        ) / count(*) AS win_pct
@@ -100,13 +108,13 @@ def main() -> int:
         print("\n" + "=" * 62)
         print(f"  {args.klass} — {k} trading-day hold, by filing year")
         print("=" * 62)
-        print(f"    {'year':>6} {'n':>8} {'vs SPY':>9} {'win%':>7}")
+        print(f"    {'year':>6} {'n':>8} {'mean':>9} {'median':>9} {'win%':>7}")
         pos = tot = 0
         # The `%s AS hold` placeholder is gone from the rewritten SELECT, so
         # this takes three params, not four.
         for r in conn.execute(sql, (args.klass, args.since, k)).fetchall():
-            yr, n, abn, raw, win = r
-            print(f"    {yr:>6} {n:>8} {abn*100:>8.2f}% {win:>6.1f}%")
+            yr, n, abn, med, win = r
+            print(f"    {yr:>6} {n:>8} {abn*100:>8.2f}% {med*100:>8.2f}% {win:>6.1f}%")
             tot += 1
             pos += 1 if abn > 0 else 0
         print(f"\n    years positive: {pos}/{tot}")
@@ -117,15 +125,15 @@ def main() -> int:
     print(f"  HOLDING-PERIOD CURVE — {args.klass}, entry = close of first")
     print(f"  trading day after filing_date, since {args.since}")
     print("=" * 74)
-    print(f"    {'hold(td)':>9} {'n':>8} {'raw':>9} {'vs SPY':>9} {'win%':>7}")
+    print(f"    {'hold(td)':>9} {'n':>8} {'mean':>9} {'median':>9} {'win%':>7}")
 
     best = None
     for k in HOLDS:
         row = conn.execute(SQL, (args.klass, args.since, k, k)).fetchone()
         if not row or not row[1]:
             continue
-        _, n, abn, raw, win = row
-        print(f"    {k:>9} {n:>8} {raw*100:>8.2f}% {abn*100:>8.2f}% {win:>6.1f}%")
+        _, n, abn, med, win = row
+        print(f"    {k:>9} {n:>8} {abn*100:>8.2f}% {med*100:>8.2f}% {win:>6.1f}%")
         if best is None or abn > best[1]:
             best = (k, abn)
 
