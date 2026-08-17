@@ -87,7 +87,28 @@ def main() -> int:
     ap.add_argument("--since", default="2018-01-01")
     ap.add_argument("--klass", default="discretionary_buy",
                     choices=["discretionary_buy", "discretionary_sell"])
+    ap.add_argument("--by-year", type=int, metavar="HOLD",
+                    help="Break one holding period out by filing year")
     args = ap.parse_args()
+
+    if args.by_year:
+        conn = get_connection()
+        k = args.by_year
+        sql = SQL.replace("SELECT %s AS hold,",
+                          "SELECT left(ev.filing_date,4) AS yr,") + \
+            " GROUP BY 1 ORDER BY 1"
+        print("\n" + "=" * 62)
+        print(f"  {args.klass} — {k} trading-day hold, by filing year")
+        print("=" * 62)
+        print(f"    {'year':>6} {'n':>8} {'vs SPY':>9} {'win%':>7}")
+        pos = tot = 0
+        for r in conn.execute(sql, (args.klass, args.since, k, k)).fetchall():
+            yr, n, abn, raw, win = r
+            print(f"    {yr:>6} {n:>8} {abn*100:>8.2f}% {win:>6.1f}%")
+            tot += 1
+            pos += 1 if abn > 0 else 0
+        print(f"\n    years positive: {pos}/{tot}")
+        return 0
 
     conn = get_connection()
     print("\n" + "=" * 74)
