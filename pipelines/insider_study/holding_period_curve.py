@@ -102,7 +102,9 @@ def main() -> int:
         print("=" * 62)
         print(f"    {'year':>6} {'n':>8} {'vs SPY':>9} {'win%':>7}")
         pos = tot = 0
-        for r in conn.execute(sql, (args.klass, args.since, k, k)).fetchall():
+        # The `%s AS hold` placeholder is gone from the rewritten SELECT, so
+        # this takes three params, not four.
+        for r in conn.execute(sql, (args.klass, args.since, k)).fetchall():
             yr, n, abn, raw, win = r
             print(f"    {yr:>6} {n:>8} {abn*100:>8.2f}% {win:>6.1f}%")
             tot += 1
