@@ -198,6 +198,8 @@ def main() -> int:
     ap.add_argument("--lam", type=float, default=50.0)
     ap.add_argument("--first-time-only", action="store_true",
                     help="Restrict to filers with no prior discretionary buy")
+    ap.add_argument("--walk-forward", action="store_true",
+                    help="Refit each year on everything prior, test on that year")
     args = ap.parse_args()
 
     col = f"abnormal_{args.horizon}"
@@ -228,6 +230,52 @@ def main() -> int:
          ORDER BY t.filing_date
     """, (args.since,)).fetchall()
     logger.info("  %d labelled trades", len(rows))
+
+    if args.walk_forward:
+        # A single split is not evidence. Fitting through 2021 and testing on
+        # 2022+ scored +1.35pp / rho 0.031 / 4-of-9 monotone; fitting through
+        # 2023 scored +4.69 / 0.091 / 8-of-9 on a quieter window. Refit each
+        # year on everything before it and report the whole distribution, so a
+        # regime-dependent model cannot pass by picking its own test set.
+        years = sorted({r["filing_date"][:4] for r in rows})
+        print("\n" + "=" * 72)
+        print(f"  WALK-FORWARD — refit annually, horizon {args.horizon}"
+              f"{'  (first-time filers only)' if args.first_time_only else ''}")
+        print("=" * 72)
+        print(f"    {'test yr':>8} {'train n':>9} {'test n':>8} {'top-bot':>9} "
+              f"{'rho':>8} {'mono':>6}")
+        stats = []
+        for yr in years:
+            tr_rows = [r for r in rows if r["filing_date"][:4] < yr]
+            te_rows = [r for r in rows if r["filing_date"][:4] == yr]
+            if len(tr_rows) < 2000 or len(te_rows) < 500:
+                continue
+            Xa, lv = build_design(tr_rows)
+            ya = np.array([r["y"] for r in tr_rows], dtype=np.float64)
+            Xb, _ = build_design(te_rows, lv)
+            yb = np.array([r["y"] for r in te_rows], dtype=np.float64)
+            wv = ridge(Xa, ya, args.lam)
+            sc = Xb @ wv
+            tb = decile_table(sc, yb)
+            spread = (tb[-1][2] - tb[0][2]) * 100
+            rho = spearman(sc, yb)
+            mono = sum(1 for a, b in zip(tb, tb[1:]) if b[2] >= a[2])
+            stats.append((spread, rho, mono))
+            print(f"    {yr:>8} {len(tr_rows):>9} {len(te_rows):>8} "
+                  f"{spread:>8.2f}pp {rho:>+8.4f} {mono:>4}/9")
+        if stats:
+            sp = np.array([s[0] for s in stats])
+            rh = np.array([s[1] for s in stats])
+            mo = np.array([s[2] for s in stats])
+            print(f"\n    {'mean':>8} {'':>9} {'':>8} {sp.mean():>8.2f}pp "
+                  f"{rh.mean():>+8.4f} {mo.mean():>4.1f}/9")
+            print(f"    {'median':>8} {'':>9} {'':>8} {np.median(sp):>8.2f}pp "
+                  f"{np.median(rh):>+8.4f} {np.median(mo):>4.1f}/9")
+            print(f"    {'worst':>8} {'':>9} {'':>8} {sp.min():>8.2f}pp "
+                  f"{rh.min():>+8.4f} {mo.min():>4}/9")
+            print(f"\n    years with positive spread : {int((sp > 0).sum())}/{len(sp)}")
+            print(f"    years with rho > 0         : {int((rh > 0).sum())}/{len(rh)}")
+        return 0
 
     train = [r for r in rows if r["filing_date"] <= args.train_end]
     test = [r for r in rows if r["filing_date"] > args.train_end]
