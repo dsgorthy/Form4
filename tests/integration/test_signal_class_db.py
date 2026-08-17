@@ -97,8 +97,12 @@ class TestClassifier:
 class TestTrigger:
     def test_fires_on_insert(self, conn):
         """A new row is classified without the writer naming the column."""
+        # Read the row back rather than using RETURNING: the compat layer in
+        # config/database.py does not surface a result set for INSERT, and
+        # selecting it back proves the value was persisted rather than merely
+        # computed in the returning clause.
         try:
-            row = conn.execute(
+            conn.execute(
                 """INSERT INTO trades (insider_id, ticker, trade_type, trade_date,
                                        filing_date, price, qty, value, is_csuite,
                                        title_weight, source, created_at,
@@ -106,11 +110,14 @@ class TestTrigger:
                                        trans_acquired_disp, is_derivative)
                    VALUES (?, 'ZZTEST', 'buy', '2026-01-02', '2026-01-03',
                            1.0, 1, 1.0, 0, 0, 'test', NOW()::text, 0,
-                           'P', 0, 'A', 0)
-                   RETURNING signal_class""",
+                           'P', 0, 'A', 0)""",
                 (1,),
+            )
+            got = conn.execute(
+                "SELECT signal_class FROM trades WHERE ticker = 'ZZTEST'"
             ).fetchone()
-            assert row[0] == "discretionary_buy"
+            assert got is not None, "insert did not land"
+            assert got[0] == "discretionary_buy"
         finally:
             conn.rollback()
 
