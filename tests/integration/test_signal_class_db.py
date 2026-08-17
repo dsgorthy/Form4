@@ -98,24 +98,25 @@ class TestTrigger:
     def test_fires_on_insert(self, conn):
         """A new row is classified without the writer naming the column."""
         try:
-            conn.execute("SAVEPOINT sc_insert")
             row = conn.execute(
                 """INSERT INTO trades (insider_id, ticker, trade_type, trade_date,
-                                       filing_date, trans_code, is_10b5_1,
+                                       filing_date, price, qty, value, is_csuite,
+                                       title_weight, source, created_at,
+                                       is_duplicate, trans_code, is_10b5_1,
                                        trans_acquired_disp, is_derivative)
                    VALUES (?, 'ZZTEST', 'buy', '2026-01-02', '2026-01-03',
+                           1.0, 1, 1.0, 0, 0, 'test', NOW()::text, 0,
                            'P', 0, 'A', 0)
                    RETURNING signal_class""",
                 (1,),
             ).fetchone()
             assert row[0] == "discretionary_buy"
         finally:
-            conn.execute("ROLLBACK TO SAVEPOINT sc_insert")
+            conn.rollback()
 
     def test_fires_on_update_of_source_column(self, conn):
         """Flipping the 10b5-1 flag re-routes the row to planned_*."""
         try:
-            conn.execute("SAVEPOINT sc_update")
             tid = conn.execute(
                 "SELECT trade_id FROM trades WHERE signal_class = 'discretionary_buy' LIMIT 1"
             ).fetchone()[0]
@@ -125,15 +126,15 @@ class TestTrigger:
             ).fetchone()[0]
             assert got == "planned_buy"
         finally:
-            conn.execute("ROLLBACK TO SAVEPOINT sc_update")
+            conn.rollback()
 
     def test_trigger_is_scoped_to_the_four_source_columns(self, conn):
         """Routine batch writes (career_grade, returns) must not pay for it."""
         cols = conn.execute("""
             SELECT string_agg(a.attname, ',' ORDER BY a.attname)
               FROM pg_trigger tg
-              JOIN unnest(tg.tgattr) AS attnum ON true
-              JOIN pg_attribute a ON a.attrelid = tg.tgrelid AND a.attnum = attnum
+              CROSS JOIN LATERAL unnest(tg.tgattr) AS u(colnum)
+              JOIN pg_attribute a ON a.attrelid = tg.tgrelid AND a.attnum = u.colnum
              WHERE tg.tgname = 'trg_trades_signal_class'
         """).fetchone()[0]
         assert cols == "is_10b5_1,is_derivative,trans_acquired_disp,trans_code"
