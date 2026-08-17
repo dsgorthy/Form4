@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.auth import UserContext, get_current_user
 from api.db import get_db
-from api.filters import add_trans_code_filter, filing_group_by
+from api.filters import add_signal_class_filter, add_trans_code_filter, filing_group_by
 from api.gating import get_free_cutoff_date, get_grace_cutoff_datetime, null_items_track_records, redact_gated_items
 from api.id_encoding import decode_trade_id, encode_trade_id, encode_insider_id, encode_response_ids
 from api.signals_enrichment import enrich_items_with_signals
@@ -66,6 +66,7 @@ def list_filings(
     date_from: Optional[str] = Query(default=None),
     date_to: Optional[str] = Query(default=None),
     trans_codes: str = Query(default="P,S"),
+    signal_class: Optional[str] = Query(default=None),
     hide_routine: bool = Query(default=False),
     hide_planned: bool = Query(default=False),
     include_private: bool = Query(default=False),
@@ -83,6 +84,7 @@ def list_filings(
     grace_cutoff = get_grace_cutoff_datetime() if user.is_grace else None
 
     add_trans_code_filter(conditions, params, trans_codes)
+    add_signal_class_filter(conditions, params, signal_class)
 
     if trade_type is not None:
         conditions.append("t.trade_type = ?")

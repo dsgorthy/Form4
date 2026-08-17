@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.auth import UserContext, get_current_user
 from api.db import get_db
-from api.filters import add_trans_code_filter, filing_group_by
+from api.filters import add_signal_class_filter, add_trans_code_filter, filing_group_by
 from api.gating import PUBLIC_VOLUME_FIELDS, require_pro
 from api.id_encoding import (
     decode_insider_id,
@@ -394,6 +396,7 @@ def get_insider_score_history(
 def get_insider_trades(
     identifier: str,
     trans_codes: str = Query(default="P,S"),
+    signal_class: Optional[str] = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     user: UserContext = Depends(get_current_user),
@@ -446,6 +449,7 @@ def get_insider_trades(
         ]
         inner_params: list = [insider_id]
         add_trans_code_filter(inner_conditions, inner_params, trans_codes)
+        add_signal_class_filter(inner_conditions, inner_params, signal_class)
         inner_where = " AND ".join(inner_conditions)
 
         rows = conn.execute(

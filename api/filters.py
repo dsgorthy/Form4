@@ -54,6 +54,67 @@ def filing_group_by(alias: str = "t") -> str:
     return f"{alias}.filing_key"
 
 
+# ---------------------------------------------------------------------------
+# signal_class — see migrations/2026-08-17_trades_signal_class.sql
+#
+# The column is maintained by a DB trigger from form4_signal_class(); this
+# module never reimplements the mapping, it only names the sets. Duplicating
+# the classification in Python is the exact failure this column exists to
+# prevent: `trans_code IN ('P','S')` was hand-written on ~20 browsing surfaces
+# and omitted from the scoring path, which is how option exercises and grants
+# ended up supplying 75% of the evidence behind a career grade.
+# ---------------------------------------------------------------------------
+
+#: Classes that carry directional information. Measured 2016-2026, 30d
+#: SPY-adjusted: discretionary_buy +1.06%, discretionary_sell -0.39%.
+MEANINGFUL_CLASSES = ("discretionary_buy", "discretionary_sell")
+
+#: Everything retained but excluded from the meaningful default. planned_sell
+#: is here rather than merged into the sell signal because at +0.86% over 30
+#: days it points the OPPOSITE way from a discretionary sale — averaging the
+#: two does not dilute the signal, it cancels it.
+NON_MEANINGFUL_CLASSES = (
+    "planned_buy", "planned_sell", "option_exercise", "compensation",
+    "tax_withholding", "gift", "derivative", "inconsistent", "other",
+)
+
+ALL_CLASSES = MEANINGFUL_CLASSES + NON_MEANINGFUL_CLASSES
+
+
+def add_signal_class_filter(conditions: list, params: list,
+                            signal_classes: str | None, alias: str = "t") -> None:
+    """Append a signal_class filter to the SQL conditions/params lists.
+
+    Args:
+        conditions: mutable list of SQL WHERE fragments
+        params: mutable list of bind parameters
+        signal_classes: comma-separated class names, or the literal
+            ``"meaningful"`` for :data:`MEANINGFUL_CLASSES`, or ``"all"`` /
+            ``None`` for no filter at all. Unknown names are dropped rather
+            than passed through, so a typo narrows to nothing visible instead
+            of silently matching every row.
+        alias: table alias for the trades table
+    """
+    raw = (signal_classes or "").strip().lower()
+    # Blank and "all" both mean "caller did not narrow"; only a non-empty value
+    # that resolves to nothing is treated as a typo below.
+    if not raw or raw == "all":
+        return
+    if raw == "meaningful":
+        wanted = list(MEANINGFUL_CLASSES)
+    else:
+        wanted = [c.strip().lower() for c in raw.split(",") if c.strip()]
+        wanted = [c for c in wanted if c in ALL_CLASSES]
+    if not wanted:
+        # Every requested name was unrecognized. Match nothing — an empty
+        # result is a visible failure; ignoring the filter is a silent one.
+        conditions.append("1 = 0")
+        return
+    placeholders = ",".join("?" * len(wanted))
+    conditions.append(f"{alias}.signal_class IN ({placeholders})")
+    params.extend(wanted)
+
+
 def add_trans_code_filter(conditions: list, params: list, trans_codes: str, alias: str = "t") -> None:
     """Append a trans_code filter to the SQL conditions/params lists.
 

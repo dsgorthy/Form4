@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.auth import UserContext, get_current_user
 from api.db import get_db
-from api.filters import add_trans_code_filter, deduplicate_filers, filing_group_by
+from api.filters import add_signal_class_filter, add_trans_code_filter, deduplicate_filers, filing_group_by
 from api.gating import get_free_cutoff_date, null_items_track_records, redact_gated_items
 from api.id_encoding import encode_response_ids
 from api.pit_helpers import get_ticker_pit_grade
@@ -123,6 +123,7 @@ def get_company_trades(
     ticker: str,
     trade_type: Optional[str] = Query(default=None, pattern="^(buy|sell)$"),
     trans_codes: str = Query(default="P,S"),
+    signal_class: Optional[str] = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     user: UserContext = Depends(get_current_user),
@@ -140,6 +141,7 @@ def get_company_trades(
     params: list = [ticker]
 
     add_trans_code_filter(conditions, params, trans_codes)
+    add_signal_class_filter(conditions, params, signal_class)
 
     if trade_type is not None:
         conditions.append("t.trade_type = ?")
@@ -318,6 +320,7 @@ def get_chart_data(
     owner_10pct: Optional[bool] = Query(default=None),
     top_performer: Optional[bool] = Query(default=None),
     trans_codes: str = Query(default="P,S"),
+    signal_class: Optional[str] = Query(default=None),
     user: UserContext = Depends(get_current_user),
 ) -> dict:
     """Daily OHLC candles + insider trade markers for the chart component."""
@@ -363,6 +366,7 @@ def get_chart_data(
     params: list = [ticker, trade_start, trade_end]
 
     add_trans_code_filter(conditions, params, trans_codes)
+    add_signal_class_filter(conditions, params, signal_class)
 
     if trade_type is not None:
         conditions.append("t.trade_type = ?")

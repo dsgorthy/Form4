@@ -228,6 +228,28 @@ writers:
     recompute: false   # set at INSERT, never re-stamped
     notes: "Parse-time field from Form 4 XML — set at INSERT time, never recomputed. Strategies still read it; freshness piggybacks on trades.filing_date contract. The 2026-05-17 audit removed this from freshness_contracts.yaml because no canonical write_freshness writer exists, but kept the registry entry for documentation (strategies depend on the column being correctly set at parse time)."
 
+  - column: trades.signal_class
+    script: migrations/2026-08-17_trades_signal_class.sql
+    write_function: "trg_trades_signal_class -> form4_signal_class()"
+    plists: []          # no scheduled writer — a DB trigger maintains it
+    schedule: "on INSERT, and on UPDATE OF its four source columns"
+    sla_hours: 0        # cannot go stale: written in the same statement as the row
+    required_for: []    # V4 grading will read it; no live strategy does yet
+    recompute: false    # set at INSERT by trigger, never re-stamped on a cron
+    notes: >
+      Transaction-nature label (discretionary_buy / discretionary_sell /
+      planned_sell / option_exercise / compensation / tax_withholding / gift /
+      derivative / planned_buy / inconsistent). Deliberately NOT a Python
+      writer: the classification is a pure function of four columns on the same
+      row, so it lives in SQL as form4_signal_class() and is applied by trigger.
+      Application code must READ this column and never reimplement the mapping —
+      a duplicated copy of this logic in Python is exactly how trans_code
+      filtering got applied on ~20 browsing surfaces and skipped in the scoring
+      path. No freshness_contracts.yaml entry for the same reason as
+      trades.is_10b5_1: there is no write_freshness writer, and the column
+      cannot lag the row it lives on. Correctness is enforced by
+      tests/unit/test_signal_class.py instead of by a freshness SLA.
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Daily prices — pipelines/insider_study/update_daily_prices.py
 # daily-prices plist, weekdays 17:30 PT.

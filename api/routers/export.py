@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 
 from api.auth import UserContext
 from api.db import get_db
-from api.filters import add_trans_code_filter
+from api.filters import add_signal_class_filter, add_trans_code_filter
 from api.gating import require_pro
 from api.rate_limit import limiter, EXPENSIVE_RATE
 
@@ -27,6 +27,7 @@ def export_filings(
     date_to: Optional[str] = Query(default=None),
     min_value: Optional[float] = Query(default=None, ge=0),
     trans_codes: str = Query(default="P,S"),
+    signal_class: Optional[str] = Query(default=None),
     limit: int = Query(default=10000, ge=1, le=50000),
 ) -> StreamingResponse:
     """Export filings as CSV. Pro only."""
@@ -34,6 +35,7 @@ def export_filings(
     params: list = []
 
     add_trans_code_filter(conditions, params, trans_codes, alias="t")
+    add_signal_class_filter(conditions, params, signal_class, alias="t")
 
     if trade_type:
         conditions.append("t.trade_type = ?")
