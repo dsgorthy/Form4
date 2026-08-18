@@ -45,13 +45,30 @@ def resolve_insider_id(conn, identifier: str) -> int | None:
     if not identifier:
         return None
 
+    def _existing(insider_id: int | None) -> int | None:
+        """A sqid only counts if it names a real row.
+
+        Every character of "zzz" is in the insider alphabet, so it decodes
+        cleanly to 624 — an insider who has nothing to do with the URL. Left
+        unchecked, /insider/nobody-at-all-zzz serves that person's profile
+        instead of a 404, and any mistyped or truncated URL can land on a
+        stranger. Verifying here also lets the later rules run: without it a
+        decodable trailing segment shadows the CIK lookup below.
+        """
+        if insider_id is None:
+            return None
+        hit = conn.execute(
+            "SELECT insider_id FROM insiders WHERE insider_id = ?", (insider_id,)
+        ).fetchone()
+        return hit["insider_id"] if hit else None
+
     row = conn.execute(
         "SELECT insider_id FROM insiders WHERE slug = ?", (identifier,)
     ).fetchone()
     if row:
         return row["insider_id"]
 
-    decoded = decode_insider_id(identifier)
+    decoded = _existing(decode_insider_id(identifier))
     if decoded is not None:
         return decoded
 
@@ -65,14 +82,23 @@ def resolve_insider_id(conn, identifier: str) -> int | None:
 
     trailing = identifier_from_slug(identifier)
     if trailing != identifier:
-        decoded = decode_insider_id(trailing)
+        decoded = _existing(decode_insider_id(trailing))
         if decoded is not None:
             return decoded
 
-    row = conn.execute(
-        "SELECT insider_id FROM insiders WHERE cik = ?", (identifier,)
-    ).fetchone()
-    return row["insider_id"] if row else None
+    # CIK, bare or as the trailing segment of a slugged URL. Both shapes have
+    # to be tried: the filing page builds /insider/{name}-{cik} whenever the
+    # insider row carries a CIK, and matching only the whole identifier 404'd
+    # every one of them — 10,279 insiders, reachable from 143,653 filing
+    # pages. /insider/benjamin-wood-0002123683 was the reported case.
+    candidates = [identifier] if trailing == identifier else [identifier, trailing]
+    for candidate in candidates:
+        row = conn.execute(
+            "SELECT insider_id FROM insiders WHERE cik = ?", (candidate,)
+        ).fetchone()
+        if row:
+            return row["insider_id"]
+    return None
 
 
 @router.get("/slug-aliases")
@@ -117,18 +143,16 @@ def get_insider(identifier: str, user: UserContext = Depends(get_current_user)) 
     has.
     """
     with get_db() as conn:
-        # Try as sqids-encoded insider_id first, then as CIK
+        # resolve_insider_id already tries every published URL shape, CIK
+        # included. A second cik lookup here could only ever repeat a query
+        # that just failed, and having two copies of the rule is how one of
+        # them came to be missing the trailing-segment case.
         insider = None
         decoded_id = resolve_insider_id(conn, identifier)
         if decoded_id is not None:
             insider = conn.execute(
                 "SELECT i.insider_id, COALESCE(i.display_name, i.name) AS name, i.name_normalized, i.cik, i.slug, COALESCE(i.is_entity, 0) as is_entity FROM insiders i WHERE i.insider_id = ?",
                 (decoded_id,),
-            ).fetchone()
-        if insider is None:
-            insider = conn.execute(
-                "SELECT i.insider_id, COALESCE(i.display_name, i.name) AS name, i.name_normalized, i.cik, i.slug, COALESCE(i.is_entity, 0) as is_entity FROM insiders i WHERE i.cik = ?",
-                (identifier,),
             ).fetchone()
 
         if insider is None:
@@ -379,9 +403,6 @@ def get_insider_score_history(
     with get_db() as conn:
         decoded_id = resolve_insider_id(conn, identifier)
         if decoded_id is None:
-            row = conn.execute("SELECT insider_id FROM insiders WHERE cik = ?", (identifier,)).fetchone()
-            decoded_id = row["insider_id"] if row else None
-        if decoded_id is None:
             raise HTTPException(status_code=404, detail="Insider not found")
 
         rows = conn.execute("""
@@ -439,11 +460,6 @@ def get_insider_trades(
             insider = conn.execute(
                 "SELECT insider_id FROM insiders WHERE insider_id = ?", (decoded_id,)
             ).fetchone()
-        if insider is None:
-            insider = conn.execute(
-                "SELECT insider_id FROM insiders WHERE cik = ?", (identifier,)
-            ).fetchone()
-
         if insider is None:
             raise HTTPException(status_code=404, detail="Insider not found")
 
@@ -550,11 +566,6 @@ def get_insider_companies(identifier: str, user: UserContext = Depends(get_curre
                 "SELECT insider_id FROM insiders WHERE insider_id = ?", (decoded_id,)
             ).fetchone()
         if insider is None:
-            insider = conn.execute(
-                "SELECT insider_id FROM insiders WHERE cik = ?", (identifier,)
-            ).fetchone()
-
-        if insider is None:
             raise HTTPException(status_code=404, detail="Insider not found")
 
         insider_id = insider["insider_id"]
@@ -640,11 +651,6 @@ def get_return_distribution(
             insider = conn.execute(
                 "SELECT insider_id FROM insiders WHERE insider_id = ?", (decoded_id,)
             ).fetchone()
-        if insider is None:
-            insider = conn.execute(
-                "SELECT insider_id FROM insiders WHERE cik = ?", (identifier,)
-            ).fetchone()
-
         if insider is None:
             raise HTTPException(status_code=404, detail="Insider not found")
 

@@ -1,5 +1,15 @@
 import Link from "next/link";
 
+// Every missing page currently answers 200 rather than 404 — the Clerk
+// middleware rewrite settles the status before notFound() renders — so a
+// crawler sees "Page not found" as indexable content. Until the status is
+// fixed, the noindex is what keeps these out of the index. Measured
+// 2026-08-18: /insider/<bogus>, /company/ZZZZQQ and /filing/zzzzzz all 200.
+export const metadata = {
+  title: "Page not found — Form4",
+  robots: { index: false, follow: true },
+};
+
 export default function NotFound() {
   return (
     <div className="flex min-h-[60vh] flex-col items-center justify-center text-center">

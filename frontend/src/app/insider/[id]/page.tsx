@@ -30,7 +30,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
       return { title: "Insider Profile" };
     }
     if (!res.ok) {
-      return { title: "Insider Not Found" };
+      return { title: "Insider Not Found", robots: { index: false, follow: true } };
     }
     const profile: InsiderProfile = await res.json();
     const tr = profile.track_record;
@@ -59,7 +59,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
       },
     };
   } catch {
-    return { title: "Insider Not Found" };
+    return { title: "Insider Not Found", robots: { index: false, follow: true } };
   }
 }
 
