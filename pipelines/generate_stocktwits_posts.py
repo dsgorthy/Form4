@@ -45,7 +45,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from config.database import get_connection  # noqa: E402
-from pipelines.insider_study.annotate_trade import annotate  # noqa: E402
+from pipelines.insider_study.annotate_trade import annotate, clean_title  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -105,7 +105,7 @@ def render(t: dict) -> str:
     val = t.get("value") or 0
     amount = f"${val / 1_000_000:.1f}M" if val >= 1_000_000 else f"${val / 1_000:.0f}K"
 
-    title = (t.get("insider_title") or "Insider").strip()
+    title = clean_title(t.get("insider_title"))
     name = (t.get("insider_name") or "").strip()
     who = title if (not name or name.lower() in title.lower()) else f"{title} {name}"
 

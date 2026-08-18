@@ -38,7 +38,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-__all__ = ["annotate", "headline"]
+__all__ = ["annotate", "headline", "clean_title"]
 
 
 def _money(v: Optional[float]) -> str:
@@ -59,10 +59,30 @@ def _pct(v: Optional[float]) -> str:
     return f"{v * 100:+.0f}%" if v is not None else ""
 
 
+#: SEC filers abbreviate freely and it reads as sloppiness in a public post.
+_TITLE_FIXUPS = {
+    "dir": "Director", "dir.": "Director",
+    "pres": "President", "ceo": "CEO", "cfo": "CFO", "coo": "COO",
+    "evp": "EVP", "svp": "SVP", "vp": "VP",
+    "off": "Officer", "10%": "10% Owner",
+}
+
+
+def clean_title(title: Optional[str]) -> str:
+    """Expand the abbreviations SEC filers use, leave everything else alone."""
+    raw = (title or "").strip()
+    if not raw:
+        return "Insider"
+    key = raw.lower().rstrip(".")
+    if key in _TITLE_FIXUPS:
+        return _TITLE_FIXUPS[key]
+    return raw
+
+
 def headline(t: dict) -> str:
     """One line: who, what, how much."""
     side = "bought" if t.get("signal_class") == "discretionary_buy" else "sold"
-    title = (t.get("insider_title") or t.get("title") or "Insider").strip()
+    title = clean_title(t.get("insider_title") or t.get("title"))
     name = (t.get("insider_name") or "").strip()
     # Entity filers often carry their own name inside the title — "10% Owner
     # (Magnetar Financial LLC)" — and appending it again reads as a typo.
@@ -88,7 +108,13 @@ def annotate(t: dict, max_lines: int = 4) -> list[str]:
     # negative above $1M. Worth saying who this actually is.
     title = (t.get("insider_title") or t.get("title") or "").upper()
     if "10%" in title and t.get("value") and t["value"] > 1_000_000:
-        out.append("Large 10% owner trade — historically the weakest setup we track.")
+        # Only meaningful as a caution on the buy side, where we measured 10%
+        # owners at -0.73% above $1M. A large institutional SALE is usually a
+        # fund rebalancing, which is worth saying plainly instead of dressing
+        # up as a signal.
+        out.append("Large 10% owner buy — historically the weakest setup we track."
+                   if is_buy else
+                   "10% holder trimming — often a fund rebalancing, not a view.")
     elif any(k in title for k in ("CEO", "CHIEF EXECUTIVE")):
         out.append("Chief executive — buying their own company.")
     elif any(k in title for k in ("CFO", "CHIEF FINANCIAL")):
@@ -108,10 +134,15 @@ def annotate(t: dict, max_lines: int = 4) -> list[str]:
     # --- First-ever beats largest-ever, which is the opposite of the
     # convention. A first purchase averaged +0.52% at 30d; a largest-ever
     # purchase only +0.19%, barely above the +0.05% routine baseline.
+    # is_largest_ever is computed over the trade's own side, so the wording has
+    # to follow it. Saying "largest purchase" on a $235M SALE is the kind of
+    # error that is invisible in code review and obvious in a public post.
     if t.get("is_first_ever"):
-        out.append("First time they've ever bought this stock.")
+        out.append("First time they've ever bought this stock." if is_buy
+                   else "First time they've ever sold any.")
     elif t.get("is_largest_ever"):
-        out.append("Largest purchase they've ever made in it.")
+        out.append("Largest purchase they've ever made in it." if is_buy
+                   else "Largest sale they've ever made in it.")
 
     # --- Where the stock sits. Buying weakness carried a positive coefficient
     # in the trade model; requiring strength (above both moving averages)
