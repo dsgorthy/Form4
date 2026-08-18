@@ -106,6 +106,33 @@ def test_hold_length_is_not_hardcoded_in_exit_copy():
     assert "30-day hold complete" not in SCANNER.read_text()
 
 
+def test_exit_reason_labels_match_what_the_simulator_writes():
+    """Every reason the simulator emits must have copy for it.
+
+    The map used to hold time_exit / trailing_stop / stop_loss. The simulator
+    writes time / time_stale / stop / stop_stale. Not one key matched, so every
+    exit alert rendered the raw column value — a subscriber saw "Time." as the
+    reason their position closed.
+    """
+    sim = (REPO / "pipelines/insider_study/simulate_strategy_portfolio.py").read_text()
+    emitted = set(re.findall(r'exit_reason=\(?"([a-z_]+)"', sim))
+    emitted |= {
+        value
+        for pair in re.findall(r'"([a-z_]+)" if exit_was_stale else "([a-z_]+)"', sim)
+        for value in pair
+    }
+    assert emitted, "could not find the simulator's exit_reason values"
+
+    fn = _scan_fn()
+    block = fn.split("reason_labels = {", 1)[1].split("}", 1)[0]
+    labelled = set(re.findall(r'"([a-z_]+)":', block))
+    missing = emitted - labelled
+    assert not missing, (
+        f"simulator emits {sorted(missing)} with no alert copy; subscribers "
+        "would see the raw column value"
+    )
+
+
 def test_every_published_strategy_can_produce_an_alert():
     from pipelines import notification_scanner  # noqa: F401  (import is the check)
     assert set(ACTIVE_STRATEGIES) == {

@@ -756,10 +756,20 @@ def scan_portfolio_alerts(iconn: ConnectionWrapper, nconn: ConnectionWrapper, la
         r = dict(row)
         pnl_pct = (r["pnl_pct"] or 0) * 100
         pnl_sign = "+" if pnl_pct >= 0 else ""
+        # The values the simulator actually writes (simulate_strategy_portfolio
+        # lines 409/433), not the ones this map used to guess at. The stop
+        # threshold is deliberately not quoted here: it lives in the simulator,
+        # and importing that module into a launchd job to read one constant is
+        # how the scanner would die the next time the simulator grows a
+        # dependency Studio's host Python does not have. Every one of
+        # `time_exit`/`trailing_stop`/`stop_loss` was absent from the table, so
+        # every exit alert rendered a raw code — "Time." — instead of a reason.
+        # The `_stale` variants mean the exit was priced off a stale bar.
         reason_labels = {
-            "time_exit": "hold period complete",
-            "trailing_stop": "trailing stop hit",
-            "stop_loss": "hard stop hit",
+            "time": "hold period complete",
+            "time_stale": "hold period complete, priced off a stale bar",
+            "stop": "stop hit",
+            "stop_stale": "stop hit, priced off a stale bar",
         }
         reason = reason_labels.get(r["exit_reason"] or "", r["exit_reason"] or "closed")
         label = strategy_label(r["strategy"])
