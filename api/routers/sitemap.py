@@ -99,6 +99,12 @@ def sitemap_urls(
                   AND filing_date >= date('now', '-{int(filing_days)} days')
                   AND superseded_by IS NULL
                   AND (is_duplicate = 0 OR is_duplicate IS NULL)
+                  -- Don't ask Google to index a page whose numbers we know are
+                  -- wrong. Derivative rows carry notional value that reaches
+                  -- $180 quadrillion, and value_suspect marks the rest of what
+                  -- cannot be believed. 1,312 derivative filings sit above $1B.
+                  AND is_derivative = 0
+                  AND NOT COALESCE(value_suspect, FALSE)
                 ORDER BY filing_date DESC
             """).fetchall()
             filings = [encode_trade_id(r["trade_id"]) for r in filing_rows if r["trade_id"]]

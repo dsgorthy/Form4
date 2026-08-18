@@ -441,6 +441,7 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
           valueAsFiled={filing.value_as_filed}
           method={filing.correction_method}
           accessionUrl={filing.accession ? secEdgarUrl(filing.accession) : null}
+          valueSuspect={filing.value_suspect}
         />
 
         {/* Outcomes */}

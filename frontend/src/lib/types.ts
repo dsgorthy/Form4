@@ -37,6 +37,9 @@ export interface Filing {
   price_as_filed?: number | null;
   value_as_filed?: number | null;
   correction_method?: string | null;
+  /** True when the price or value could not be reconciled with market data.
+   *  Such filings are excluded from every aggregate on the site. */
+  value_suspect?: boolean | null;
   trans_code?: string;
   signals?: TradeSignal[];
   signal_types?: string;

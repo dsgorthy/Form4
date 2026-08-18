@@ -28,13 +28,46 @@ export function FilingCorrectionNotice({
   valueAsFiled,
   method,
   accessionUrl,
+  valueSuspect,
 }: {
   priceAsFiled?: number | null;
   valueAsFiled?: number | null;
   method?: string | null;
   accessionUrl?: string | null;
+  /** True when we could not reconcile the figures and did not repair them. */
+  valueSuspect?: boolean | null;
 }) {
-  if (priceAsFiled == null || !method) return null;
+  // Two things this page might have to admit, and they are not the same.
+  // A correction says we fixed it. This says we could not — the figures come
+  // straight off the filing and one of them does not survive a sanity check,
+  // so printing them as fact would be the actual error. Derivative rows carry
+  // notional value into the quadrillions and reach this page by direct URL.
+  if (priceAsFiled == null || !method) {
+    if (!valueSuspect) return null;
+    return (
+      <div className="rounded-lg border border-[#8888A0]/25 bg-[#8888A0]/[0.06] p-4">
+        <div className="text-[10px] font-semibold uppercase tracking-widest text-[#8888A0] mb-2">
+          Unverified figures
+        </div>
+        <p className="text-sm text-[#BCBCCB] leading-relaxed">
+          The price or value on this filing does not reconcile with what the
+          stock was worth on the trade date, and we could not determine the
+          right figure. Read the numbers above as reported, not as confirmed.
+          This filing is excluded from every total on the site.
+        </p>
+        {accessionUrl && (
+          <a
+            href={accessionUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-3 inline-block text-xs text-blue-400 hover:text-blue-300"
+          >
+            Read the original on SEC EDGAR →
+          </a>
+        )}
+      </div>
+    );
+  }
   const why = EXPLANATION[method];
 
   return (

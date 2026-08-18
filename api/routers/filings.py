@@ -405,6 +405,7 @@ def get_filing(trade_id: str, user: UserContext = Depends(get_current_user)) -> 
                 -- repaired it. Surfaced on the page: a number that disagrees
                 -- with EDGAR has to say so itself.
                 t.price_as_filed, t.value_as_filed, t.correction_method,
+                t.value_suspect,
                 t.is_10b5_1, t.is_routine, t.cohen_routine, t.shares_owned_after, t.is_rare_reversal, t.insider_switch_rate, t.week52_proximity,
                 -- Flags consumed by api/narrative.classify_tier
                 COALESCE(t.is_tax_sale, 0) AS is_tax_sale,
