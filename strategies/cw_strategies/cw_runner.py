@@ -404,6 +404,14 @@ def _get_pit_strategy_class(strategy_name: str):
             # Live-money variant uses identical decision logic; only the
             # capital + guardrails differ (handled by execute_entries).
             "quality_momentum_live": QualityMomentumStrategy,
+            # Same class, and deliberately so: QualityMomentumStrategy reads
+            # every filter from the yaml rather than hardcoding them, so
+            # omitting above_sma50/above_sma200 in quality_notrend.yaml simply
+            # skips those checks. Unregistered, cw_runner fell back to the V1
+            # SQL path, which admitted grade B and C candidates that the yaml
+            # filters to A+/A — a silently different strategy from the one
+            # that was backtested.
+            "quality_notrend": QualityMomentumStrategy,
             "reversal_dip": ReversalDipStrategy,
             "tenb51_surprise": Tenb51SurpriseStrategy,
         }
