@@ -10,6 +10,7 @@ from api.db import get_db
 from api.filters import add_signal_class_filter, add_trans_code_filter, filing_group_by
 from api.gating import get_free_cutoff_date, get_grace_cutoff_datetime, null_items_track_records, redact_gated_items
 from api.id_encoding import decode_trade_id, encode_trade_id, encode_insider_id, encode_response_ids
+from api.ownership import position_change
 from api.signals_enrichment import enrich_items_with_signals
 from api.context_enrichment import enrich_items_with_context
 from api.price_dates import enrich_items_with_price_end
@@ -398,6 +399,12 @@ def get_filing(trade_id: str, user: UserContext = Depends(get_current_user)) -> 
                 t.trade_type, t.trade_date, t.filing_date, t.filed_at,
                 t.price, t.qty, t.value, t.is_csuite, t.title_weight,
                 t.source, t.accession, t.trans_code,
+                -- Both are lot-scoping keys; see the sibling-lot query below.
+                t.is_derivative, t.security_title,
+                -- Set only when price_validator.py judged the filing wrong and
+                -- repaired it. Surfaced on the page: a number that disagrees
+                -- with EDGAR has to say so itself.
+                t.price_as_filed, t.value_as_filed, t.correction_method,
                 t.is_10b5_1, t.is_routine, t.cohen_routine, t.shares_owned_after, t.is_rare_reversal, t.insider_switch_rate, t.week52_proximity,
                 -- Flags consumed by api/narrative.classify_tier
                 COALESCE(t.is_tax_sale, 0) AS is_tax_sale,
@@ -408,6 +415,11 @@ def get_filing(trade_id: str, user: UserContext = Depends(get_current_user)) -> 
                 t.is_amendment, t.document_type, t.date_of_orig_sub,
                 COALESCE(i.is_entity, 0) as is_entity,
                 COALESCE(i.display_name, i.name) AS insider_name, i.cik,
+                -- The canonical insider URL. Without it the page falls back to
+                -- name+CIK, which resolved for nobody: /insider/benjamin-wood-
+                -- 0002123683 was a soft 404 on all 143,653 filing pages whose
+                -- insider carries a CIK.
+                i.slug AS insider_slug,
                 tr.entry_price,
                 tr.return_7d, tr.return_30d, tr.return_90d,
                 tr.spy_return_7d, tr.spy_return_30d, tr.spy_return_90d,
@@ -447,26 +459,45 @@ def get_filing(trade_id: str, user: UserContext = Depends(get_current_user)) -> 
         except Exception:
             pass
 
-        # Find sibling lots: same filing (accession) or same insider+ticker+date+type
+        # Sibling lots of the SAME security in the same filing.
+        #
+        # Four scoping rules, each of which was a wrong "Total Value" on this
+        # page. is_derivative: 895 filings mix common and derivative rows, and
+        # derivative notional runs to $180 quadrillion at the top end, so one
+        # blended sum produced the trillion-dollar totals. security_title:
+        # different share classes are different decisions — LILA summed Class
+        # A, Class C and Series A Preference into a single $27.9M figure, and
+        # a TSMC filing summed TWD-priced Taiwan shares with USD ADRs.
+        # superseded_by: an amended row would otherwise be counted twice.
+        # ticker: the accession branch never had one, so a filing covering two
+        # issuers merged them.
+        lot_cols = ("t.trade_id, t.trade_date, t.price, t.qty, t.value, t.accession, "
+                    "t.shares_owned_after, t.cohen_routine, t.direct_indirect, "
+                    "t.nature_of_ownership")
+        lot_scope = ("t.is_derivative = ? AND t.superseded_by IS NULL "
+                     "AND t.ticker = ? AND COALESCE(t.security_title,'') = ?")
+        lot_common = (row["is_derivative"], row["ticker"], row["security_title"] or "")
         if row["accession"]:
             lots = conn.execute(
-                """
-                SELECT t.trade_id, t.trade_date, t.price, t.qty, t.value, t.accession, t.shares_owned_after, t.cohen_routine
+                f"""
+                SELECT {lot_cols}
                 FROM trades t
                 WHERE t.accession = ? AND t.insider_id = ? AND t.trade_type = ?
+                  AND {lot_scope}
                 ORDER BY t.trade_date, t.price
                 """,
-                (row["accession"], row["insider_id"], row["trade_type"]),
+                (row["accession"], row["insider_id"], row["trade_type"], *lot_common),
             ).fetchall()
         else:
             lots = conn.execute(
-                """
-                SELECT t.trade_id, t.trade_date, t.price, t.qty, t.value, t.accession, t.shares_owned_after, t.cohen_routine
+                f"""
+                SELECT {lot_cols}
                 FROM trades t
-                WHERE t.insider_id = ? AND t.ticker = ? AND t.trade_date = ? AND t.trade_type = ?
+                WHERE t.insider_id = ? AND t.trade_date = ? AND t.trade_type = ?
+                  AND {lot_scope}
                 ORDER BY t.price
                 """,
-                (row["insider_id"], row["ticker"], row["trade_date"], row["trade_type"]),
+                (row["insider_id"], row["trade_date"], row["trade_type"], *lot_common),
             ).fetchall()
 
         if len(lots) > 1:
@@ -480,10 +511,19 @@ def get_filing(trade_id: str, user: UserContext = Depends(get_current_user)) -> 
             # Use filing-level aggregated data for quality scoring consistency
             result["qty"] = result["total_qty"]
             result["value"] = result["total_value"]
-            # shares_owned_after: max across lots (final holding after all lots)
-            lot_soa = [l["shares_owned_after"] for l in lots if l["shares_owned_after"] is not None]
-            if lot_soa:
-                result["shares_owned_after"] = max(lot_soa)
+            # Position after the filing, summed across ownership lines rather
+            # than taken from the largest one. max() answers "the biggest
+            # single balance", which is not the holding — DST Global's seven
+            # partnerships made the page and the Stocktwits post disagree by
+            # 14x on the same filing. api.ownership carries the reconciliation.
+            pc = position_change(
+                [dict(l) for l in lots], is_buy=(row["trade_type"] == "buy")
+            )
+            if pc is not None:
+                result["shares_owned_after"] = pc.after
+                result["position_before"] = pc.before
+                result["position_change_pct"] = pc.fraction
+                result["ownership_lines"] = pc.lines
             # cohen_routine: max (if any lot is routine, filing is routine)
             lot_cohen = [l["cohen_routine"] for l in lots if l["cohen_routine"] is not None]
             if lot_cohen:

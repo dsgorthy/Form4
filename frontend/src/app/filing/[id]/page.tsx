@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { TickerDisplay, companyToSlug } from "@/components/ui/ticker-display";
 import { SignalBadges } from "@/components/signal-badge";
 import { ContextFacts } from "@/components/context-facts";
+import { FilingCorrectionNotice } from "@/components/filing-correction-notice";
 import { WhatIfSimulator } from "@/components/what-if-simulator";
 import { TradeGradeDetail } from "@/components/trade-grade-badge";
 import type { Filing } from "@/lib/types";
@@ -392,7 +393,7 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
           <SectionLabel>Insider</SectionLabel>
           <InfoRow label="Name">
             <Link
-              href={insiderPath(filing.insider_name, filing.cik || filing.insider_id)}
+              href={insiderPath(filing.insider_name, filing.cik || filing.insider_id, filing.insider_slug)}
               className="text-blue-400 hover:text-blue-300"
             >
               {filing.insider_name}
@@ -432,6 +433,15 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
             </>
           )}
         </div>
+
+        {/* Directly under the figures it applies to, so the two are read
+            together rather than the correction being found afterwards. */}
+        <FilingCorrectionNotice
+          priceAsFiled={filing.price_as_filed}
+          valueAsFiled={filing.value_as_filed}
+          method={filing.correction_method}
+          accessionUrl={filing.accession ? secEdgarUrl(filing.accession) : null}
+        />
 
         {/* Outcomes */}
         {hasReturns && (
@@ -540,7 +550,7 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
           View Company
         </Link>
         <Link
-          href={insiderPath(filing.insider_name, filing.cik || filing.insider_id)}
+          href={insiderPath(filing.insider_name, filing.cik || filing.insider_id, filing.insider_slug)}
           className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26] px-5 py-2.5 text-sm font-medium text-[#E8E8ED] hover:bg-[#2A2A3A]/60 transition-colors"
         >
           View Insider
@@ -562,14 +572,18 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
                   <th className="px-4 py-3 text-left text-[#55556A] font-medium">Filed</th>
                   <th className="px-4 py-3 text-right text-[#55556A] font-medium">Value</th>
                   <th className="px-4 py-3 text-right text-[#55556A] font-medium">7d Stock</th>
+                  <th className="px-4 py-3 text-right text-[#55556A] font-medium sr-only">Filing</th>
                 </tr>
               </thead>
               <tbody>
                 {related.map((r) => (
                   <tr key={r.trade_id} className="border-b border-[#2A2A3A]/50 hover:bg-[#1A1A26]/30">
+                    {/* A ticker goes to the company. It read as a filing link
+                        only because this table had nowhere else to click, so
+                        the row now carries an explicit one in the last cell. */}
                     <td className="px-4 py-3">
                       <Link
-                        href={`/filing/${r.trade_id}`}
+                        href={`/company/${r.ticker}`}
                         className="font-mono font-semibold text-blue-400 hover:text-blue-300"
                       >
                         {r.ticker}
@@ -601,6 +615,14 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
                       }`}
                     >
                       {formatPercent(r.return_7d)}
+                    </td>
+                    <td className="px-4 py-3 text-right whitespace-nowrap">
+                      <Link
+                        href={`/filing/${r.trade_id}`}
+                        className="text-sm text-[#8888A0] hover:text-blue-300"
+                      >
+                        Filing →
+                      </Link>
                     </td>
                   </tr>
                 ))}

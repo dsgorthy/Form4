@@ -29,6 +29,14 @@ export interface Filing {
   abnormal_90d?: number;
   accession?: string;
   cik?: string;
+  /** Canonical insider URL segment. Always prefer this over cik/insider_id
+   *  when building a link — see insiderPath in lib/insider-url.ts. */
+  insider_slug?: string;
+  /** Set only when we corrected a badly filled-out filing. price/value carry
+   *  the corrected figures; these carry what the filer submitted. */
+  price_as_filed?: number | null;
+  value_as_filed?: number | null;
+  correction_method?: string | null;
   trans_code?: string;
   signals?: TradeSignal[];
   signal_types?: string;
