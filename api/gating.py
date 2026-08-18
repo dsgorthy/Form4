@@ -9,6 +9,11 @@ from api.auth import UserContext, get_current_user
 # Field lists live in api.public_fields, which imports nothing, so the
 # public/Pro split can be unit-tested without standing up FastAPI.
 from api.public_fields import (  # noqa: E402
+    FREE_ALERT_EVENTS,
+    FREE_ALERT_FIELDS,
+    PRO_ALERT_EVENTS,
+    PRO_ALERT_FIELDS,
+    PRO_ALERT_FILTERS,
     PUBLIC_VOLUME_FIELDS,
     TRACK_RECORD_FIELDS,
 )
@@ -78,45 +83,6 @@ def redact_gated_item(item: dict) -> dict:
 def redact_gated_items(items: list[dict]) -> list[dict]:
     """Redact identifying fields across a list of items."""
     return [redact_gated_item(item) for item in items]
-
-
-# ── where the alert line sits ───────────────────────────────────────────────
-#
-# The event is free. The judgment is paid.
-#
-# Being told that someone filed on a company you follow is a fact about the
-# world, and it is what brings a visitor back, so it costs nothing. Everything
-# that requires Form4 to have an opinion — a grade, a cluster, a spike, a
-# convergence, a strategy entry — is the product, and so is the ability to
-# filter alerts by any of it. "Tell me when an insider trades NVDA" is free;
-# "tell me when an A+ insider trades NVDA" is not.
-#
-# min_trade_value and high_value_filing stay free deliberately: a dollar
-# threshold is a fact about the filing, not a view about it, and a user
-# narrowing their own alerts costs us less mail rather than more.
-
-#: Alert event types any signed-in account may enable.
-FREE_ALERT_EVENTS = ("watchlist_activity", "high_value_filing")
-
-#: Alert event types that exist only because we computed something.
-PRO_ALERT_EVENTS = (
-    "cluster_formation",      # our clustering
-    "activity_spike",         # our baseline and threshold
-    "congress_convergence",   # our cross-source join
-    "portfolio_alert",        # our strategies
-)
-
-#: Preference fields that filter alerts by our own scoring.
-PRO_ALERT_FILTERS = ("min_insider_tier",)
-
-#: Everything a free account may set, so the check is an allowlist and a new
-#: field is Pro until someone deliberately says otherwise.
-FREE_ALERT_FIELDS = frozenset(
-    FREE_ALERT_EVENTS
-    + ("email_enabled", "in_app_enabled", "email_frequency", "min_trade_value")
-)
-
-PRO_ALERT_FIELDS = frozenset(PRO_ALERT_EVENTS + PRO_ALERT_FILTERS)
 
 
 def require_auth(user: UserContext = Depends(get_current_user)) -> UserContext:

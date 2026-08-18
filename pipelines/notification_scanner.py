@@ -22,7 +22,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config.database import get_connection, ConnectionWrapper
 from api.email import build_digest_email, build_notification_email, send_email
-from api.gating import PRO_ALERT_EVENTS
+# public_fields imports nothing — the scanner runs on Studio's host
+# Python, which has no fastapi, so importing api.gating here would
+# take the whole job down.
+from api.public_fields import PRO_ALERT_EVENTS
 from api.notifications_db import get_connection as get_notif_connection
 from api.notifications_db import init_db
 
@@ -53,6 +56,12 @@ def _get_user_email(user_id: str) -> str | None:
             headers={"Authorization": f"Bearer {CLERK_SECRET_KEY}"},
             timeout=10,
         )
+        if resp.status_code == 404:
+            # Definitively absent, not unreachable. Distinguishing the two
+            # matters: an outage should not silence a paying subscriber, but a
+            # deleted account should not be treated as Pro forever either.
+            _TIER_CACHE[user_id] = _TIER_GONE
+            return None
         if resp.status_code == 200:
             data = resp.json()
             _TIER_CACHE[user_id] = (data.get("public_metadata") or {}).get("tier", "free")
@@ -157,6 +166,10 @@ def _get_user_filters(nconn: ConnectionWrapper, user_id: str, event_type: str) -
 #: tier per user, populated as a side effect of the email lookup we already do.
 _TIER_CACHE: dict[str, str] = {}
 
+#: The account no longer exists in Clerk. Six preference rows on Studio point
+#: at deleted users and have been generating notifications for nobody.
+_TIER_GONE = "__deleted__"
+
 
 def _is_pro(user_id: str) -> bool:
     """Pro, Pro+ or an active trial. Reads the tier the email fetch cached.
@@ -173,6 +186,13 @@ def _is_pro(user_id: str) -> bool:
         logger.warning("tier unknown for %s — treating as Pro for this cycle", user_id)
         return True
     return _TIER_CACHE[user_id] in ("pro", "pro_plus", "trial")
+
+
+def _account_exists(user_id: str) -> bool:
+    """False once Clerk has told us the account is gone."""
+    if user_id not in _TIER_CACHE:
+        _get_user_email(user_id)
+    return _TIER_CACHE.get(user_id) != _TIER_GONE
 
 
 def _get_subscribed_users(nconn: ConnectionWrapper, event_type: str) -> list[dict]:
@@ -203,6 +223,8 @@ def _get_subscribed_users(nconn: ConnectionWrapper, event_type: str) -> list[dic
     users = []
     for r in rows:
         u = dict(r)
+        if not _account_exists(u["user_id"]):
+            continue
         pro = _is_pro(u["user_id"])
         if event_type in PRO_ALERT_EVENTS and not pro:
             continue
