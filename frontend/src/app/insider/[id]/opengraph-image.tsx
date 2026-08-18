@@ -1,4 +1,5 @@
 import { ImageResponse } from "next/og";
+import { ogMoney } from "@/lib/og-format";
 
 export const runtime = "edge";
 export const alt = "Form4 Insider Profile";
@@ -6,6 +7,15 @@ export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
 const API = process.env.API_URL_INTERNAL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+
+const BG = "#0A0A0F";
+const INK = "#E8E8ED";
+const MUTED = "#8888A0";
+const FAINT = "#55556A";
+const RULE = "#23232E";
+const ACCENT = "#3B82F6";
+const POS = "#22C55E";
+const NEG = "#EF4444";
 
 const GRADE_COLORS: Record<string, string> = {
   "A+": "#D97706", A: "#F59E0B", B: "#94A3B8", C: "#CD7F32", D: "#55556A",
@@ -16,21 +26,41 @@ export default async function Image({ params }: { params: Promise<{ id: string }
 
   let name = "Insider";
   let grade = "";
+  let role = "";
   let tickers = "—";
-  let trades = "—";
+  let buys = 0;
+  let sells = 0;
 
   try {
     const resp = await fetch(`${API}/insiders/${id}`, { next: { revalidate: 3600 } });
     if (resp.ok) {
       const data = await resp.json();
       name = data.name || "Insider";
-      grade = data.best_pit_grade || "";
-      tickers = String(data.track_record?.n_tickers ?? "—");
-      trades = String((data.track_record?.buy_count ?? 0) + (data.track_record?.sell_count ?? 0));
+      grade = data.best_pit_grade || data.best_career_grade || "";
+      role = data.primary_title || data.title || "";
+      const tr = data.track_record || {};
+      tickers = String(tr.n_tickers ?? "—");
+      buys = Number(tr.buy_count ?? 0);
+      sells = Number(tr.sell_count ?? 0);
     }
   } catch {}
 
-  const gradeColor = GRADE_COLORS[grade] || "#55556A";
+  const gradeColor = GRADE_COLORS[grade] || FAINT;
+  // Long entity names ("Control Empresarial de Capitales S.A. de C.V.") wrap
+  // and shove the stat row off the canvas.
+  const display = name.length > 34 ? `${name.slice(0, 32)}…` : name;
+
+  const stats: { value: string; label: string; color: string }[] = [
+    { value: String(buys + sells), label: "trades", color: INK },
+    { value: tickers, label: "companies", color: INK },
+  ];
+  // Buys and sells split out, because "833 trades" reads as activity while
+  // "0 buys / 833 sells" reads as a position — and that is the whole story on
+  // an entity like Magnetar.
+  if (buys || sells) {
+    stats.push({ value: String(buys), label: "buys", color: buys ? POS : FAINT });
+    stats.push({ value: String(sells), label: "sells", color: sells ? NEG : FAINT });
+  }
 
   return new ImageResponse(
     (
@@ -38,49 +68,59 @@ export default async function Image({ params }: { params: Promise<{ id: string }
         style={{
           display: "flex",
           flexDirection: "column",
-          justifyContent: "center",
+          justifyContent: "space-between",
           width: "100%",
           height: "100%",
-          backgroundColor: "#0A0A0F",
-          padding: "60px 80px",
+          backgroundColor: BG,
+          padding: "54px 72px",
           fontFamily: "system-ui, sans-serif",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: "20px", marginBottom: "12px" }}>
-          <span style={{ fontSize: "52px", fontWeight: "800", color: "#E8E8ED" }}>
-            {name}
-          </span>
-          {grade && (
-            <span
-              style={{
-                fontSize: "28px",
-                fontWeight: "700",
-                color: "#fff",
-                backgroundColor: gradeColor,
-                borderRadius: "8px",
-                padding: "4px 14px",
-              }}
-            >
-              {grade}
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <div style={{ display: "flex", width: "10px", height: "30px", backgroundColor: ACCENT, borderRadius: "2px" }} />
+          <span style={{ fontSize: "24px", fontWeight: 700, color: INK, letterSpacing: "-0.5px" }}>Form4</span>
+          <span style={{ fontSize: "20px", color: FAINT }}>Insider profile</span>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "20px" }}>
+            <span style={{ fontSize: "68px", fontWeight: 800, color: INK, letterSpacing: "-2px", lineHeight: 1.1 }}>
+              {display}
             </span>
-          )}
-        </div>
-        <div style={{ fontSize: "24px", color: "#3B82F6", marginBottom: "40px" }}>
-          Insider Profile
-        </div>
-        <div style={{ display: "flex", gap: "48px" }}>
-          <div style={{ display: "flex", flexDirection: "column" }}>
-            <span style={{ fontSize: "40px", fontWeight: "700", color: "#E8E8ED" }}>{trades}</span>
-            <span style={{ fontSize: "16px", color: "#55556A", textTransform: "uppercase", letterSpacing: "2px" }}>trades</span>
+            {grade && (
+              <span
+                style={{
+                  display: "flex",
+                  fontSize: "30px",
+                  fontWeight: 800,
+                  color: gradeColor,
+                  border: `2px solid ${gradeColor}`,
+                  borderRadius: "10px",
+                  padding: "6px 18px",
+                }}
+              >
+                {grade}
+              </span>
+            )}
           </div>
-          <div style={{ display: "flex", flexDirection: "column" }}>
-            <span style={{ fontSize: "40px", fontWeight: "700", color: "#E8E8ED" }}>{tickers}</span>
-            <span style={{ fontSize: "16px", color: "#55556A", textTransform: "uppercase", letterSpacing: "2px" }}>companies</span>
-          </div>
+          {role && <span style={{ fontSize: "28px", color: MUTED, marginTop: "12px" }}>{role}</span>}
         </div>
-        <div style={{ position: "absolute", bottom: "40px", right: "60px", display: "flex", alignItems: "center", gap: "8px" }}>
-          <span style={{ fontSize: "20px", fontWeight: "700", color: "#3B82F6" }}>Form4</span>
-          <span style={{ fontSize: "16px", color: "#55556A" }}>form4.app</span>
+
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          <div style={{ display: "flex", width: "100%", height: "1px", backgroundColor: RULE, marginBottom: "26px" }} />
+          <div style={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
+            {stats.map((s) => (
+              <div key={s.label} style={{ display: "flex", flexDirection: "column" }}>
+                <span style={{ fontSize: "50px", fontWeight: 700, color: s.color, lineHeight: 1 }}>{s.value}</span>
+                <span style={{ fontSize: "17px", color: FAINT, textTransform: "uppercase", letterSpacing: "2.5px", marginTop: "10px" }}>
+                  {s.label}
+                </span>
+              </div>
+            ))}
+            <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+              <span style={{ fontSize: "22px", color: MUTED }}>form4.app</span>
+            </div>
+          </div>
         </div>
       </div>
     ),
