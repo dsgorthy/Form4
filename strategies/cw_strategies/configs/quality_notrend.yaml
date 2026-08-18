@@ -1,0 +1,91 @@
+strategy_name: quality_notrend
+display_name: "Form4 Quality (no trend filter)"
+alert_prefix: "[QNT]"
+# No Alpaca account. execution_mode is alert_only and Alpaca has been
+# data-only since 2026-08-12, so this strategy needs no dedicated trading
+# credentials — it exists to generate a forward record alongside
+# quality_momentum, not to place orders. The "MAX 3 strategies, one Alpaca
+# account each" rule in CLAUDE.md is about order-submitting strategies.
+alpaca_env_prefix: null
+starting_capital: 100000
+position_size_pct: 0.10
+max_concurrent: 10
+filing_lookback_days: 2
+
+execution_mode: alert_only
+
+# WHY THIS EXISTS
+#
+# quality_momentum is career_grade A+/A AND above_sma50 AND above_sma200.
+# A variant sweep through the real simulator (2023-01 .. 2026-08, stop loss,
+# trailing stop, concurrency and capital all active, entry timestamp-aware)
+# says the trend half of that is the weaker half:
+#
+#   variant                    n   mean α   med α   win%   total
+#   quality_momentum          55    7.21    4.28   69.1    +78%
+#   this (no trend filter)   140    8.13    6.48   67.1   +351%
+#   grade A+/A/B             145    4.72   -0.67   62.8   +158%
+#   no grade filter          202    1.06   -1.86   57.4   +108%
+#
+# Two things fall out of that table. The grade is load-bearing — remove it and
+# median alpha goes negative. The trend filter is not: dropping it gives 2.5x
+# the trades at a higher median alpha each.
+#
+# Decomposing the 140 trades by what they WOULD have scored on the trend test:
+#
+#   fails the trend test   86 trades   median +12.73%   win 72.1%
+#   passes the trend test  44 trades   median  +8.04%   win 68.2%
+#   no SMA data available  11 trades   median  +0.50%   win 63.6%
+#
+# The trades quality_momentum rejects outperform the ones it accepts. That is
+# consistent with the trade-model fit, where a >20% one-month drawdown carried
+# a positive coefficient, and with the insider literature generally: insiders
+# are contrarian buyers, and requiring a stock to sit above both moving
+# averages screens out the setup where their information is worth most.
+#
+# WHAT IS NOT ESTABLISHED
+#
+# Three and a half years, 140 trades, and 2025 contributes a
+# disproportionate share of the total. Eleven variants were tested and this
+# is the winner, so the figures above are an upper bound, not an expectation.
+# Transaction costs are not modelled anywhere in the simulator; at a 1%
+# round-trip the median drops about a point.
+#
+# It runs in parallel with quality_momentum precisely because a backtest
+# cannot settle this. Same signal, one filter removed, forward record.
+
+soft_cap: 10
+min_conviction: 1.5
+min_conviction_above_soft: 7.0
+min_conviction_at_hard: 7.0
+
+filters:
+  # Identical to quality_momentum with above_sma50 / above_sma200 removed.
+  # Everything else is held constant so the comparison isolates one variable.
+  career_grade: ["A+", "A"]
+  exclude_recurring: true
+  exclude_tax_sales: true
+
+exit:
+  strategy: fixed_hold
+  # 42 trading days, matched to quality_momentum so the two differ in exactly
+  # one respect. Independently re-derived: a hold sweep through the same
+  # simulator put both median alpha and win rate at their maximum at 42td.
+  # Mean alpha keeps climbing out to 180td, but by then the median is -10.63%
+  # and the win rate 51.4% — two lottery tickets carrying thirty-seven trades.
+  hold_days: 42
+  stop_loss_pct: null
+
+at_capacity: skip
+
+circuit_breaker_dd_pct: 0.15
+
+guardrails:
+  min_dollar_amount: 100.0
+  max_dollar_amount: 25_000.0
+  min_qty: 1
+  max_qty: 10_000
+  min_price: 0.50
+  max_price: 5_000.0
+  max_daily_buys: 10
+  max_daily_sells: 20

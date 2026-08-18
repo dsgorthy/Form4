@@ -73,6 +73,12 @@ STRATEGY_CONFIG = {
         "yaml": REPO / "strategies/cw_strategies/configs/quality_momentum.yaml",
         "start_date": "2023-01-01",
     },
+    # Runs alongside quality_momentum with the trend filter removed, to build
+    # a forward record on the one question a backtest cannot settle.
+    "quality_notrend": {
+        "yaml": REPO / "strategies/cw_strategies/configs/quality_notrend.yaml",
+        "start_date": "2023-01-01",
+    },
     "reversal_dip": {
         "yaml": REPO / "strategies/cw_strategies/configs/reversal_dip.yaml",
         "start_date": "2023-01-01",
