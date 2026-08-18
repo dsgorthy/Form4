@@ -55,17 +55,46 @@ OUTPUT_DIR = Path(__file__).resolve().parent / "data" / "content"
 GRADE_WEIGHT = {"A+": 100, "A": 80, "B": 40, "C": 15, "D": 0}
 
 SQL = """
-SELECT t.trade_id, t.ticker, t.company, t.signal_class, t.value, t.qty, t.price,
-       t.shares_owned_after, t.is_largest_ever, t.is_rare_reversal,
-       t.consecutive_sells_before, t.dip_1mo, t.dip_3mo, t.pit_cluster_size,
-       t.career_grade, t.title AS insider_title, t.filing_date,
-       COALESCE(i.display_name, i.name) AS insider_name, i.slug AS insider_slug,
-       (SELECT close FROM prices.daily_prices d
-         WHERE d.ticker = t.ticker ORDER BY d.date DESC LIMIT 1) AS current_price,
-       NOT EXISTS (SELECT 1 FROM trades p
-                    WHERE p.insider_id = t.insider_id AND p.ticker = t.ticker
-                      AND p.signal_class = t.signal_class
-                      AND p.filing_date < t.filing_date) AS is_first_ever
+-- One row per insider per ticker per day — the unit a person tells a story
+-- about. A Form 4 routinely reports one decision as several execution lots,
+-- and an insider can file more than one accession the same day, so querying
+-- raw rows both understates the trade and misranks it.
+--
+-- Benjamin Wood's CDNL purchase was two lots, 13,627 at $39.22 and 12,073 at
+-- $39.77. Ungrouped it posted as $534K; it is $1,014,594. Jeremy Spivey bought
+-- $3.2M of the same stock across four lots and never surfaced at all, because
+-- no single lot of his outranked anyone.
+SELECT
+    MIN(t.trade_id)              AS trade_id,
+    t.ticker,
+    MAX(t.company)               AS company,
+    t.signal_class,
+    SUM(t.value)                 AS value,
+    SUM(t.qty)                   AS qty,
+    -- Volume-weighted, not the first lot's price: reporting one lot's price
+    -- beside a summed value is how the site and the post disagreed.
+    SUM(t.value) / NULLIF(SUM(t.qty), 0) AS price,
+    -- Position AFTER the last lot of the day, so the stake maths uses the end
+    -- state rather than an arbitrary intermediate one.
+    (ARRAY_AGG(t.shares_owned_after ORDER BY t.trade_date DESC, t.trade_id DESC))[1]
+                                 AS shares_owned_after,
+    MAX(t.is_largest_ever::int)  AS is_largest_ever,
+    MAX(t.is_rare_reversal::int) AS is_rare_reversal,
+    MAX(t.consecutive_sells_before) AS consecutive_sells_before,
+    MIN(t.dip_1mo)               AS dip_1mo,
+    MIN(t.dip_3mo)               AS dip_3mo,
+    MAX(t.pit_cluster_size)      AS pit_cluster_size,
+    MAX(t.career_grade)          AS career_grade,
+    MAX(t.title)                 AS insider_title,
+    t.filing_date,
+    MAX(COALESCE(i.display_name, i.name)) AS insider_name,
+    MAX(i.slug)                  AS insider_slug,
+    (SELECT close FROM prices.daily_prices d
+      WHERE d.ticker = t.ticker ORDER BY d.date DESC LIMIT 1) AS current_price,
+    NOT EXISTS (SELECT 1 FROM trades p
+                 WHERE p.insider_id = t.insider_id AND p.ticker = t.ticker
+                   AND p.signal_class = t.signal_class
+                   AND p.filing_date < t.filing_date) AS is_first_ever
   FROM trades t
   JOIN insiders i ON i.insider_id = t.insider_id
  WHERE t.filing_date = ?
@@ -74,7 +103,8 @@ SELECT t.trade_id, t.ticker, t.company, t.signal_class, t.value, t.qty, t.price,
    AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
    AND t.superseded_by IS NULL
    AND t.ticker NOT IN ('NONE', 'NA', 'N/A', '')
-   AND t.value > 25000
+ GROUP BY t.insider_id, t.ticker, t.signal_class, t.filing_date
+HAVING SUM(t.value) > 25000
 """
 
 
