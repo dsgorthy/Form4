@@ -47,7 +47,8 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
       alternates: { canonical: `https://form4.app${insiderPath(profile.name, idFromSlug(id), (profile as any).slug)}` },
       title: `${profile.name} — Insider Profile`,
       description,
-      openGraph: { title: `${profile.name} — Insider Profile`, description },
+      openGraph: { title: `${profile.name} — Insider Profile`, description,
+                   siteName: "Form4", type: "profile" },
       // Same reason as the company page: the root layout declares a site-wide
       // twitter block, and page metadata that sets only openGraph inherits it
       // — so every insider profile unfurled as the generic Form4 card.

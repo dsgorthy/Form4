@@ -112,8 +112,11 @@ export default async function Image({ params }: { params: Promise<{ id: string }
               <span style={{ fontSize: "24px", color: MUTED, marginTop: "14px" }}>{who}</span>
             </div>
             <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
-              <span style={{ fontSize: "22px", color: FAINT }}>{date}</span>
-              <span style={{ fontSize: "22px", color: MUTED, marginTop: "8px" }}>form4.app</span>
+              <span style={{ fontSize: "22px", color: FAINT, marginBottom: "14px" }}>{date}</span>
+              <div style={{ display: "flex", alignItems: "center", backgroundColor: ACCENT, color: "#FFFFFF",
+                            fontSize: "24px", fontWeight: 700, padding: "14px 28px", borderRadius: "10px" }}>
+                See the full filing →
+              </div>
             </div>
           </div>
         </div>

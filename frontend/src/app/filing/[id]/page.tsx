@@ -71,7 +71,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
     return {
       title,
       description,
-      openGraph: { title, description },
+      openGraph: { title, description, siteName: "Form4", type: "article" },
       // Third page with this gap. Page metadata that sets only openGraph
       // inherits the root layout's site-wide twitter block, so every filing
       // unfurled as the generic Form4 card on any platform preferring

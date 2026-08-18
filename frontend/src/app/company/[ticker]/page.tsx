@@ -59,7 +59,11 @@ export async function generateMetadata({ params }: { params: Promise<{ ticker: s
       // itself canonical — otherwise the consolidation points at a URL that
       // expresses no preference of its own.
       alternates: { canonical: `https://form4.app/company/${ticker}` },
-      openGraph: { title, description },
+      // siteName repeated on purpose: Next replaces the whole openGraph
+      // object rather than merging its fields, so the root layout's value is
+      // dropped on every page that declares one. Discord and others print it
+      // above the title, and without it the card reads as anonymous.
+      openGraph: { title, description, siteName: "Form4", type: "website" },
       // Must be set explicitly. Next.js merges page metadata over the root
       // layout, and the layout declares a site-wide twitter block — so a page
       // that sets only openGraph inherits "Form4 — Live Insider Trading

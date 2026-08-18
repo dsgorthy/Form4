@@ -50,6 +50,15 @@ export default async function Image({ params }: { params: Promise<{ id: string }
   // and shove the stat row off the canvas.
   const display = name.length > 34 ? `${name.slice(0, 32)}…` : name;
 
+  // Conversion text. The card carried labelled numbers and no sentence, so a
+  // reader had to assemble the story themselves — and a card that requires
+  // assembly does not get clicked. "0 buys, 833 sells across 2 companies" is
+  // the story; the stat row below is the evidence for it.
+  const nCo = tickers === "—" ? "" : ` across ${tickers} ${tickers === "1" ? "company" : "companies"}`;
+  const hook = buys || sells
+    ? `${buys.toLocaleString()} ${buys === 1 ? "buy" : "buys"} · ${sells.toLocaleString()} ${sells === 1 ? "sell" : "sells"}${nCo}`
+    : "SEC Form 4 filing history";
+
   const stats: { value: string; label: string; color: string }[] = [
     { value: String(buys + sells), label: "trades", color: INK },
     { value: tickers, label: "companies", color: INK },
@@ -103,7 +112,8 @@ export default async function Image({ params }: { params: Promise<{ id: string }
               </span>
             )}
           </div>
-          {role && <span style={{ fontSize: "28px", color: MUTED, marginTop: "12px" }}>{role}</span>}
+          <span style={{ fontSize: "34px", color: INK, marginTop: "16px" }}>{hook}</span>
+          {role && <span style={{ fontSize: "24px", color: MUTED, marginTop: "8px" }}>{role}</span>}
         </div>
 
         <div style={{ display: "flex", flexDirection: "column" }}>
@@ -117,8 +127,24 @@ export default async function Image({ params }: { params: Promise<{ id: string }
                 </span>
               </div>
             ))}
+            {/* Reads as a button. It is not clickable — the whole card is —
+                but the affordance is what tells a scroller there is somewhere
+                to go, which is the single thing the card was missing. */}
             <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
-              <span style={{ fontSize: "22px", color: MUTED }}>form4.app</span>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  backgroundColor: ACCENT,
+                  color: "#FFFFFF",
+                  fontSize: "24px",
+                  fontWeight: 700,
+                  padding: "14px 28px",
+                  borderRadius: "10px",
+                }}
+              >
+                See every filing →
+              </div>
             </div>
           </div>
         </div>

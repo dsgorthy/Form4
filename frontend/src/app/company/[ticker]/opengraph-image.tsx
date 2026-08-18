@@ -45,6 +45,12 @@ export default async function Image({ params }: { params: Promise<{ ticker: stri
   // Long names wrap badly at this size and push the stat row off the canvas.
   const name = company.length > 46 ? `${company.slice(0, 44)}…` : company;
 
+  // Conversion text. Net flow is the one number on this card that carries a
+  // view, so it becomes the sentence rather than just a labelled figure.
+  const hook = hasNet
+    ? `Insiders net ${net6 >= 0 ? "bought" : "sold"} ${money(Math.abs(net6))} in the last 6 months`
+    : `${trades} SEC Form 4 filings by ${insiders} insiders`;
+
   const stats: { value: string; label: string; color: string }[] = [
     { value: trades, label: "filings", color: INK },
     { value: insiders, label: "insiders", color: INK },
@@ -95,7 +101,10 @@ export default async function Image({ params }: { params: Promise<{ ticker: stri
               Insider Trading
             </span>
           </div>
-          <span style={{ fontSize: "32px", color: MUTED, marginTop: "14px" }}>{name}</span>
+          <span style={{ fontSize: "28px", color: MUTED, marginTop: "12px" }}>{name}</span>
+          <span style={{ fontSize: "32px", color: hasNet ? (net6 >= 0 ? POS : NEG) : INK, marginTop: "14px" }}>
+            {hook}
+          </span>
         </div>
 
         <div style={{ display: "flex", flexDirection: "column" }}>
@@ -110,7 +119,10 @@ export default async function Image({ params }: { params: Promise<{ ticker: stri
               </div>
             ))}
             <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
-              <span style={{ fontSize: "22px", color: MUTED }}>form4.app</span>
+              <div style={{ display: "flex", alignItems: "center", backgroundColor: ACCENT, color: "#FFFFFF",
+                            fontSize: "24px", fontWeight: 700, padding: "14px 28px", borderRadius: "10px" }}>
+                See all insider trades →
+              </div>
             </div>
           </div>
         </div>
