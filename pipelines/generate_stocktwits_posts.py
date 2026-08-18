@@ -44,6 +44,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from api.ownership import position_change  # noqa: E402
 from config.database import get_connection  # noqa: E402
 from pipelines.insider_study.annotate_trade import annotate, clean_title  # noqa: E402
 
@@ -71,21 +72,55 @@ SELECT
     t.signal_class,
     SUM(t.value)                 AS value,
     SUM(t.qty)                   AS qty,
+    -- Part of the grouping key, not decoration. A TSMC VP filed Taiwan-listed
+    -- 2330.TW shares priced in TWD alongside US ADRs on the same day; summed
+    -- together they produced a $72.73 blended "fill" against a $431 close and
+    -- the post claimed the stock was up 493%. Class A and Series A Preference
+    -- shares are the same mistake in a domestic filing (LILA, $27.9M blended
+    -- across three classes). Different securities are different decisions.
+    t.security_title             AS security_title,
     -- Volume-weighted, not the first lot's price: reporting one lot's price
     -- beside a summed value is how the site and the post disagreed.
     SUM(t.value) / NULLIF(SUM(t.qty), 0) AS price,
-    -- Position AFTER the last lot of the day, so the stake maths uses the end
-    -- state rather than an arbitrary intermediate one.
-    (ARRAY_AGG(t.shares_owned_after ORDER BY t.trade_date DESC, t.trade_id DESC))[1]
-                                 AS shares_owned_after,
+    -- Every lot, kept whole. The stake maths cannot be done with one
+    -- aggregated balance: shares_owned_after is reported per ownership line,
+    -- and a fund selling through seven partnerships reports seven of them.
+    -- api.ownership.position_change reconciles them; see its module docstring
+    -- for the two filings this got wrong in public.
+    JSON_AGG(JSON_BUILD_OBJECT(
+        'trade_id', t.trade_id, 'trade_date', t.trade_date, 'qty', t.qty,
+        'shares_owned_after', t.shares_owned_after,
+        'direct_indirect', t.direct_indirect,
+        'nature_of_ownership', t.nature_of_ownership
+    ) ORDER BY t.trade_date, t.trade_id) AS lots,
     MAX(t.is_largest_ever::int)  AS is_largest_ever,
     MAX(t.is_rare_reversal::int) AS is_rare_reversal,
     MAX(t.consecutive_sells_before) AS consecutive_sells_before,
     MIN(t.dip_1mo)               AS dip_1mo,
     MIN(t.dip_3mo)               AS dip_3mo,
     MAX(t.pit_cluster_size)      AS pit_cluster_size,
+    -- Publication-time cluster, which is a different question from the PIT
+    -- one. pit_cluster_size counts only insiders who filed *before* this row,
+    -- so the first filer of the day scores 0 by construction — correct for a
+    -- backtest, wrong for a post written that evening when all of them are
+    -- known. On 2026-08-17 six Cardinal Infrastructure insiders bought $8.2M
+    -- between them; the PIT counts were 0, 1, 2, 3, 4, 5 and the post led with
+    -- one man's $1.0M.
+    (SELECT COUNT(DISTINCT c.insider_id) FROM trades c
+      WHERE c.ticker = t.ticker AND c.filing_date = t.filing_date
+        AND c.signal_class = t.signal_class
+        AND NOT COALESCE(c.value_suspect, FALSE)
+        AND (c.is_duplicate = 0 OR c.is_duplicate IS NULL)
+        AND c.superseded_by IS NULL)          AS day_cluster_n,
+    (SELECT SUM(c.value) FROM trades c
+      WHERE c.ticker = t.ticker AND c.filing_date = t.filing_date
+        AND c.signal_class = t.signal_class
+        AND NOT COALESCE(c.value_suspect, FALSE)
+        AND (c.is_duplicate = 0 OR c.is_duplicate IS NULL)
+        AND c.superseded_by IS NULL)          AS day_cluster_value,
     MAX(t.career_grade)          AS career_grade,
     MAX(t.title)                 AS insider_title,
+    MAX(COALESCE(i.is_entity, 0)) AS is_entity,
     t.filing_date,
     MAX(COALESCE(i.display_name, i.name)) AS insider_name,
     MAX(i.slug)                  AS insider_slug,
@@ -103,7 +138,7 @@ SELECT
    AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
    AND t.superseded_by IS NULL
    AND t.ticker NOT IN ('NONE', 'NA', 'N/A', '')
- GROUP BY t.insider_id, t.ticker, t.signal_class, t.filing_date
+ GROUP BY t.insider_id, t.ticker, t.signal_class, t.filing_date, t.security_title
 HAVING SUM(t.value) > 25000
 """
 
@@ -118,14 +153,49 @@ def score(t: dict) -> float:
     construction. Which is exactly what the first run produced.
     """
     import math
-    size = min(math.log10(max(t.get("value") or 1, 1)) * 6, 45)
-    cluster = min((t.get("pit_cluster_size") or 0) * 4, 16)
+    # Two rankings in one number, because this score does two jobs: it orders
+    # tickers against each other, and it picks which filer represents a ticker
+    # (only one row per ticker survives the dedupe below).
+    #
+    # `size` is the STORY's scale — the whole cluster's dollars when the post
+    # will lead with the cluster, since that is the figure the reader sees.
+    # Ranking a cluster on one participant's cheque put a $750K day above an
+    # $8.2M one. But story scale is identical for every filer on the ticker,
+    # so on its own it makes the within-ticker pick arbitrary: EAT chose the
+    # $442K director over the $3.8M one. `own` breaks that tie, and is scaled
+    # small enough that it never reorders the tickers themselves.
+    others = max((t.get("day_cluster_n") or 1) - 1, 0)
+    story_value = (t.get("day_cluster_value") or 0) if others >= 2 else 0
+    story_value = max(story_value, t.get("value") or 1)
+    size = min(math.log10(max(story_value, 1)) * 6, 45)
+    own = min(math.log10(max(t.get("value") or 1, 1)) * 2, 14)
+    # Count alone is not a story — five insiders splitting $750K is a payroll
+    # event. The bonus only applies once the day clears seven figures.
+    cluster = min(others * 5, 20) if story_value >= 1_000_000 else 0
+
+    # A fund vehicle trimming 1% is a worse representative of the day than a
+    # sitting officer, and PBF picked the fund over four selling executives.
+    # A penalty rather than an exclusion: when the entity is the only filer on
+    # the name, it should still get the slot.
+    title = (t.get("insider_title") or "").upper()
+    if t.get("is_entity") or "10%" in title:
+        own -= 10
     if t["signal_class"] == "discretionary_sell":
         # No grade exists, so size and company carry it, plus a nudge for a
-        # holder actually leaving rather than trimming.
-        exiting = 12 if (t.get("shares_owned_after") == 0) else 0
-        return size * 1.6 + cluster + exiting
-    return float(GRADE_WEIGHT.get(t.get("career_grade") or "", 5)) + size + cluster
+        # holder actually leaving rather than trimming. "Leaving" has to come
+        # from the reconciled position: a fund that sold 2.5% of a stake held
+        # across seven partnerships reports a near-zero balance on the last
+        # line, which is what used to earn this bonus.
+        pc = position_change(t.get("lots") or [t], is_buy=False)
+        exiting = 12 if (pc is not None and pc.is_full_exit) else 0
+        return size * 1.6 + own + cluster + exiting
+    return float(GRADE_WEIGHT.get(t.get("career_grade") or "", 5)) + size + own + cluster
+
+
+def _amount(val: float) -> str:
+    # Switch at the point where the K form would ROUND to four digits, not at
+    # the million. $999,600 is "$1.0M", never "$1000K".
+    return f"${val / 1_000_000:.1f}M" if val >= 999_500 else f"${val / 1_000:.0f}K"
 
 
 def render(t: dict) -> str:
@@ -133,14 +203,25 @@ def render(t: dict) -> str:
     is_buy = t["signal_class"] == "discretionary_buy"
     verb = "bought" if is_buy else "sold"
     val = t.get("value") or 0
-    amount = f"${val / 1_000_000:.1f}M" if val >= 1_000_000 else f"${val / 1_000:.0f}K"
 
     title = clean_title(t.get("insider_title"))
     name = (t.get("insider_name") or "").strip()
     who = title if (not name or name.lower() in title.lower()) else f"{title} {name}"
 
-    lines = [f"${t['ticker']} — {who} {verb} {amount}", ""]
-    lines += [f"· {a}" for a in annotate(t, max_lines=3)]
+    # Three or more insiders acting on one name in one day is a different
+    # story from any one of them acting alone, and it is the one worth
+    # leading with. The individual becomes the supporting detail rather than
+    # the headline.
+    others = max((t.get("day_cluster_n") or 1) - 1, 0)
+    lines: list[str] = []
+    if others >= 2:
+        n = t["day_cluster_n"]
+        lines = [f"${t['ticker']} — {n} insiders {verb} "
+                 f"{_amount(t.get('day_cluster_value') or val)} the same day", ""]
+        lines.append(f"· {who} {verb} {_amount(val)} of it.")
+    else:
+        lines = [f"${t['ticker']} — {who} {verb} {_amount(val)}", ""]
+    lines += [f"· {a}" for a in annotate(t, max_lines=3 if others < 2 else 2)]
 
     # Stated as a data point, not a pitch. Stocktwits bans links used as
     # "direct advertisements or sales pitches for a paid product", and the

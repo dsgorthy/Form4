@@ -36,15 +36,31 @@ because they measured highest on no-history filers (role spread ~1.7pp, size
 """
 from __future__ import annotations
 
+import re
+import sys
+from pathlib import Path
 from typing import Optional
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from api.ownership import position_change  # noqa: E402
+
 __all__ = ["annotate", "headline", "clean_title"]
+
+
+def _shares(v: float) -> str:
+    """Share counts, at the precision a reader can hold in their head."""
+    if v >= 1_000_000:
+        return f"{v / 1_000_000:.1f}M"
+    if v >= 1_000:
+        return f"{v / 1_000:.0f}K"
+    return f"{v:,.0f}"
 
 
 def _money(v: Optional[float]) -> str:
     if not v:
         return "$0"
-    if v >= 1_000_000:
+    if v >= 999_500:   # below the million, but rounds to "$1000K" in the K form
         return f"${v / 1_000_000:.2f}M"
     if v >= 1_000:
         return f"${v / 1_000:.0f}K"
@@ -68,12 +84,20 @@ _TITLE_FIXUPS = {
 }
 
 
+#: Values that mean "we do not know", which must read as the generic noun
+#: rather than as a job title. "Unknown Goldman Sachs Group Inc. bought $10.3M"
+#: shipped as a public post; 892 rows carried this in 2026 alone.
+_TITLE_UNKNOWN = {"unknown", "n/a", "na", "none", "null", "-", "--", "other"}
+
+
 def clean_title(title: Optional[str]) -> str:
     """Expand the abbreviations SEC filers use, leave everything else alone."""
     raw = (title or "").strip()
     if not raw:
         return "Insider"
     key = raw.lower().rstrip(".")
+    if key in _TITLE_UNKNOWN:
+        return "Insider"
     if key in _TITLE_FIXUPS:
         return _TITLE_FIXUPS[key]
     return raw
@@ -116,30 +140,50 @@ def annotate(t: dict, max_lines: int = 4) -> list[str]:
                    if is_buy else
                    "10% holder trimming — often a fund rebalancing, not a view.")
     elif any(k in title for k in ("CEO", "CHIEF EXECUTIVE")):
-        out.append("Chief executive — buying their own company.")
+        # Both halves have to follow the trade direction. "Chief executive —
+        # buying their own company" shipped on a $21.7M SALE, which is the
+        # same class of error as calling a sale a largest purchase.
+        out.append("Chief executive — buying their own company." if is_buy
+                   else "Chief executive selling their own company.")
     elif any(k in title for k in ("CFO", "CHIEF FINANCIAL")):
-        out.append("CFO — the person who sees the numbers first.")
+        out.append("CFO — the person who sees the numbers first." if is_buy
+                   else "CFO selling — the person who sees the numbers first.")
 
     # --- Conviction relative to what they already hold. A purchase that moves
     # someone's own position materially says more than a large dollar figure.
-    # shares_owned_after moves in OPPOSITE directions for the two sides: a buy
-    # leaves more than they started with, a sell leaves less. Deriving the prior
-    # holding by subtracting in both cases produced "cut their stake by 345%",
-    # which is not a thing that can happen.
-    qty, owned_after = t.get("qty"), t.get("shares_owned_after")
-    if qty and owned_after is not None and qty > 0:
-        before = (owned_after - qty) if is_buy else (owned_after + qty)
-        if before > 0:
-            change = qty / before
-            if is_buy:
-                if change >= 0.25:
-                    out.append(f"This increased their stake by {change * 100:.0f}%.")
-            else:
-                # Bounded by construction — you cannot sell more than you held.
-                pct = min(change, 1.0) * 100
-                if pct >= 25:
-                    out.append("This sold their entire position." if pct >= 99.5
-                               else f"This cut their stake by {pct:.0f}%.")
+    #
+    # The position maths lives in api.ownership because it is genuinely hard:
+    # shares_owned_after is reported per ownership line, and dividing a summed
+    # quantity by one line's balance produced "cut their stake by 73%" on a 3%
+    # trim. Worse, the old code clamped the result at 100%, so 34 filings —
+    # including a $371M Dell sale that was 65% of the stake — were about to be
+    # described as selling out entirely. position_change returns None when the
+    # balances cannot be reconciled, and None means say nothing.
+    pc = position_change(t.get("lots") or [t], is_buy)
+    if pc is not None:
+        if is_buy:
+            if pc.fraction >= 4.0:
+                # "increased their stake by 994,205%" is arithmetically true and
+                # unreadable. A multiple is the same fact a person can picture.
+                out.append(f"Grew their position {pc.fraction + 1:.0f}x, "
+                           f"to {_shares(pc.after)} shares.")
+            elif pc.fraction >= 0.25:
+                out.append(f"This increased their stake by {pc.fraction * 100:.0f}%.")
+        elif pc.is_full_exit:
+            out.append("This sold their entire position.")
+        elif pc.fraction >= 0.25:
+            out.append(f"This cut their stake by {pc.fraction * 100:.0f}%.")
+        else:
+            # The case that reads most misleadingly without help: a headline
+            # dollar figure that is a rounding error against the position. Say
+            # what they kept, or the number above is the only thing a reader
+            # takes away. Charles Schwab sold $15.2M of an 84.2M-share
+            # position, so the honest rounding of 0.2% is "under 1%", not the
+            # "0% of their stake" that reads as a no-op.
+            share = ("under 1%" if pc.fraction < 0.005
+                     else f"{pc.fraction * 100:.0f}%")
+            out.append(f"Still holds {_shares(pc.after)} shares — "
+                       f"this was {share} of their stake.")
 
     # --- First-ever beats largest-ever, which is the opposite of the
     # convention. A first purchase averaged +0.52% at 30d; a largest-ever
@@ -149,7 +193,7 @@ def annotate(t: dict, max_lines: int = 4) -> list[str]:
     # error that is invisible in code review and obvious in a public post.
     if t.get("is_first_ever"):
         out.append("First time they've ever bought this stock." if is_buy
-                   else "First time they've ever sold any.")
+                   else "First time they've ever sold it.")
     elif t.get("is_largest_ever"):
         out.append("Largest purchase they've ever made in it." if is_buy
                    else "Largest sale they've ever made in it.")
@@ -177,19 +221,31 @@ def annotate(t: dict, max_lines: int = 4) -> list[str]:
     # --- Has the move already happened? Not predictive, purely practical, and
     # the single most useful line in a CEO Watcher email: it tells a reader
     # whether they missed it.
+    # `current_price` is the US listing's close, so the fill has to be in the
+    # same units. A foreign line ("Common Shares (2330.TW)") is priced in the
+    # local currency and comparing the two is meaningless, as is any gap wide
+    # enough that a share-class or units mismatch is likelier than the move.
     tx, cur = t.get("price"), t.get("current_price")
-    if tx and cur and tx > 0:
+    security = t.get("security_title") or ""
+    foreign_listing = bool(re.search(r"\(\d{4}\.[A-Z]{2}\)", security))
+    if tx and cur and tx > 0 and not foreign_listing:
         gap = cur / tx - 1
-        if abs(gap) >= 0.05:
+        if 0.05 <= abs(gap) <= 3.0:
             direction = "above" if gap > 0 else "below"
             out.append(f"Already {abs(gap) * 100:.0f}% {direction} their fill "
                        f"({_money(tx)} → {_money(cur)}).")
 
     # --- Others doing the same thing. Last because it measured flat on
     # no-history filers (0.62 / 0.58 / 0.54 / 0.55 across cluster buckets).
-    cluster = t.get("pit_cluster_size") or 0
-    if cluster >= 2:
-        verb = "buying" if is_buy else "selling"
-        out.append(f"{cluster} other insiders {verb} it this month.")
+    #
+    # Skipped when the caller has already led with the same-day cluster,
+    # otherwise the post says it twice. pit_cluster_size is the fallback and
+    # is deliberately backward-looking, so it undercounts a day that is still
+    # in progress — fine as colour, wrong as a headline.
+    if (t.get("day_cluster_n") or 1) - 1 < 2:
+        cluster = t.get("pit_cluster_size") or 0
+        if cluster >= 2:
+            verb = "buying" if is_buy else "selling"
+            out.append(f"{cluster} other insiders {verb} it this month.")
 
     return out[:max_lines]
