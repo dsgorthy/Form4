@@ -141,6 +141,20 @@ const STRATEGIES = [
     ],
   },
   {
+    // The same insider grade filter as Quality + Momentum with the two moving
+    // average gates removed. It has been running alert-only as an A/B since
+    // 2023 and was not published anywhere until 2026-08-18, which meant the
+    // best-performing book on the platform was invisible.
+    value: "quality_notrend",
+    label: "Quality, No Trend Filter",
+    brief: "Quality + Momentum without the moving-average gates. 2.5x the trades and it stays invested.",
+    rules: [
+      "Buys when an A+/A-graded insider buys — with no requirement that the stock is above its 50- or 200-day average.",
+      "10% of equity per position, 10 positions at most. Sells after 42 trading days.",
+      "Dropping the trend gates is what makes it work: it holds 6.4 positions on average against Quality + Momentum's 2.6, so 59% of the book is invested rather than 21%.",
+    ],
+  },
+  {
     value: "quality_momentum_2x",
     label: "Quality + Momentum 2x",
     brief: "The same trades at double the position size. 41.7% CAGR vs 32.6%, for 2.2 points more drawdown.",

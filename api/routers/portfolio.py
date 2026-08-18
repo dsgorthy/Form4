@@ -87,7 +87,7 @@ def _build_trade_row(r: dict, scale: float, gated: bool = False, current_price=N
 # quality_momentum); form4_insider + cw_reversal + cw_composite 2026-04-11
 # (replaced by current 3 or merged into reversal_dip/quality_momentum runners).
 ALLOWED_STRATEGIES = {"quality_momentum", "quality_momentum_2x",
-                      "reversal_dip", "tenb51_surprise"}
+                      "quality_notrend", "reversal_dip", "tenb51_surprise"}
 
 
 @router.get("")
