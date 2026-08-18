@@ -155,16 +155,6 @@ const STRATEGIES = [
     ],
   },
   {
-    value: "quality_momentum_2x",
-    label: "Quality + Momentum 2x",
-    brief: "The same trades at double the position size. 41.7% CAGR vs 32.6%, for 2.2 points more drawdown.",
-    rules: [
-      "Identical entries and exits to Quality + Momentum — the only difference is size.",
-      "20% of equity per position instead of 10%, up to 200% gross. Margin interest of 6% a year is charged daily on anything borrowed.",
-      "In practice it averaged 61% invested and only borrowed at the peaks, because the strategy rarely fills more than half its ten slots — total financing over three and a half years was $1,676.",
-    ],
-  },
-  {
     value: "reversal_dip",
     label: "Deep Reversal",
     brief: "Persistent sellers reversing into depressed stocks. Sharpe 1.08, ~20 trades/yr, 21td hold.",

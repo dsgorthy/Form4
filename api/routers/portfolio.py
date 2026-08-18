@@ -86,8 +86,14 @@ def _build_trade_row(r: dict, scale: float, gated: bool = False, current_price=N
 # Retirement dates: reversal_quality 2026-04-09 (split into reversal_dip +
 # quality_momentum); form4_insider + cw_reversal + cw_composite 2026-04-11
 # (replaced by current 3 or merged into reversal_dip/quality_momentum runners).
-ALLOWED_STRATEGIES = {"quality_momentum", "quality_momentum_2x",
-                      "quality_notrend", "reversal_dip", "tenb51_surprise"}
+# quality_momentum_2x is deliberately absent. The levered book was built
+# 2026-08-18, then measured: 61% average gross exposure against a 200%
+# ceiling and $1,676 of carry across three and a half years, because the
+# strategy only fills 2.6 of its ten slots. It was levered in name and not
+# in fact, and the direction is 1x. The config, the simulator support and
+# the simulated rows all remain — re-add the name here to republish.
+ALLOWED_STRATEGIES = {"quality_momentum", "quality_notrend",
+                      "reversal_dip", "tenb51_surprise"}
 
 
 @router.get("")
