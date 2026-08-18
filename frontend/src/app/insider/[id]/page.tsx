@@ -1,7 +1,6 @@
 export const dynamic = "force-dynamic";
 
 import type { Metadata } from "next";
-import { Fragment } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { fetchAPI } from "@/lib/api";
@@ -419,35 +418,57 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
               specific measurements behind the wall — three metrics across three
               windows — which a sentence cannot convey. The tiles are the real
               layout the Pro view renders, with the figures replaced. */}
+          {/* A real table, because this is tabular data: three metrics across
+              three windows. The first attempt laid it out as a CSS grid with
+              three columns and then emitted four cells per row — a label plus
+              the windows — so every row wrapped and the whole thing collapsed
+              into a list. A <table> cannot make that mistake.
+
+              The placeholder bars are aria-hidden with one caption explaining
+              the whole block, rather than nine repetitions of "Pro subscribers
+              only" that a screen reader would read out one at a time and any
+              copy-paste would pick up. */}
           <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] p-5">
-            <div className="grid grid-cols-3 gap-px bg-[#2A2A3A] rounded-md overflow-hidden border border-[#2A2A3A]">
-              <div className="bg-[#12121A] px-3 py-2 text-[10px] uppercase tracking-wider text-[#55556A]">
-                After
-              </div>
-              {["7 days", "30 days", "90 days"].map((w) => (
-                <div key={w} className="bg-[#12121A] px-3 py-2 text-[10px] uppercase tracking-wider text-[#55556A] text-right">
-                  {w}
-                </div>
-              ))}
-              {["Win rate", "Average move", "Alpha vs SPY"].map((metric) => (
-                <Fragment key={metric}>
-                  <div className="bg-[#12121A] px-3 py-2.5 text-sm text-[#8888A0]">{metric}</div>
-                  {[0, 1, 2].map((i) => (
-                    <div key={i} className="bg-[#12121A] px-3 py-2.5 text-right">
-                      <span
-                        className="inline-block h-3.5 w-10 rounded bg-[#2A2A3A]"
-                        aria-hidden="true"
-                      />
-                      <span className="sr-only">Pro subscribers only</span>
-                    </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <caption className="sr-only">
+                  Track record for {profile.name}. Available to Pro subscribers.
+                </caption>
+                <thead>
+                  <tr className="border-b border-[#2A2A3A]">
+                    <th scope="col" className="pb-2 text-left text-[10px] font-medium uppercase tracking-wider text-[#55556A]">
+                      After
+                    </th>
+                    {["7 days", "30 days", "90 days"].map((w) => (
+                      <th key={w} scope="col" className="pb-2 text-right text-[10px] font-medium uppercase tracking-wider text-[#55556A]">
+                        {w}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {["Win rate", "Average move", "Alpha vs SPY"].map((metric) => (
+                    <tr key={metric} className="border-b border-[#2A2A3A]/40 last:border-0">
+                      <th scope="row" className="py-3 text-left font-normal text-[#8888A0]">
+                        {metric}
+                      </th>
+                      {[0, 1, 2].map((i) => (
+                        <td key={i} className="py-3 text-right">
+                          <span
+                            className="inline-block h-3.5 w-12 rounded bg-[#2A2A3A]"
+                            aria-hidden="true"
+                          />
+                        </td>
+                      ))}
+                    </tr>
                   ))}
-                </Fragment>
-              ))}
+                </tbody>
+              </table>
             </div>
             <p className="mt-4 text-sm text-[#8888A0]">
-              Every purchase below is already shown with what the stock did
-              afterwards. Pro adds what they add up to for {profile.name} —
-              measured against SPY over the same windows.
+              Every purchase below already shows what the stock did afterwards.
+              Pro is what they add up to for {profile.name}, measured against
+              SPY over the same windows.
             </p>
           </div>
           <FollowCta
