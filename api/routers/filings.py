@@ -201,8 +201,9 @@ def list_filings(
                 agg.n_filers, agg.n_filings, agg.is_amendment, agg.document_type,
                 COALESCE(i.display_name, i.name) AS insider_name, i.cik,
                 -- Canonical insider URL, so every row on the feed and the
-                -- landing page links to /insider/{slug} rather than the
-                -- name+CIK shape. See insiderPath in lib/insider-url.ts.
+                -- landing page links to the slug form rather than the name+CIK
+                -- shape. See insiderPath in lib/insider-url.ts. No braces in
+                -- this comment: these queries are f-strings.
                 i.slug AS insider_slug,
                 tr.return_7d, tr.return_30d, tr.return_90d,
                 tr.abnormal_7d, tr.abnormal_30d, tr.abnormal_90d
@@ -335,8 +336,9 @@ def get_related_trades(trade_id: str, limit: int = Query(default=5, ge=1, le=20)
                 agg.pit_grade, agg.pit_blended_score, agg.career_grade,
                 COALESCE(i.display_name, i.name) AS insider_name, i.cik,
                 -- Canonical insider URL, so every row on the feed and the
-                -- landing page links to /insider/{slug} rather than the
-                -- name+CIK shape. See insiderPath in lib/insider-url.ts.
+                -- landing page links to the slug form rather than the name+CIK
+                -- shape. See insiderPath in lib/insider-url.ts. No braces in
+                -- this comment: these queries are f-strings.
                 i.slug AS insider_slug,
                 tr.return_7d, tr.return_30d, tr.return_90d,
                 tr.abnormal_7d, tr.abnormal_30d, tr.abnormal_90d
