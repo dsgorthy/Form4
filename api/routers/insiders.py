@@ -141,6 +141,36 @@ def get_insider(identifier: str, user: UserContext = Depends(get_current_user)) 
             (insider_id,),
         ).fetchone()
 
+        # insider_track_records counts EVERY row, derivatives included, and no
+        # other surface does. Magnetar Financial showed "999 transactions
+        # across 3 companies" because 833 real sales were padded with 166
+        # derivative rows, and one of its three tickers (AJX) is derivative-
+        # only — so the profile sentence said 2 companies while the social card
+        # said 3, from the same profile payload.
+        #
+        # Recount the three display fields against signal_class, matching the
+        # filter every feed, chart and post already uses. The rest of the
+        # legacy row is left alone: it still carries columns the page reads,
+        # and the registry has it flagged for removal separately.
+        if track_record is not None:
+            counts = conn.execute("""
+                SELECT
+                  COUNT(*) FILTER (WHERE signal_class = 'discretionary_buy')  AS buys,
+                  COUNT(*) FILTER (WHERE signal_class = 'discretionary_sell') AS sells,
+                  COUNT(DISTINCT ticker) FILTER (
+                      WHERE signal_class IN ('discretionary_buy', 'discretionary_sell')
+                  ) AS n_tickers
+                FROM trades
+                WHERE insider_id = ?
+                  AND superseded_by IS NULL
+                  AND (is_duplicate = 0 OR is_duplicate IS NULL)
+                  AND NOT COALESCE(value_suspect, FALSE)
+            """, (insider_id,)).fetchone()
+            track_record = dict(track_record)
+            track_record["buy_count"] = counts["buys"] or 0
+            track_record["sell_count"] = counts["sells"] or 0
+            track_record["n_tickers"] = counts["n_tickers"] or 0
+
         # Entity group info
         entity_group = None
         try:
