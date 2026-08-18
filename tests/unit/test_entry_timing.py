@@ -164,14 +164,32 @@ class TestPnlNeverReportsUnobtainableEntries:
 
     PORTFOLIO_API = "api/routers/portfolio.py"
 
-    def test_every_strategy_portfolio_read_filters_the_flag(self):
+    # Reads that deliberately do NOT filter, each with a reason. The
+    # single-trade detail endpoint returns the row and exposes the flag via
+    # SELECT *, so the UI can mark it — 404-ing a real row would hide the
+    # problem rather than surface it.
+    EXEMPT_QUERIES = {
+        "single-trade detail (SELECT * exposes the flag)": "WHERE id = ?",
+    }
+
+    def test_every_pnl_query_filters_the_flag(self):
+        """Per-query, not a count. Counting lets one unguarded read hide."""
+        import re
         src = (REPO / self.PORTFOLIO_API).read_text(errors="ignore")
-        reads = src.count("FROM strategy_portfolio")
-        guards = src.count("entry_before_publication")
-        assert guards >= reads, (
-            f"{self.PORTFOLIO_API}: {reads} reads of strategy_portfolio but only "
-            f"{guards} references to entry_before_publication. Every P&L read "
-            f"must exclude positions opened before their filing was public."
+        blocks = re.findall(r'conn\.execute\("""(.*?)"""', src, re.S)
+        unguarded = []
+        for q in blocks:
+            if "FROM strategy_portfolio" not in q:
+                continue
+            if "entry_before_publication" in q:
+                continue
+            if any(marker in q for marker in self.EXEMPT_QUERIES.values()):
+                continue
+            unguarded.append(" ".join(q.split())[:110])
+        assert not unguarded, (
+            "these strategy_portfolio queries report P&L without excluding "
+            "positions opened before their filing was public:\n  "
+            + "\n  ".join(unguarded)
         )
 
     def test_migration_defines_the_trigger(self):
