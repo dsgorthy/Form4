@@ -381,16 +381,19 @@ export default async function ScoringPage() {
             ))}
           </div>
 
-          <h3 className="text-sm font-semibold text-[#E8E8ED] mb-3">Why No Stop Losses on Two Strategies?</h3>
+          <h3 className="text-sm font-semibold text-[#E8E8ED] mb-3">Why No Tight Stops?</h3>
           <div className="space-y-3 text-sm text-[#8888A0] leading-relaxed">
             <p>
-              Quality + Momentum and Deep Reversal use fixed holding periods with
-              no stop losses. This is a deliberate, data-driven decision.
+              All three strategies exit on a fixed holding period, with one
+              backstop: a hard stop at &minus;30%. There is no trailing stop and
+              no tight stop. That is a deliberate, data-driven decision.
             </p>
             <p>
               Our grid search tested every combination of stop losses and trailing stops.{" "}
-              <strong className="text-[#E8E8ED]">Stop losses reduced risk-adjusted returns by 18&ndash;25%</strong>.
+              <strong className="text-[#E8E8ED]">Tight stops reduced risk-adjusted returns by 18&ndash;25%</strong>.
               Quality insider picks recover from temporary dips, and stops trigger whipsaw exits.
+              The &minus;30% backstop sits far enough out to leave that recovery intact &mdash; it has
+              closed 12 of 262 positions.
             </p>
             <p>
               These strategies have a <strong className="text-[#E8E8ED]">positive skew profile</strong>:

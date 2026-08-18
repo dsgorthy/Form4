@@ -164,3 +164,38 @@ def test_config_display_names_carry_the_product_label():
         assert STRATEGY_LABELS[key] in m.group(1), (
             f"{key}.yaml says {m.group(1)!r}, registry says {STRATEGY_LABELS[key]!r}"
         )
+
+
+# ── old display names must not survive on public pages ──────────────────────
+#
+# The first pass of the 2026-08-18 rename missed a paragraph four sections
+# below the strategy list on /research/methodology, because the check was for
+# the retired KEY and the page carries only LABELS. Renaming is a
+# find-and-replace over prose, and prose is where it gets missed.
+
+RETIRED_LABELS = ["10b5-1 Surprise", "Deep Reversal", "Quality + Momentum"]
+
+PUBLIC_PAGES = [
+    "frontend/src/app/page.tsx",
+    "frontend/src/app/onboarding/page.tsx",
+    "frontend/src/app/research/methodology/page.tsx",
+    "frontend/src/components/portfolio-view.tsx",
+]
+
+
+@pytest.mark.parametrize("rel", PUBLIC_PAGES)
+def test_public_pages_use_current_names(rel):
+    body = (REPO / rel).read_text()
+    for stale in RETIRED_LABELS:
+        assert stale not in body, (
+            f"{rel} still shows {stale!r}; the current names are "
+            f"{sorted(STRATEGY_LABELS[k] for k in ACTIVE_STRATEGIES)}"
+        )
+
+
+def test_methodology_page_does_not_claim_we_run_without_stops():
+    """The page said "Why No Stop Losses on Two Strategies?" while the
+    simulator applied a hard -30% stop that had closed 12 positions. A
+    methodology page that contradicts the engine is worse than no page."""
+    body = (REPO / "frontend/src/app/research/methodology/page.tsx").read_text()
+    assert "No Stop Losses" not in body
