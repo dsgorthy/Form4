@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.openclaw.quality-notrend</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>/Users/derekg/trading-framework/strategies/cw_strategies/cw_runner.py</string>
+        <string>--config</string>
+        <string>/Users/derekg/trading-framework/strategies/cw_strategies/configs/quality_notrend.yaml</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/derekg/trading-framework</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONPATH</key>
+        <string>/Users/derekg/trading-framework</string>
+    </dict>
+    <!-- Alpaca credentials and telegram tokens are loaded from .env via
+         python-dotenv at cw_runner startup. The strategy yaml declares
+         alpaca_env_prefix which selects the dedicated per-strategy pair. -->
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+    <key>StandardOutPath</key>
+    <string>/Users/derekg/trading-framework/logs/quality-notrend.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/derekg/trading-framework/logs/quality-notrend.log</string>
+</dict>
+</plist>

@@ -109,10 +109,27 @@ def _run(context: AssetExecutionContext, args: list[str], timeout: int = 3600) -
 @asset(group_name="form4_pipeline", compute_kind="python",
        description="EOD prices from Alpaca into form4.prices.daily_prices.")
 def form4_daily_prices(context: AssetExecutionContext) -> Output:
+    # --max-tickers defaults to 2000 and truncates a SORTED list. The refresh
+    # universe is recent filers UNION every ticker we already carry that is not
+    # older than 400 days — about 5,300 live symbols — so the default would
+    # silently refresh only the front of the alphabet and leave the rest to rot.
+    # That is how 4,843 of 8,212 tickers ended up more than four months stale
+    # by 2026-08, which blanked above_sma50/above_sma200 (they need history) and
+    # made backtested positions exit at last-seen prices instead of real ones.
     _run(context, ["/usr/bin/python3",
-                   f"{REPO}/pipelines/insider_study/update_daily_prices.py"])
+                   f"{REPO}/pipelines/insider_study/update_daily_prices.py",
+                   "--max-tickers", "12000"])
     latest = _scalar("SELECT max(date) FROM prices.daily_prices")
-    return Output(latest, metadata={"latest_price_date": MetadataValue.text(str(latest))})
+    n_fresh = _scalar(
+        "SELECT count(*) FROM (SELECT ticker FROM prices.daily_prices "
+        "GROUP BY ticker HAVING max(date) >= to_char(CURRENT_DATE - 7,'YYYY-MM-DD')) q"
+    )
+    return Output(latest, metadata={
+        "latest_price_date": MetadataValue.text(str(latest)),
+        # Surfaced because MAX(date) alone hid the outage: SPY was current every
+        # single day while most of the table was months behind.
+        "tickers_fresh_within_7d": MetadataValue.int(int(n_fresh or 0)),
+    })
 
 
 @asset(group_name="form4_pipeline", compute_kind="python",
