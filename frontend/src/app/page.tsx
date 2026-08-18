@@ -44,6 +44,24 @@ const API = process.env.API_URL_INTERNAL || "http://localhost:8000/api/v1";
 
 type Curve = { date: string; equity: number };
 
+type RecentTrade = {
+  trade_id: number | string;
+  ticker: string;
+  insider_name: string | null;
+  insider_id: number | string | null;
+  insider_slug: string | null;
+  cik: string | null;
+  value: number;
+  pit_grade: string | null;
+};
+
+type BookSummary = {
+  cagr: number;
+  total_trades: number;
+  wins: number;
+  win_rate: number;
+};
+
 async function getJson(path: string, revalidate = 300) {
   try {
     const res = await fetch(`${API}${path}`, { next: { revalidate } });
@@ -107,12 +125,15 @@ export default async function LandingPage() {
   if (userId) redirect("/portfolio");
 
   const [filings, overlay, ...books] = await Promise.all([
-    getJson("/filings?limit=5&min_grade=B&trade_type=buy"),
+    getJson("/filings?limit=6&min_grade=B&trade_type=buy"),
     getJson(`/portfolio/overlay?strategy=${STRATEGIES[0].key}`),
     ...STRATEGIES.map((s) => getJson(`/portfolio?strategy=${s.key}`)),
   ]);
 
-  const recentTrades = filings?.items ?? [];
+  const recentTrades: RecentTrade[] = filings?.items ?? [];
+  // The lead book backs the hero chart, so its win rate belongs on the same
+  // card rather than a fourth stat that repeats the start date under it.
+  const lead: BookSummary | null = books[0]?.summary ?? null;
   const rows: Array<Record<string, number | string>> = overlay?.data ?? [];
 
   const blended: Curve[] = rows.map((r) => ({ date: String(r.date), equity: Number(r.blended_SPY) }));
@@ -149,33 +170,32 @@ export default async function LandingPage() {
           <div className="font-mono text-[11px] uppercase tracking-[0.16em] text-[#55556A]">
             Live since January 2023
           </div>
-          {/* Descriptive, not clever: a reader should know what we sell from
-              the headline alone. */}
           <h1 className="mt-3 text-4xl sm:text-[3.25rem] font-bold tracking-[-0.03em] text-[#E8E8ED] leading-[1.03] text-balance">
             Know which insiders
             <br />
             <span className="text-[#22C55E]">are worth following.</span>
           </h1>
           <p className="mt-5 text-lg text-[#8888A0] max-w-xl">
-            Every SEC Form 4, graded on the filer&apos;s own record, minutes
-            after it lands. We trade the grades in public.
+            Some insiders have a record worth following. Most don&apos;t. We
+            grade every one of them the minute they file.
           </p>
         </div>
 
         {hero && (
           <div className="mt-10 rounded-2xl border border-[#2A2A3A] bg-[#12121A] overflow-hidden">
+            {/* No strategy name here. The number is the claim; which book
+                produced it is a question for /portfolio. */}
             <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4 p-6 pb-4">
               <div>
-                <TileLabel>{STRATEGIES[0].name}, idle cash in SPY</TileLabel>
-                <div className="mt-2 flex items-baseline gap-3">
-                  <span className="font-mono text-4xl sm:text-5xl font-bold text-[#22C55E] tabular-nums tracking-tight">
-                    ${Math.round(hero.final).toLocaleString()}
-                  </span>
-                  <span className="text-sm text-[#55556A]">from $100,000</span>
+                <div className="font-mono text-4xl sm:text-5xl font-bold text-[#22C55E] tabular-nums tracking-tight">
+                  ${Math.round(hero.final).toLocaleString()}
+                </div>
+                <div className="mt-1.5 text-sm text-[#8888A0]">
+                  from $100,000, following our top-graded buys
                 </div>
               </div>
               <div className="text-right">
-                <TileLabel>Same money in SPY</TileLabel>
+                <TileLabel>The same money in the S&amp;P 500</TileLabel>
                 <div className="mt-2 font-mono text-2xl text-[#8888A0] tabular-nums">
                   ${Math.round(hero.spy).toLocaleString()}
                 </div>
@@ -186,16 +206,16 @@ export default async function LandingPage() {
               <EquitySparkline
                 strategy={blended}
                 benchmark={pure}
-                label={`${STRATEGIES[0].name} with idle cash in SPY`}
+                label="Our top-graded buys against the S&P 500, with idle cash held in SPY"
               />
             </div>
 
             <dl className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-[#2A2A3A] border-t border-[#2A2A3A]">
               {[
-                ["CAGR", `${hero.cagrBlended.toFixed(1)}%`, `SPY ${hero.cagrSpy.toFixed(1)}%`],
-                ["Max drawdown", `${hero.dd.toFixed(1)}%`, "peak to trough"],
+                ["Return a year", `${hero.cagrBlended.toFixed(1)}%`, `S&P 500 ${hero.cagrSpy.toFixed(1)}%`],
+                ["Winners", lead ? `${lead.win_rate}%` : "—", lead ? `${lead.wins} of ${lead.total_trades} trades` : ""],
+                ["Worst drop", `${hero.dd.toFixed(1)}%`, "peak to trough"],
                 ["Open today", `${hero.positions}`, "positions"],
-                ["Since", hero.from.slice(0, 7), "every trade public"],
               ].map(([k, v, sub]) => (
                 <div key={k} className="bg-[#12121A] px-5 py-4">
                   <dt className="text-[10px] uppercase tracking-wider text-[#55556A]">{k}</dt>
@@ -207,7 +227,9 @@ export default async function LandingPage() {
           </div>
         )}
 
-        <div className="mt-8 flex flex-wrap items-center gap-3">
+        {/* One button. The nav already carries Sign In and Start Free Trial,
+            so a third hero CTA was competing with our own header. */}
+        <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-3">
           <SignUpButton mode="modal">
             <button className="rounded-lg bg-[#22C55E] px-7 py-3 text-base font-semibold text-[#06240F] hover:bg-[#16A34A] transition-colors">
               Start free
@@ -215,45 +237,37 @@ export default async function LandingPage() {
           </SignUpButton>
           <Link
             href="/portfolio"
-            className="rounded-lg border border-[#2A2A3A] bg-[#12121A] px-7 py-3 text-base font-semibold text-[#E8E8ED] hover:border-[#22C55E]/50 transition-colors"
+            className="text-base font-medium text-[#8888A0] hover:text-[#E8E8ED] transition-colors"
           >
-            See every trade →
+            See every trade we&apos;ve made →
           </Link>
-          <SignInButton mode="modal">
-            <button className="ml-1 text-sm text-[#8888A0] hover:text-[#E8E8ED] transition-colors">
-              Sign in
-            </button>
-          </SignInButton>
         </div>
         <p className="mt-4 text-sm text-[#55556A]">
-          Free account follows any company and alerts you when they file.
-          7 days of Pro on top, no card.
+          Follow any company free, forever. Seven days of Pro included, no card.
         </p>
       </section>
 
-      {/* ═══ 2. Bento — one big claim, three small supports ═════════════ */}
+      {/* ═══ 2. The discrimination argument ═════════════════════════════ */}
       <section className="border-y border-[#2A2A3A] bg-[#0D0D14]">
         <div className="px-4 py-14 max-w-5xl mx-auto">
           <h2 className="text-2xl sm:text-3xl font-bold text-[#E8E8ED] tracking-tight text-balance mb-2">
-            The grade is the product
+            Most insider buying is noise
           </h2>
           <p className="text-[#8888A0] mb-8 max-w-xl">
-            Every insider is scored on their own prior trades, using only what
-            was knowable at the time.
+            Anyone can read a Form 4. The hard part is knowing which of the
+            129,000 people filing them has ever been right before.
           </p>
 
-          {/* Uneven on purpose: the measurement is the argument and gets twice
-              the room, the supports sit beside it. */}
           <div className="grid gap-4 md:grid-cols-3 md:auto-rows-[minmax(0,1fr)]">
             <Tile span="md:col-span-2 md:row-span-2" className="flex flex-col justify-center">
-              <TileLabel>Return vs S&amp;P, 30 days after the filing</TileLabel>
+              <TileLabel>What you make in the month after the filing, above the S&amp;P</TileLabel>
               <div className="mt-6 space-y-6">
                 {[
-                  { label: "A+ and A insiders", pct: 2.33, n: "8,721 buys", tone: "#22C55E", w: "100%" },
-                  { label: "Everyone else", pct: 0.91, n: "91,859 buys", tone: "#55556A", w: "39%" },
+                  { label: "Buying with our top-graded insiders", pct: 2.33, n: "8,721 buys", tone: "#22C55E", w: "100%" },
+                  { label: "Buying with every insider", pct: 0.91, n: "91,859 buys", tone: "#55556A", w: "39%" },
                 ].map((r) => (
                   <div key={r.label}>
-                    <div className="flex items-baseline justify-between">
+                    <div className="flex items-baseline justify-between gap-4">
                       <span className="text-[#E8E8ED]">{r.label}</span>
                       <span className="font-mono text-2xl tabular-nums font-semibold" style={{ color: r.tone }}>
                         +{r.pct.toFixed(2)}%
@@ -267,157 +281,195 @@ export default async function LandingPage() {
                 ))}
               </div>
               <div className="mt-6 pt-4 border-t border-[#2A2A3A] text-[11px] text-[#55556A]">
-                Open-market purchases, 2016–2026, benchmarked against SPY.{" "}
+                Open-market purchases, 2016&ndash;2026, measured against SPY.{" "}
                 <Link href="/research/methodology" className="text-[#22C55E] hover:underline">
-                  How the grade is calculated →
+                  How we grade →
                 </Link>
               </div>
             </Tile>
 
             <Tile>
-              <TileLabel>Speed</TileLabel>
+              <TileLabel>You hear about it first</TileLabel>
               <div className="mt-2 font-mono text-3xl font-bold text-[#E8E8ED] tabular-nums">
                 &lt; 5 min
               </div>
               <p className="mt-2 text-sm text-[#8888A0]">
-                From EDGAR to graded and searchable.
+                From their filing hitting EDGAR to the alert in your inbox.
               </p>
             </Tile>
 
             <Tile>
-              <TileLabel>Corrected, not copied</TileLabel>
+              <TileLabel>Everyone is scored</TileLabel>
+              <div className="mt-2 font-mono text-3xl font-bold text-[#E8E8ED] tabular-nums">
+                70,808
+              </div>
               <p className="mt-2 text-sm text-[#8888A0]">
-                Filers make mistakes — a total typed into the price field turns
-                a $65K buy into $4.8B. We repair those and show you the original
-                on the filing.
+                Insiders with a grade, each one earned on their own past trades.
               </p>
             </Tile>
           </div>
         </div>
       </section>
 
-      {/* ═══ 3. Two-thirds split — the books, then what just landed ═════ */}
-      <section className="px-4 py-14 max-w-5xl mx-auto grid gap-8 lg:grid-cols-[1.15fr_1fr] lg:items-start">
-        <div>
-          <h2 className="text-2xl font-bold text-[#E8E8ED] tracking-tight mb-1">
-            Three books, nothing hidden
-          </h2>
-          <p className="text-[#8888A0] mb-5 text-sm">
-            Read from the same record the site publishes. One is not working
-            and it stays up.
-          </p>
-          <div className="space-y-2.5">
-            {STRATEGIES.map((strat, i) => {
-              const sum = books[i]?.summary;
-              if (!sum) return null;
-              const good = sum.cagr >= 5;
-              return (
-                <Link
-                  key={strat.key}
-                  href="/portfolio"
-                  className="flex items-center gap-4 rounded-xl border border-[#2A2A3A] bg-[#12121A] px-5 py-4 hover:border-[#22C55E]/40 transition-colors"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-[#E8E8ED]">{strat.name}</span>
-                    </div>
-                    <div className="text-xs text-[#55556A] mt-0.5 truncate">{strat.thesis}</div>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <div className="font-mono text-xl font-bold tabular-nums" style={{ color: good ? "#22C55E" : "#8888A0" }}>
-                      {sum.cagr > 0 ? "+" : ""}{sum.cagr}%
-                    </div>
-                    <div className="text-[10px] uppercase tracking-wider text-[#55556A]">
-                      {sum.total_trades} trades
-                    </div>
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
+      {/* ═══ 3. The books — full width, no longer sharing a row ═════════ */}
+      <section className="px-4 py-14 max-w-5xl mx-auto">
+        <h2 className="text-2xl font-bold text-[#E8E8ED] tracking-tight mb-1">
+          We follow our own grades, in public
+        </h2>
+        <p className="text-[#8888A0] mb-6 max-w-2xl">
+          Three sets of rules, running since January 2023. Every buy and every
+          sell is posted the day it happens and never taken down — including
+          the one that is currently losing to the S&amp;P.
+        </p>
+        <div className="grid gap-4 sm:grid-cols-3">
+          {STRATEGIES.map((strat, i) => {
+            const sum = books[i]?.summary;
+            if (!sum) return null;
+            const good = sum.cagr >= 5;
+            return (
+              <Link
+                key={strat.key}
+                href="/portfolio"
+                className="flex flex-col rounded-xl border border-[#2A2A3A] bg-[#12121A] p-5 hover:border-[#22C55E]/40 transition-colors"
+              >
+                <span className="font-semibold text-[#E8E8ED]">{strat.name}</span>
+                <span className="mt-1 text-xs text-[#8888A0] leading-relaxed flex-1">
+                  {strat.thesis}
+                </span>
+                <span className="mt-4 flex items-baseline gap-2">
+                  <span className="font-mono text-2xl font-bold tabular-nums" style={{ color: good ? "#22C55E" : "#8888A0" }}>
+                    {sum.cagr > 0 ? "+" : ""}{sum.cagr}%
+                  </span>
+                  <span className="text-[10px] uppercase tracking-wider text-[#55556A]">
+                    a year · {sum.total_trades} trades
+                  </span>
+                </span>
+              </Link>
+            );
+          })}
         </div>
+      </section>
 
-        {recentTrades.length > 0 && (
-          <div>
-            <div className="flex items-baseline justify-between mb-1">
-              <h2 className="text-2xl font-bold text-[#E8E8ED] tracking-tight">Just filed</h2>
+      {/* ═══ 4. Recently filed — its own band ═══════════════════════════ */}
+      {recentTrades.length > 0 && (
+        <section className="border-y border-[#2A2A3A] bg-[#0D0D14]">
+          <div className="px-4 py-14 max-w-5xl mx-auto">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 mb-1">
+              <h2 className="text-2xl font-bold text-[#E8E8ED] tracking-tight">Recently filed</h2>
               <Link href="/feed" className="text-sm text-[#22C55E] hover:underline">
-                Full feed →
+                See the full feed →
               </Link>
             </div>
-            <p className="text-[#8888A0] mb-5 text-sm">Graded buys from the last few days.</p>
+            <p className="text-[#8888A0] mb-6 text-sm">
+              Buys from the last few days, already graded.
+            </p>
             <div className="rounded-xl border border-[#2A2A3A] bg-[#12121A] divide-y divide-[#2A2A3A]/60">
-              {recentTrades.map((t: any) => (
-                <div key={t.trade_id} className="flex items-center gap-3 px-4 py-3">
+              {recentTrades.map((t: RecentTrade) => (
+                <div key={t.trade_id} className="flex items-center gap-3 px-4 py-3 sm:px-5">
                   <Link
                     href={`/company/${t.ticker}`}
-                    className="font-mono font-semibold text-[#22C55E] hover:underline shrink-0 w-14"
+                    className="font-mono font-semibold text-[#22C55E] hover:underline shrink-0 w-16"
                   >
                     {t.ticker}
                   </Link>
-                  <Link
-                    href={insiderPath(t.insider_name, t.cik || t.insider_id, t.insider_slug)}
-                    className="text-sm text-[#E8E8ED] hover:text-[#22C55E] transition-colors truncate flex-1 min-w-0"
-                  >
-                    {t.insider_name || "—"}
-                  </Link>
-                  <span className="font-mono text-sm text-[#8888A0] tabular-nums shrink-0">
+                  {/* Only link when there is something to link to. A row with
+                      no slug and no id would otherwise render /insider/ and
+                      404, which is the bug class we spent this week closing. */}
+                  {(t.insider_slug || t.cik || t.insider_id) ? (
+                    <Link
+                      href={insiderPath(t.insider_name, t.cik ?? t.insider_id ?? "", t.insider_slug)}
+                      className="text-sm text-[#E8E8ED] hover:text-[#22C55E] transition-colors truncate flex-1 min-w-0"
+                    >
+                      {t.insider_name || "—"}
+                    </Link>
+                  ) : (
+                    <span className="text-sm text-[#E8E8ED] truncate flex-1 min-w-0">
+                      {t.insider_name || "—"}
+                    </span>
+                  )}
+                  {t.pit_grade && (
+                    <span className="hidden sm:inline-flex shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold bg-[#22C55E]/10 text-[#22C55E] ring-1 ring-[#22C55E]/25">
+                      {t.pit_grade}
+                    </span>
+                  )}
+                  <span className="font-mono text-sm text-[#8888A0] tabular-nums shrink-0 w-16 text-right">
                     {fmtValue(t.value)}
                   </span>
                 </div>
               ))}
             </div>
           </div>
-        )}
-      </section>
+        </section>
+      )}
 
-      {/* ═══ 4. Pricing ════════════════════════════════════════════════ */}
-      <section className="border-t border-[#2A2A3A] bg-[#0D0D14]">
+      {/* ═══ 5. Pricing ════════════════════════════════════════════════ */}
+      <section className="bg-[#0A0A10]">
         <div className="px-4 py-16 max-w-4xl mx-auto">
           <h2 className="text-2xl sm:text-3xl font-bold text-[#E8E8ED] tracking-tight text-center text-balance mb-2">
-            Alerts are free. The analysis is what you pay for.
+            Alerts are free. The judgement is what you pay for.
           </h2>
           <p className="text-[#8888A0] text-center mb-10 max-w-lg mx-auto">
             Follow any company or insider on a free account, permanently.
           </p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 items-start">
-            <div className="rounded-xl border border-[#2A2A3A] bg-[#12121A] p-6">
-              <div className="text-sm font-medium text-[#8888A0] mb-1">Free</div>
-              <div className="text-3xl font-bold text-[#E8E8ED] mb-4">$0</div>
-              <ul className="space-y-2 text-sm text-[#8888A0]">
-                <li>Follow up to 10 companies</li>
-                <li>Email alerts when they file</li>
-                <li>90 days of filings</li>
-              </ul>
-            </div>
-            <div className="rounded-xl border border-[#22C55E]/50 bg-[#12121A] p-6 ring-1 ring-[#22C55E]/20 sm:-mt-3 sm:pb-8">
-              <div className="text-sm font-medium text-[#22C55E] mb-1">Pro</div>
-              <div className="text-3xl font-bold text-[#E8E8ED] mb-4">
-                $25<span className="text-lg text-[#8888A0] font-normal">/mo</span>
+
+          {/* items-stretch plus mt-auto on the buttons: the previous version
+              lifted the Pro card with a negative margin, which knocked all
+              three out of alignment and left two tiers with no way to act. */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 items-stretch">
+            {[
+              {
+                name: "Free", price: "$0", cadence: "",
+                cta: "Get started", featured: false,
+                perks: ["Follow up to 10 companies", "Email alerts when they file", "90 days of filings"],
+              },
+              {
+                name: "Pro", price: "$25", cadence: "/mo",
+                cta: "Start 7-day trial", featured: true,
+                perks: ["Insider track records & grades", "Real-time, full filing history", "Alert on grade, clusters, spikes"],
+              },
+              {
+                name: "Pro+", price: "$75", cadence: "/mo",
+                cta: "Get Pro+", featured: false,
+                perks: ["Everything in Pro", "Screener & leaderboard", "Export and API access"],
+              },
+            ].map((tier) => (
+              <div
+                key={tier.name}
+                className={`flex flex-col rounded-xl border bg-[#12121A] p-6 ${
+                  tier.featured
+                    ? "border-[#22C55E]/50 ring-1 ring-[#22C55E]/20"
+                    : "border-[#2A2A3A]"
+                }`}
+              >
+                <div className={`text-sm font-medium mb-1 ${tier.featured ? "text-[#22C55E]" : "text-[#8888A0]"}`}>
+                  {tier.name}
+                </div>
+                <div className="text-3xl font-bold text-[#E8E8ED] mb-5">
+                  {tier.price}
+                  {tier.cadence && (
+                    <span className="text-lg text-[#8888A0] font-normal">{tier.cadence}</span>
+                  )}
+                </div>
+                <ul className="flex-1 space-y-2 text-sm text-[#8888A0]">
+                  {tier.perks.map((perk) => (
+                    <li key={perk}>{perk}</li>
+                  ))}
+                </ul>
+                <SignUpButton mode="modal">
+                  <button
+                    className={`mt-6 w-full rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors ${
+                      tier.featured
+                        ? "bg-[#22C55E] text-[#06240F] hover:bg-[#16A34A]"
+                        : "border border-[#2A2A3A] text-[#E8E8ED] hover:border-[#22C55E]/50"
+                    }`}
+                  >
+                    {tier.cta}
+                  </button>
+                </SignUpButton>
               </div>
-              <ul className="space-y-2 text-sm text-[#8888A0]">
-                <li>Insider track records &amp; grades</li>
-                <li>Real-time, full filing history</li>
-                <li>Alert on grade, clusters, spikes</li>
-              </ul>
-              <SignUpButton mode="modal">
-                <button className="mt-6 w-full rounded-lg bg-[#22C55E] px-4 py-2.5 text-sm font-semibold text-[#06240F] hover:bg-[#16A34A] transition-colors">
-                  Start 7-day trial
-                </button>
-              </SignUpButton>
-            </div>
-            <div className="rounded-xl border border-[#2A2A3A] bg-[#12121A] p-6">
-              <div className="text-sm font-medium text-[#8888A0] mb-1">Pro+</div>
-              <div className="text-3xl font-bold text-[#E8E8ED] mb-4">
-                $75<span className="text-lg text-[#8888A0] font-normal">/mo</span>
-              </div>
-              <ul className="space-y-2 text-sm text-[#8888A0]">
-                <li>Everything in Pro</li>
-                <li>Screener &amp; leaderboard</li>
-                <li>Export and API access</li>
-              </ul>
-            </div>
+            ))}
           </div>
+
           <p className="mt-10 text-center text-xs text-[#55556A] max-w-2xl mx-auto">
             Strategy results are simulated fills on real filings, published as
             they happened rather than reconstructed afterwards. Idle cash is
