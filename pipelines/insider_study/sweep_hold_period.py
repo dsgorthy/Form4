@@ -39,7 +39,7 @@ from pipelines.insider_study.simulate_strategy_portfolio import (  # noqa: E402
 
 logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)s %(message)s")
 
-HOLDS = (5, 7, 10, 14, 21, 30, 42, 60)
+HOLDS = (5, 10, 21, 42, 60, 90, 120, 180)
 
 
 def spy_return(conn, d0: str, d1: str) -> float | None:
