@@ -20,6 +20,10 @@ REVERSAL_THESES = frozenset({"reversal", "reversal_dip"})
 COMPOSITE_THESES = frozenset({
     "dip_cluster", "momentum_largest",
     "quality_momentum", "quality_momentum_live",
+    # Same conviction path as quality_momentum — it differs only in dropping
+    # the above_sma50/above_sma200 filters, which are applied upstream of
+    # conviction and never reach this function.
+    "quality_notrend",
     "tenb51_surprise",
 })
 VALID_THESES = REVERSAL_THESES | COMPOSITE_THESES
