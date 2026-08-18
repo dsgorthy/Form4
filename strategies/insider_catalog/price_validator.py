@@ -2,34 +2,86 @@
 """
 Post-import price validation for insider trades.
 
-SEC Form 4 filings frequently contain corrupted price/qty data — especially from
-micro/nano-cap filers. Common errors:
-  - Total dollar value in the price-per-share field (e.g. $2,261,327 instead of $226.18)
-  - Share counts in the price field (price == qty)
-  - Decimal point shifts (100x or 10000x the real price)
+SEC Form 4 filings frequently carry corrupted price/qty data, especially from
+micro- and nano-cap filers. Three patterns account for nearly all of it:
 
-This validator cross-references reported trade prices against known stock price ranges
-to flag and quarantine suspect trades. It runs as a post-import stage — called after
-backfill.py or backfill_live.py inserts new trades.
+  - the TOTAL dollar value sitting in the price-per-share field, so that
+    value = price * qty squares the trade
+  - a decimal shift (100x, 10000x)
+  - the share count copied into the price field
 
-Strategy:
-  1. For each ticker, compute the MEDIAN price from all trades (robust to outliers)
-  2. Flag any trade where the price deviates >20x from the ticker's median
-  3. For flagged trades, attempt auto-correction if the error pattern is recognizable
-  4. Quarantine trades that can't be corrected (set value to NULL or move to bad_trades)
+ConnectM is the clearest example. On 2024-08-29 the stock traded between $0.84
+and $0.90 and the filing reports price 65,122 against qty 73,680 — 73,680
+shares at $0.88 is $65,122, which is what the "price" actually is. The stored
+value is price x qty = $4,798,188,960. A $65K purchase became a $4.8B one.
 
-Usage:
-  # Dry run — report only, no changes
-  python price_validator.py --dry-run
+THE REFERENCE IS A BAND, NOT A CLOSE
 
-  # Fix bad trades (quarantine unfixable, correct fixable)
-  python price_validator.py
+A real open-market execution has to land inside the day's trading range, so
+prices.daily_prices high/low is the natural check — and it holds: 86.8% of
+purchase and sale rows sit exactly inside their own day's low-to-high, on 96.9%
+coverage. The band is widened to BAND_WEEKS so that a filing whose trade_date
+falls on a holiday, a halt, or a slightly-off reported date still has something
+to be measured against.
 
-  # Run on a specific ticker
-  python price_validator.py --ticker MSFT
+WHY A NAIVE BAND CHECK WOULD CORRUPT GOOD DATA
 
-  # Show stats only
-  python price_validator.py --stats
+prices.daily_prices is SPLIT-ADJUSTED. trades.price is as-filed. So every
+stock that split after a trade shows the split factor as a "deviation":
+
+    CRWD  2026-07-01   filed $780.73   adjusted band $191.44-$196.40   = 3.98x
+    AMCR               median ratio 0.200 across 21 rows, spread 0.4%
+    ATUS               median ratio 9.618 across 123 rows, spread 5.1%
+
+None of those are filing errors, and "repairing" them would destroy correct
+prices. The discriminator is the SHAPE of the ratios, not their size:
+
+    a split or ADR-ratio change  ->  every filer that day moves by the SAME
+                                     factor               (CRWD: 3.96-4.00)
+    a parse error                ->  one filer is wrong by their own arbitrary
+                                     amount               (CNTM: 1,204-80,209)
+
+So the second gate is the day's OTHER filers. Every Form 4 for a stock on a
+given day is quoted on the same basis as every other, whichever basis our price
+history happens to be on, so filer agreement means our reference is on a
+different footing rather than that the filing is wrong. That is a fact about
+the data, not an inference, which is why it beat the earlier attempt to detect
+split factors statistically — an eight-week band that straddles a split has a
+4x-wide range and no usable midpoint.
+
+WHAT GETS REPAIRED AUTOMATICALLY
+
+Only price_is_total_value, and only when two independent things agree: the
+arithmetic identity (price / qty lands inside the band) and the band itself.
+Decimal shifts are annotated, never auto-applied — a foreign private issuer
+reporting in rupees is a 10x+ "deviation" that dividing by 100 would appear to
+fix while leaving the number wrong.
+
+Everything else that misses the band gets a note in suspect_reason and nothing
+more. In particular it does NOT get value_suspect: a band miss with no peer to
+confirm it is a suspicion, and value_suspect removes a row from every dollar
+aggregate on the site. See note_uncorrectable for the filing that settles it.
+
+Corrections are recorded on the row (price_as_filed, value_as_filed,
+correction_method) so the filing page can show what the filer submitted next to
+what we display.
+
+USAGE
+
+    # Report only. Always start here — this is the default.
+    python3 strategies/insider_catalog/price_validator.py
+
+    python3 strategies/insider_catalog/price_validator.py --since 2026-01-01
+    python3 strategies/insider_catalog/price_validator.py --ticker CNTM
+
+    # Write the safe class of correction.
+    python3 strategies/insider_catalog/price_validator.py --apply
+
+    # Opt into a riskier class explicitly, after reviewing the report.
+    python3 strategies/insider_catalog/price_validator.py --apply \
+        --methods price_is_total_value,power_of_10_shift
+
+Runs on Studio — Mini has no form4 database.
 """
 
 from __future__ import annotations
@@ -37,9 +89,14 @@ from __future__ import annotations
 import argparse
 import logging
 import math
-import sqlite3
 import statistics
+import sys
+from collections import defaultdict
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from config.database import get_connection  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -48,436 +105,318 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-DB_PATH = Path(__file__).resolve().parent / "insiders.db"
+#: How far back the reference band reaches from the trade date. Eight weeks is
+#: wide enough that a missing or slightly-wrong trade_date still resolves, and
+#: narrow enough that a stock's own range still means something.
+BAND_WEEKS = 8
 
-# Trades with price-per-share above this are almost certainly wrong.
-# BRK-A is the only US stock that trades above $500K/share.
-ABSOLUTE_PRICE_CAP = 999_999.0
+#: How far outside the band a price may sit before it is called suspect. The
+#: band is already the extremes of forty trading days, so past 1.5x of it is
+#: not a price move.
+BAND_TOLERANCE = 1.5
+
+#: A correction must land within this multiple of the band edges.
+CORRECTION_TOLERANCE = 1.5
+
+#: Peer agreement. How many OTHER filers of the same stock on the same day are
+#: needed before their consensus outranks our price history, and how far this
+#: filing may sit from that consensus. 15% covers a full day's trading range
+#: plus the rounding filers apply to weighted averages.
+PEER_MIN_ROWS = 2
+PEER_TOLERANCE = 1.15
+
 BRK_TICKERS = {"BRK-A", "BRK.A", "BRKA", "BRK/A"}
 
-# If a trade's price deviates more than this factor from the ticker's median,
-# it's flagged as suspect. 20x is generous — a stock doubling twice in a year
-# would only be 4x. 20x catches parsing errors without false positives.
-MEDIAN_DEVIATION_FACTOR = 20.0
 
-# Minimum trades needed to compute a reliable median for a ticker
-MIN_TRADES_FOR_MEDIAN = 3
+# ── reference band ──────────────────────────────────────────────────────────
+
+def _scope(since, ticker, alias="t"):
+    where = [f"{alias}.price > 0", f"{alias}.qty > 0", f"{alias}.is_derivative = 0",
+             f"{alias}.trans_code IN ('P','S')"]
+    params = []
+    if since:
+        where.append(f"{alias}.trade_date >= ?")
+        params.append(since)
+    if ticker:
+        where.append(f"{alias}.ticker = ?")
+        params.append(ticker.upper())
+    return where, params
 
 
-def ensure_schema(conn: sqlite3.Connection):
-    """Add the suspect_reason column if it doesn't exist."""
-    cols = {row[1] for row in conn.execute("PRAGMA table_info(trades)").fetchall()}
-    if "suspect_reason" not in cols:
-        conn.execute("ALTER TABLE trades ADD COLUMN suspect_reason TEXT")
-        conn.commit()
-        logger.info("Added suspect_reason column to trades table")
+def load_rows(conn, since, ticker) -> list[dict]:
+    where, params = _scope(since, ticker)
+    return [dict(r) for r in conn.execute(
+        f"""SELECT t.trade_id, t.ticker, t.trade_date, t.price, t.qty, t.value
+              FROM trades t
+             WHERE {' AND '.join(where)}
+             ORDER BY t.trade_id""",
+        tuple(params)).fetchall()]
 
-    # Create quarantine table for unfixable trades
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS bad_trades (
-            trade_id INTEGER PRIMARY KEY,
-            insider_id INTEGER,
-            ticker TEXT,
-            company TEXT,
-            title TEXT,
-            trade_type TEXT,
-            trade_date TEXT,
-            filing_date TEXT,
-            original_price REAL,
-            original_qty INTEGER,
-            original_value REAL,
-            suspect_reason TEXT,
-            median_price REAL,
-            deviation_factor REAL,
-            source TEXT,
-            accession TEXT,
-            quarantined_at TEXT DEFAULT (datetime('now'))
+
+def load_bands(conn, since: str | None, ticker: str | None) -> dict:
+    """{(ticker, trade_date): (low, high)} over the trailing BAND_WEEKS.
+
+    Computed against the distinct (ticker, trade_date) pairs actually present
+    rather than per row, so a ticker with 500 filings on one day costs one
+    window instead of 500.
+    """
+    where, params = _scope(since, ticker)
+    rows = conn.execute(
+        f"""
+        WITH wanted AS (
+            SELECT DISTINCT t.ticker, t.trade_date
+              FROM trades t
+             WHERE {' AND '.join(where)}
         )
-    """)
-    conn.commit()
+        SELECT w.ticker, w.trade_date,
+               MIN(d.low)  AS band_low,
+               MAX(d.high) AS band_high
+          FROM wanted w
+          JOIN prices.daily_prices d
+            ON d.ticker = w.ticker
+           AND d.date <= w.trade_date
+           AND d.date >= to_char(w.trade_date::date - INTERVAL '{BAND_WEEKS} weeks',
+                                 'YYYY-MM-DD')
+         WHERE d.low > 0 AND d.high > 0
+         GROUP BY w.ticker, w.trade_date
+        """,
+        tuple(params),
+    ).fetchall()
+    return {(r["ticker"], r["trade_date"]):
+            (float(r["band_low"]), float(r["band_high"])) for r in rows}
 
 
-def compute_ticker_medians(conn: sqlite3.Connection, ticker: str = None) -> dict:
+def peer_prices(rows: list[dict]) -> dict:
+    """{(ticker, trade_date): [prices]} — what everyone else filed that day.
+
+    Peers are the split-proof reference. Every Form 4 for a stock on a given
+    day is quoted on the same basis as every other, whatever our price history
+    happens to be adjusted to, so agreement among filers says "our reference is
+    on a different footing", not "this filing is wrong". That single fact
+    replaces trying to infer split factors: on 2026-07-01 forty CrowdStrike
+    insiders all filed near $776 against an adjusted band of $191-$196, and
+    they are all correct.
     """
-    Compute median price-per-share for each ticker using all trades.
+    peers: dict[tuple, list[float]] = defaultdict(list)
+    for r in rows:
+        peers[(r["ticker"], r["trade_date"])].append(float(r["price"]))
+    return peers
 
-    Uses a two-pass approach:
-      1. First pass: raw median across all trades for the ticker
-      2. Second pass: exclude outliers (>10x from raw median), recompute
 
-    Returns {ticker: median_price}
+def peers_agree(row: dict, peers: dict) -> bool:
+    """True when enough other filers that day quoted essentially this price."""
+    same_day = peers.get((row["ticker"], row["trade_date"]), [])
+    others = [p for p in same_day if p != float(row["price"])]
+    # A lone dissenter among identical prices is still agreement; require the
+    # cohort to be real before trusting it.
+    if len(same_day) - 1 < PEER_MIN_ROWS:
+        return False
+    med = statistics.median(others) if others else statistics.median(same_day)
+    if med <= 0:
+        return False
+    ratio = float(row["price"]) / med
+    return 1 / PEER_TOLERANCE <= ratio <= PEER_TOLERANCE
+
+
+# ── detection and repair ────────────────────────────────────────────────────
+
+def attempt_correction(price: float, qty: float, lo: float, hi: float) -> dict | None:
+    """Explain a bad price as one of the three known parse failures, or not at all.
+
+    price/qty is tried first: when it is right it is an exact arithmetic
+    identity, whereas a power of ten fits loosely against all sorts of things.
+    Returns None rather than a best guess.
     """
-    if ticker:
-        rows = conn.execute(
-            "SELECT ticker, price FROM trades WHERE ticker = ? AND price > 0",
-            (ticker,),
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT ticker, price FROM trades WHERE price > 0"
-        ).fetchall()
+    def in_band(candidate: float) -> bool:
+        return lo / CORRECTION_TOLERANCE <= candidate <= hi * CORRECTION_TOLERANCE
 
-    # Group prices by ticker
-    prices_by_ticker: dict[str, list[float]] = {}
-    for tk, price in rows:
-        prices_by_ticker.setdefault(tk, []).append(price)
-
-    medians = {}
-    for tk, prices in prices_by_ticker.items():
-        if len(prices) < MIN_TRADES_FOR_MEDIAN:
-            continue
-
-        # First pass: raw median
-        raw_med = statistics.median(prices)
-        if raw_med <= 0:
-            continue
-
-        # Second pass: exclude >10x outliers, recompute
-        filtered = [p for p in prices if p / raw_med < 10 and raw_med / p < 10]
-        if len(filtered) >= MIN_TRADES_FOR_MEDIAN:
-            medians[tk] = statistics.median(filtered)
-        else:
-            medians[tk] = raw_med
-
-    return medians
-
-
-def find_suspect_trades(conn: sqlite3.Connection, ticker: str = None) -> list[dict]:
-    """
-    Find trades with suspect prices. Returns list of suspect trade dicts.
-
-    Detection rules (in order):
-      1. Price > $1M and ticker is not BRK-A → absolute cap violation
-      2. Price > 20x the ticker's median price → statistical outlier
-      3. Price == qty (common parsing error where shares end up in price field)
-    """
-    medians = compute_ticker_medians(conn, ticker)
-
-    if ticker:
-        all_trades = conn.execute(
-            """SELECT trade_id, ticker, trade_date, price, qty, value, insider_id,
-                      source, accession
-               FROM trades WHERE ticker = ? AND price > 0""",
-            (ticker,),
-        ).fetchall()
-    else:
-        all_trades = conn.execute(
-            """SELECT trade_id, ticker, trade_date, price, qty, value, insider_id,
-                      source, accession
-               FROM trades WHERE price > 0"""
-        ).fetchall()
-
-    suspects = []
-    for trade_id, tk, trade_date, price, qty, value, insider_id, source, accession in all_trades:
-        reason = None
-        deviation = None
-
-        # Rule 1: Absolute price cap
-        if price > ABSOLUTE_PRICE_CAP and tk.upper() not in BRK_TICKERS:
-            reason = f"price_exceeds_cap: ${price:,.2f} > ${ABSOLUTE_PRICE_CAP:,.0f}"
-            median = medians.get(tk)
-            deviation = price / median if median and median > 0 else None
-
-        # Rule 2: Statistical outlier vs ticker median
-        elif tk in medians:
-            median = medians[tk]
-            if median > 0:
-                ratio = price / median
-                if ratio > MEDIAN_DEVIATION_FACTOR:
-                    reason = f"price_outlier: ${price:,.2f} is {ratio:.1f}x median ${median:,.2f}"
-                    deviation = ratio
-
-        # Rule 3: Price equals qty (common corruption pattern)
-        if reason is None and qty > 0 and abs(price - qty) < 0.01 and price > 1000:
-            reason = f"price_equals_qty: price=${price:,.2f} qty={qty:,}"
-            median = medians.get(tk)
-            deviation = price / median if median and median > 0 else None
-
-        if reason:
-            suspects.append({
-                "trade_id": trade_id,
-                "ticker": tk,
-                "trade_date": trade_date,
-                "price": price,
-                "qty": qty,
-                "value": value,
-                "insider_id": insider_id,
-                "source": source,
-                "accession": accession,
-                "reason": reason,
-                "median_price": medians.get(tk),
-                "deviation": deviation,
-            })
-
-    return suspects
-
-
-def attempt_correction(trade: dict) -> dict | None:
-    """
-    Try to auto-correct a suspect trade price.
-
-    Correction strategies:
-      1. If price is ~N * median where N is a power of 10 → divide by N
-      2. If price / median is close to qty → price field has total value, divide by qty
-      3. If price == qty and median exists → use median as price
-
-    Returns corrected dict with 'corrected_price' and 'corrected_value', or None.
-    """
-    median = trade.get("median_price")
-    if not median or median <= 0:
-        return None
-
-    price = trade["price"]
-    qty = trade["qty"]
-
-    # Strategy 1: Power-of-10 shift (price = real_price * 10^N)
-    ratio = price / median
-    log_ratio = math.log10(ratio) if ratio > 0 else 0
-    nearest_power = round(log_ratio)
-    if nearest_power >= 1 and abs(log_ratio - nearest_power) < 0.3:
-        divisor = 10 ** nearest_power
-        corrected = price / divisor
-        # Verify corrected price is within 3x of median
-        if 0.33 < corrected / median < 3.0:
-            return {
-                "corrected_price": round(corrected, 4),
-                "corrected_value": round(corrected * qty, 2),
-                "method": f"power_of_10_shift: /{divisor:.0f}",
-            }
-
-    # Strategy 2: Price field contains total value (price = price_per_share * qty)
+    # 1. The price field holds the trade's total value. True price = price/qty,
+    #    and the true VALUE is the number sitting in the price field.
     if qty > 1:
         candidate = price / qty
-        if 0.33 < candidate / median < 3.0:
-            return {
-                "corrected_price": round(candidate, 4),
-                "corrected_value": round(candidate * qty, 2),
-                "method": "price_is_total_value: price/qty",
-            }
+        if in_band(candidate):
+            return {"price": round(candidate, 6), "value": round(price, 2),
+                    "method": "price_is_total_value"}
 
-    # Strategy 3: Price == qty and we have a good median
-    if abs(price - qty) < 0.01:
-        return {
-            "corrected_price": round(median, 4),
-            "corrected_value": round(median * qty, 2),
-            "method": "price_equals_qty: used_median",
-        }
+    # 2. Decimal shift.
+    mid = (lo + hi) / 2
+    if mid > 0 and price > 0:
+        ratio = price / mid
+        power = round(math.log10(ratio)) if ratio > 0 else 0
+        if power != 0 and abs(math.log10(ratio) - power) < 0.3:
+            candidate = price / (10 ** power)
+            if in_band(candidate):
+                return {"price": round(candidate, 6),
+                        "value": round(candidate * qty, 2),
+                        "method": "power_of_10_shift"}
+
+    # 3. The share count was copied into the price field.
+    if abs(price - qty) < 0.01 and in_band(mid):
+        return {"price": round(mid, 6), "value": round(mid * qty, 2),
+                "method": "price_equals_qty"}
 
     return None
 
 
-def quarantine_trade(conn: sqlite3.Connection, trade: dict):
-    """Move a trade to the bad_trades table and delete from trades."""
-    conn.execute("""
-        INSERT INTO bad_trades
-            (trade_id, insider_id, ticker, company, title, trade_type, trade_date,
-             filing_date, original_price, original_qty, original_value,
-             suspect_reason, median_price, deviation_factor, source, accession)
-        SELECT
-            trade_id, insider_id, ticker, company, title, trade_type, trade_date,
-            filing_date, price, qty, value,
-            ?, ?, ?, source, accession
-        FROM trades WHERE trade_id = ?
-        ON CONFLICT (trade_id) DO UPDATE SET
-            suspect_reason = excluded.suspect_reason,
-            median_price = excluded.median_price,
-            deviation_factor = excluded.deviation_factor
-    """, (trade["reason"], trade.get("median_price"), trade.get("deviation"), trade["trade_id"]))
+def find_suspects(rows: list[dict], bands: dict, peers: dict):
+    """Rows whose price cannot be reconciled with what the stock was worth.
 
-    conn.execute("DELETE FROM trades WHERE trade_id = ?", (trade["trade_id"],))
+    Two gates, in order:
 
+      1. Inside the band, fine. That is 86.8% of rows before the window is even
+         widened past their own trade date.
+      2. Outside the band but the day's other filers agree, fine. This is the
+         split and ADR-ratio case, and peers are the only reference immune to
+         it.
 
-def correct_trade(conn: sqlite3.Connection, trade: dict, correction: dict):
-    """Apply a price correction to a trade in-place."""
-    conn.execute("""
-        UPDATE trades
-        SET price = ?,
-            value = ?,
-            suspect_reason = ?
-        WHERE trade_id = ?
-    """, (
-        correction["corrected_price"],
-        correction["corrected_value"],
-        f"corrected: {correction['method']} (was ${trade['price']:,.2f})",
-        trade["trade_id"],
-    ))
-
-
-def print_stats(conn: sqlite3.Connection):
-    """Print summary of data quality status."""
-    total = conn.execute("SELECT COUNT(*) FROM trades").fetchone()[0]
-
-    cols = {row[1] for row in conn.execute("PRAGMA table_info(trades)").fetchall()}
-    if "suspect_reason" in cols:
-        corrected = conn.execute(
-            "SELECT COUNT(*) FROM trades WHERE suspect_reason LIKE 'corrected:%'"
-        ).fetchone()[0]
-    else:
-        corrected = 0
-
-    # Check if bad_trades table exists
-    has_bad_trades = conn.execute(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='bad_trades'"
-    ).fetchone()[0]
-    quarantined = conn.execute("SELECT COUNT(*) FROM bad_trades").fetchone()[0] if has_bad_trades else 0
-
-    # Current suspect count
-    suspects = find_suspect_trades(conn)
-
-    print(f"\n{'='*60}")
-    print("PRICE VALIDATION STATS")
-    print(f"{'='*60}")
-    print(f"Total trades:           {total:,}")
-    print(f"Currently suspect:      {len(suspects):,}")
-    print(f"Previously corrected:   {corrected:,}")
-    print(f"Quarantined:            {quarantined:,}")
-
-    if suspects:
-        # Breakdown by reason type
-        by_reason = {}
-        for s in suspects:
-            key = s["reason"].split(":")[0]
-            by_reason[key] = by_reason.get(key, 0) + 1
-        print(f"\nSuspect breakdown:")
-        for reason, count in sorted(by_reason.items(), key=lambda x: -x[1]):
-            print(f"  {reason}: {count:,}")
-
-        # Top 10 worst offenders
-        suspects.sort(key=lambda s: s.get("deviation") or 0, reverse=True)
-        print(f"\nTop 10 worst offenders:")
-        for s in suspects[:10]:
-            name = conn.execute(
-                "SELECT name FROM insiders WHERE insider_id = ?", (s["insider_id"],)
-            ).fetchone()[0]
-            dev = f"{s['deviation']:.0f}x" if s.get("deviation") else "N/A"
-            print(f"  {s['ticker']} {s['trade_date']} ${s['price']:,.2f} "
-                  f"(median ${s.get('median_price', 0):,.2f}, {dev}) -- {name}")
-
-    print(f"{'='*60}\n")
-
-
-def _rebuild_insider_companies(conn: sqlite3.Connection):
-    """Rebuild insider_companies aggregates from current trades table."""
-    logger.info("Rebuilding insider_companies aggregates after corrections...")
-    conn.execute("DELETE FROM insider_companies")
-    conn.execute("""
-        INSERT INTO insider_companies
-            (insider_id, ticker, company, title, trade_count, total_value, first_trade, last_trade)
-        SELECT
-            t.insider_id,
-            t.ticker,
-            MAX(t.company),
-            (SELECT t2.title FROM trades t2
-             WHERE t2.insider_id = t.insider_id AND t2.ticker = t.ticker
-             ORDER BY t2.trade_date DESC LIMIT 1),
-            COUNT(*),
-            SUM(t.value),
-            MIN(t.trade_date),
-            MAX(t.trade_date)
-        FROM trades t
-        WHERE t.trade_date <= CURRENT_DATE::text
-          AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
-        GROUP BY t.insider_id, t.ticker
-    """)
-    conn.commit()
-    count = conn.execute("SELECT COUNT(*) FROM insider_companies").fetchone()[0]
-    logger.info("Rebuilt %d insider-company mappings", count)
-
-
-def run_validation(
-    conn: sqlite3.Connection,
-    dry_run: bool = False,
-    ticker: str = None,
-):
+    What survives both is a price that neither market data nor any other filer
+    supports.
     """
-    Main validation pipeline:
-      1. Find all suspect trades
-      2. Attempt auto-correction where possible
-      3. Quarantine unfixable trades
+    suspects, peer_excused, no_band = [], 0, 0
+    for r in rows:
+        tk = r["ticker"]
+        if tk.upper() in BRK_TICKERS:
+            continue                              # $695K a share is real
+        band = bands.get((tk, r["trade_date"]))
+        if not band:
+            no_band += 1
+            continue                              # nothing to compare against
+        price, qty = float(r["price"]), float(r["qty"])
+        lo, hi = band
+
+        if lo / BAND_TOLERANCE <= price <= hi * BAND_TOLERANCE:
+            continue
+        if peers_agree(r, peers):
+            peer_excused += 1
+            continue
+
+        suspects.append({
+            "trade_id": r["trade_id"], "ticker": tk, "trade_date": r["trade_date"],
+            "price": price, "qty": qty, "value": float(r["value"] or 0),
+            "band_lo": lo, "band_hi": hi,
+            "excess": price / hi if price > hi else lo / price,
+            "correction": attempt_correction(price, qty, lo, hi),
+        })
+    return suspects, peer_excused, no_band
+
+
+def apply_correction(conn, s: dict) -> None:
+    """Rewrite price and value, keeping what the filer actually submitted.
+
+    value_suspect is maintained by its own trigger, which fires on price/value.
     """
-    if not dry_run:
-        ensure_schema(conn)
-    suspects = find_suspect_trades(conn, ticker)
-
-    if not suspects:
-        logger.info("No suspect trades found%s", f" for {ticker}" if ticker else "")
-        return
-
-    logger.info("Found %d suspect trades%s", len(suspects), f" for {ticker}" if ticker else "")
-
-    corrected_count = 0
-    quarantined_count = 0
-
-    for trade in suspects:
-        correction = attempt_correction(trade)
-
-        if correction:
-            if dry_run:
-                logger.info(
-                    "  [WOULD CORRECT] %s %s: $%.2f -> $%.4f (%s)",
-                    trade["ticker"], trade["trade_date"],
-                    trade["price"], correction["corrected_price"],
-                    correction["method"],
-                )
-            else:
-                try:
-                    correct_trade(conn, trade, correction)
-                    corrected_count += 1
-                except sqlite3.IntegrityError:
-                    # Corrected value duplicates an existing trade — quarantine instead
-                    quarantine_trade(conn, trade)
-                    quarantined_count += 1
-        else:
-            if dry_run:
-                logger.info(
-                    "  [WOULD QUARANTINE] %s %s: $%.2f (no correction possible, %s)",
-                    trade["ticker"], trade["trade_date"],
-                    trade["price"], trade["reason"],
-                )
-            else:
-                quarantine_trade(conn, trade)
-                quarantined_count += 1
-
-    if not dry_run:
-        conn.commit()
-
-        # Rebuild insider_companies aggregates so company pages reflect corrections
-        if corrected_count > 0 or quarantined_count > 0:
-            _rebuild_insider_companies(conn)
-
-    logger.info(
-        "Validation complete: %d corrected, %d quarantined, %d total suspect",
-        corrected_count, quarantined_count, len(suspects),
+    c = s["correction"]
+    conn.execute(
+        """UPDATE trades
+              SET price_as_filed    = COALESCE(price_as_filed, price),
+                  value_as_filed    = COALESCE(value_as_filed, value),
+                  correction_method = ?,
+                  price = ?, value = ?,
+                  suspect_reason = ?
+            WHERE trade_id = ?""",
+        (c["method"], c["price"], c["value"],
+         f"corrected: {c['method']} (filed ${s['price']:,.2f})", s["trade_id"]),
     )
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Validate trade prices against market data")
-    parser.add_argument("--dry-run", action="store_true", help="Report only, don't modify DB")
-    parser.add_argument("--ticker", type=str, help="Validate a specific ticker only")
-    parser.add_argument("--stats", action="store_true", help="Show validation stats and exit")
-    args = parser.parse_args()
+def note_uncorrectable(conn, s: dict) -> None:
+    """Record the doubt. Do NOT set value_suspect.
 
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.execute("PRAGMA journal_mode=WAL")
+    A band miss with no peer to confirm it is a suspicion, not a finding, and
+    value_suspect hides a row from every dollar aggregate on the site. Lucid is
+    the case that settles it: the PIF's 265,693,703 shares at $6.83 is a real
+    $1.8B filing, and it misses the band only because our price history is
+    adjusted for the later reverse split while the filing is not. It has no
+    same-day peers, so nothing vouches for it — flagging it would delete a real
+    transaction from the product to tidy up a reference-data mismatch.
 
-    if not (args.dry_run or args.stats):
-        ensure_schema(conn)
+    value_suspect stays reserved for what is impossible on its own terms:
+    over $5B, or a trade dated after it was filed. Both are enforced by the
+    trigger, not here.
+    """
+    conn.execute(
+        """UPDATE trades SET suspect_reason = ? WHERE trade_id = ?""",
+        (f"price_outside_{BAND_WEEKS}w_band_{s['excess']:.0f}x "
+         f"(${s['price']:,.2f} vs ${s['band_lo']:,.2f}-${s['band_hi']:,.2f}, "
+         f"no same-day peer to confirm)",
+         s["trade_id"]),
+    )
 
-    if args.dry_run or args.stats:
-        # Open read-only to avoid lock conflicts with the API server
-        conn.close()
-        conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
 
-    if args.stats:
-        print_stats(conn)
-    else:
-        run_validation(conn, dry_run=args.dry_run, ticker=args.ticker)
-        if not args.dry_run:
-            print_stats(conn)
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--since", help="Only trades on/after this date (YYYY-MM-DD)")
+    ap.add_argument("--ticker", help="Only this ticker")
+    ap.add_argument("--apply", action="store_true",
+                    help="Write corrections. Default is report-only.")
+    ap.add_argument("--methods", default="price_is_total_value",
+                    help="Correction classes to write. Defaults to the "
+                         "arithmetic-identity class; power_of_10_shift is "
+                         "opt-in because it cannot tell a decimal typo from a "
+                         "foreign currency.")
+    ap.add_argument("--show", type=int, default=25, help="Examples to print")
+    args = ap.parse_args()
 
-    conn.close()
+    conn = get_connection()
+    logger.info("loading rows...")
+    rows = load_rows(conn, args.since, args.ticker)
+    logger.info("loading %s-week bands for %s rows...", BAND_WEEKS, len(rows))
+    bands = load_bands(conn, args.since, args.ticker)
+    peers = peer_prices(rows)
+    logger.info("%s bands, %s ticker-days of peer prices", len(bands), len(peers))
+
+    suspects, peer_excused, no_band = find_suspects(rows, bands, peers)
+
+    allowed = {m.strip() for m in args.methods.split(",") if m.strip()}
+    fixable = [s for s in suspects
+               if s["correction"] and s["correction"]["method"] in allowed]
+    fixable_ids = {s["trade_id"] for s in fixable}
+    unfixable = [s for s in suspects if s["trade_id"] not in fixable_ids]
+
+    by_method = defaultdict(int)
+    for s in suspects:
+        if s["correction"]:
+            by_method[s["correction"]["method"]] += 1
+
+    print(f"\nrows checked         {len(rows):,}")
+    print(f"  no price history   {no_band:,}")
+    print(f"  peers agree        {peer_excused:,}   (split / ADR basis, not errors)")
+    print(f"\nsuspect rows         {len(suspects):,}")
+    print(f"  will correct       {len(fixable):,}   (--methods {args.methods})")
+    for method, n in sorted(by_method.items(), key=lambda kv: -kv[1]):
+        print(f"    {method:<24} {n:>7,}   "
+              f"{'write' if method in allowed else 'flag only'}")
+    print(f"  no safe correction {len(suspects) - sum(by_method.values()):,}")
+    print(f"\ndollar value as stored   ${sum(s['value'] for s in suspects):,.0f}")
+    print(f"dollar value if repaired ${sum(s['correction']['value'] for s in fixable):,.0f}"
+          f"  (rows being written)")
+
+    print(f"\nlargest {args.show} by stored value:")
+    for s in sorted(suspects, key=lambda x: -x["value"])[:args.show]:
+        fix = s["correction"]
+        if fix and s["trade_id"] in fixable_ids:
+            arrow = f"-> ${fix['price']:,.4f} / ${fix['value']:,.0f}  [{fix['method']}]"
+        elif fix:
+            arrow = f"-> FLAG ONLY ({fix['method']} not in --methods)"
+        else:
+            arrow = "-> NO SAFE CORRECTION"
+        print(f"  {s['ticker']:>6s} {s['trade_date']}  "
+              f"${s['price']:>12,.2f} x {s['qty']:>10,.0f} = ${s['value']:>16,.0f}  "
+              f"(band ${s['band_lo']:,.2f}-${s['band_hi']:,.2f}) {arrow}")
+
+    if not args.apply:
+        print("\nreport only — pass --apply to write these changes")
+        return 0
+
+    for s in fixable:
+        apply_correction(conn, s)
+    for s in unfixable:
+        note_uncorrectable(conn, s)
+    conn.commit()
+    logger.info("corrected %s rows, annotated %s for review",
+                len(fixable), len(unfixable))
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
