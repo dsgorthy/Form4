@@ -25,7 +25,7 @@ from api.email import build_digest_email, build_notification_email, send_email
 # public_fields imports nothing — the scanner runs on Studio's host
 # Python, which has no fastapi, so importing api.gating here would
 # take the whole job down.
-from api.public_fields import PRO_ALERT_EVENTS
+from api.public_fields import ACTIVE_STRATEGIES, PRO_ALERT_EVENTS, strategy_label
 from api.notifications_db import get_connection as get_notif_connection
 from api.notifications_db import init_db
 
@@ -671,7 +671,31 @@ def _maybe_send_realtime_email(nconn: ConnectionWrapper, user: dict, title: str,
 
 
 def scan_portfolio_alerts(iconn: ConnectionWrapper, nconn: ConnectionWrapper, latest: str) -> int:
-    """Detect new entries/exits in the Form4 Insider Portfolio strategy."""
+    """Detect new entries and exits in the three published strategies.
+
+    This scanned `strategy = 'form4_insider'` until 2026-08-18 — a
+    backtest-only book that was retired months earlier and whose last entry was
+    2026-03-13. So the Pro "portfolio alerts" toggle, described to subscribers
+    as alerts on our strategies, had never fired for a strategy we actually
+    run. It now reads ACTIVE_STRATEGIES, which is the same list the product
+    publishes.
+
+    DEDUP MUST NOT USE THE ROW ID. simulate_strategy_portfolio rebuilds each
+    book with `DELETE FROM strategy_portfolio WHERE strategy = ?` followed by a
+    fresh INSERT, so `id` is a different number every night for the same trade.
+    Keying on it would re-alert every open position on every rebuild — roughly
+    150 notifications per subscriber per night. (strategy, ticker, date) is
+    stable across rebuilds, and a strategy cannot enter the same ticker twice
+    on the same day.
+
+    Backtest rows are excluded for the same reason the retired book was: they
+    are research output, not something that happened.
+    """
+    if not ACTIVE_STRATEGIES:
+        return 0
+    placeholders = ",".join("?" for _ in ACTIVE_STRATEGIES)
+    live_sources = ("simulated", "paper", "live")
+    source_ph = ",".join("?" for _ in live_sources)
     # Text date columns on this side, and the underlying events are daily,
     # so compare on the date part. latest_ts is kept so the watermark
     # written back stays a timestamp for every event type.
@@ -686,25 +710,27 @@ def scan_portfolio_alerts(iconn: ConnectionWrapper, nconn: ConnectionWrapper, la
 
     # Check for new entries (trades that started after watermark)
     new_entries = iconn.execute(
-        """SELECT id, ticker, insider_name, entry_date, entry_price,
-                  signal_quality, position_size
-           FROM strategy_portfolio
-           WHERE strategy = 'form4_insider'
-             AND entry_date > ? AND entry_date <= ?
-           ORDER BY entry_date DESC""",
-        (watermark, latest),
+        f"""SELECT id, strategy, ticker, insider_name, entry_date, entry_price,
+                   signal_quality, position_size
+            FROM strategy_portfolio
+            WHERE strategy IN ({placeholders})
+              AND execution_source IN ({source_ph})
+              AND entry_date > ? AND entry_date <= ?
+            ORDER BY entry_date DESC""",
+        (*ACTIVE_STRATEGIES, *live_sources, watermark, latest),
     ).fetchall()
 
     # Check for new exits (trades that closed after watermark)
     new_exits = iconn.execute(
-        """SELECT id, ticker, insider_name, exit_date, exit_price,
-                  entry_price, pnl_pct, pnl_dollar, exit_reason
-           FROM strategy_portfolio
-           WHERE strategy = 'form4_insider'
-             AND status = 'closed'
-             AND exit_date > ? AND exit_date <= ?
-           ORDER BY exit_date DESC""",
-        (watermark, latest),
+        f"""SELECT id, strategy, ticker, insider_name, exit_date, exit_price,
+                   entry_price, pnl_pct, pnl_dollar, exit_reason
+            FROM strategy_portfolio
+            WHERE strategy IN ({placeholders})
+              AND execution_source IN ({source_ph})
+              AND status = 'closed'
+              AND exit_date > ? AND exit_date <= ?
+            ORDER BY exit_date DESC""",
+        (*ACTIVE_STRATEGIES, *live_sources, watermark, latest),
     ).fetchall()
 
     count = 0
@@ -712,15 +738,16 @@ def scan_portfolio_alerts(iconn: ConnectionWrapper, nconn: ConnectionWrapper, la
 
     for row in new_entries:
         r = dict(row)
-        quality = r["signal_quality"] or "?"
-        title = f"Portfolio Entry: {r['ticker']} at ${r['entry_price']:.2f}"
+        label = strategy_label(r["strategy"])
+        insider = r["insider_name"] or "An insider"
+        title = f"{label}: bought {r['ticker']} at ${r['entry_price']:.2f}"
         body = (
-            f"Form4 Portfolio entered {r['ticker']} at ${r['entry_price']:.2f} "
-            f"on {r['entry_date']}. Signal quality: {quality}. "
-            f"Insider: {r['insider_name'] or 'Unknown'}."
+            f"{insider} — {r['ticker']} at ${r['entry_price']:.2f} on "
+            f"{r['entry_date']}."
         )
         for user in users:
-            dedup = _dedup_key("pfe", user["user_id"], str(r["id"]), r["entry_date"])
+            dedup = _dedup_key("pfe", user["user_id"], r["strategy"],
+                               r["ticker"], r["entry_date"])
             if _insert_notification(nconn, user["user_id"], "portfolio_alert", title, body, r["ticker"], dedup):
                 count += 1
                 _maybe_send_realtime_email(nconn, user, title, body)
@@ -730,18 +757,20 @@ def scan_portfolio_alerts(iconn: ConnectionWrapper, nconn: ConnectionWrapper, la
         pnl_pct = (r["pnl_pct"] or 0) * 100
         pnl_sign = "+" if pnl_pct >= 0 else ""
         reason_labels = {
-            "time_exit": "30-day hold complete",
+            "time_exit": "hold period complete",
             "trailing_stop": "trailing stop hit",
             "stop_loss": "hard stop hit",
         }
         reason = reason_labels.get(r["exit_reason"] or "", r["exit_reason"] or "closed")
-        title = f"Portfolio Exit: {r['ticker']} {pnl_sign}{pnl_pct:.1f}%"
+        label = strategy_label(r["strategy"])
+        title = f"{label}: sold {r['ticker']} {pnl_sign}{pnl_pct:.1f}%"
         body = (
-            f"Form4 Portfolio exited {r['ticker']} at ${r['exit_price']:.2f} "
-            f"({pnl_sign}{pnl_pct:.1f}%). Reason: {reason}."
+            f"Closed {r['ticker']} at ${r['exit_price']:.2f}, "
+            f"{pnl_sign}{pnl_pct:.1f}%. {reason.capitalize()}."
         )
         for user in users:
-            dedup = _dedup_key("pfx", user["user_id"], str(r["id"]), r["exit_date"])
+            dedup = _dedup_key("pfx", user["user_id"], r["strategy"],
+                               r["ticker"], r["exit_date"])
             if _insert_notification(nconn, user["user_id"], "portfolio_alert", title, body, r["ticker"], dedup):
                 count += 1
                 _maybe_send_realtime_email(nconn, user, title, body)
