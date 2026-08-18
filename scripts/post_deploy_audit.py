@@ -51,7 +51,7 @@ from api.email import send_email
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-STRATEGIES = ["quality_momentum", "reversal_dip", "tenb51_surprise"]
+STRATEGIES = ["quality_notrend", "quality_momentum", "reversal_dip"]
 DEPLOY_DATE = "2026-05-08"  # Friday's deploy date — used for "since deploy" filters
 TO_EMAIL = os.getenv("POST_DEPLOY_AUDIT_TO", "derek.gorthy@gmail.com")
 TODAY_PT = datetime.now(ZoneInfo("America/Los_Angeles")).date().isoformat()

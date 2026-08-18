@@ -1,5 +1,5 @@
 strategy_name: quality_momentum_live
-display_name: "Form4 Quality + Momentum (LIVE)"
+display_name: "Form4 Tailwind (LIVE)"
 alert_prefix: "[QM-LIVE]"
 # strategy_name distinct from the paper variant (`quality_momentum`) so:
 #   - strategy_portfolio.strategy / order_audit.strategy cleanly separate

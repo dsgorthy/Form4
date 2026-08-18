@@ -278,7 +278,7 @@ def portfolio_runner_status(strategy: str = "quality_momentum", user: UserContex
     heartbeat_paths = {
         "quality_momentum": Path("/data/cw_strategies/quality_momentum_heartbeat.json"),
         "reversal_dip": Path("/data/cw_strategies/reversal_dip_heartbeat.json"),
-        "tenb51_surprise": Path("/data/cw_strategies/tenb51_surprise_heartbeat.json"),
+        "quality_notrend": Path("/data/cw_strategies/quality_notrend_heartbeat.json"),
     }
 
     heartbeat_path = heartbeat_paths.get(strategy)

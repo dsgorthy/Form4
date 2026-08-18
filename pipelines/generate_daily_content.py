@@ -27,6 +27,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from api.public_fields import STRATEGY_LABELS as _STRATEGY_LABELS
+
 from api.ownership import position_change
 from config.database import get_connection
 
@@ -47,11 +49,7 @@ OUTPUT_DIR = Path(__file__).resolve().parent / "data" / "content"
 # Strategy fill detection
 # ---------------------------------------------------------------------------
 
-STRATEGY_LABELS = {
-    "quality_momentum": "Quality + Momentum",
-    "reversal_dip": "Deep Reversal",
-    "tenb51_surprise": "10b5-1 Surprise",
-}
+STRATEGY_LABELS = _STRATEGY_LABELS
 
 
 def get_strategy_fills(conn: object, target_date: str) -> list[dict]:

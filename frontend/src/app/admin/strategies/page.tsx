@@ -145,7 +145,7 @@ export default function AdminStrategiesPage() {
         <p>
           See also: <Link href="/admin/strategies/quality_momentum" className="text-[#3B82F6] hover:underline">quality_momentum</Link>{" "}
           · <Link href="/admin/strategies/reversal_dip" className="text-[#3B82F6] hover:underline">reversal_dip</Link>{" "}
-          · <Link href="/admin/strategies/tenb51_surprise" className="text-[#3B82F6] hover:underline">tenb51_surprise</Link>
+          · <Link href="/admin/strategies/quality_notrend" className="text-[#3B82F6] hover:underline">quality_notrend</Link>
         </p>
       </div>
     </div>

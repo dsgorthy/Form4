@@ -155,16 +155,38 @@ python3 strategies/cw_strategies/cw_runner.py --config strategies/cw_strategies/
 4. **Paper Trading** — launchd plist running `cw_runner.py --config configs/{strategy}.yaml` with dedicated per-strategy Alpaca account
 5. **Archive** — Failed strategies go to `strategies/archive/` with ARCHIVE.md manifest
 
-## Active Strategies — MAX 3, each with its own dedicated Alpaca paper account
+## Active Strategies — exactly 3, alert-only
 
-| Strategy | Status | Sharpe | Key Metric | Alpaca env prefix |
-|----------|--------|--------|------------|-------------------|
-| quality_momentum | LIVE paper | 1.18 | 68.7% WR, ~50 trades/yr, 42td hold | `_QUALITY_MOMENTUM` |
-| quality_momentum_live | LIVE money (pre-launch — plist not yet installed, $0 deployed) | — | $10k allocation, tighter guardrails (5 max concurrent, 10% circuit-breaker) | `_QUALITY_MOMENTUM_LIVE` |
-| reversal_dip | LIVE paper | 1.08 | ~20 trades/yr, 21td hold, contrarian dip entry | `_REVERSAL_DIP` |
-| tenb51_surprise | LIVE paper (experimental) | 0.68 | 10b5-1 scheduled sellers breaking pattern to buy | `_TENB51_SURPRISE` |
-| quality_notrend | LIVE alert-only (A/B vs quality_momentum) | — | quality_momentum minus `above_sma50`/`above_sma200`. The trades QM rejects outperform the ones it accepts (+12.73% vs +8.04% median). 140 sim trades vs 55. Running in parallel for a forward record — a backtest cannot settle it. | none (alert_only) |
-| etf_gap_fill | Research | 0.59–0.88 | XLC/XLRE/RSP best |
+**Names live in `api/public_fields.STRATEGIES`, which is the single source of
+truth for the key → public label mapping.** Do not retype a display name
+anywhere else; `tests/unit/test_strategy_registry.py` fails the build if a
+surface drifts from the registry or if a retired strategy reappears on a live
+one. The internal keys are deliberately unchanged — they are written into
+`strategy_portfolio.strategy`, plist labels, yaml filenames and env prefixes,
+so renaming a key is a data migration and the label is the only part that has
+to move.
+
+| Key | Public name | Status | CAGR | Key Metric |
+|-----|-------------|--------|------|------------|
+| quality_notrend | **The A-List** | LIVE alert-only | 43.5% | A+/A insider buys, no chart condition. 141 closed sim trades. The strongest book: the trend filter QM applies costs more in trades foregone than it saves — QM fills 2.6 of 10 slots against notrend's 6.4. |
+| quality_momentum | **Tailwind** | LIVE alert-only | 17.0% | Same insider grade, plus above SMA50 and SMA200. 55 closed sim trades. Kept as the A/B control. |
+| reversal_dip | **Change of Heart** | LIVE alert-only | 13.6% | 10+ consecutive sells then a buy, into a 25%+ 3-month drawdown. Genuinely lumpy — went dark Dec 2025–Feb 2026 and again Jun–Aug 2026, then fired 3 in a month. Sparse alerts are expected, not a fault. |
+
+CAGRs are post-audit (2026-08-18), after the `filed_at` timezone fix removed
+look-ahead entries. Idle cash held in SPY; 1x leverage — the 2x book was built,
+measured at 61% average gross exposure against a 200% ceiling, and shelved.
+
+**Retired 2026-08-18:** `tenb51_surprise` (Sharpe 0.68). Runner unloaded, plist
+archived to `~/retired_plists/` on Studio, absent from every live surface. The
+yaml, the PIT strategy class and its ~200 simulated rows remain so the decision
+is reversible — re-add it to `ACTIVE_STRATEGIES` and `STRATEGY_CONFIG` to
+resume.
+
+| Research strategies | | | | |
+|-----|-------------|--------|------|------------|
+| quality_momentum_live | — | LIVE money (pre-launch, plist not installed, $0 deployed) | — | $10k allocation, 5 max concurrent, 10% circuit-breaker |
+| quality_momentum_2x | — | Built, not published | — | Levered in name only at current fill rates; `ALLOWED_STRATEGIES` excludes it |
+| etf_gap_fill | — | Research | 0.59–0.88 Sharpe | XLC/XLRE/RSP best |
 | spy_gap_fill | Research | — | 76.7% fill rate |
 | spy_intraday_momentum | Research (untracked, NOT yet board-reviewed) | — | 0DTE SPY ATM call/put on Gao-Han-Li-Zhou intraday-momentum signal; backtest shows implausible compounding — needs sizing review |
 
@@ -272,6 +294,6 @@ Historical options EOD pricing for insider event backtesting. **Check `pipeline_
 - Gap fill strategy must check if gap already filled during F30 before entry
 - Board `run_board.py` strips `CLAUDECODE` env var to allow nested Claude subprocesses
 - Options pricing: `_reprice_option` tries real data first, falls back to Black-Scholes
-- Alpaca paper trading requires `.env` with per-strategy trading credentials (`ALPACA_API_KEY_QUALITY_MOMENTUM`, `ALPACA_API_KEY_REVERSAL_DIP`, `ALPACA_API_KEY_TENB51_SURPRISE`) and shared read-only data credentials (`ALPACA_DATA_API_KEY` / `ALPACA_DATA_API_SECRET`). See `.env` header comment for the convention
-- Three paper runners are live via `com.openclaw.quality-momentum`, `com.openclaw.reversal-dip`, and `com.openclaw.tenb51-surprise` launchd services (all run `cw_runner.py`) — do not stop without approval
-- **Studio-only launch agents — must never autoload on Mini.** Running the same launchd service on both machines against the same Alpaca paper account risks duplicate order submission (`submit_order` in `framework/execution/paper.py` passes no `client_order_id`, so Alpaca has no server-side dedup). The services confined to Studio: `quality-momentum`, `quality-notrend`, `reversal-dip`, `tenb51-surprise`, `trial-emails`, `backfill-returns`, `breaking-signal`, `ceowatcher-reader`, `daily-content`, `insider-fetch`, `intraday-backfill`, `position-rules-test`, `strategy-health`, `form4-error-tail`, `form4-notifications`, `form4-seed-positions`, `form4-uptime`, `tailorly-tunnel`, `dagster-daemon`, `dagster-webserver` (dataplane orchestration — plists + install script in `dataplane/deploy/`; UI on `100.78.9.66:3030`, tailnet only; port 3000 is held by `pyrrho-staging-frontend` container), `pyrrho-desk` (Pyrrho Dataplane Desk dashboard — `100.78.9.66:3031`, tailnet only; install script `install_pyrrho_desk_service.sh`), `pg-backup` (nightly verified `pg_dump` of form4/pyrrho_data_dev/pyrrho_prod/dagster_runs at 03:15 PT, rsynced off-box to the Mini — `scripts/backup_databases.sh`, plist in `scripts/launchd/`). `~/.local/bin/studio` has a `guard_studio_only_plists` pre-check that fails `studio deploy form4` / `studio deploy pm` if any `com.openclaw.*` plist other than `claude-agent`, `etsy-bot`, `prank-mail-bot` is present on the deploying machine.
+- Alpaca paper trading requires `.env` with per-strategy trading credentials (`ALPACA_API_KEY_QUALITY_MOMENTUM`, `ALPACA_API_KEY_REVERSAL_DIP`) and shared read-only data credentials (`ALPACA_DATA_API_KEY` / `ALPACA_DATA_API_SECRET`). See `.env` header comment for the convention
+- Three runners are live via `com.openclaw.quality-notrend`, `com.openclaw.quality-momentum` and `com.openclaw.reversal-dip` launchd services (all run `cw_runner.py`) — do not stop without approval. `com.openclaw.tenb51-surprise` was unloaded 2026-08-18 and its plist archived to `~/retired_plists/` on Studio
+- **Studio-only launch agents — must never autoload on Mini.** Running the same launchd service on both machines against the same Alpaca paper account risks duplicate order submission (`submit_order` in `framework/execution/paper.py` passes no `client_order_id`, so Alpaca has no server-side dedup). The services confined to Studio: `quality-momentum`, `quality-notrend`, `reversal-dip`, `trial-emails`, `backfill-returns`, `breaking-signal`, `ceowatcher-reader`, `daily-content`, `insider-fetch`, `intraday-backfill`, `position-rules-test`, `strategy-health`, `form4-error-tail`, `form4-notifications`, `form4-seed-positions`, `form4-uptime`, `tailorly-tunnel`, `dagster-daemon`, `dagster-webserver` (dataplane orchestration — plists + install script in `dataplane/deploy/`; UI on `100.78.9.66:3030`, tailnet only; port 3000 is held by `pyrrho-staging-frontend` container), `pyrrho-desk` (Pyrrho Dataplane Desk dashboard — `100.78.9.66:3031`, tailnet only; install script `install_pyrrho_desk_service.sh`), `pg-backup` (nightly verified `pg_dump` of form4/pyrrho_data_dev/pyrrho_prod/dagster_runs at 03:15 PT, rsynced off-box to the Mini — `scripts/backup_databases.sh`, plist in `scripts/launchd/`). `~/.local/bin/studio` has a `guard_studio_only_plists` pre-check that fails `studio deploy form4` / `studio deploy pm` if any `com.openclaw.*` plist other than `claude-agent`, `etsy-bot`, `prank-mail-bot` is present on the deploying machine.

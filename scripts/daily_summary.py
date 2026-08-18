@@ -52,7 +52,7 @@ from config.database import get_connection
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-STRATEGIES = ["quality_momentum", "reversal_dip", "tenb51_surprise"]
+STRATEGIES = ["quality_notrend", "quality_momentum", "reversal_dip"]
 RESEND_URL = "https://api.resend.com/emails"
 FROM_ADDRESS = "Form4 <alerts@form4.app>"
 

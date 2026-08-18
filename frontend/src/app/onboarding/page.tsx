@@ -7,23 +7,22 @@ import { posthog } from "@/lib/posthog";
 
 const STRATEGIES = [
   {
+    value: "quality_notrend",
+    label: "The A-List",
+    brief: "A proven insider buys \u2014 the person is the whole signal",
+    stats: "43.5% CAGR \u00b7 66% WR \u00b7 ~40 trades/yr",
+  },
+  {
     value: "quality_momentum",
-    label: "Quality + Momentum",
-    brief: "A+/A-graded insiders buying stocks in uptrends",
-    stats: "Sharpe 1.20 \u00b7 68.7% WR \u00b7 ~50 trades/yr",
+    label: "Tailwind",
+    brief: "A proven insider buys a stock already trending up",
+    stats: "17.0% CAGR \u00b7 70.9% WR \u00b7 ~15 trades/yr",
   },
   {
     value: "reversal_dip",
-    label: "Deep Reversal",
-    brief: "Persistent sellers suddenly reversing into deep dips",
-    stats: "Sharpe 1.08 \u00b7 60.3% WR \u00b7 ~20 trades/yr",
-  },
-  {
-    value: "tenb51_surprise",
-    label: "10b5-1 Surprise",
-    brief: "Scheduled sellers breaking legal commitment to buy",
-    stats: "Sharpe 0.68 \u00b7 54.1% WR \u00b7 ~25 trades/yr",
-    experimental: true,
+    label: "Change of Heart",
+    brief: "A serial seller finally buys, into a 25% drawdown",
+    stats: "13.6% CAGR \u00b7 66.7% WR \u00b7 ~18 trades/yr",
   },
 ];
 
@@ -129,9 +128,6 @@ export default function OnboardingPage() {
                 <span className={`text-sm font-semibold ${selectedStrategy === s.value ? "text-[#3B82F6]" : "text-[#E8E8ED]"}`}>
                   {s.label}
                 </span>
-                {s.experimental && (
-                  <span className="rounded-full bg-[#F59E0B]/15 px-2 py-0.5 text-[9px] font-semibold text-[#F59E0B]">Experimental</span>
-                )}
               </div>
               <div className="text-xs text-[#8888A0] mb-1">{s.brief}</div>
               <div className="text-[10px] text-[#55556A] font-mono">{s.stats}</div>

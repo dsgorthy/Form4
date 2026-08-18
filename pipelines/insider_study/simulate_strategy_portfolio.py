@@ -91,10 +91,9 @@ STRATEGY_CONFIG = {
         "yaml": REPO / "strategies/cw_strategies/configs/reversal_dip.yaml",
         "start_date": "2023-01-01",
     },
-    "tenb51_surprise": {
-        "yaml": REPO / "strategies/cw_strategies/configs/tenb51_surprise.yaml",
-        "start_date": "2023-01-01",
-    },
+    # tenb51_surprise retired 2026-08-18 — the nightly rebuild no longer runs
+    # it, so its ~200 simulated rows are frozen where they stand. The yaml and
+    # the PIT strategy class remain; re-add the entry here to resume.
 }
 
 STARTING_CAPITAL = 100_000.0

@@ -20,6 +20,7 @@ from typing import Optional
 import requests
 import yaml
 from fastapi import APIRouter, Depends, HTTPException, Query
+from api.public_fields import strategy_label
 
 from api.auth import UserContext, require_admin
 from api.db import get_db
@@ -62,9 +63,9 @@ JOB_CATALOG = [
     {"name": "reversal-dip",       "log": "reversal-dip.log",
      "heartbeat": "reversal_dip_heartbeat.json", "cadence_s": 5 * 60,
      "label": "RD cw_runner (live paper)", "category": "live_runner"},
-    {"name": "tenb51-surprise",    "log": "tenb51-surprise.log",
-     "heartbeat": "tenb51_surprise_heartbeat.json", "cadence_s": 5 * 60,
-     "label": "10b5 cw_runner (live paper)", "category": "live_runner"},
+    {"name": "quality-notrend",    "log": "quality-notrend.log",
+     "heartbeat": "quality_notrend_heartbeat.json", "cadence_s": 5 * 60,
+     "label": "A-List cw_runner (alert only)", "category": "live_runner"},
     # Simulated portfolio runners
     {"name": "strategy-intraday",  "log": "strategy-intraday.log",  "cadence_s": 15 * 60,
      "label": "Intraday simulated portfolio update", "category": "simulator"},
@@ -103,12 +104,12 @@ JOB_CATALOG = [
 # Source-of-truth strategy registry. Keep in sync with
 # api/routers/paper_trading.py:STRATEGIES if/when adding new strategies.
 STRATEGIES = [
-    {"name": "quality_momentum", "label": "Quality + Momentum",
+    {"name": "quality_notrend",  "label": strategy_label("quality_notrend"),
+     "thesis": "A+/A PIT-graded insiders buying, no trend condition"},
+    {"name": "quality_momentum", "label": strategy_label("quality_momentum"),
      "thesis": "A+/A PIT-graded insiders buying in uptrend"},
-    {"name": "reversal_dip",     "label": "Deep Reversal",
+    {"name": "reversal_dip",     "label": strategy_label("reversal_dip"),
      "thesis": "Persistent seller (10+ consecutive sells) reverses into a deep dip"},
-    {"name": "tenb51_surprise",  "label": "10b5-1 Surprise",
-     "thesis": "Insider with prior 10b5-1 plan sells breaks pattern and buys"},
 ]
 
 

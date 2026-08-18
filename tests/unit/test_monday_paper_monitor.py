@@ -42,7 +42,8 @@ def _write_heartbeat(dir_, strategy, age_min, status="active"):
 
 def test_heartbeats_pass_when_all_fresh(hb_dir):
     from scripts.monday_paper_monitor import check_heartbeats
-    for s in ("quality_momentum", "reversal_dip", "tenb51_surprise"):
+    from scripts.monday_paper_monitor import STRATEGIES
+    for s in STRATEGIES:
         _write_heartbeat(hb_dir, s, age_min=2)
     r = check_heartbeats()
     assert r.ok is True
@@ -54,21 +55,21 @@ def test_heartbeats_fail_when_one_stale(hb_dir):
     from scripts.monday_paper_monitor import check_heartbeats
     _write_heartbeat(hb_dir, "quality_momentum", age_min=2)
     _write_heartbeat(hb_dir, "reversal_dip", age_min=2)
-    _write_heartbeat(hb_dir, "tenb51_surprise", age_min=90)
+    _write_heartbeat(hb_dir, "quality_notrend", age_min=90)
     r = check_heartbeats()
     assert r.ok is False
     assert r.severity == "warn"
-    assert "tenb51_surprise" in r.detail
+    assert "quality_notrend" in r.detail
 
 
 def test_heartbeats_fail_when_file_missing(hb_dir):
     from scripts.monday_paper_monitor import check_heartbeats
     _write_heartbeat(hb_dir, "quality_momentum", age_min=2)
-    # reversal_dip + tenb51 missing
+    # reversal_dip + quality_notrend missing
     r = check_heartbeats()
     assert r.ok is False
     assert "reversal_dip" in r.detail
-    assert "tenb51_surprise" in r.detail
+    assert "quality_notrend" in r.detail
 
 
 # ── Unexpected criticals filter ──────────────────────────────────────────

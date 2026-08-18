@@ -164,7 +164,7 @@ writers:
     plists: [com.openclaw.refresh-features]
     schedule: "daily 06:00 PT (step 4 of refresh-features)"
     sla_hours: 30
-    required_for: [quality_momentum, reversal_dip, tenb51_surprise]
+    required_for: [quality_momentum, quality_notrend, reversal_dip]
     notes: "Reads insider_ticker_scores WHERE sufficient_data=1 (2026-05-16 fix) so degenerate role-change rows don't propagate."
 
   - column: trades.pit_blended_score

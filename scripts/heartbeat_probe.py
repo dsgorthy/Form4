@@ -40,7 +40,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 logger = logging.getLogger(__name__)
 
 ET = ZoneInfo("America/New_York")
-STRATEGIES = ["quality_momentum", "reversal_dip", "tenb51_surprise"]
+STRATEGIES = ["quality_notrend", "quality_momentum", "reversal_dip"]
 # Modes: paper heartbeat at {strategy}_heartbeat.json (legacy filename for
 # backwards-compat), live at {strategy}_live_heartbeat.json. Probe scopes
 # itself to whichever files exist on disk — a missing live file is fine

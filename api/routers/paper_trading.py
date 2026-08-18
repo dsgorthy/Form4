@@ -33,6 +33,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 
 from api.auth import UserContext, get_current_user
+from api.public_fields import strategy_label
 from framework.execution.alpaca_account import AlpacaAccount
 
 logger = logging.getLogger(__name__)
@@ -50,7 +51,7 @@ STARTING_CAPITAL = 100_000
 STRATEGIES = [
     {
         "name": "quality_momentum",
-        "label": "Quality + Momentum",
+        "label": strategy_label("quality_momentum"),
         "started_at": "2020-03-06",
         "key_env": "ALPACA_API_KEY_QUALITY_MOMENTUM",
         "secret_env": "ALPACA_API_SECRET_QUALITY_MOMENTUM",
@@ -64,7 +65,7 @@ STRATEGIES = [
     },
     {
         "name": "reversal_dip",
-        "label": "Deep Reversal + Dip",
+        "label": strategy_label("reversal_dip"),
         "started_at": "2020-03-04",
         "key_env": "ALPACA_API_KEY_REVERSAL_DIP",
         "secret_env": "ALPACA_API_SECRET_REVERSAL_DIP",
@@ -74,20 +75,6 @@ STRATEGIES = [
             "win_rate": 55.0,
             "max_dd": 14.3,
             "trades": 132,
-        },
-    },
-    {
-        "name": "tenb51_surprise",
-        "label": "10b5-1 Surprise",
-        "started_at": "2023-08-15",
-        "key_env": "ALPACA_API_KEY_TENB51_SURPRISE",
-        "secret_env": "ALPACA_API_SECRET_TENB51_SURPRISE",
-        "backtest": {
-            "cagr": 10.2,
-            "sharpe": 0.68,
-            "win_rate": 55.0,
-            "max_dd": 12.0,
-            "trades": 50,
         },
     },
 ]

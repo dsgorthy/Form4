@@ -108,7 +108,7 @@ trades.is_largest_ever:
 # ── PIT scoring (populated by build_pit_scores) ──
 trades.pit_grade:
   max_staleness_hours: 30
-  required_for: [quality_momentum, reversal_dip, tenb51_surprise]
+  required_for: [quality_momentum, quality_notrend, reversal_dip]
   description: "PIT-derived grade A+/A/B/C/D from insider_ticker_scores (V2 Bayesian scorer)"
   populated_by: pipelines/insider_study/backfill_pit_grades.py
 

@@ -54,10 +54,13 @@ async function getJson(path: string, revalidate = 300) {
   }
 }
 
+// Display names; the key is the internal identifier. Order is deliberate — the
+// A-List leads because it is the strongest book, and the landing page reads the
+// first entry for the hero chart.
 const STRATEGIES = [
-  { key: "quality_momentum", name: "Quality + Momentum", thesis: "A+ and A-graded insiders buying into strength" },
-  { key: "reversal_dip", name: "Deep Reversal", thesis: "Persistent sellers reversing into a beaten-down name" },
-  { key: "tenb51_surprise", name: "10b5-1 Surprise", thesis: "Scheduled sellers breaking pattern to buy", experimental: true },
+  { key: "quality_notrend", name: "The A-List", thesis: "A proven insider buys. No chart condition." },
+  { key: "quality_momentum", name: "Tailwind", thesis: "A proven insider buys a stock already trending up" },
+  { key: "reversal_dip", name: "Change of Heart", thesis: "A serial seller finally buys, into a 25% drawdown" },
 ];
 
 function fmtValue(v: number) {
@@ -105,7 +108,7 @@ export default async function LandingPage() {
 
   const [filings, overlay, ...books] = await Promise.all([
     getJson("/filings?limit=5&min_grade=B&trade_type=buy"),
-    getJson("/portfolio/overlay?strategy=quality_momentum"),
+    getJson(`/portfolio/overlay?strategy=${STRATEGIES[0].key}`),
     ...STRATEGIES.map((s) => getJson(`/portfolio?strategy=${s.key}`)),
   ]);
 
@@ -163,7 +166,7 @@ export default async function LandingPage() {
           <div className="mt-10 rounded-2xl border border-[#2A2A3A] bg-[#12121A] overflow-hidden">
             <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4 p-6 pb-4">
               <div>
-                <TileLabel>Quality + Momentum, idle cash in SPY</TileLabel>
+                <TileLabel>{STRATEGIES[0].name}, idle cash in SPY</TileLabel>
                 <div className="mt-2 flex items-baseline gap-3">
                   <span className="font-mono text-4xl sm:text-5xl font-bold text-[#22C55E] tabular-nums tracking-tight">
                     ${Math.round(hero.final).toLocaleString()}
@@ -183,7 +186,7 @@ export default async function LandingPage() {
               <EquitySparkline
                 strategy={blended}
                 benchmark={pure}
-                label="Quality + Momentum with idle cash in SPY"
+                label={`${STRATEGIES[0].name} with idle cash in SPY`}
               />
             </div>
 
@@ -317,11 +320,6 @@ export default async function LandingPage() {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-[#E8E8ED]">{strat.name}</span>
-                      {strat.experimental && (
-                        <span className="rounded-full bg-[#F59E0B]/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-[#F59E0B]">
-                          Experimental
-                        </span>
-                      )}
                     </div>
                     <div className="text-xs text-[#55556A] mt-0.5 truncate">{strat.thesis}</div>
                   </div>

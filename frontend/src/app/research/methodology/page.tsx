@@ -367,10 +367,9 @@ export default async function ScoringPage() {
 
           <div className="space-y-4 mb-8">
             {[
-              { name: "Quality + Momentum", hold: "30 days", thesis: "A+/A-graded insiders buying stocks in confirmed uptrends (above SMA50 and SMA200). The signal compounds — proven insiders with strong track records buying into momentum." },
-              { name: "Deep Reversal", hold: "21 days", thesis: "Insiders who sold 10+ consecutive times then suddenly buy, while the stock is down 25%+ over 3 months. A behavioral reversal combined with a margin of safety." },
-              { name: "10b5-1 Surprise", hold: "60 days (trailing stop 15%)", thesis: "Insiders who had SEC-filed 10b5-1 selling plans break pattern and buy. Breaking a legal commitment to buy is costly and deliberate." },
-              { name: "Reversal + Quality", hold: "30 days", thesis: "Proven insiders (A-B grade) who persistently sold suddenly buy. The strongest single signal: +4.0% abnormal at 30d, 61% win rate. Robust across years, not driven by repeat insiders." },
+              { name: "The A-List", hold: "42 days", thesis: "An A+/A-graded insider buys, and that is the whole test — no condition on the chart at all. The trend filter the other book applies turns out to cost more in trades foregone than it saves in bad ones." },
+              { name: "Tailwind", hold: "42 days", thesis: "The same graded insider, but the stock is already above its 50- and 200-day averages. Conviction and price pointing the same way, at the cost of a much smaller book." },
+              { name: "Change of Heart", hold: "21 days", thesis: "An insider who has sold 10+ consecutive times finally buys, while the stock is down 25%+ over three months. A behavioural reversal with a margin of safety attached." },
             ].map((s) => (
               <div key={s.name} className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/40 p-4">
                 <div className="flex items-center justify-between mb-2">

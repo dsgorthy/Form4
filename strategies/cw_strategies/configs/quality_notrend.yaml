@@ -1,5 +1,5 @@
 strategy_name: quality_notrend
-display_name: "Form4 Quality (no trend filter)"
+display_name: "Form4 The A-List"
 alert_prefix: "[QNT]"
 # No Alpaca account. execution_mode is alert_only and Alpaca has been
 # data-only since 2026-08-12, so this strategy needs no dedicated trading

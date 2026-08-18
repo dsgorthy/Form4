@@ -60,7 +60,7 @@ STUDIO_ONLY_PLISTS = {
     # The 3 cw_runner strategy plists ship from ~/Library/LaunchAgents directly.
     "com.openclaw.quality-momentum",
     "com.openclaw.reversal-dip",
-    "com.openclaw.tenb51-surprise",
+    "com.openclaw.quality-notrend",
     "com.openclaw.quality-momentum-live",
     # Refresh-features chain orchestrator
     "com.openclaw.refresh-features",

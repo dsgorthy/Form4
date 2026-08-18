@@ -129,50 +129,52 @@ function StatCard({ label, value, sub, color }: { label: string; value: string; 
 // advertised a 14-day exit, a +8% target, a -10% stop and a 5% trailing stop
 // for quality_momentum, which holds 42 trading days with no stop at all, and
 // claimed 5-10% sizing and 20 concurrent against a config of 10% and 10.
+// Display names only. The `value` is the internal key written to
+// strategy_portfolio.strategy, referenced by launchd plists, the simulator's
+// STRATEGY_CONFIG and conviction_score's VALID_THESES — renaming it means a
+// data migration and a daemon restart, and buys nothing a label cannot.
+//
+// Each name describes what actually fires the alert, because a subscriber
+// picks from these three and has to know which one is which:
+//
+//   The A-List      a graded insider buys. No price condition at all.
+//   Tailwind        the same, but the stock is already above both averages.
+//   Change of Heart someone who has only sold, for ten filings running, buys.
+//
+// Deliberately not "Breakout" for the second. It reads as a move through
+// resistance, and nothing here tests for one — the stock may have sat above
+// both averages for months. Naming an alert after a chart event we do not
+// measure is the kind of thing a subscriber notices once and then stops
+// trusting the rest.
 const STRATEGIES = [
   {
-    value: "quality_momentum",
-    label: "Quality + Momentum",
-    brief: "A+/A insiders buying in uptrends. Sharpe 1.20, 68.7% WR, ~50 trades/yr, 42td hold.",
+    value: "quality_notrend",
+    label: "The A-List",
+    brief: "A proven insider just bought. The person is the whole signal — no chart condition.",
     rules: [
-      "Buys when an A+/A-graded insider buys a stock trading above its 50- and 200-day averages.",
+      "Buys when an insider graded A+ or A on their own past trades makes an open-market purchase. Nothing is required of the stock price.",
+      "10% of equity per position, 10 positions at most. Sells after 42 trading days.",
+      "Holds 6.4 positions on average against Tailwind's 2.6, so 59% of the book is invested rather than 21%. That deployment, not better stock-picking, is where its edge comes from.",
+    ],
+  },
+  {
+    value: "quality_momentum",
+    label: "Tailwind",
+    brief: "A proven insider buys a stock already trending up — conviction and price pointing the same way.",
+    rules: [
+      "Buys when an A+ or A-graded insider buys a stock trading above both its 50- and 200-day averages.",
       "10% of equity per position, 10 positions at most.",
       "Sells after 42 trading days. No stop — stops cost this strategy a quarter of its Sharpe in testing.",
     ],
   },
   {
-    // The same insider grade filter as Quality + Momentum with the two moving
-    // average gates removed. It has been running alert-only as an A/B since
-    // 2023 and was not published anywhere until 2026-08-18, which meant the
-    // best-performing book on the platform was invisible.
-    value: "quality_notrend",
-    label: "Quality, No Trend Filter",
-    brief: "Quality + Momentum without the moving-average gates. 2.5x the trades and it stays invested.",
-    rules: [
-      "Buys when an A+/A-graded insider buys — with no requirement that the stock is above its 50- or 200-day average.",
-      "10% of equity per position, 10 positions at most. Sells after 42 trading days.",
-      "Dropping the trend gates is what makes it work: it holds 6.4 positions on average against Quality + Momentum's 2.6, so 59% of the book is invested rather than 21%.",
-    ],
-  },
-  {
     value: "reversal_dip",
-    label: "Deep Reversal",
-    brief: "Persistent sellers reversing into depressed stocks. Sharpe 1.08, ~20 trades/yr, 21td hold.",
+    label: "Change of Heart",
+    brief: "An insider who has done nothing but sell finally buys — into a stock down 25%.",
     rules: [
-      "Buys when an insider with 10+ consecutive sales behind them buys a stock down 25%+ over three months.",
-      "10% of equity per position, 10 positions at most.",
-      "Sells after 21 trading days — the edge is gone by 90.",
-    ],
-  },
-  {
-    value: "tenb51_surprise",
-    label: "10b5-1 Surprise",
-    brief: "Scheduled sellers breaking pattern to buy. Experimental, ~40 trades/yr, 60td hold.",
-    experimental: true,
-    rules: [
-      "Buys when an insider with 5+ scheduled (10b5-1) sales behind them makes an open-market purchase.",
-      "20% of equity per position, 5 positions at most.",
-      "Sells after 60 trading days, on a 15% trailing stop, or at -20%.",
+      "Buys when an insider with 10 or more consecutive sales behind them makes an open-market purchase, on a stock down 25% or more over three months.",
+      "Routine, tax and scheduled 10b5-1 sales are excluded, so the pattern being broken is a real one.",
+      "10% of equity per position, 10 positions at most. Sells after 21 trading days — the edge is gone by 90.",
     ],
   },
 ];

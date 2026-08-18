@@ -76,7 +76,6 @@ LIVE_URL = "wss://api.alpaca.markets/stream"
 ACCOUNTS = [
     {"name": "quality_momentum",      "env_prefix": "QUALITY_MOMENTUM", "live": False},
     {"name": "reversal_dip",          "env_prefix": "REVERSAL_DIP",     "live": False},
-    {"name": "tenb51_surprise",       "env_prefix": "TENB51_SURPRISE",  "live": False},
     {"name": "quality_momentum_live", "env_prefix": "QUALITY_MOMENTUM", "live": True},
 ]
 

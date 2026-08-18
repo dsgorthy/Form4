@@ -105,3 +105,77 @@ FREE_ALERT_FIELDS = frozenset(
 )
 
 PRO_ALERT_FIELDS = frozenset(PRO_ALERT_EVENTS + PRO_ALERT_FILTERS)
+
+
+# ─── Strategy identity ───────────────────────────────────────────────────────
+#
+# One registry for the internal key, the public name, and whether we still run
+# the thing. Before this existed the display names were retyped in nine places
+# — the landing page, onboarding, the portfolio switcher, two content
+# generators, two admin routers, the research methodology page and the strategy
+# yamls — so renaming a strategy meant finding all nine, and the 2026-08-18
+# rename found three that had already drifted.
+#
+# The KEY IS NOT THE NAME. Keys are written into strategy_portfolio.strategy,
+# launchd plist labels, yaml filenames and env-var prefixes; renaming one is a
+# data migration, and the user-visible string is the only part that has to
+# change. So the keys stay as they were and LABEL carries the product name.
+#
+# The names, and why:
+#
+#   The A-List (quality_notrend)
+#       An insider with a graded record buys. There is no chart condition at
+#       all — the person is the entire signal, which is what the name has to
+#       say. This is the strongest book of the three.
+#
+#   Tailwind (quality_momentum)
+#       Same graded insider, but the stock is already above its 50- and
+#       200-day averages: conviction and price pointing the same way.
+#       Deliberately NOT "Breakout". Nothing in this strategy tests for a
+#       breakout — a stock can sit above both averages for a year and still
+#       qualify. Naming an alert after a chart event we do not measure is the
+#       kind of thing a subscriber notices once and then stops trusting the
+#       rest of the product.
+#
+#   Change of Heart (reversal_dip)
+#       An insider whose record is nothing but sells finally buys, into a
+#       stock down 25%. Both halves of the reversal in two words.
+
+STRATEGIES = {
+    "quality_notrend": {
+        "label": "The A-List",
+        "thesis": "A proven insider buys. No chart condition.",
+        "active": True,
+    },
+    "quality_momentum": {
+        "label": "Tailwind",
+        "thesis": "A proven insider buys a stock already trending up",
+        "active": True,
+    },
+    "reversal_dip": {
+        "label": "Change of Heart",
+        "thesis": "A serial seller finally buys, into a 25% drawdown",
+        "active": True,
+    },
+    # Retired 2026-08-18. Sharpe 0.68 against 1.08 for the weakest survivor,
+    # and the edge was a story rather than a result. The runner is unloaded and
+    # the name is off every public surface; the config, the PIT strategy class
+    # and the ~200 simulated rows stay so the decision stays reversible.
+    "tenb51_surprise": {
+        "label": "10b5-1 Surprise",
+        "thesis": "A scheduled seller breaks pattern to buy",
+        "active": False,
+    },
+}
+
+# Publication order. The A-List leads because it is the strongest book and the
+# landing page reads the first entry for its hero chart.
+ACTIVE_STRATEGIES = ["quality_notrend", "quality_momentum", "reversal_dip"]
+
+STRATEGY_LABELS = {k: v["label"] for k, v in STRATEGIES.items()}
+
+
+def strategy_label(key: str) -> str:
+    """Public name for a strategy key, falling back to the key itself."""
+    entry = STRATEGIES.get(key)
+    return entry["label"] if entry else key

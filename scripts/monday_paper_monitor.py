@@ -52,7 +52,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-STRATEGIES = ["quality_momentum", "reversal_dip", "tenb51_surprise"]
+STRATEGIES = ["quality_notrend", "quality_momentum", "reversal_dip"]
 HEARTBEAT_MAX_AGE_MIN = 30   # cw_runner writes heartbeat every cycle
 ALERT_LOG = REPO / "logs" / "alerts.ndjson"
 DEPLOY_COMMIT_UTC = "2026-05-17T07:00:00+00:00"   # Phase 2 deploy reference

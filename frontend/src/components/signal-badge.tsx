@@ -11,7 +11,6 @@ const COMPOSITE_STYLE = "bg-[#F59E0B]/15 text-[#F59E0B] border-[#F59E0B]/50 ring
 
 const COMPOSITE_TYPES = new Set([
   "quality_momentum_buy",
-  "tenb51_surprise_buy",
   "deep_reversal_dip_buy",
 ]);
 

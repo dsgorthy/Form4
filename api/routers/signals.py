@@ -16,19 +16,13 @@ from api.pit_helpers import enrich_with_best_pit_grade
 # Signal type metadata — thesis, display info, composite flag
 SIGNAL_META: dict[str, dict] = {
     "quality_momentum_buy": {
-        "label": "Quality + Momentum",
+        "label": "Tailwind",
         "description": "Proven insider (A+/A grade) buying in a confirmed uptrend",
         "composite": True,
         "strategy": "quality_momentum",
     },
-    "tenb51_surprise_buy": {
-        "label": "10b5-1 Surprise Buy",
-        "description": "Scheduled seller breaks SEC-filed 10b5-1 plan to buy",
-        "composite": True,
-        "strategy": "tenb51_surprise",
-    },
     "deep_reversal_dip_buy": {
-        "label": "Deep Reversal + Dip",
+        "label": "Change of Heart",
         "description": "Persistent seller reverses into a stock down 25%+",
         "composite": True,
         "strategy": "reversal_dip",

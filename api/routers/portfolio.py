@@ -4,6 +4,7 @@ import json
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from api.public_fields import ACTIVE_STRATEGIES
 
 from api.auth import UserContext, get_current_user
 from api.db import get_db
@@ -92,8 +93,9 @@ def _build_trade_row(r: dict, scale: float, gated: bool = False, current_price=N
 # strategy only fills 2.6 of its ten slots. It was levered in name and not
 # in fact, and the direction is 1x. The config, the simulator support and
 # the simulated rows all remain — re-add the name here to republish.
-ALLOWED_STRATEGIES = {"quality_momentum", "quality_notrend",
-                      "reversal_dip", "tenb51_surprise"}
+# tenb51_surprise was retired 2026-08-18 and is absent from ACTIVE_STRATEGIES;
+# its rows stay in strategy_portfolio but are no longer served.
+ALLOWED_STRATEGIES = set(ACTIVE_STRATEGIES)
 
 
 @router.get("")

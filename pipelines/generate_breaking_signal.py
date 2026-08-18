@@ -25,6 +25,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from api.public_fields import STRATEGY_LABELS as _STRATEGY_LABELS
+
 from config.database import get_connection
 
 try:
@@ -236,11 +238,7 @@ def detect_breaking_signals(conn, target_date: str) -> list[dict]:
           AND status = 'open'
     """, (target_date,)).fetchall()
 
-    STRATEGY_LABELS = {
-        "quality_momentum": "Quality + Momentum",
-        "reversal_dip": "Deep Reversal",
-        "tenb51_surprise": "10b5-1 Surprise",
-    }
+    STRATEGY_LABELS = _STRATEGY_LABELS
 
     for entry in strategy_entries:
         entry = dict(entry)
