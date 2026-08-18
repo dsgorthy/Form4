@@ -44,15 +44,20 @@ HOLDS = (5, 7, 10, 14, 21, 30, 42, 60)
 
 def spy_return(conn, d0: str, d1: str) -> float | None:
     """SPY total return between two dates, for alpha."""
+    # Both scalar subqueries come back unnamed, and the compat layer keys rows
+    # by column name — two blank names collapse to one key. Alias them.
     row = conn.execute(
         """SELECT (SELECT close FROM prices.daily_prices
-                    WHERE ticker='SPY' AND date >= ? ORDER BY date LIMIT 1),
+                    WHERE ticker='SPY' AND date >= ? ORDER BY date LIMIT 1) AS p0,
                   (SELECT close FROM prices.daily_prices
-                    WHERE ticker='SPY' AND date >= ? ORDER BY date LIMIT 1)""",
+                    WHERE ticker='SPY' AND date >= ? ORDER BY date LIMIT 1) AS p1""",
         (d0, d1)).fetchone()
-    if not row or not row[0] or not row[1]:
+    if not row:
         return None
-    return row[1] / row[0] - 1.0
+    p0, p1 = row["p0"], row["p1"]
+    if not p0 or not p1:
+        return None
+    return p1 / p0 - 1.0
 
 
 def main() -> int:
