@@ -241,7 +241,17 @@ def simulate_one_strategy(
                   t.above_sma50, t.above_sma200, t.is_largest_ever,
                   t.is_10b5_1, t.is_recurring, t.is_tax_sale, t.cohen_routine,
                   t.pit_grade, t.career_grade,
-                  t.net_buyer_flow_90d, t.industry_buy_pct_90d
+                  t.net_buyer_flow_90d, t.industry_buy_pct_90d,
+                  -- Could this filing have been acted on at that day's close?
+                  -- EDGAR accepts Form 4 until 22:00 ET and 43.5% of A+/A
+                  -- filings land after the 16:00 bell. Filling those at the
+                  -- filing day's close is a look-ahead, and an expensive one:
+                  -- it was worth 26 points of CAGR on the no-momentum variant
+                  -- (59.9% -> 33.8%). Filings without a timestamp are treated
+                  -- as after-close, which is the conservative direction.
+                  COALESCE(
+                      (t.filed_at::timestamptz AT TIME ZONE 'America/New_York')::time
+                      < TIME '16:00', FALSE) AS tradeable_same_day
            FROM trades t
            JOIN insiders i ON t.insider_id = i.insider_id
            WHERE t.trans_code = 'P'
@@ -432,8 +442,11 @@ def simulate_one_strategy(
                 # layered in later if backtests show it's meaningful.
                 break
 
-            # Entry price: today's close (or next available within 5td)
-            entry_lookup = find_first_price_on_or_after(prices, cal, ticker, cal_idx)
+            # Entry price: the close of the first session we could actually
+            # have traded. Same day only when the filing was public before the
+            # bell; otherwise the next session. See tradeable_same_day above.
+            first_idx = cal_idx if t.get("tradeable_same_day") else cal_idx + 1
+            entry_lookup = find_first_price_on_or_after(prices, cal, ticker, first_idx)
             if entry_lookup is None:
                 continue
             entry_idx, entry_price = entry_lookup
