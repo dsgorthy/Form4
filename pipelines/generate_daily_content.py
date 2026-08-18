@@ -27,6 +27,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from api.ownership import position_change
 from config.database import get_connection
 
 try:
@@ -109,7 +110,15 @@ def get_top_trades(conn: object, target_date: str, limit: int = 8) -> list[dict]
             MAX(t.is_10b5_1) AS is_10b5_1,
             MAX(t.is_routine) AS is_routine,
             MAX(t.is_csuite) AS is_csuite,
-            MAX(t.shares_owned_after) AS shares_after,
+            -- Every lot, kept whole: shares_owned_after is reported per
+            -- ownership line, so no single aggregate of it describes the
+            -- position. api.ownership.position_change reconciles the lines.
+            JSON_AGG(JSON_BUILD_OBJECT(
+                'trade_id', t.trade_id, 'trade_date', t.trade_date, 'qty', t.qty,
+                'shares_owned_after', t.shares_owned_after,
+                'direct_indirect', t.direct_indirect,
+                'nature_of_ownership', t.nature_of_ownership
+            ) ORDER BY t.trade_date, t.trade_id) AS lots,
             SUM(t.qty) AS total_qty,
             MAX(t.insider_switch_rate) AS insider_switch_rate
         FROM trades t
@@ -117,10 +126,23 @@ def get_top_trades(conn: object, target_date: str, limit: int = 8) -> list[dict]
         WHERE t.filing_date = ?
           AND t.trans_code IN ('P', 'S')
           AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
+          -- Routine, planned and junk-ticker rows were filtered in Python,
+          -- AFTER the LIMIT below had already thrown the rest of the day away.
+          -- On 2026-08-17 the 16 largest filings were all sells and all but
+          -- three were 10% owners or 10b5-1 plans, so every candidate was
+          -- discarded and the day produced no content at all — while six
+          -- Cardinal Infrastructure insiders were buying $8.2M between them,
+          -- far below the dollar cutoff. The pipeline had reported "No trades"
+          -- on all 133 of its runs since 4 April. Filtering before the LIMIT
+          -- rather than after it is the whole fix; superseded_by is new.
+          AND (t.is_routine = 0 OR t.is_routine IS NULL)
+          AND (t.is_10b5_1 = 0 OR t.is_10b5_1 IS NULL)
+          AND t.superseded_by IS NULL
+          AND t.ticker NOT IN ('NONE', 'NA', 'N/A', '')
         GROUP BY t.insider_id, t.ticker, t.trade_type, t.filing_key
         ORDER BY SUM(t.value) DESC
         LIMIT ?
-    """, (target_date, limit * 2)).fetchall()
+    """, (target_date, limit * 10)).fetchall()
 
     trades = []
     for r in rows:
@@ -297,8 +319,13 @@ def get_daily_stats(conn: object, target_date: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def fmt_value(v: float) -> str:
-    """Format value for visual display (e.g., $1.2M)."""
-    if v >= 1_000_000:
+    """Format value for visual display (e.g., $1.2M).
+
+    Switches at the point where the K form would round to four digits rather
+    than at the million: $999,999 is "$1.0M", never "$1000K". MDxHealth's
+    $1,000,000 buy published as "$1000K".
+    """
+    if v >= 999_500:
         return f"${v/1_000_000:.1f}M"
     elif v >= 1_000:
         return f"${v/1_000:.0f}K"
@@ -420,13 +447,13 @@ def build_context_line(trade: dict) -> str:
     if trade["signal_grade"] == "A":
         parts.append("A-grade signal")
 
-    # Holdings context
-    if trade["shares_after"] and trade["total_qty"] and trade["trade_type"] == "buy":
-        before = trade["shares_after"] - trade["total_qty"]
-        if before > 0:
-            pct = (trade["total_qty"] / before) * 100
-            if pct >= 20:
-                parts.append(f"increased holdings by {pct:.0f}%")
+    # Holdings context. Derived from the reconciled position, not from one
+    # ownership line's balance — subtracting a summed quantity from the
+    # largest single balance produced percentages in the thousands.
+    if trade["trade_type"] == "buy":
+        pc = position_change(trade.get("lots") or [], is_buy=True)
+        if pc is not None and pc.fraction >= 0.20:
+            parts.append(f"increased holdings by {pc.fraction * 100:.0f}%")
 
     return " · ".join(parts[:3]) if parts else ""
 
@@ -581,13 +608,13 @@ def generate_x_post(trades: list[dict], stats: dict, target_date: str,
             lines.append(f"• ${t['ticker']} — {t['insider_name']} ({fmt_title(t['title'])}) sold {fmt_value(t['total_value'])}{ctx_str}")
         lines.append("")
 
-    # Stats footer
+    # Stats footer. What was filtered OUT is the value of the list; how many
+    # A-grades exist is not — announcing 186 of them beside five picks invites
+    # "so where are the other 181", which is the opposite of what a curated
+    # post is for.
     routine = stats.get("routine_count", 0)
-    a_count = stats.get("a_grade_count", 0)
     if routine:
-        lines.append(f"{routine} routine/planned trades filtered out.")
-    if a_count:
-        lines.append(f"{a_count} A-grade signals detected.")
+        lines.append(f"{routine} routine and pre-planned trades filtered out.")
 
     lines.append("\nReal-time alerts + signal grades: form4.app")
 
