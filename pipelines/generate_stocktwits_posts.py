@@ -79,12 +79,23 @@ SELECT t.trade_id, t.ticker, t.company, t.signal_class, t.value, t.qty, t.price,
 
 
 def score(t: dict) -> float:
-    """Rank, not a prediction. Grade dominates; size and cluster break ties."""
+    """Rank, not a prediction. Grade dominates; size and cluster break ties.
+
+    Buys and sells are scored on separate scales and never against each other.
+    compute_career_grades stamps a grade only on trans_code='P', so a sell can
+    never carry one — put both sides in one ranking and every sell scores the
+    default forever, the reserved slots never fill, and the feed is all buys by
+    construction. Which is exactly what the first run produced.
+    """
     import math
-    s = float(GRADE_WEIGHT.get(t.get("career_grade") or "", 5))
-    s += min(math.log10(max(t.get("value") or 1, 1)) * 6, 45)
-    s += min((t.get("pit_cluster_size") or 0) * 4, 16)
-    return s
+    size = min(math.log10(max(t.get("value") or 1, 1)) * 6, 45)
+    cluster = min((t.get("pit_cluster_size") or 0) * 4, 16)
+    if t["signal_class"] == "discretionary_sell":
+        # No grade exists, so size and company carry it, plus a nudge for a
+        # holder actually leaving rather than trimming.
+        exiting = 12 if (t.get("shares_owned_after") == 0) else 0
+        return size * 1.6 + cluster + exiting
+    return float(GRADE_WEIGHT.get(t.get("career_grade") or "", 5)) + size + cluster
 
 
 def render(t: dict) -> str:
@@ -126,30 +137,31 @@ def main() -> int:
         logger.info("No qualifying filings for %s", day)
         return 0
 
-    rows.sort(key=score, reverse=True)
+    buys = sorted([r for r in rows if r["signal_class"] == "discretionary_buy"],
+                  key=score, reverse=True)
+    sells = sorted([r for r in rows if r["signal_class"] == "discretionary_sell"],
+                   key=score, reverse=True)
 
     # One post per ticker, and hold the buy/sell mix near 3:2 so the feed does
     # not read as a permabull on a heavy buy day or a doomsayer on a heavy sell
     # one. Caps are soft: if a side runs out, the other fills the slots.
-    max_sells = max(1, args.count * 2 // 5)
-    picked, seen, n_sell = [], set(), 0
-    for r in rows:
-        if len(picked) >= args.count:
-            break
-        if r["ticker"] in seen:
-            continue
-        if r["signal_class"] == "discretionary_sell":
-            if n_sell >= max_sells:
+    n_sell = max(1, args.count * 2 // 5)
+    picked, seen = [], set()
+
+    def take(pool, limit):
+        for r in pool:
+            if limit <= 0 or len(picked) >= args.count:
+                return
+            if r["ticker"] in seen:
                 continue
-            n_sell += 1
-        seen.add(r["ticker"])
-        picked.append(r)
-    for r in rows:  # backfill if one side was thin
-        if len(picked) >= args.count:
-            break
-        if r["ticker"] not in seen:
             seen.add(r["ticker"])
             picked.append(r)
+            limit -= 1
+
+    take(sells, n_sell)
+    take(buys, args.count - len(picked))
+    take(sells + buys, args.count - len(picked))   # one side ran thin
+    picked.sort(key=score, reverse=True)
 
     out = []
     for i, t in enumerate(picked, 1):

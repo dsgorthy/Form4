@@ -48,7 +48,11 @@ def _money(v: Optional[float]) -> str:
         return f"${v / 1_000_000:.2f}M"
     if v >= 1_000:
         return f"${v / 1_000:.0f}K"
-    return f"${v:,.0f}"
+    # Share prices live down here. Rounding $4.35 to "$4" made the fill-vs-now
+    # line read as though we could not be bothered to look it up.
+    if v >= 100:
+        return f"${v:,.0f}"
+    return f"${v:,.2f}"
 
 
 def _pct(v: Optional[float]) -> str:
