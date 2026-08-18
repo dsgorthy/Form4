@@ -200,6 +200,10 @@ def list_filings(
                 agg.pit_grade, agg.pit_blended_score, agg.career_grade,
                 agg.n_filers, agg.n_filings, agg.is_amendment, agg.document_type,
                 COALESCE(i.display_name, i.name) AS insider_name, i.cik,
+                -- Canonical insider URL, so every row on the feed and the
+                -- landing page links to /insider/{slug} rather than the
+                -- name+CIK shape. See insiderPath in lib/insider-url.ts.
+                i.slug AS insider_slug,
                 tr.return_7d, tr.return_30d, tr.return_90d,
                 tr.abnormal_7d, tr.abnormal_30d, tr.abnormal_90d
             FROM (
@@ -330,6 +334,10 @@ def get_related_trades(trade_id: str, limit: int = Query(default=5, ge=1, le=20)
                 agg.cohen_routine, agg.shares_owned_after, agg.is_rare_reversal, agg.insider_switch_rate, agg.week52_proximity,
                 agg.pit_grade, agg.pit_blended_score, agg.career_grade,
                 COALESCE(i.display_name, i.name) AS insider_name, i.cik,
+                -- Canonical insider URL, so every row on the feed and the
+                -- landing page links to /insider/{slug} rather than the
+                -- name+CIK shape. See insiderPath in lib/insider-url.ts.
+                i.slug AS insider_slug,
                 tr.return_7d, tr.return_30d, tr.return_90d,
                 tr.abnormal_7d, tr.abnormal_30d, tr.abnormal_90d
             FROM (
