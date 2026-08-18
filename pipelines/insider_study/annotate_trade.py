@@ -122,14 +122,24 @@ def annotate(t: dict, max_lines: int = 4) -> list[str]:
 
     # --- Conviction relative to what they already hold. A purchase that moves
     # someone's own position materially says more than a large dollar figure.
+    # shares_owned_after moves in OPPOSITE directions for the two sides: a buy
+    # leaves more than they started with, a sell leaves less. Deriving the prior
+    # holding by subtracting in both cases produced "cut their stake by 345%",
+    # which is not a thing that can happen.
     qty, owned_after = t.get("qty"), t.get("shares_owned_after")
-    if qty and owned_after and owned_after > qty:
-        before = owned_after - qty
+    if qty and owned_after is not None and qty > 0:
+        before = (owned_after - qty) if is_buy else (owned_after + qty)
         if before > 0:
             change = qty / before
-            if change >= 0.25:
-                verb = "increased" if is_buy else "cut"
-                out.append(f"This {verb} their stake by {change * 100:.0f}%.")
+            if is_buy:
+                if change >= 0.25:
+                    out.append(f"This increased their stake by {change * 100:.0f}%.")
+            else:
+                # Bounded by construction — you cannot sell more than you held.
+                pct = min(change, 1.0) * 100
+                if pct >= 25:
+                    out.append("This sold their entire position." if pct >= 99.5
+                               else f"This cut their stake by {pct:.0f}%.")
 
     # --- First-ever beats largest-ever, which is the opposite of the
     # convention. A first purchase averaged +0.52% at 30d; a largest-ever
