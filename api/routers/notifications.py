@@ -8,11 +8,20 @@ from pydantic import BaseModel, Field
 from api.auth import UserContext
 from api.db import get_db
 from api.email import verify_unsubscribe_token
-from api.gating import require_pro
+from api.gating import require_auth
 from api.id_encoding import decode_notification_id, encode_notification_id
 from api.notifications_db import get_notifications_db
 
 router = APIRouter(prefix="/api/v1/notifications", tags=["notifications"])
+
+# Following is free — see require_auth in api/gating.py for why. The cap is a
+# cost guard on outbound email, not the thing Pro is for: ten names is a real
+# watchlist for someone tracking a handful of positions, and Pro buys the
+# analytical layer rather than a bigger number. Every notification email is a
+# deliverability liability, so the free ceiling stays low enough that a single
+# abandoned account cannot generate much of it.
+WATCHLIST_LIMIT_FREE = 10
+WATCHLIST_LIMIT_PRO = 25
 
 # ---------------------------------------------------------------------------
 # Request / response models
@@ -89,7 +98,7 @@ def _format_prefs(row: dict) -> dict:
 
 @router.get("")
 def list_notifications(
-    user: UserContext = Depends(require_pro),
+    user: UserContext = Depends(require_auth),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     unread_only: bool = Query(default=False),
@@ -127,7 +136,7 @@ def list_notifications(
 
 
 @router.get("/unread-count")
-def unread_count(user: UserContext = Depends(require_pro)) -> dict:
+def unread_count(user: UserContext = Depends(require_auth)) -> dict:
     """Return count of unread notifications for badge display."""
     with get_notifications_db() as conn:
         row = conn.execute(
@@ -138,7 +147,7 @@ def unread_count(user: UserContext = Depends(require_pro)) -> dict:
 
 
 @router.post("/{notification_id}/read")
-def mark_read(notification_id: str, user: UserContext = Depends(require_pro)) -> dict:
+def mark_read(notification_id: str, user: UserContext = Depends(require_auth)) -> dict:
     """Mark a single notification as read."""
     raw_id = decode_notification_id(notification_id)
     if raw_id is None:
@@ -155,7 +164,7 @@ def mark_read(notification_id: str, user: UserContext = Depends(require_pro)) ->
 
 
 @router.post("/read-all")
-def mark_all_read(user: UserContext = Depends(require_pro)) -> dict:
+def mark_all_read(user: UserContext = Depends(require_auth)) -> dict:
     """Mark all notifications as read."""
     with get_notifications_db() as conn:
         result = conn.execute(
@@ -172,7 +181,7 @@ def mark_all_read(user: UserContext = Depends(require_pro)) -> dict:
 
 
 @router.get("/preferences")
-def get_preferences(user: UserContext = Depends(require_pro)) -> dict:
+def get_preferences(user: UserContext = Depends(require_auth)) -> dict:
     """Get notification preferences, auto-creating defaults on first access."""
     with get_notifications_db() as conn:
         prefs = _ensure_preferences(conn, user.user_id)
@@ -182,7 +191,7 @@ def get_preferences(user: UserContext = Depends(require_pro)) -> dict:
 @router.put("/preferences")
 def update_preferences(
     body: PreferencesUpdate,
-    user: UserContext = Depends(require_pro),
+    user: UserContext = Depends(require_auth),
 ) -> dict:
     """Update notification preferences."""
     updates = body.model_dump(exclude_none=True)
@@ -219,7 +228,7 @@ def update_preferences(
 
 
 @router.get("/watchlist")
-def get_watchlist(user: UserContext = Depends(require_pro)) -> dict:
+def get_watchlist(user: UserContext = Depends(require_auth)) -> dict:
     """List watched tickers."""
     with get_notifications_db() as conn:
         rows = conn.execute(
@@ -232,7 +241,7 @@ def get_watchlist(user: UserContext = Depends(require_pro)) -> dict:
 @router.post("/watchlist")
 def add_to_watchlist(
     body: WatchlistAdd,
-    user: UserContext = Depends(require_pro),
+    user: UserContext = Depends(require_auth),
 ) -> dict:
     """Add a ticker to the watchlist."""
     ticker = body.ticker.upper().strip()
@@ -245,16 +254,28 @@ def add_to_watchlist(
     if not exists:
         raise HTTPException(status_code=400, detail=f"Ticker '{ticker}' not found in our database")
     with get_notifications_db() as conn:
-        # Cap at 25 tickers
         count = conn.execute(
             "SELECT COUNT(*) AS cnt FROM watchlist WHERE user_id = ?",
             (user.user_id,),
         ).fetchone()["cnt"]
-        if count >= 25:
-            raise HTTPException(
-                status_code=400,
-                detail="Watchlist limited to 25 tickers. Remove one first.",
+        limit = WATCHLIST_LIMIT_PRO if user.is_pro else WATCHLIST_LIMIT_FREE
+        if count >= limit:
+            detail = (
+                f"Watchlist limited to {limit} tickers. Remove one first."
+                if user.is_pro else
+                f"A free account follows up to {WATCHLIST_LIMIT_FREE} tickers. "
+                f"Remove one, or upgrade for {WATCHLIST_LIMIT_PRO}."
             )
+            raise HTTPException(status_code=400, detail=detail)
+        # Create the preferences row if this is their first follow.
+        #
+        # notification_scanner selects users with
+        # `WHERE watchlist_activity = 1`, reading notification_preferences —
+        # so someone who follows a ticker from a company page and never opens
+        # /settings has no row, matches nothing, and is never told about the
+        # filing they asked to hear about. The defaults are already right
+        # (watchlist_activity on, email on, daily); they just have to exist.
+        _ensure_preferences(conn, user.user_id)
         conn.execute(
             "INSERT OR IGNORE INTO watchlist (user_id, ticker) VALUES (?, ?)",
             (user.user_id, ticker),
@@ -264,7 +285,7 @@ def add_to_watchlist(
 
 
 @router.delete("/watchlist/{ticker}")
-def remove_from_watchlist(ticker: str, user: UserContext = Depends(require_pro)) -> dict:
+def remove_from_watchlist(ticker: str, user: UserContext = Depends(require_auth)) -> dict:
     """Remove a ticker from the watchlist."""
     ticker = ticker.upper().strip()
     with get_notifications_db() as conn:

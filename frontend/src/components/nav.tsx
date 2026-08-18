@@ -138,7 +138,10 @@ export function Nav() {
           </div>
           {isLoaded && isSignedIn && (
             <>
-              {userIsPro && <NotificationBell />}
+              {/* Alerts are free after sign-in, so the bell is too — hiding it
+                  from a lapsed trial would mean their follows keep firing into
+                  a UI that never shows them. */}
+              <NotificationBell />
               {(userTier === "pro" || userTier === "pro_plus") ? (
                 <span className="hidden md:inline-flex"><ProBadge /></span>
               ) : userTier === "trial" ? (

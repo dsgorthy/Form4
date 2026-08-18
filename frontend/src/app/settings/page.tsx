@@ -135,9 +135,12 @@ export default function SettingsPage() {
     }
   }, [isLoaded, isSignedIn, fetchKeys]);
 
-  // Load notification prefs + watchlist for Pro users
+  // Alerts and the watchlist belong to any signed-in account, not just Pro —
+  // see require_auth in api/gating.py. Gating the fetch on isPro left a free
+  // account with an empty settings page and no way to manage the follows it is
+  // entitled to.
   useEffect(() => {
-    if (isLoaded && isSignedIn && isPro(user)) {
+    if (isLoaded && isSignedIn) {
       fetchPrefs();
       fetchWatchlist();
     }
@@ -477,7 +480,7 @@ export default function SettingsPage() {
       )}
 
       {/* Notifications */}
-      {userIsPro && prefs && (
+      {prefs && (
         <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] p-6">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-[#55556A] mb-4">
             Notifications
@@ -617,7 +620,7 @@ export default function SettingsPage() {
       )}
 
       {/* Watchlist */}
-      {userIsPro && (
+      {isSignedIn && (
         <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] p-6">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-[#55556A] mb-4">
             Watchlist

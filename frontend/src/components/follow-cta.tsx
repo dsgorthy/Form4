@@ -15,9 +15,16 @@ import { GATED_CLASS } from "@/lib/structured-data";
  * follow this company or person and hear about the next filing — which is both
  * a lower bar and the thing that actually brings someone back.
  *
- * Sign-up starts the 7-day Pro trial, so "follow" is a promise we keep:
- * watchlists are Pro-only server-side (`require_pro` on every /notifications
- * /watchlist route), and framing it as free would be a bait.
+ * Sign-up starts the 7-day Pro trial, no card, and following now outlives it:
+ * the watchlist and alert routes moved from `require_pro` to `require_auth`,
+ * so a free account keeps them. That makes "follow" a promise we keep past day
+ * seven, which is when it matters.
+ *
+ * The consequence is that this band asks two different things depending on who
+ * is reading it. An anonymous visitor is asked to follow, because they cannot.
+ * A signed-in free account already can, so asking them to "upgrade to follow"
+ * would be selling them something they have — they are asked for Pro on what
+ * Pro actually buys, the analytical layer named in `detail`.
  *
  * Renders nothing for subscribers — they already have the feature, and a
  * permanent upsell to an existing customer is just noise.
@@ -50,22 +57,21 @@ export function FollowCta({
   if (!isLoaded || isPro(user)) return null;
 
   const href = isSignedIn ? "/pricing" : "/sign-up";
-  const cta = isSignedIn ? `Upgrade to follow ${entity}` : `Follow ${entity}`;
+  const cta = isSignedIn ? "See the full track record" : `Follow ${entity}`;
+  const headline = isSignedIn
+    ? `Go deeper on ${entity}`
+    : `Get alerted the next time ${entity} files`;
+  const sub = isSignedIn
+    ? `${detail ? `${detail}. ` : ""}Following ${entity} is already included with your account.`
+    : `${detail ? `${detail}. ` : ""}7-day free trial, no credit card required.`;
 
   return (
     <div
       className={`${marksGate ? GATED_CLASS : ""} mt-4 flex flex-col gap-3 rounded-lg border border-[#2A2A3A] bg-[#12121A] px-5 py-4 sm:flex-row sm:items-center sm:justify-between`}
     >
       <div className="min-w-0">
-        <div className="text-sm font-medium text-[#E8E8ED]">
-          Get alerted the next time {entity} files
-        </div>
-        <div className="mt-0.5 text-xs text-[#8888A0]">
-          {detail ? `${detail}. ` : ""}
-          {isSignedIn
-            ? "Included with Pro."
-            : "7-day free trial, no credit card required."}
-        </div>
+        <div className="text-sm font-medium text-[#E8E8ED]">{headline}</div>
+        <div className="mt-0.5 text-xs text-[#8888A0]">{sub}</div>
       </div>
       <Link
         href={href}

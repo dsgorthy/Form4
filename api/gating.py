@@ -80,6 +80,32 @@ def redact_gated_items(items: list[dict]) -> list[dict]:
     return [redact_gated_item(item) for item in items]
 
 
+def require_auth(user: UserContext = Depends(get_current_user)) -> UserContext:
+    """Dependency that rejects anonymous callers, but not free accounts.
+
+    For features that need somewhere to hang per-person state rather than a
+    subscription: a watchlist, an alert, a read receipt. Anonymous callers have
+    no user_id to key any of it on, so they are refused — but a free account is
+    a real account and gets in.
+
+    This exists because watchlists and alerts were `require_pro`, which meant
+    the one feature that brings a visitor back was the one feature they could
+    not have. Measured 2026-08-18: 47,000 entity page views a week, every one
+    ending in "follow this company and hear about the next filing", against six
+    users and one watchlist. Signing up started a 7-day Pro trial, so the
+    promise also expired.
+
+    Pro still buys the analytical layer — track records, grades, the
+    leaderboard, congress, export. Sell the analysis, give away the alert.
+    """
+    if not user.user_id:
+        raise HTTPException(
+            status_code=401,
+            detail="Sign in to follow companies and insiders.",
+        )
+    return user
+
+
 def require_pro(user: UserContext = Depends(get_current_user)) -> UserContext:
     """Dependency that rejects non-Pro users with 403."""
     if not user.is_pro:

@@ -1,18 +1,22 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useAuth, useUser } from "@clerk/nextjs";
-import { isPro } from "@/lib/subscription";
+import { useAuth } from "@clerk/nextjs";
 
 const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
 
+/**
+ * Follow a ticker. Available to any signed-in account, not just Pro.
+ *
+ * This was gated on isPro, which meant a trial that expired also took the
+ * watchlist with it — the one feature that brings someone back was the one
+ * that lapsed. Signing up still starts the 7-day Pro trial with no card; what
+ * changed is that following survives it. Pro buys the analytical layer.
+ */
 export function WatchButton({ ticker }: { ticker: string }) {
-  const { getToken } = useAuth();
-  const { user } = useUser();
+  const { getToken, isSignedIn } = useAuth();
   const [watched, setWatched] = useState(false);
   const [loading, setLoading] = useState(false);
-
-  const userIsPro = isPro(user);
 
   const checkWatched = useCallback(async () => {
     try {
@@ -31,10 +35,10 @@ export function WatchButton({ ticker }: { ticker: string }) {
   }, [getToken, ticker]);
 
   useEffect(() => {
-    if (userIsPro) checkWatched();
-  }, [userIsPro, checkWatched]);
+    if (isSignedIn) checkWatched();
+  }, [isSignedIn, checkWatched]);
 
-  if (!userIsPro) return null;
+  if (!isSignedIn) return null;
 
   async function toggle() {
     setLoading(true);

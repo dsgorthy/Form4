@@ -71,10 +71,14 @@ export function TrialBanner() {
             <span className="rounded-full bg-[#F59E0B]/20 px-2 py-0.5 text-[10px] font-semibold text-[#F59E0B] uppercase tracking-wider">
               Grace Period
             </span>
+            {/* Says what they keep as well as what they lose. Following and
+                alerts survive the trial now, and a banner that implies
+                otherwise talks people out of the one habit worth forming. */}
             <span className="text-[#8888A0]">
-              Your trial ended. Signals are delayed 24h.
+              Your trial ended. Signals are delayed 24h — the companies you
+              follow keep alerting.
               <span className="hidden sm:inline">
-                {" "}{daysLeft} day{daysLeft !== 1 ? "s" : ""} left before full restrictions.
+                {" "}{daysLeft} day{daysLeft !== 1 ? "s" : ""} left of full history.
               </span>
             </span>
           </div>
