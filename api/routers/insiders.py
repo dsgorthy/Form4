@@ -283,7 +283,12 @@ def get_insider(identifier: str, user: UserContext = Depends(get_current_user)) 
                 WHERE insider_id = ? AND trans_code IN ('P', 'S')
                   AND superseded_by IS NULL
                   AND is_derivative = 0
-                GROUP BY COALESCE(filing_key, accession, trade_date), trans_code
+                  AND (is_duplicate = 0 OR is_duplicate IS NULL)
+                -- Grouped exactly as the /trades endpoint groups, ticker
+                -- included, so the stat grid, the summary sentence and the
+                -- table header cannot report three different totals for the
+                -- same person the way they did for Sylebra Capital (15/14/15).
+                GROUP BY ticker, filing_key, trans_code
             )
         """, (insider_id,)).fetchone()
 
@@ -471,6 +476,11 @@ def get_insider_trades(
             # Match the security_title filter used by the row query below so
             # the total count and the rendered list don't diverge.
             "is_derivative = 0",
+            # The feed filters duplicates and this did not, so a row stored
+            # twice — once with trans_code and trade_type disagreeing —
+            # rendered as a phantom BUY and SELL of the same value on the
+            # same day. See migrations/2026-08-18_trade_type_consistency.sql.
+            "(is_duplicate = 0 OR is_duplicate IS NULL)",
         ]
         tc_params: list = [insider_id]
         add_trans_code_filter(tc_conditions, tc_params, trans_codes, alias="trades")
@@ -492,6 +502,7 @@ def get_insider_trades(
             "t.superseded_by IS NULL",
             # Exclude derivative titles — see comment in volume_by_type query.
             "t.is_derivative = 0",
+            "(t.is_duplicate = 0 OR t.is_duplicate IS NULL)",
         ]
         inner_params: list = [insider_id]
         add_trans_code_filter(inner_conditions, inner_params, trans_codes)

@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import type { Metadata } from "next";
+import { Fragment } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { fetchAPI } from "@/lib/api";
@@ -277,7 +278,7 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
             <p className="text-xs text-[#55556A] mb-8">
               {profile.cik && `CIK: ${profile.cik}`}
               {profile.cik && tr && " · "}
-              {tr && `${tr.n_tickers} companies traded`}
+              {tr && `${tr.n_tickers} ${tr.n_tickers === 1 ? "company" : "companies"} traded`}
             </p>
           </>
         );
@@ -413,11 +414,42 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
         // what is withheld so the block is not simply a hole in the page.
         <div className={`${GATED_CLASS} mb-8`}>
           <SectionLabel>Track Record</SectionLabel>
-          <p className="max-w-[70ch] text-sm leading-relaxed text-[#8888A0]">
-            Win rate, average move and alpha for {profile.name}, measured over
-            7-, 30- and 90-day windows after each filing and benchmarked against
-            SPY, are part of Form4 Pro.
-          </p>
+          {/* Show the SHAPE of what is withheld, not a paragraph describing it.
+              A reader deciding whether to pay needs to see that there are nine
+              specific measurements behind the wall — three metrics across three
+              windows — which a sentence cannot convey. The tiles are the real
+              layout the Pro view renders, with the figures replaced. */}
+          <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] p-5">
+            <div className="grid grid-cols-3 gap-px bg-[#2A2A3A] rounded-md overflow-hidden border border-[#2A2A3A]">
+              <div className="bg-[#12121A] px-3 py-2 text-[10px] uppercase tracking-wider text-[#55556A]">
+                After
+              </div>
+              {["7 days", "30 days", "90 days"].map((w) => (
+                <div key={w} className="bg-[#12121A] px-3 py-2 text-[10px] uppercase tracking-wider text-[#55556A] text-right">
+                  {w}
+                </div>
+              ))}
+              {["Win rate", "Average move", "Alpha vs SPY"].map((metric) => (
+                <Fragment key={metric}>
+                  <div className="bg-[#12121A] px-3 py-2.5 text-sm text-[#8888A0]">{metric}</div>
+                  {[0, 1, 2].map((i) => (
+                    <div key={i} className="bg-[#12121A] px-3 py-2.5 text-right">
+                      <span
+                        className="inline-block h-3.5 w-10 rounded bg-[#2A2A3A]"
+                        aria-hidden="true"
+                      />
+                      <span className="sr-only">Pro subscribers only</span>
+                    </div>
+                  ))}
+                </Fragment>
+              ))}
+            </div>
+            <p className="mt-4 text-sm text-[#8888A0]">
+              Every purchase below is already shown with what the stock did
+              afterwards. Pro adds what they add up to for {profile.name} —
+              measured against SPY over the same windows.
+            </p>
+          </div>
           <FollowCta
             entity={profile.name}
             detail="Win rate, average move and alpha across 7/30/90-day windows"

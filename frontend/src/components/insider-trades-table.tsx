@@ -70,6 +70,11 @@ export function InsiderTradesTable({ identifier, initialData }: InsiderTradesTab
     setOffset(initialData.offset);
   }, [initialData]);
 
+  // A column of em-dashes is worse than no column: trade grades are absent
+  // for whole classes of filer, so the header is only drawn when at least
+  // one row on the page can fill it.
+  const hasGrades = data.items.some((t) => (t as { trade_grade?: unknown }).trade_grade);
+
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
@@ -149,13 +154,19 @@ export function InsiderTradesTable({ identifier, initialData }: InsiderTradesTab
       </div>
 
       {/* Desktop: Table layout */}
+
       <div className={`hidden md:block overflow-x-auto rounded-lg border border-[#2A2A3A] ${loading ? "opacity-60" : ""} transition-opacity`}>
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-[#2A2A3A] bg-[#1A1A26]/50">
               <th className="px-4 py-3 text-left text-[#55556A] font-medium">Ticker</th>
               <th className="px-4 py-3 text-left text-[#55556A] font-medium">Type</th>
-              <th className="px-4 py-3 text-left text-[#55556A] font-medium">Trade Grade</th>
+              {/* A column of em-dashes is worse than no column. Trade grades
+                  are absent for whole classes of filer, and Sylebra Capital's
+                  profile spent a tenth of its table width on fifteen of them. */}
+              {hasGrades && (
+                <th className="px-4 py-3 text-left text-[#55556A] font-medium">Trade Grade</th>
+              )}
               <th className="px-4 py-3 text-left text-[#55556A] font-medium">Traded</th>
               <th className="px-4 py-3 text-left text-[#55556A] font-medium">Filed</th>
               <th className="px-4 py-3 text-right text-[#55556A] font-medium">Price</th>
@@ -198,9 +209,11 @@ export function InsiderTradesTable({ identifier, initialData }: InsiderTradesTab
                       : t.trade_type.toUpperCase()}
                   </Badge>
                 </td>
+                {hasGrades && (
                 <td className="px-4 py-3">
                   {(t as any).trade_grade ? <TradeGradeBadge grade={(t as any).trade_grade} /> : <span className="text-[#55556A]">—</span>}
                 </td>
+                )}
                 <td className="px-4 py-3 text-[#E8E8ED]">{t.trade_date}</td>
                 <td className="px-4 py-3 text-[#55556A]">{t.filing_date}</td>
                 <td className="px-4 py-3 text-right font-mono text-[#E8E8ED]">
