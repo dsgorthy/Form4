@@ -57,7 +57,7 @@ WITH cal AS (
       FROM trades t
      WHERE t.signal_class IN ('discretionary_buy', 'discretionary_sell')
        AND NOT COALESCE(t.value_suspect, FALSE)
-       AND t.filing_date >= %(lo)s AND t.filing_date < %(hi)s
+       AND t.filing_date >= ? AND t.filing_date < ?
 ), b AS (
     SELECT ev.trade_id, ev.ticker, ev.ed, ce.date AS entry_date,
            e.close AS ep, ce.spy AS es
@@ -128,7 +128,7 @@ def main() -> int:
             """, (lo, hi)).fetchone()[0]
             if not n:
                 continue
-        cur = conn.execute(sql, {"lo": lo, "hi": hi})
+        cur = conn.execute(sql, (lo, hi))
         n = cur.rowcount or 0
         conn.commit()
         total += n
