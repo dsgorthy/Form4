@@ -1,0 +1,97 @@
+# Quality + Momentum at 2x gross exposure.
+#
+# Identical signals, entries and exits to quality_momentum — the ONLY
+# differences are position_size_pct (0.20 vs 0.10, so 10 slots reach 200%
+# gross) and the two leverage keys below. Keeping the entry logic byte-identical
+# is the point: the pair isolates what leverage does, and nothing else.
+#
+# WHY 2x AND NOT 3x
+#
+# Measured on the daily mark-to-market book, 2023-01 to 2026-08:
+#
+#           CAGR    max drawdown   Sharpe
+#     1x    32.6%       20.6%       1.47
+#     2x    59.7%       39.2%       1.44
+#     3x    85.5%       54.2%       1.41
+#
+# Sharpe is flat across all three, which is the whole story: leverage scales
+# return and risk together and buys no skill. So the choice is purely how much
+# drawdown is tolerable, and a 54% peak-to-trough is a different product for a
+# different person. Note also that every year in that window was up — leverage
+# here has never been tested through a down market. Forcing the worst year to
+# -20% gives 1x -18.9%, 2x -37.9%, 3x -53.4%.
+#
+# margin_rate is the annual cost on the borrowed half, accrued daily by
+# simulate_strategy_portfolio. Without it the book reports a return no broker
+# would have funded.
+
+strategy_name: quality_momentum_2x
+display_name: "Form4 Quality + Momentum 2x"
+alert_prefix: "[QM2x]"
+# Dedicated paper account — reads ALPACA_API_KEY_QUALITY_MOMENTUM / _SECRET_QUALITY_MOMENTUM from .env
+alpaca_env_prefix: QUALITY_MOMENTUM_2X
+starting_capital: 100000
+position_size_pct: 0.20   # 10 slots x 20% = 200% gross
+leverage: 2.0
+margin_rate: 0.06        # annual, charged daily on the borrowed half
+max_concurrent: 10
+filing_lookback_days: 2
+
+# Decision sink: 'paper' | 'live' | 'alert_only'.
+# 'alert_only' = push iOS notification (ntfy.sh) when a candidate passes all
+# filters + conviction + capacity; do NOT submit any Alpaca order. The
+# operator manually decides whether to enter via their own brokerage.
+# strategy_portfolio rows are still written with execution_source='alert'
+# for dedup, capacity counting, and historical analysis. See cw_runner.py
+# execution_mode branch.
+execution_mode: alert_only
+
+# Validated thesis: A+/A PIT-graded insiders buying in uptrend
+# Signal compounds over time — genuine information advantage in favorable setup
+#
+# Grid search results (2020-2026):
+#   10%/10pos/skip/30d: Sharpe 1.18, CAGR 18.5%, MaxDD 10.1%, 137 trades
+#   Sub-period: H1 Sharpe 1.08, H2 Sharpe 1.19 (stable across regimes)
+#   Only losing year: 2022 (-4.1% CAGR)
+#
+# Entry pricing: 5-min bar for market-hours filings, T+1 open for after-hours
+# Overlap: ZERO with reversal_dip or 10b5_1_surprise (fully independent)
+# Universe: ~50 trades/yr at A+/A filter
+
+soft_cap: 10
+min_conviction: 1.5
+min_conviction_above_soft: 7.0
+min_conviction_at_hard: 7.0
+
+filters:
+  # Career Grade (V3 scorer) — career-cumulative track record, stable over
+  # long gaps. Replaces pit_grade (Recent Form) here per backtest validation
+  # 2026-05-07: V3 +0.93pp annual return, +0.02 Sharpe vs V2.
+  career_grade: ["A+", "A"]
+  above_sma50: 1
+  above_sma200: 1
+  exclude_recurring: true
+  exclude_tax_sales: true
+
+exit:
+  strategy: fixed_hold
+  hold_days: 42  # Full backtest (2026-04-09): 42td Sharpe 0.49 (ann 1.20), 68.7% WR, +15.5% mean. Peak at ~60 calendar days.
+  stop_loss_pct: null  # Grid search validated: stops degrade Sharpe by 25% (1.44 → 1.08). Quality picks recover from dips.
+
+at_capacity: skip
+
+circuit_breaker_dd_pct: 0.15
+
+# Hard guardrails — last line of defense before order submission. Paper
+# defaults are larger than live (paper account is $100k notional, live is
+# $10k); a single position should still never exceed $25k or 10k shares
+# regardless of sizing math.
+guardrails:
+  min_dollar_amount: 100.0
+  max_dollar_amount: 25_000.0
+  min_qty: 1
+  max_qty: 10_000
+  min_price: 0.50
+  max_price: 5_000.0
+  max_daily_buys: 10
+  max_daily_sells: 20

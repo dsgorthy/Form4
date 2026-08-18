@@ -20,6 +20,11 @@ REVERSAL_THESES = frozenset({"reversal", "reversal_dip"})
 COMPOSITE_THESES = frozenset({
     "dip_cluster", "momentum_largest",
     "quality_momentum", "quality_momentum_live",
+    # Same conviction path as quality_momentum. It differs only in position
+    # sizing and the margin carry, both applied by the simulator well after
+    # conviction has been scored — a levered book must pick the same trades as
+    # the unlevered one or the comparison between them means nothing.
+    "quality_momentum_2x",
     # Same conviction path as quality_momentum — it differs only in dropping
     # the above_sma50/above_sma200 filters, which are applied upstream of
     # conviction and never reach this function.

@@ -86,7 +86,8 @@ def _build_trade_row(r: dict, scale: float, gated: bool = False, current_price=N
 # Retirement dates: reversal_quality 2026-04-09 (split into reversal_dip +
 # quality_momentum); form4_insider + cw_reversal + cw_composite 2026-04-11
 # (replaced by current 3 or merged into reversal_dip/quality_momentum runners).
-ALLOWED_STRATEGIES = {"quality_momentum", "reversal_dip", "tenb51_surprise"}
+ALLOWED_STRATEGIES = {"quality_momentum", "quality_momentum_2x",
+                      "reversal_dip", "tenb51_surprise"}
 
 
 @router.get("")

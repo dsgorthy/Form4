@@ -79,6 +79,14 @@ STRATEGY_CONFIG = {
         "yaml": REPO / "strategies/cw_strategies/configs/quality_notrend.yaml",
         "start_date": "2023-01-01",
     },
+    # Same signals as quality_momentum at 2x gross, with margin interest
+    # charged daily on the borrowed half. Published as its own book so the
+    # levered record is a real one rather than a curve recomputed from the
+    # unlevered one.
+    "quality_momentum_2x": {
+        "yaml": REPO / "strategies/cw_strategies/configs/quality_momentum_2x.yaml",
+        "start_date": "2023-01-01",
+    },
     "reversal_dip": {
         "yaml": REPO / "strategies/cw_strategies/configs/reversal_dip.yaml",
         "start_date": "2023-01-01",
@@ -226,6 +234,19 @@ def simulate_one_strategy(
     hold_td = int(thesis.get("exit", {}).get("hold_days", 30))
     position_size_pct = float(config["position_size_pct"])
     max_concurrent = int(config["max_concurrent"])
+
+    # Leverage. Absent from a strategy yaml means 1.0, so every existing book
+    # keeps its exact numbers.
+    #
+    # Gross exposure may reach equity x leverage, and the borrowed part accrues
+    # margin interest every calendar day it is outstanding. Sizing alone does
+    # NOT model leverage: doubling position_size_pct doubles the returns and
+    # charges nothing, which is how a backtest reports a CAGR no broker would
+    # have funded. The carry is the whole difference between a levered strategy
+    # and a fictional one.
+    leverage = float(config.get("leverage", 1.0))
+    margin_rate = float(config.get("margin_rate", 0.06))
+    financing_paid = 0.0
     min_conviction = float(config.get("min_conviction", 1.5))
 
     logger.info(
@@ -312,7 +333,19 @@ def simulate_one_strategy(
 
     today_str = date.today().isoformat()
 
+    prev_day = None
     for cal_idx, d in enumerate(cal[start_idx:], start=start_idx):
+        # Carry on anything borrowed, before the day's exits and entries.
+        # No-op at 1x, where gross exposure never exceeds equity.
+        if leverage > 1.0:
+            gross = sum(p.capital_at_entry for p in held)
+            borrowed = max(0.0, gross - equity)
+            if borrowed > 0 and prev_day is not None:
+                days = max((date.fromisoformat(d) - date.fromisoformat(prev_day)).days, 0)
+                cost = borrowed * margin_rate * days / 365.0
+                equity -= cost
+                financing_paid += cost
+        prev_day = d
         if d > today_str:
             break
         if d > end_date:
@@ -460,6 +493,15 @@ def simulate_one_strategy(
                 continue   # min price floor
 
             capital = position_size_pct * equity
+
+            # Never exceed the mandate. max_concurrent x position_size_pct
+            # happens to cap an unlevered book at 100%, but that is arithmetic
+            # rather than a rule and stops being true the moment either moves.
+            room = equity * leverage - sum(p.capital_at_entry for p in held)
+            if room <= 0:
+                continue
+            capital = min(capital, room)
+
             target_exit_idx = entry_idx + hold_td
 
             held.append(OpenPosition(
@@ -478,6 +520,9 @@ def simulate_one_strategy(
             entered_today.add(ticker)
             held_tickers.add(ticker)
 
+    if leverage > 1.0:
+        logger.info("[%s] %.1fx leverage — financing paid $%.0f", strategy_name,
+                    leverage, financing_paid)
     return closed, held, equity
 
 
