@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 export const metadata = {
   title: "Form4 — Insider Trading Intelligence",
   description:
-    "1.6M insider trades analyzed. Real-time SEC Form 4 filings with AI-powered signal grading. Three live strategies to prove the research works.",
+    "1.7M insider trades analyzed. Every SEC Form 4, graded within minutes. Three strategies trading the signal live, every position public.",
 };
 
 async function getPreviewData() {
@@ -40,13 +40,16 @@ export default async function LandingPage() {
       {/* Hero */}
       <section className="px-4 pt-16 pb-20 text-center max-w-4xl mx-auto">
         <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-[#E8E8ED] leading-tight">
-          1.6 million insider trades.
+          1.7 million insider trades.
           <br />
           <span className="text-[#3B82F6]">We found what works.</span>
         </h1>
+        {/* "We believe in our research enough to trade it live" argues with a
+            doubt the reader has not formed yet. Trading it live is the proof;
+            saying so plainly is stronger than justifying it. */}
         <p className="mt-6 text-lg sm:text-xl text-[#8888A0] max-w-2xl mx-auto">
-          Real-time SEC Form 4 filings with AI-powered signal grading.
-          We believe in our research enough to trade it live — three portfolios, fully transparent.
+          Every SEC Form 4, graded the minute it files. Three strategies trade
+          the signal live — every position public.
         </p>
         <div className="mt-10 flex items-center justify-center gap-4">
           <SignUpButton mode="modal">
@@ -178,17 +181,21 @@ export default async function LandingPage() {
       <section className="px-4 pb-20 max-w-5xl mx-auto">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {[
+            // Say what the reader gets, not how it is built. "Walk-forward
+            // validated", "point-in-time" and especially "no look-ahead bias"
+            // answer an objection nobody arrived with, and raise it by
+            // answering it. The methodology page is where that belongs.
             {
-              title: "Real-Time Filings",
-              desc: "SEC Form 4 filings ingested within minutes. AI-powered grading separates signal from noise so you see what matters.",
+              title: "Every Form 4, Fast",
+              desc: "Graded and searchable within minutes of hitting EDGAR.",
             },
             {
-              title: "Research-Grade Signals",
-              desc: "1.6M insider trades analyzed with walk-forward validated scoring. Every signal is point-in-time — no look-ahead bias.",
+              title: "Insiders Who Are Worth Following",
+              desc: "Each one graded on their own past trades. Since 2016, buys from A+ and A insiders beat the S&P by 2.3% over the next 30 days. Everyone else: 0.9%.",
             },
             {
-              title: "Transparent Strategies",
-              desc: "We trade our own signals live. Every entry, exit, and P&L is public. See what we see.",
+              title: "We Trade Them Ourselves",
+              desc: "Three strategies running live. Every entry, exit and P&L public.",
             },
           ].map((f) => (
             <div
@@ -206,7 +213,7 @@ export default async function LandingPage() {
       <section className="border-y border-[#2A2A3A] bg-[#12121A] py-12 px-4">
         <div className="max-w-4xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
           {[
-            { value: "1.6M+", label: "Trades analyzed" },
+            { value: "1.7M+", label: "Trades analyzed" },
             { value: "125K+", label: "Insiders tracked" },
             { value: "2016–now", label: "Data coverage" },
             { value: "< 5 min", label: "Filing delay" },

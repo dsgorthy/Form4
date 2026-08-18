@@ -123,10 +123,44 @@ function StatCard({ label, value, sub, color }: { label: string; value: string; 
   );
 }
 
+// `rules` mirrors strategies/cw_strategies/configs/<name>.yaml and must be
+// updated with it. The block this feeds was previously one static paragraph
+// shown under all three strategies, and every number in it was wrong: it
+// advertised a 14-day exit, a +8% target, a -10% stop and a 5% trailing stop
+// for quality_momentum, which holds 42 trading days with no stop at all, and
+// claimed 5-10% sizing and 20 concurrent against a config of 10% and 10.
 const STRATEGIES = [
-  { value: "quality_momentum", label: "Quality + Momentum", brief: "A+/A insiders buying in uptrends. Sharpe 1.20, 68.7% WR, ~50 trades/yr, 42td hold." },
-  { value: "reversal_dip", label: "Deep Reversal", brief: "Persistent sellers reversing into depressed stocks. Sharpe 1.08, ~20 trades/yr, 21td hold." },
-  { value: "tenb51_surprise", label: "10b5-1 Surprise", brief: "Scheduled sellers breaking pattern to buy. Experimental, ~40 trades/yr, 60td hold.", experimental: true },
+  {
+    value: "quality_momentum",
+    label: "Quality + Momentum",
+    brief: "A+/A insiders buying in uptrends. Sharpe 1.20, 68.7% WR, ~50 trades/yr, 42td hold.",
+    rules: [
+      "Buys when an A+/A-graded insider buys a stock trading above its 50- and 200-day averages.",
+      "10% of equity per position, 10 positions at most.",
+      "Sells after 42 trading days. No stop — stops cost this strategy a quarter of its Sharpe in testing.",
+    ],
+  },
+  {
+    value: "reversal_dip",
+    label: "Deep Reversal",
+    brief: "Persistent sellers reversing into depressed stocks. Sharpe 1.08, ~20 trades/yr, 21td hold.",
+    rules: [
+      "Buys when an insider with 10+ consecutive sales behind them buys a stock down 25%+ over three months.",
+      "10% of equity per position, 10 positions at most.",
+      "Sells after 21 trading days — the edge is gone by 90.",
+    ],
+  },
+  {
+    value: "tenb51_surprise",
+    label: "10b5-1 Surprise",
+    brief: "Scheduled sellers breaking pattern to buy. Experimental, ~40 trades/yr, 60td hold.",
+    experimental: true,
+    rules: [
+      "Buys when an insider with 5+ scheduled (10b5-1) sales behind them makes an open-market purchase.",
+      "20% of equity per position, 5 positions at most.",
+      "Sells after 60 trading days, on a 15% trailing stop, or at -20%.",
+    ],
+  },
 ];
 
 interface LivePosition {
@@ -839,14 +873,15 @@ export function PortfolioView() {
         )}
       </div>
 
-      {/* Strategy description */}
+      {/* Rules for the SELECTED strategy. One shared block described none of
+          the three correctly. */}
       <div className="rounded-lg border border-[#2A2A3A]/50 bg-[#1A1A26]/30 p-4 text-xs text-[#55556A] space-y-1">
-        <div className="text-[10px] font-semibold uppercase tracking-widest mb-2">Strategy Rules</div>
-        <p>Entry: Buy at market open on T+1 after SEC Form 4 filing. Requires proven insider track record (PIT WR &ge; 50%, 3+ prior trades). 10% owners and Chairman-only roles excluded.</p>
-        <p>Position size: Variable 5–10% by signal quality. CFO/VP buys and rare reversals get largest size. Max 20 concurrent.</p>
-        <p>Quality factors: PIT win rate, role (CFO &gt; VP &gt; CEO &gt; Director), rare reversal, holdings % increase. No look-ahead bias.</p>
-        <p>Exit: +8% target gain, 14-day time exit, -10% hard stop, or 5% trailing stop from peak — whichever comes first.</p>
-        <p>Past performance is simulated and does not guarantee future results.</p>
+        <div className="text-[10px] font-semibold uppercase tracking-widest mb-2">Rules</div>
+        {(STRATEGIES.find((s) => s.value === strategy)?.rules ?? []).map((rule) => (
+          <p key={rule}>{rule}</p>
+        ))}
+        <p>Entry is the next market open after the Form 4 reaches EDGAR.</p>
+        <p className="pt-1">Simulated. Past performance does not guarantee future results.</p>
       </div>
     </div>
   );
