@@ -85,3 +85,7 @@ strategies/cw_strategies/data/
 # Scripts with credentials (keys should be in .env)
 scripts/seed_positions.py
 *.db
+
+# Thesis monitor — personal position data
+pipelines/thesis_monitor/positions.yaml
+.venv-test/
