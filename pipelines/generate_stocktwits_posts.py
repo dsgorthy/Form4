@@ -59,7 +59,7 @@ SELECT t.trade_id, t.ticker, t.company, t.signal_class, t.value, t.qty, t.price,
        t.shares_owned_after, t.is_largest_ever, t.is_rare_reversal,
        t.consecutive_sells_before, t.dip_1mo, t.dip_3mo, t.pit_cluster_size,
        t.career_grade, t.title AS insider_title, t.filing_date,
-       COALESCE(i.display_name, i.name) AS insider_name,
+       COALESCE(i.display_name, i.name) AS insider_name, i.slug AS insider_slug,
        (SELECT close FROM prices.daily_prices d
          WHERE d.ticker = t.ticker ORDER BY d.date DESC LIMIT 1) AS current_price,
        NOT EXISTS (SELECT 1 FROM trades p
@@ -119,7 +119,15 @@ def render(t: dict) -> str:
     elif grade:
         lines += ["", f"We grade this insider {grade}."]
 
-    lines += ["", "form4.app", "Not investment advice."]
+    # A bare domain is not a call to action — it gives the reader nowhere in
+    # particular to go. Deep-link the insider so the click lands on their full
+    # record, which is both the obvious next question and an SEO surface.
+    slug = (t.get("insider_slug") or "").strip()
+    if slug:
+        lines += ["", f"Their full track record → form4.app/insider/{slug}"]
+    else:
+        lines += ["", f"Every insider trade in ${t['ticker']} → form4.app/company/{t['ticker']}"]
+    lines += ["", "Not investment advice."]
     return "\n".join(lines)
 
 
