@@ -34,7 +34,11 @@ export default async function Image({ params }: { params: Promise<{ id: string }
       company = data.company || "";
       tradeType = (data.trade_type || "buy").toUpperCase();
       insiderName = data.insider_name || "Insider";
-      insiderTitle = data.insider_title || data.title || "";
+      // normalized_title first. The raw `title` is whatever the filer typed
+      // and is frequently a fragment — ARES Management's reads "10%", which
+      // renders as "ARES Management LLC · 10%". normalized_title already
+      // holds the cleaned "10% Owner".
+      insiderTitle = data.normalized_title || data.insider_title || data.title || "";
       value = data.value ? ogMoney(Number(data.value)) : "";
       date = data.filing_date || "";
     }
