@@ -82,6 +82,12 @@ def _in_quiet_window(now: datetime) -> bool:
     return False
 
 
+#: Re-page while a contract stays breached. Daily is deliberate: often enough
+#: that a broken pipeline cannot go a week unnoticed, rare enough that it does
+#: not become the noise it is meant to cut through.
+REALERT_AFTER_HOURS = 24.0
+
+
 def _load_state() -> dict:
     if not STATE_FILE.exists():
         return {}
@@ -145,17 +151,48 @@ def main():
             "transitioned": prev_status != new_status,
             "required_for": list(c.required_for),
         })
-        state[key] = {"status": new_status, "checked_at": now,
-                      "age_h": round(age, 2) if age is not None else None}
+        prev = state.get(key, {})
+        # stale_since survives across runs so a sustained breach can be aged,
+        # and last_alerted_at is what makes re-alerting possible at all.
+        state[key] = {
+            "status": new_status,
+            "checked_at": now,
+            "age_h": round(age, 2) if age is not None else None,
+            "stale_since": (prev.get("stale_since") or now) if is_stale else None,
+            "last_alerted_at": prev.get("last_alerted_at"),
+        }
+        results[-1]["stale_since"] = state[key]["stale_since"]
+        results[-1]["last_alerted_at"] = prev.get("last_alerted_at")
 
     conn.close()
     _save_state(state)
 
-    # Alert only on transitions ok → stale, or on first run (prev=unknown) if stale.
+    # Transitions ok → stale, or first run (prev=unknown) while stale.
+    #
+    # Transitions alone are not enough, and that gap is not hypothetical:
+    # prices.daily_prices.date went stale in May 2026, fired once, and stayed
+    # broken until August. One missable message bought three months of silence
+    # while 59% of the price table rotted. A breach that is still breached
+    # tomorrow is still news.
     transitioned_to_stale = [
         r for r in results
         if r["status"] == "stale" and r["prev_status"] in ("ok", "unknown")
     ]
+    still_stale = []
+    for r in results:
+        if r["status"] != "stale" or r in transitioned_to_stale:
+            continue
+        last = r.get("last_alerted_at")
+        if last is None:
+            still_stale.append(r)
+            continue
+        try:
+            hours = (now_dt - datetime.fromisoformat(last)).total_seconds() / 3600.0
+        except (ValueError, TypeError):
+            hours = REALERT_AFTER_HOURS + 1
+        if hours >= REALERT_AFTER_HOURS:
+            still_stale.append(r)
+    transitioned_to_stale = transitioned_to_stale + still_stale
     transitioned_to_ok = [
         r for r in results
         if r["status"] == "ok" and r["prev_status"] == "stale"
@@ -165,6 +202,8 @@ def main():
         body = "\n".join(
             f"  • {r['table']}.{r['column']}: "
             f"age={r['observed_age_hours']}h > contract={r['max_staleness_hours']}h"
+            + (f"  (breached since {r['stale_since'][:16]})"
+               if r.get("stale_since") and r["prev_status"] == "stale" else "")
             for r in transitioned_to_stale
         )
         alert.critical(
@@ -172,6 +211,9 @@ def main():
             f"{len(transitioned_to_stale)} contract(s) breached:\n{body}\n\nRunbook: R-001",
             breached=[f"{r['table']}.{r['column']}" for r in transitioned_to_stale],
         )
+        for r in transitioned_to_stale:
+            state[f"{r['table']}.{r['column']}"]["last_alerted_at"] = now
+        _save_state(state)
     elif transitioned_to_stale and in_quiet:
         # Log the suppression so it's visible in the probe's launchd log
         # — operators can grep for "quiet_window" to confirm "yes, we

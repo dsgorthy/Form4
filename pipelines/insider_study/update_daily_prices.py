@@ -272,17 +272,29 @@ def _do_update(args, prun):
     max_date_row = conn.execute("SELECT MAX(date) AS d FROM daily_prices").fetchone()
     logger.info("daily_prices MAX(date) after update: %s", max_date_row["d"] if max_date_row else "unknown")
 
-    # Freshness contract: prices.daily_prices.date is now current.
-    if total_rows > 0:
-        from framework.contracts.freshness_writer import write_freshness
-        write_freshness(
-            conn,
-            table="prices.daily_prices",
-            column="date",
-            n_rows_affected=total_rows,
-            populated_by="pipelines/insider_study/update_daily_prices.py",
-        )
-        conn.commit()
+    # Freshness contract: the job completed, so the column is current.
+    #
+    # This used to be gated on total_rows > 0, and that made a healthy idle run
+    # indistinguishable from a dead job. Both wrote nothing. On a day when every
+    # ticker is already up to date — which is the normal state once the backfill
+    # has caught up — a successful run left the contract ageing toward a false
+    # staleness alarm, and a false alarm every quiet day is how a real one gets
+    # ignored. daily-prices then sat uninstalled for three months (its last
+    # signal_freshness row was 2026-05-07, written by a one-off script) without
+    # anything escalating.
+    #
+    # A completed run IS the heartbeat. n_rows_affected still records how much
+    # actually moved, so "ran but found nothing" stays distinguishable from
+    # "ran and inserted 200k rows" for anyone reading the telemetry.
+    from framework.contracts.freshness_writer import write_freshness
+    write_freshness(
+        conn,
+        table="prices.daily_prices",
+        column="date",
+        n_rows_affected=total_rows,
+        populated_by="pipelines/insider_study/update_daily_prices.py",
+    )
+    conn.commit()
 
     prun.set_rows_written(total_rows)
     prun.set_metadata({
