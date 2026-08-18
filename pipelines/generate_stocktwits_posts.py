@@ -131,7 +131,10 @@ def render(t: dict) -> str:
     #
     # Phrased as a source citation rather than a call to action, for the same
     # reason the performance claim came out above.
-    lines += ["", f"Full filing history: form4.app/company/{t['ticker']}"]
+    # Full scheme, not a bare domain. Auto-linking keys off a recognisable
+    # URL, and "form4.app/company/CDNL" is just as likely to render as plain
+    # unclickable text — which would waste the one link the post gets.
+    lines += ["", f"Full filing history: https://form4.app/company/{t['ticker']}"]
     lines += ["", "Not investment advice."]
     return "\n".join(lines)
 

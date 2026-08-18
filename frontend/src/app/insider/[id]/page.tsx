@@ -48,6 +48,14 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
       title: `${profile.name} — Insider Profile`,
       description,
       openGraph: { title: `${profile.name} — Insider Profile`, description },
+      // Same reason as the company page: the root layout declares a site-wide
+      // twitter block, and page metadata that sets only openGraph inherits it
+      // — so every insider profile unfurled as the generic Form4 card.
+      twitter: {
+        card: "summary_large_image",
+        title: `${profile.name} — Insider Profile`,
+        description,
+      },
     };
   } catch {
     return { title: "Insider Not Found" };

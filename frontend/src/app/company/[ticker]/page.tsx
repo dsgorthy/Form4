@@ -60,6 +60,22 @@ export async function generateMetadata({ params }: { params: Promise<{ ticker: s
       // expresses no preference of its own.
       alternates: { canonical: `https://form4.app/company/${ticker}` },
       openGraph: { title, description },
+      // Must be set explicitly. Next.js merges page metadata over the root
+      // layout, and the layout declares a site-wide twitter block — so a page
+      // that sets only openGraph inherits "Form4 — Live Insider Trading
+      // Strategies" and the generic og-image on every platform that prefers
+      // twitter:* tags over og:*, which is most of them.
+      //
+      // That is not cosmetic when the plan is five ticker-specific posts a
+      // day: every one of them would unfurl the identical generic card, which
+      // reads as spam and throws away the per-company preview image that is
+      // already being generated.
+      twitter: {
+        card: "summary_large_image",
+        title,
+        description,
+        images: [`https://form4.app/company/${ticker}/opengraph-image`],
+      },
     };
   } catch {
     return { title: `${ticker} — Insider Trades` };
