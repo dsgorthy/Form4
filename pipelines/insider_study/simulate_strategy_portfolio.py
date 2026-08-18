@@ -276,9 +276,31 @@ def simulate_one_strategy(
                   -- it was worth 26 points of CAGR on the no-momentum variant
                   -- (59.9% -> 33.8%). Filings without a timestamp are treated
                   -- as after-close, which is the conservative direction.
+                  --
+                  -- filed_at is TEXT holding a UTC wall-clock time. The first
+                  -- version of this guard cast it with ::timestamptz, which
+                  -- makes Postgres read it in the SERVER timezone — Studio runs
+                  -- America/Los_Angeles — and then shifted it a further three
+                  -- hours into ET. Net effect: every filing appeared SEVEN
+                  -- hours earlier than it was, so an 20:00 ET filing scored as
+                  -- 03:00 and was ruled tradeable at a close that had happened
+                  -- four hours before it was public. The guard was written to
+                  -- stop exactly that and silently did the opposite.
+                  --
+                  -- 64 of quality_notrend's 149 positions were affected, and
+                  -- they were disproportionately the winners: CoreWeave filed
+                  -- at 20:00 ET and booked +122% from that afternoon's close.
+                  --
+                  -- Interpret as UTC, convert to ET, and require the resulting
+                  -- ET date to still be the filing date — an evening filing
+                  -- rolls into the next UTC day and must not be credited to a
+                  -- session that already closed.
                   COALESCE(
-                      (t.filed_at::timestamptz AT TIME ZONE 'America/New_York')::time
-                      < TIME '16:00', FALSE) AS tradeable_same_day
+                      ((t.filed_at::timestamp AT TIME ZONE 'UTC')
+                          AT TIME ZONE 'America/New_York')::time < TIME '16:00'
+                      AND ((t.filed_at::timestamp AT TIME ZONE 'UTC')
+                          AT TIME ZONE 'America/New_York')::date::text = t.filing_date,
+                      FALSE) AS tradeable_same_day
            FROM trades t
            JOIN insiders i ON t.insider_id = i.insider_id
            WHERE t.trans_code = 'P'
