@@ -1,4 +1,5 @@
 import { ImageResponse } from "next/og";
+import { ogMoney as money } from "@/lib/og-format";
 
 export const runtime = "edge";
 export const alt = "Form4 Company Insider Trading Data";
@@ -16,14 +17,6 @@ const RULE = "#23232E";
 const ACCENT = "#3B82F6";
 const POS = "#22C55E";
 const NEG = "#EF4444";
-
-function money(v: number): string {
-  const a = Math.abs(v);
-  if (a >= 1_000_000_000) return `$${(v / 1_000_000_000).toFixed(1)}B`;
-  if (a >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
-  if (a >= 1_000) return `$${Math.round(v / 1_000)}K`;
-  return `$${Math.round(v)}`;
-}
 
 export default async function Image({ params }: { params: Promise<{ ticker: string }> }) {
   const { ticker } = await params;

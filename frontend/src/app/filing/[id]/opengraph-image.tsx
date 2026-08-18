@@ -1,4 +1,5 @@
 import { ImageResponse } from "next/og";
+import { ogMoney } from "@/lib/og-format";
 
 export const runtime = "edge";
 export const alt = "Form4 SEC Filing Detail";
@@ -25,7 +26,7 @@ export default async function Image({ params }: { params: Promise<{ id: string }
       company = data.company || "";
       tradeType = (data.trade_type || "buy").toUpperCase();
       insiderName = data.insider_name || "Insider";
-      value = data.value ? `$${(data.value / 1000).toFixed(0)}K` : "";
+      value = data.value ? ogMoney(Number(data.value)) : "";
       date = data.filing_date || "";
     }
   } catch {}
