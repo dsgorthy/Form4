@@ -9,13 +9,41 @@ _insider_sqids = Sqids(alphabet="x7hqr9styz6bgcdwf8jv2npk3m", min_length=6)
 _notification_sqids = Sqids(alphabet="bgcdwf8jv2npk3mx7hqr9styz6", min_length=6)
 
 
+def _decode_canonical(sqids: Sqids, encoded: str) -> int | None:
+    """Decode, then require the input to be the ID's canonical encoding.
+
+    Sqids decoding is not injective: many strings decode to the same number, and
+    only one of them is what encode() produces. Without this check every string
+    made of alphabet characters resolves to some real row —
+
+        /filing/zzz  /filing/kkk  /filing/mmm  /filing/333
+
+    all decoded to 624 and served the same IFF filing, and /insider/…-zzz served
+    Sylebra Capital Ltd to anyone who mistyped a URL. Checking that the row
+    exists does not help: 624 exists, which is exactly why it rendered.
+
+    Two things this prevents. A mistyped or truncated URL lands on a stranger's
+    page instead of a 404, and every filing acquires an unbounded number of
+    alias URLs serving identical content — duplicate content at the scale of the
+    alphabet, on the surface Google crawls most.
+
+    Re-encoding is the check the sqids docs prescribe for exactly this.
+    """
+    result = sqids.decode(encoded)
+    if not result:
+        return None
+    value = result[0]
+    if sqids.encode([value]) != encoded:
+        return None
+    return value
+
+
 def encode_trade_id(id: int) -> str:
     return _trade_sqids.encode([id])
 
 
 def decode_trade_id(encoded: str) -> int | None:
-    result = _trade_sqids.decode(encoded)
-    return result[0] if result else None
+    return _decode_canonical(_trade_sqids, encoded)
 
 
 def encode_insider_id(id: int) -> str:
@@ -23,8 +51,7 @@ def encode_insider_id(id: int) -> str:
 
 
 def decode_insider_id(encoded: str) -> int | None:
-    result = _insider_sqids.decode(encoded)
-    return result[0] if result else None
+    return _decode_canonical(_insider_sqids, encoded)
 
 
 def encode_notification_id(id: int) -> str:
@@ -32,8 +59,7 @@ def encode_notification_id(id: int) -> str:
 
 
 def decode_notification_id(encoded: str) -> int | None:
-    result = _notification_sqids.decode(encoded)
-    return result[0] if result else None
+    return _decode_canonical(_notification_sqids, encoded)
 
 
 def identifier_from_slug(identifier: str) -> str:
