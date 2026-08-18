@@ -120,6 +120,14 @@ def get_portfolio(
         # Those rows overlap the simulated positions one-for-one, so without this
         # filter they double up the open-positions list (duplicate open
         # positions bug, 2026-06-22). Keep the filter on any new query added here.
+        #
+        # They also filter entry_before_publication. A row flagged TRUE was
+        # opened at a close its filing had not reached — EDGAR accepts Form 4
+        # until 22:00 ET — so its pnl is measured from a price nobody could
+        # have paid. 96 such rows survive in the legacy 'backtest' archives.
+        # They are already outside execution_source='simulated', but relying on
+        # that is relying on a coincidence: the flag is the actual guarantee,
+        # and it is maintained by a trigger so it cannot go stale.
 
         # Summary stats
         summary = conn.execute("""
@@ -133,7 +141,8 @@ def get_portfolio(
                 MAX(exit_date) AS last_trade,
                 MAX(equity_after) AS peak_equity
             FROM strategy_portfolio
-            WHERE strategy = ? AND COALESCE(is_live, false) = false AND execution_source = 'simulated' AND status = 'closed'
+            WHERE strategy = ? AND COALESCE(is_live, false) = false AND execution_source = 'simulated'
+              AND NOT COALESCE(entry_before_publication, false) AND status = 'closed'
         """, (strategy,)).fetchone()
 
         # Equity curve — rebuild from P&L to avoid snapshot artifacts.
@@ -145,7 +154,8 @@ def get_portfolio(
         curve_raw = conn.execute("""
             SELECT exit_date, pnl_dollar, ticker, exit_reason
             FROM strategy_portfolio
-            WHERE strategy = ? AND COALESCE(is_live, false) = false AND execution_source = 'simulated' AND status = 'closed' AND exit_date IS NOT NULL
+            WHERE strategy = ? AND COALESCE(is_live, false) = false AND execution_source = 'simulated'
+              AND NOT COALESCE(entry_before_publication, false) AND status = 'closed' AND exit_date IS NOT NULL
             ORDER BY exit_date
         """, (strategy,)).fetchall()
 
@@ -154,6 +164,7 @@ def get_portfolio(
             SELECT MIN(entry_date) AS earliest
             FROM strategy_portfolio
             WHERE strategy = ? AND COALESCE(is_live, false) = false AND execution_source = 'simulated'
+              AND NOT COALESCE(entry_before_publication, false)
         """, (strategy,)).fetchone()
         anchor_date = anchor_row["earliest"] if anchor_row else None
 
@@ -162,6 +173,7 @@ def get_portfolio(
             SELECT ticker, entry_date, entry_price, dollar_amount, position_size
             FROM strategy_portfolio
             WHERE strategy = ? AND COALESCE(is_live, false) = false AND execution_source = 'simulated'
+              AND NOT COALESCE(entry_before_publication, false)
               AND status = 'open' AND entry_price > 0
         """, (strategy,)).fetchall()
 
@@ -253,10 +265,12 @@ def get_portfolio(
               (SELECT COUNT(DISTINCT ticker) FROM strategy_portfolio
                 WHERE strategy = ? AND COALESCE(is_live, false) = false
                   AND status = 'open'
-                  AND execution_source IN ('alert','paper','live','simulated'))
+                  AND execution_source IN ('alert','paper','live','simulated')
+                  AND NOT COALESCE(entry_before_publication, false))
               + (SELECT COUNT(*) FROM strategy_portfolio
                   WHERE strategy = ? AND COALESCE(is_live, false) = false
-                    AND status = 'closed' AND execution_source = 'simulated') AS cnt
+                    AND status = 'closed' AND execution_source = 'simulated'
+                    AND NOT COALESCE(entry_before_publication, false)) AS cnt
         """, (strategy, strategy)).fetchone()["cnt"]
 
         # Per-trade data for client-side filtering (lightweight: date, return, exit type)
@@ -264,7 +278,8 @@ def get_portfolio(
             SELECT exit_date, ROUND(pnl_pct * 100, 2) AS pnl_pct, exit_reason,
                    ROUND(hold_days, 0) AS hold_days, signal_quality
             FROM strategy_portfolio
-            WHERE strategy = ? AND COALESCE(is_live, false) = false AND execution_source = 'simulated' AND status = 'closed' AND pnl_pct IS NOT NULL
+            WHERE strategy = ? AND COALESCE(is_live, false) = false AND execution_source = 'simulated'
+              AND NOT COALESCE(entry_before_publication, false) AND status = 'closed' AND pnl_pct IS NOT NULL
             ORDER BY exit_date
         """, (strategy,)).fetchall()]
 
@@ -279,7 +294,8 @@ def get_portfolio(
                    ROUND(SUM(CASE WHEN pnl_pct > 0 THEN 1.0 ELSE 0 END) / COUNT(*) * 100, 1) AS win_rate,
                    ROUND(AVG(hold_days), 1) AS avg_hold
             FROM strategy_portfolio
-            WHERE strategy = ? AND COALESCE(is_live, false) = false AND execution_source = 'simulated' AND status = 'closed'
+            WHERE strategy = ? AND COALESCE(is_live, false) = false AND execution_source = 'simulated'
+              AND NOT COALESCE(entry_before_publication, false) AND status = 'closed'
             GROUP BY exit_reason
             ORDER BY count DESC
         """, (strategy,)).fetchall()]
@@ -291,7 +307,8 @@ def get_portfolio(
                    ROUND(SUM(pnl_dollar), 2) AS pnl,
                    ROUND(SUM(CASE WHEN pnl_pct > 0 THEN 1.0 ELSE 0 END) / COUNT(*) * 100, 1) AS win_rate
             FROM strategy_portfolio
-            WHERE strategy = ? AND COALESCE(is_live, false) = false AND execution_source = 'simulated' AND status = 'closed'
+            WHERE strategy = ? AND COALESCE(is_live, false) = false AND execution_source = 'simulated'
+              AND NOT COALESCE(entry_before_publication, false) AND status = 'closed'
             GROUP BY SUBSTR(exit_date, 1, 4)
             ORDER BY year
         """, (strategy,)).fetchall()]
@@ -326,6 +343,7 @@ def get_portfolio(
                     WHERE strategy = ? AND COALESCE(is_live, false) = false
                       AND status = 'open'
                       AND execution_source IN ('alert','paper','live','simulated')
+                      AND NOT COALESCE(entry_before_publication, false)
                 ) x WHERE rk = 1
             ),
             closed_pick AS (
@@ -333,6 +351,7 @@ def get_portfolio(
                 SELECT id FROM strategy_portfolio
                 WHERE strategy = ? AND COALESCE(is_live, false) = false
                   AND status = 'closed' AND execution_source = 'simulated'
+                  AND NOT COALESCE(entry_before_publication, false)
             )
             SELECT sp.id, sp.trade_id, sp.ticker, sp.trade_type, sp.direction,
                    sp.entry_date, sp.entry_price, sp.exit_date, sp.exit_price,
@@ -504,6 +523,7 @@ def get_portfolio_overlay(
                    portfolio_value, dollar_amount, status
             FROM strategy_portfolio
             WHERE strategy = ? AND execution_source = 'simulated'
+            AND NOT COALESCE(entry_before_publication, false)
               AND (
                 (status = 'closed' AND exit_date IS NOT NULL AND pnl_pct IS NOT NULL)
                 OR status = 'open'

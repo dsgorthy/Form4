@@ -146,3 +146,45 @@ class TestNoSimulatorDecidesThisAlone:
             f"{rel} prices an entry directly off filing_date: {hits[:2]}. "
             f"Gate it on framework.decision.entry_timing.filed_before_close."
         )
+
+
+class TestPnlNeverReportsUnobtainableEntries:
+    """Gain/loss must never be reported for a position that could not be opened.
+
+    The DB side is a trigger on strategy_portfolio maintaining
+    entry_before_publication (migrations/2026-08-17_entry_before_publication.sql).
+    This is the application side: the portfolio API must actually filter on it.
+
+    97 rows in the legacy 'backtest' archives are flagged TRUE. They happen to
+    sit outside execution_source='simulated', so the API excluded them already
+    — but by coincidence, not by design. If someone widens that filter the
+    contaminated rows walk straight in, which is exactly what this test exists
+    to stop.
+    """
+
+    PORTFOLIO_API = "api/routers/portfolio.py"
+
+    def test_every_strategy_portfolio_read_filters_the_flag(self):
+        src = (REPO / self.PORTFOLIO_API).read_text(errors="ignore")
+        reads = src.count("FROM strategy_portfolio")
+        guards = src.count("entry_before_publication")
+        assert guards >= reads, (
+            f"{self.PORTFOLIO_API}: {reads} reads of strategy_portfolio but only "
+            f"{guards} references to entry_before_publication. Every P&L read "
+            f"must exclude positions opened before their filing was public."
+        )
+
+    def test_migration_defines_the_trigger(self):
+        sql = (REPO / "migrations/2026-08-17_entry_before_publication.sql").read_text()
+        assert "CREATE TRIGGER trg_sp_entry_before_publication" in sql
+        assert "BEFORE INSERT OR UPDATE OF trade_id, entry_date" in sql, (
+            "The trigger must fire on the two columns the verdict depends on, "
+            "so a pnl-only update inherits the verdict already on the row."
+        )
+
+    def test_missing_timestamp_is_not_permission_in_sql(self):
+        # The SQL predicate and filed_before_close must agree that an unknown
+        # filed_at means after-close. If they diverge, the trigger and the
+        # Python path disagree about the same row.
+        sql = (REPO / "migrations/2026-08-17_entry_before_publication.sql").read_text()
+        assert "ELSE to_char(t.filing_date::date + 1, 'YYYY-MM-DD')" in sql
