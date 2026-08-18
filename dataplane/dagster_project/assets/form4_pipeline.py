@@ -133,6 +133,44 @@ def form4_daily_prices(context: AssetExecutionContext) -> Output:
 
 
 @asset(group_name="form4_pipeline", compute_kind="python",
+       description="Sector/industry from yfinance into form4.ticker_metadata.")
+def form4_ticker_metadata(context: AssetExecutionContext) -> Output:
+    """Sector and industry, which the cohort work treats as a real input.
+
+    Moved off com.openclaw.refresh-ticker-metadata (Sundays 09:00) so it sits
+    in the same graph as everything else rather than beside it on a clock.
+
+    No upstream freshness gate: this feed depends on nothing inside the plane —
+    it reads a ticker list and asks yfinance. The gate that matters here is on
+    the OUTPUT, below.
+    """
+    _run(context, ["/opt/homebrew/bin/python3",
+                   f"{REPO}/scripts/refresh_ticker_metadata.py"], timeout=7200)
+
+    total = int(_scalar("SELECT count(*) FROM ticker_metadata") or 0)
+    with_sector = int(_scalar("SELECT count(sector) FROM ticker_metadata") or 0)
+    pct = (100.0 * with_sector / total) if total else 0.0
+
+    # 56.4% is near the ceiling, not a bug: 2,451 tickers do not resolve at all,
+    # 862 are mutual funds and 125 are ETFs, none of which have a sector. Only
+    # ~361 rows are genuinely recoverable (273 timeouts + 88 equities that
+    # returned nothing). So the alarm threshold is set below the structural
+    # floor — it fires on collapse, not on the normal shortfall.
+    if pct < 45.0:
+        raise RuntimeError(
+            f"ticker_metadata sector coverage fell to {pct:.1f}% ({with_sector}/{total}). "
+            f"Structural floor is ~56%; below 45% means the fetch broke, not that "
+            f"more tickers became unclassifiable."
+        )
+    context.log.info("sector coverage %.1f%% (%d/%d)", pct, with_sector, total)
+    return Output(with_sector, metadata={
+        "rows": MetadataValue.int(total),
+        "with_sector": MetadataValue.int(with_sector),
+        "pct_sector": MetadataValue.float(round(pct, 1)),
+    })
+
+
+@asset(group_name="form4_pipeline", compute_kind="python",
        deps=[form4_daily_prices],
        description="Forward returns. Fails closed if prices are stale.")
 def form4_trade_returns(context: AssetExecutionContext) -> Output:
@@ -176,4 +214,13 @@ form4_pipeline_assets = [
     form4_trade_returns,
     form4_features,
     form4_signals,
+]
+
+# Deliberately NOT in form4_pipeline_assets. That job runs every weekday at
+# 17:30 and finishes in ~20 minutes; ticker metadata is a weekly, up-to-2-hour
+# yfinance crawl over ~9,400 symbols with nothing downstream waiting on it.
+# Folding it in would multiply the daily runtime for data that changes about as
+# often as a company changes sector.
+form4_weekly_assets = [
+    form4_ticker_metadata,
 ]

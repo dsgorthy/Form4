@@ -41,7 +41,10 @@ from dagster_dbt import DbtCliResource
 
 from dagster_project.assets.congress_sync import congress_trades_form4_sync
 from dagster_project.assets.dbt import dataplane_dbt_assets, dbt_project
-from dagster_project.assets.form4_pipeline import form4_pipeline_assets
+from dagster_project.assets.form4_pipeline import (
+    form4_pipeline_assets,
+    form4_weekly_assets,
+)
 from dagster_project.assets.insider_sync import insider_trades_form4_sync
 from dagster_project.assets.signals import (
     build_signal_assets,
@@ -112,6 +115,22 @@ form4_pipeline_schedule = ScheduleDefinition(
     name="form4_pipeline_daily",
     job=form4_pipeline_job,
     cron_schedule="30 17 * * 1-5",
+    execution_timezone="America/Los_Angeles",
+    default_status=DefaultScheduleStatus.RUNNING,
+)
+
+# Sundays 09:00 PT — the slot com.openclaw.refresh-ticker-metadata used, which
+# is disabled in the same change that adds this. Running both would double a
+# two-hour yfinance crawl against a rate-limited endpoint.
+form4_weekly_job = define_asset_job(
+    name="form4_weekly",
+    selection=AssetSelection.assets(*form4_weekly_assets),
+)
+
+form4_weekly_schedule = ScheduleDefinition(
+    name="form4_weekly_sunday",
+    job=form4_weekly_job,
+    cron_schedule="0 9 * * 0",
     execution_timezone="America/Los_Angeles",
     default_status=DefaultScheduleStatus.RUNNING,
 )
@@ -338,11 +357,12 @@ def realtime_5min_loop(context: SensorEvaluationContext):
 defs = Definitions(
     assets=[*signal_assets, congress_trades_form4_sync,
             insider_trades_form4_sync,
-            *form4_pipeline_assets, dataplane_dbt_assets],
+            *form4_pipeline_assets, *form4_weekly_assets, dataplane_dbt_assets],
     jobs=[daily_signals_job, dbt_marts_job, form4_pipeline_job,
           realtime_strategy_job, insider_filings_shadow_job],
     schedules=[daily_signals_schedule, dbt_marts_schedule,
-               form4_pipeline_schedule, insider_filings_settle_nightly],
+               form4_pipeline_schedule, form4_weekly_schedule,
+               insider_filings_settle_nightly],
     sensors=[ntfy_on_run_failure, realtime_5min_loop,
              insider_filings_shadow_5min],
     resources={
