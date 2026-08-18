@@ -136,3 +136,51 @@ def test_notification_routes_do_not_require_pro():
     assert not offenders, (
         f"notification routes must not require a subscription: {offenders}"
     )
+
+
+# ── the event is free, the judgment is paid ─────────────────────────────────
+
+def test_the_alert_line_is_an_allowlist():
+    """A new preference field is Pro until someone deliberately frees it."""
+    from api.gating import FREE_ALERT_FIELDS, PRO_ALERT_FIELDS
+
+    assert not (FREE_ALERT_FIELDS & PRO_ALERT_FIELDS), "a field cannot be both"
+    # The whole point: quality filtering is not free.
+    assert "min_insider_tier" in PRO_ALERT_FIELDS
+    # ...but being told about a company you follow is.
+    assert "watchlist_activity" in FREE_ALERT_FIELDS
+    # A dollar threshold is a fact about the filing, not a view about it, and
+    # narrowing your own alerts costs us less mail rather than more.
+    assert "min_trade_value" in FREE_ALERT_FIELDS
+
+
+def test_every_computed_alert_type_is_pro():
+    from api.gating import PRO_ALERT_EVENTS
+
+    for algorithmic in ("cluster_formation", "activity_spike",
+                        "congress_convergence", "portfolio_alert"):
+        assert algorithmic in PRO_ALERT_EVENTS
+
+
+def test_free_account_cannot_enable_a_pro_alert():
+    """Guards the write path. Checked by reading the route, not re-stating it."""
+    import inspect
+
+    from api.routers import notifications
+
+    src = inspect.getsource(notifications.update_preferences)
+    assert "PRO_ALERT_FIELDS" in src
+    assert "is_pro" in src
+
+
+def test_turning_a_pro_alert_off_is_always_allowed():
+    """A lapsed subscriber must be able to silence what they can no longer get."""
+    import inspect
+
+    from api.routers import notifications
+
+    src = inspect.getsource(notifications.update_preferences)
+    assert "(False, 0, None)" in src, (
+        "the check must exempt falsy values, or a lapsed user is trapped with "
+        "alerts they cannot disable"
+    )

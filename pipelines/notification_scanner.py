@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config.database import get_connection, ConnectionWrapper
 from api.email import build_digest_email, build_notification_email, send_email
+from api.gating import PRO_ALERT_EVENTS
 from api.notifications_db import get_connection as get_notif_connection
 from api.notifications_db import init_db
 
@@ -54,6 +55,7 @@ def _get_user_email(user_id: str) -> str | None:
         )
         if resp.status_code == 200:
             data = resp.json()
+            _TIER_CACHE[user_id] = (data.get("public_metadata") or {}).get("tier", "free")
             addrs = data.get("email_addresses", [])
             primary_id = data.get("primary_email_address_id")
             for addr in addrs:
@@ -152,21 +154,62 @@ def _get_user_filters(nconn: ConnectionWrapper, user_id: str, event_type: str) -
     return out
 
 
+#: tier per user, populated as a side effect of the email lookup we already do.
+_TIER_CACHE: dict[str, str] = {}
+
+
+def _is_pro(user_id: str) -> bool:
+    """Pro, Pro+ or an active trial. Reads the tier the email fetch cached.
+
+    Fails OPEN when the tier cannot be determined. If Clerk is unreachable or
+    the key is unset, the cache stays empty, and treating that as "free" would
+    silence a paying subscriber's alerts because of an outage on our side. The
+    opposite mistake — a free account receiving a cluster alert during a Clerk
+    outage — costs nothing and ends when the outage does.
+    """
+    if user_id not in _TIER_CACHE:
+        _get_user_email(user_id)
+    if user_id not in _TIER_CACHE:
+        logger.warning("tier unknown for %s — treating as Pro for this cycle", user_id)
+        return True
+    return _TIER_CACHE[user_id] in ("pro", "pro_plus", "trial")
+
+
 def _get_subscribed_users(nconn: ConnectionWrapper, event_type: str) -> list[dict]:
     """Users with this event type enabled, each with their filters attached.
 
-    A user with no filters keeps the legacy notification_preferences behaviour
-    exactly — min_trade_value and min_insider_tier — so nobody's current
-    settings change when this ships.
+    Enforces the alert line at SEND time as well as at write time. Write-time
+    checks alone leave the lapsed-subscriber case wrong: someone who set up
+    cluster alerts while paying would keep receiving them for free forever,
+    because their preferences row does not know their subscription ended.
+
+    Two rules, both from api.gating:
+
+      - a Pro-only event type is skipped entirely for a non-Pro account
+      - min_insider_tier is ignored for them, rather than applied
+
+    The second is the one that is easy to get backwards. Leaving the stored
+    default of 2 in place would silently filter a free user's alerts by our own
+    grade — so someone following NVDA would never hear about a filing by an
+    insider we happen to grade below tier 2, on a company they explicitly asked
+    to be told about. Free means the raw event, which means no quality filter at
+    all rather than one they did not choose.
     """
     rows = nconn.execute(
         f"""SELECT user_id, email_enabled, email_frequency, min_trade_value, min_insider_tier
             FROM notification_preferences
             WHERE {event_type} = 1 AND (email_enabled = 1 OR in_app_enabled = 1)""",
     ).fetchall()
-    users = [dict(r) for r in rows]
-    for u in users:
-        u["filters"] = _get_user_filters(nconn, u["user_id"], event_type)
+    users = []
+    for r in rows:
+        u = dict(r)
+        pro = _is_pro(u["user_id"])
+        if event_type in PRO_ALERT_EVENTS and not pro:
+            continue
+        if not pro:
+            u["min_insider_tier"] = None
+        u["filters"] = _get_user_filters(nconn, u["user_id"], event_type) if pro else []
+        users.append(u)
     return users
 
 

@@ -551,21 +551,26 @@ export default function SettingsPage() {
                   label="Cluster formations"
                   desc="Multiple insiders trading the same ticker"
                   checked={prefs.cluster_formation}
-                  disabled={prefsSaving}
+                  disabled={prefsSaving || !userIsPro}
+                  proOnly={!userIsPro}
                   onChange={(v) => updatePref({ cluster_formation: v })}
                 />
                 <ToggleRow
                   label="Activity spikes"
                   desc="Ticker activity jumps 2x+ above baseline"
                   checked={prefs.activity_spike}
-                  disabled={prefsSaving}
+                  disabled={prefsSaving || !userIsPro}
+                  proOnly={!userIsPro}
+                  
                   onChange={(v) => updatePref({ activity_spike: v })}
                 />
                 <ToggleRow
                   label="Congress convergence"
                   desc="Insider + politician alignment on same ticker"
                   checked={prefs.congress_convergence}
-                  disabled={prefsSaving}
+                  disabled={prefsSaving || !userIsPro}
+                  proOnly={!userIsPro}
+                  
                   onChange={(v) => updatePref({ congress_convergence: v })}
                 />
                 <ToggleRow
@@ -702,17 +707,28 @@ function ToggleRow({
   checked,
   disabled,
   onChange,
+  proOnly,
 }: {
   label: string;
   desc?: string;
   checked: boolean;
   disabled?: boolean;
   onChange: (v: boolean) => void;
+  /** Alert types that exist because we computed something. The event is free;
+   *  the judgment is paid. See PRO_ALERT_EVENTS in api/gating.py. */
+  proOnly?: boolean;
 }) {
   return (
     <div className="flex items-center justify-between py-1">
       <div>
-        <div className="text-sm text-[#E8E8ED]">{label}</div>
+        <div className="flex items-center gap-2">
+          <div className="text-sm text-[#E8E8ED]">{label}</div>
+          {proOnly && (
+            <span className="rounded-full bg-[#3B82F6]/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-[#3B82F6]">
+              Pro
+            </span>
+          )}
+        </div>
         {desc && <div className="text-xs text-[#55556A] mt-0.5">{desc}</div>}
       </div>
       <button

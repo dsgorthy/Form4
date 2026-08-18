@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from api.auth import UserContext
 from api.db import get_db
 from api.email import verify_unsubscribe_token
-from api.gating import require_auth
+from api.gating import PRO_ALERT_FIELDS, require_auth
 from api.id_encoding import decode_notification_id, encode_notification_id
 from api.notifications_db import get_notifications_db
 
@@ -197,6 +197,25 @@ def update_preferences(
     updates = body.model_dump(exclude_none=True)
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
+
+    # A free account may enable alerts, not opinions. Turning something OFF is
+    # always allowed — a lapsed subscriber must be able to silence a Pro alert
+    # they can no longer receive, and refusing that would trap them.
+    if not user.is_pro:
+        wanted = [
+            f for f in updates
+            if f in PRO_ALERT_FIELDS and updates[f] not in (False, 0, None)
+        ]
+        if wanted:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Filtering alerts by insider quality, clusters, spikes, "
+                    "convergence or strategy activity requires Pro. Alerts on "
+                    "companies you follow are included free. "
+                    f"({', '.join(sorted(wanted))})"
+                ),
+            )
 
     # Convert bools to ints for SQLite
     for field in BOOL_PREF_FIELDS:
