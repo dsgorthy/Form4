@@ -137,9 +137,9 @@ function StatCard({ label, value, sub, color }: { label: string; value: string; 
 // Each name describes what actually fires the alert, because a subscriber
 // picks from these three and has to know which one is which:
 //
-//   The A-List      a graded insider buys. No price condition at all.
-//   Tailwind        the same, but the stock is already above both averages.
-//   Change of Heart someone who has only sold, for ten filings running, buys.
+//   A-List Buys       a graded insider buys. No price condition at all.
+//   Insider Breakout  the same, but the stock is already above both averages.
+//   Insider Dip Buys  someone who has only sold, for ten filings running, buys.
 //
 // Deliberately not "Breakout" for the second. It reads as a move through
 // resistance, and nothing here tests for one — the stock may have sat above
@@ -149,17 +149,17 @@ function StatCard({ label, value, sub, color }: { label: string; value: string; 
 const STRATEGIES = [
   {
     value: "quality_notrend",
-    label: "The A-List",
+    label: "A-List Buys",
     brief: "A proven insider just bought. The person is the whole signal — no chart condition.",
     rules: [
       "Buys when an insider graded A+ or A on their own past trades makes an open-market purchase. Nothing is required of the stock price.",
       "10% of equity per position, 10 positions at most. Sells after 42 trading days.",
-      "Holds 6.4 positions on average against Tailwind's 2.6, so 59% of the book is invested rather than 21%. That deployment, not better stock-picking, is where its edge comes from.",
+      "Holds 6.4 positions on average against Insider Breakout's 2.6, so 59% of the book is invested rather than 21%. That deployment, not better stock-picking, is where its edge comes from.",
     ],
   },
   {
     value: "quality_momentum",
-    label: "Tailwind",
+    label: "Insider Breakout",
     brief: "A proven insider buys a stock already trending up — conviction and price pointing the same way.",
     rules: [
       "Buys when an A+ or A-graded insider buys a stock trading above both its 50- and 200-day averages.",
@@ -169,7 +169,7 @@ const STRATEGIES = [
   },
   {
     value: "reversal_dip",
-    label: "Change of Heart",
+    label: "Insider Dip Buys",
     brief: "An insider who has done nothing but sell finally buys — into a stock down 25%.",
     rules: [
       "Buys when an insider with 10 or more consecutive sales behind them makes an open-market purchase, on a stock down 25% or more over three months.",

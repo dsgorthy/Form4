@@ -12,17 +12,18 @@ from api.filters import deduplicate_filers
 from api.gating import get_free_cutoff_date, null_items_track_records, redact_gated_items
 from api.id_encoding import encode_response_ids
 from api.pit_helpers import enrich_with_best_pit_grade
+from api.public_fields import strategy_label
 
 # Signal type metadata — thesis, display info, composite flag
 SIGNAL_META: dict[str, dict] = {
     "quality_momentum_buy": {
-        "label": "Tailwind",
+        "label": strategy_label("quality_momentum"),
         "description": "Proven insider (A+/A grade) buying in a confirmed uptrend",
         "composite": True,
         "strategy": "quality_momentum",
     },
     "deep_reversal_dip_buy": {
-        "label": "Change of Heart",
+        "label": strategy_label("reversal_dip"),
         "description": "Persistent seller reverses into a stock down 25%+",
         "composite": True,
         "strategy": "reversal_dip",

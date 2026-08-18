@@ -61,7 +61,7 @@ def test_labels_are_distinct_and_non_empty():
 
 
 def test_strategy_label_falls_back_to_the_key():
-    assert strategy_label("quality_notrend") == "The A-List"
+    assert strategy_label("quality_notrend") == "A-List Buys"
     assert strategy_label("not_a_strategy") == "not_a_strategy"
 
 
@@ -173,7 +173,18 @@ def test_config_display_names_carry_the_product_label():
 # the retired KEY and the page carries only LABELS. Renaming is a
 # find-and-replace over prose, and prose is where it gets missed.
 
-RETIRED_LABELS = ["10b5-1 Surprise", "Deep Reversal", "Quality + Momentum"]
+# Every display name these strategies have ever shipped under. "Tailwind" is
+# deliberately absent: it was a strategy name for about an hour on 2026-08-18,
+# and it is also the CSS framework the frontend is built on, so asserting on it
+# would fail the next time someone writes a comment about a utility class. The
+# positive check below covers that rename instead.
+RETIRED_LABELS = [
+    "10b5-1 Surprise",
+    "Deep Reversal",
+    "Quality + Momentum",
+    "The A-List",
+    "Change of Heart",
+]
 
 PUBLIC_PAGES = [
     "frontend/src/app/page.tsx",
@@ -184,13 +195,31 @@ PUBLIC_PAGES = [
 
 
 @pytest.mark.parametrize("rel", PUBLIC_PAGES)
-def test_public_pages_use_current_names(rel):
+def test_public_pages_drop_retired_names(rel):
     body = (REPO / rel).read_text()
     for stale in RETIRED_LABELS:
         assert stale not in body, (
             f"{rel} still shows {stale!r}; the current names are "
             f"{sorted(STRATEGY_LABELS[k] for k in ACTIVE_STRATEGIES)}"
         )
+
+
+@pytest.mark.parametrize("rel", PUBLIC_PAGES)
+def test_public_pages_carry_every_current_name(rel):
+    """The absence check alone is not enough.
+
+    Each of these four pages lists all three strategies. Checking only that the
+    old names are gone passes a page that lost a strategy entirely, and it
+    passed the methodology page when the rename reached its strategy list but
+    not the prose four sections below — the prose named strategies the check
+    was not looking for.
+    """
+    body = (REPO / rel).read_text()
+    missing = [
+        STRATEGY_LABELS[k] for k in ACTIVE_STRATEGIES
+        if STRATEGY_LABELS[k] not in body
+    ]
+    assert not missing, f"{rel} does not mention {missing}"
 
 
 def test_methodology_page_does_not_claim_we_run_without_stops():

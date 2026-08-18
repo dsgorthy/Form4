@@ -123,37 +123,34 @@ PRO_ALERT_FIELDS = frozenset(PRO_ALERT_EVENTS + PRO_ALERT_FILTERS)
 #
 # The names, and why:
 #
-#   The A-List (quality_notrend)
+#   A-List Buys (quality_notrend)
 #       An insider with a graded record buys. There is no chart condition at
-#       all — the person is the entire signal, which is what the name has to
-#       say. This is the strongest book of the three.
+#       all — the person is the entire signal.
 #
-#   Tailwind (quality_momentum)
-#       Same graded insider, but the stock is already above its 50- and
-#       200-day averages: conviction and price pointing the same way.
-#       Deliberately NOT "Breakout". Nothing in this strategy tests for a
-#       breakout — a stock can sit above both averages for a year and still
-#       qualify. Naming an alert after a chart event we do not measure is the
-#       kind of thing a subscriber notices once and then stops trusting the
-#       rest of the product.
+#   Insider Breakout (quality_momentum)
+#       Same graded insider, and the stock is above both its 50- and 200-day
+#       averages. Note for anyone writing copy around this one: the filter is
+#       a STATE test, not an event test. A stock can sit above both averages
+#       for a year and still qualify, so describe it as "already trending up"
+#       rather than as a breakout that just happened.
 #
-#   Change of Heart (reversal_dip)
+#   Insider Dip Buys (reversal_dip)
 #       An insider whose record is nothing but sells finally buys, into a
-#       stock down 25%. Both halves of the reversal in two words.
+#       stock down 25%.
 
 STRATEGIES = {
     "quality_notrend": {
-        "label": "The A-List",
+        "label": "A-List Buys",
         "thesis": "A proven insider buys. No chart condition.",
         "active": True,
     },
     "quality_momentum": {
-        "label": "Tailwind",
+        "label": "Insider Breakout",
         "thesis": "A proven insider buys a stock already trending up",
         "active": True,
     },
     "reversal_dip": {
-        "label": "Change of Heart",
+        "label": "Insider Dip Buys",
         "thesis": "A serial seller finally buys, into a 25% drawdown",
         "active": True,
     },
@@ -168,7 +165,7 @@ STRATEGIES = {
     },
 }
 
-# Publication order. The A-List leads because it is the strongest book and the
+# Publication order. A-List Buys leads because it is the strongest book and the
 # landing page reads the first entry for its hero chart.
 ACTIVE_STRATEGIES = ["quality_notrend", "quality_momentum", "reversal_dip"]
 

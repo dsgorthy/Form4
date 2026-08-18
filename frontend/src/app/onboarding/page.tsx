@@ -8,19 +8,19 @@ import { posthog } from "@/lib/posthog";
 const STRATEGIES = [
   {
     value: "quality_notrend",
-    label: "The A-List",
+    label: "A-List Buys",
     brief: "A proven insider buys \u2014 the person is the whole signal",
     stats: "43.5% CAGR \u00b7 66% WR \u00b7 ~40 trades/yr",
   },
   {
     value: "quality_momentum",
-    label: "Tailwind",
+    label: "Insider Breakout",
     brief: "A proven insider buys a stock already trending up",
     stats: "17.0% CAGR \u00b7 70.9% WR \u00b7 ~15 trades/yr",
   },
   {
     value: "reversal_dip",
-    label: "Change of Heart",
+    label: "Insider Dip Buys",
     brief: "A serial seller finally buys, into a 25% drawdown",
     stats: "13.6% CAGR \u00b7 66.7% WR \u00b7 ~18 trades/yr",
   },

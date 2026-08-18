@@ -168,9 +168,9 @@ to move.
 
 | Key | Public name | Status | CAGR | Key Metric |
 |-----|-------------|--------|------|------------|
-| quality_notrend | **The A-List** | LIVE alert-only | 43.5% | A+/A insider buys, no chart condition. 141 closed sim trades. The strongest book: the trend filter QM applies costs more in trades foregone than it saves — QM fills 2.6 of 10 slots against notrend's 6.4. |
-| quality_momentum | **Tailwind** | LIVE alert-only | 17.0% | Same insider grade, plus above SMA50 and SMA200. 55 closed sim trades. Kept as the A/B control. |
-| reversal_dip | **Change of Heart** | LIVE alert-only | 13.6% | 10+ consecutive sells then a buy, into a 25%+ 3-month drawdown. Genuinely lumpy — went dark Dec 2025–Feb 2026 and again Jun–Aug 2026, then fired 3 in a month. Sparse alerts are expected, not a fault. |
+| quality_notrend | **A-List Buys** | LIVE alert-only | 43.5% | A+/A insider buys, no chart condition. 141 closed sim trades. The strongest book: the trend filter QM applies costs more in trades foregone than it saves — QM fills 2.6 of 10 slots against notrend's 6.4. |
+| quality_momentum | **Insider Breakout** | LIVE alert-only | 17.0% | Same insider grade, plus above SMA50 and SMA200. 55 closed sim trades. Kept as the A/B control. |
+| reversal_dip | **Insider Dip Buys** | LIVE alert-only | 13.6% | 10+ consecutive sells then a buy, into a 25%+ 3-month drawdown. Genuinely lumpy — went dark Dec 2025–Feb 2026 and again Jun–Aug 2026, then fired 3 in a month. Sparse alerts are expected, not a fault. |
 
 CAGRs are post-audit (2026-08-18), after the `filed_at` timezone fix removed
 look-ahead entries. Idle cash held in SPY; 1x leverage — the 2x book was built,

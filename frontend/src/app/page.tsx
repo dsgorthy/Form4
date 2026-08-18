@@ -58,9 +58,9 @@ async function getJson(path: string, revalidate = 300) {
 // A-List leads because it is the strongest book, and the landing page reads the
 // first entry for the hero chart.
 const STRATEGIES = [
-  { key: "quality_notrend", name: "The A-List", thesis: "A proven insider buys. No chart condition." },
-  { key: "quality_momentum", name: "Tailwind", thesis: "A proven insider buys a stock already trending up" },
-  { key: "reversal_dip", name: "Change of Heart", thesis: "A serial seller finally buys, into a 25% drawdown" },
+  { key: "quality_notrend", name: "A-List Buys", thesis: "A proven insider buys. No chart condition." },
+  { key: "quality_momentum", name: "Insider Breakout", thesis: "A proven insider buys a stock already trending up" },
+  { key: "reversal_dip", name: "Insider Dip Buys", thesis: "A serial seller finally buys, into a 25% drawdown" },
 ];
 
 function fmtValue(v: number) {

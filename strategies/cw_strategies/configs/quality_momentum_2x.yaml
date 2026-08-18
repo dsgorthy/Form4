@@ -26,7 +26,7 @@
 # would have funded.
 
 strategy_name: quality_momentum_2x
-display_name: "Form4 Tailwind 2x"
+display_name: "Form4 Insider Breakout 2x"
 alert_prefix: "[QM2x]"
 # Dedicated paper account — reads ALPACA_API_KEY_QUALITY_MOMENTUM / _SECRET_QUALITY_MOMENTUM from .env
 alpaca_env_prefix: QUALITY_MOMENTUM_2X

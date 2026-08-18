@@ -367,9 +367,9 @@ export default async function ScoringPage() {
 
           <div className="space-y-4 mb-8">
             {[
-              { name: "The A-List", hold: "42 days", thesis: "An A+/A-graded insider buys, and that is the whole test — no condition on the chart at all. The trend filter the other book applies turns out to cost more in trades foregone than it saves in bad ones." },
-              { name: "Tailwind", hold: "42 days", thesis: "The same graded insider, but the stock is already above its 50- and 200-day averages. Conviction and price pointing the same way, at the cost of a much smaller book." },
-              { name: "Change of Heart", hold: "21 days", thesis: "An insider who has sold 10+ consecutive times finally buys, while the stock is down 25%+ over three months. A behavioural reversal with a margin of safety attached." },
+              { name: "A-List Buys", hold: "42 days", thesis: "An A+/A-graded insider buys, and that is the whole test — no condition on the chart at all. The trend filter the other book applies turns out to cost more in trades foregone than it saves in bad ones." },
+              { name: "Insider Breakout", hold: "42 days", thesis: "The same graded insider, but the stock is already above its 50- and 200-day averages. Conviction and price pointing the same way, at the cost of a much smaller book." },
+              { name: "Insider Dip Buys", hold: "21 days", thesis: "An insider who has sold 10+ consecutive times finally buys, while the stock is down 25%+ over three months. A behavioural reversal with a margin of safety attached." },
             ].map((s) => (
               <div key={s.name} className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/40 p-4">
                 <div className="flex items-center justify-between mb-2">
