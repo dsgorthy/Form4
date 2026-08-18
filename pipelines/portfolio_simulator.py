@@ -213,21 +213,24 @@ def scan_filings_for_date(conn: object, filing_date: str) -> list[dict]:
             MAX(COALESCE(i.display_name, i.name)) AS insider_name,
             MAX(t.title) AS title,
             t.insider_id,
-            t.filing_date,
+            MAX(t.filing_date) AS filing_date,
             MAX(t.trade_date) AS trade_date,
             SUM(t.value) AS total_value,
             SUM(t.qty) AS total_qty,
-            -- PIT scoring columns
-            t.pit_n_trades,
-            t.pit_win_rate_7d,
-            t.pit_avg_abnormal_7d,
-            t.pit_win_rate_30d,
-            t.signal_grade,
-            t.is_rare_reversal,
-            t.insider_switch_rate,
-            t.week52_proximity,
-            t.is_10b5_1,
-            -- Holdings (direct only — indirect inflates %)
+            -- PIT scoring columns. Aggregated rather than added to the GROUP
+            -- BY: the unit is one filing by one insider in one ticker, and
+            -- grouping by a score would split that filing into several rows
+            -- if any lot disagreed.
+            MAX(t.pit_n_trades) AS pit_n_trades,
+            MAX(t.pit_win_rate_7d) AS pit_win_rate_7d,
+            MAX(t.pit_avg_abnormal_7d) AS pit_avg_abnormal_7d,
+            MAX(t.pit_win_rate_30d) AS pit_win_rate_30d,
+            MAX(t.signal_grade) AS signal_grade,
+            MAX(t.is_rare_reversal) AS is_rare_reversal,
+            MAX(t.insider_switch_rate) AS insider_switch_rate,
+            MAX(t.week52_proximity) AS week52_proximity,
+            MAX(t.is_10b5_1) AS is_10b5_1,
+            -- Holdings (direct only — indirect inflates the percentage)
             MAX(CASE WHEN t.direct_indirect = 'D' OR t.direct_indirect IS NULL
                 THEN t.shares_owned_after ELSE NULL END) AS shares_after,
             -- Transaction group for deduplication
@@ -237,10 +240,19 @@ def scan_filings_for_date(conn: object, filing_date: str) -> list[dict]:
         WHERE t.filing_date = ?
           AND t.trans_code = 'P'
           AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
-          AND t.title NOT LIKE '%10%%owner%'
-          AND t.title NOT LIKE '%10 percent%'
-        GROUP BY t.filing_key
-        ORDER BY t.filing_date
+          -- Every literal %% must be doubled: this query is executed WITH
+          -- params, so psycopg2 interpolates and a bare %% is a format spec.
+          -- One in a comment was enough to take the whole simulator down.
+          AND t.title NOT LIKE '%%10%%owner%%'
+          AND t.title NOT LIKE '%%10 percent%%'
+        -- ticker and insider_id are selected raw, so they belong in the
+        -- grouping. SQLite tolerated the bare filing_key; Postgres does not,
+        -- and this has been raising GroupingError since the migration —
+        -- meaning the simulator that produces every published book has not
+        -- been runnable. Grouping by all three is also the correct unit: one
+        -- filing, one insider, one ticker.
+        GROUP BY t.filing_key, t.ticker, t.insider_id
+        ORDER BY MAX(t.filing_date)
     """, (filing_date,)).fetchall()
 
     candidates = []
@@ -464,6 +476,7 @@ class PortfolioSimulator:
         self.size_min = self.params.get("position_size_min", self.params.get("position_size", 0.05))
         self.size_max = self.params.get("position_size_max", self.params.get("position_size", 0.05))
 
+
         # Hybrid options: use calls for high-conviction trades
         self.use_options = self.params.get("use_options", True)
         self.option_min_quality = self.params.get("option_min_quality", 8.0)
@@ -505,7 +518,7 @@ class PortfolioSimulator:
         opt = self.conn.execute("""
             SELECT expiration, strike, close as opt_price, bid, ask
             FROM option_prices
-            WHERE ticker = ? AND right = 'C' AND trade_date = ?
+            WHERE ticker = ? AND "right" = 'C' AND trade_date = ?
               AND strike BETWEEN ? AND ?
               AND julianday(expiration) - julianday(trade_date) BETWEEN ? AND ?
               AND close > 0.10
@@ -529,7 +542,7 @@ class PortfolioSimulator:
         """Get the option close price on a specific date."""
         row = self.conn.execute("""
             SELECT close FROM option_prices
-            WHERE ticker = ? AND expiration = ? AND strike = ? AND right = 'C'
+            WHERE ticker = ? AND expiration = ? AND strike = ? AND "right" = 'C'
               AND trade_date = ?
             LIMIT 1
         """, (ticker, expiration, strike, trade_date)).fetchone()
@@ -749,6 +762,7 @@ class PortfolioSimulator:
             # Position sizing — variable by signal quality
             position_size = self.get_position_size(c["signal_quality"])
             dollar_amount = self.equity * position_size
+
             shares = int(dollar_amount / entry_price)
             if shares <= 0:
                 continue
