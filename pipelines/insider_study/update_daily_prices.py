@@ -104,9 +104,30 @@ def load_alpaca_credentials() -> tuple[str, str]:
     sys.exit(1)
 
 
+#: A ticker whose last bar is older than this is treated as delisted and
+#: dropped from the refresh universe. Without a bound, every dead symbol is
+#: re-requested forever: the skip below only fires for tickers that are current
+#: through today, and a delisted one never becomes current.
+STALE_TICKER_CUTOFF_DAYS = 400
+
+
 def get_tickers_to_update(conn, since: str, explicit: list[str] | None) -> list[str]:
+    """Recent filers UNION everything we already carry prices for.
+
+    Filers alone is not enough. That was the original universe, and with
+    --since defaulting to 30 days it meant a ticker stopped being refreshed the
+    moment its insiders stopped filing. By 2026-08 that had left 4,843 of 8,212
+    tickers more than four months stale — 59% of the price table — which
+    silently shrank the tradeable universe, blanked above_sma50/above_sma200
+    (they need history), and made historical positions exit at their last-seen
+    price instead of a real one.
+
+    Including what we already carry makes the job self-healing: a ticker stays
+    current as long as it trades, whether or not anyone filed on it this month.
+    """
     if explicit:
         return sorted({t.strip().upper() for t in explicit if t.strip()})
+
     rows = conn.execute(
         """
         SELECT DISTINCT ticker FROM trades
@@ -118,6 +139,17 @@ def get_tickers_to_update(conn, since: str, explicit: list[str] | None) -> list[
         (since,),
     ).fetchall()
     tickers = {r["ticker"] for r in rows if r["ticker"]}
+
+    cutoff = (date.today() - timedelta(days=STALE_TICKER_CUTOFF_DAYS)).isoformat()
+    carried = conn.execute(
+        """
+        SELECT ticker FROM daily_prices
+        GROUP BY ticker HAVING MAX(date) >= ?
+        """,
+        (cutoff,),
+    ).fetchall()
+    tickers.update(r["ticker"] for r in carried if r["ticker"])
+
     tickers.update(BENCHMARK_TICKERS)
     return sorted(tickers)
 
