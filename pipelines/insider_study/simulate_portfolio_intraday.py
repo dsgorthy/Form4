@@ -48,6 +48,7 @@ sys.path.insert(0, str(REPO))
 import yaml
 
 from config.database import get_connection
+from framework.decision.entry_timing import filed_before_close
 
 logging.basicConfig(
     level=logging.INFO,
@@ -168,6 +169,18 @@ def get_close_for(conn, ticker: str, date_str: str,
     if row:
         return row[0], float(row[1])
     return None
+
+
+def earliest_tradeable_date(filing_date: str, filed_at) -> str:
+    """First calendar date whose close could have been traded on.
+
+    get_close_for walks forward to the next session with a price, so returning
+    a calendar date is sufficient — it does not have to be a trading day.
+    """
+    if filed_before_close(filed_at):
+        return filing_date
+    return (datetime.strptime(filing_date, "%Y-%m-%d") +
+            timedelta(days=1)).strftime("%Y-%m-%d")
 
 
 def trading_days_between(conn, start_date: str, end_date: str) -> int:
@@ -310,7 +323,7 @@ def run_one_strategy(strategy_name: str, conn) -> dict:
     lookback_start = (date.today() - timedelta(days=10)).isoformat()
     rows = conn.execute(
         """SELECT t.trade_id, t.insider_id, t.ticker,
-                  t.filing_date::text, t.trade_date::text,
+                  t.filing_date::text, t.trade_date::text, t.filed_at::text,
                   t.title, COALESCE(i.display_name, i.name) AS insider_name,
                   t.company, t.is_csuite,
                   COALESCE(t.is_duplicate, 0) AS is_duplicate,
@@ -369,7 +382,11 @@ def run_one_strategy(strategy_name: str, conn) -> dict:
             continue
         if len(open_positions) >= max_concurrent:
             break
-        entry = get_close_for(conn, t["ticker"], t["filing_date"])
+        # A filing dated today may not have existed at today's close —
+        # EDGAR accepts Form 4 until 22:00 ET. Start the price search at the
+        # first session we could actually have traded.
+        entry_from = earliest_tradeable_date(t["filing_date"], t.get("filed_at"))
+        entry = get_close_for(conn, t["ticker"], entry_from)
         if not entry:
             continue
         entry_date, entry_price = entry

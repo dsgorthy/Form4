@@ -19,8 +19,9 @@ Source of truth for "should-have-entered":
                            WHERE strategy = 'quality_momentum')
 
 Per-trade outputs:
-  - entry_date = filing_date
-  - entry_price = prices.daily_prices.close at filing_date (fallback: next td)
+  - entry_date = first session tradeable after publication (same day only
+    when filed_at is before 16:00 ET; see framework.decision.entry_timing)
+  - entry_price = prices.daily_prices.close on that session (fallback: next td)
   - exit_date  = filing_date + 42 trading days
   - exit_price = close on exit_date
   - position_size_pct = 0.10  (10% of starting capital, matches yaml)
@@ -47,6 +48,7 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 
 from config.database import get_connection
+from framework.decision.entry_timing import filed_before_close
 
 logging.basicConfig(
     level=logging.INFO,
@@ -80,7 +82,7 @@ def _fetch_missed(conn, strategy: str) -> list[dict]:
           t.career_grade, t.insider_id,
           COALESCE(i.display_name, i.name) AS insider_name,
           t.title AS insider_title, t.is_csuite, t.is_rare_reversal,
-          t.company, t.trade_date::text AS trade_date
+          t.company, t.trade_date::text AS trade_date, t.filed_at::text AS filed_at
         FROM trade_decision_audit tda
         JOIN trades t ON t.trade_id = tda.trade_id
         LEFT JOIN insiders i ON t.insider_id = i.insider_id
@@ -268,7 +270,13 @@ def backfill(strategy: str, dry_run: bool, replace: bool) -> dict:
         ticker = t["ticker"]
         filing_date = t["filing_date"]
 
-        entry = _get_close(conn, ticker, filing_date)
+        # EDGAR accepts Form 4 until 22:00 ET, so a filing dated today may
+        # not have existed at today's close. Start the price search at the
+        # first session that could actually have been traded.
+        entry_from = filing_date if filed_before_close(t.get("filed_at")) else (
+            datetime.strptime(filing_date, "%Y-%m-%d") + timedelta(days=1)
+        ).strftime("%Y-%m-%d")
+        entry = _get_close(conn, ticker, entry_from)
         if entry is None:
             counts["skipped_no_entry_price"] += 1
             logger.warning("  [%s/%s] no entry price near %s — skipped",
