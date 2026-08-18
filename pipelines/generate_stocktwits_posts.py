@@ -112,21 +112,26 @@ def render(t: dict) -> str:
     lines = [f"${t['ticker']} — {who} {verb} {amount}", ""]
     lines += [f"· {a}" for a in annotate(t, max_lines=3)]
 
+    # Stated as a data point, not a pitch. Stocktwits bans links used as
+    # "direct advertisements or sales pitches for a paid product", and the
+    # earlier phrasing ("our top tier has beaten the S&P by ~2%") was a
+    # performance claim advertising the service. The grade itself is analysis,
+    # which the rules explicitly allow, so keep the grade and drop the sell.
     grade = t.get("career_grade")
-    if grade in ("A+", "A"):
-        lines += ["", f"We grade this insider {grade}. Our top tier has beaten "
-                      f"the S&P by ~2% over the following month."]
-    elif grade:
-        lines += ["", f"We grade this insider {grade}."]
+    if grade:
+        lines += ["", f"Insider grade: {grade} (from their own prior trades)"]
 
     # A bare domain is not a call to action — it gives the reader nowhere in
     # particular to go. Deep-link the insider so the click lands on their full
     # record, which is both the obvious next question and an SEO surface.
-    slug = (t.get("insider_slug") or "").strip()
-    if slug:
-        lines += ["", f"Their full track record → form4.app/insider/{slug}"]
-    else:
-        lines += ["", f"Every insider trade in ${t['ticker']} → form4.app/company/{t['ticker']}"]
+    # Link the COMPANY page, not the insider page. Stocktwits requires the link
+    # to "directly relate to the tagged ticker" — a company page is
+    # unambiguously about $TICKER, whereas an insider page is about a person
+    # who happens to trade it, and enforcement here is not worth arguing with.
+    #
+    # Phrased as a source citation rather than a call to action, for the same
+    # reason the performance claim came out above.
+    lines += ["", f"Full filing history: form4.app/company/{t['ticker']}"]
     lines += ["", "Not investment advice."]
     return "\n".join(lines)
 
