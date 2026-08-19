@@ -168,12 +168,22 @@ to move.
 
 | Key | Public name | Status | CAGR | Key Metric |
 |-----|-------------|--------|------|------------|
-| quality_notrend | **A-List Buys** | LIVE alert-only | 43.5% | A+/A insider buys, no chart condition. 141 closed sim trades. The strongest book: the trend filter QM applies costs more in trades foregone than it saves — QM fills 2.6 of 10 slots against notrend's 6.4. |
+| quality_notrend | **A-List Buys** | LIVE alert-only | 48.8% | A+/A insider buys, no chart condition. 141 closed sim trades. The strongest book: the trend filter QM applies costs more in trades foregone than it saves — QM fills 2.6 of 10 slots against notrend's 6.4. |
 | quality_momentum | **Insider Breakout** | LIVE alert-only | 17.0% | Same insider grade, plus above SMA50 and SMA200. 55 closed sim trades. Kept as the A/B control. |
 | reversal_dip | **Insider Dip Buys** | LIVE alert-only | 13.6% | 10+ consecutive sells then a buy, into a 25%+ 3-month drawdown. Genuinely lumpy — went dark Dec 2025–Feb 2026 and again Jun–Aug 2026, then fired 3 in a month. Sparse alerts are expected, not a fault. |
 
-CAGRs are post-audit (2026-08-18), after the `filed_at` timezone fix removed
-look-ahead entries. Idle cash held in SPY; 1x leverage — the 2x book was built,
+CAGRs are post-audit (2026-08-19). Two corrections landed that day, and they
+pull in opposite directions:
+
+- **Look-ahead removed** (`filed_at` was Eastern for 2026 rows but read as UTC,
+  so 37 of 278 positions entered a session early): **−1.0 to −1.3 CAGR points**,
+  $21,017 across the three books.
+- **After-bell filings now fill at the NEXT SESSION'S OPEN**, not its close.
+  76% of filings arrive after the bell, and this is what a subscriber acting on
+  the alert would actually get: **+1.5 to +6.7 points**.
+
+Entries are verified against primary sources: 278/278 land on the first
+session we could have traded, at that session's actual open or close. Idle cash held in SPY; 1x leverage — the 2x book was built,
 measured at 61% average gross exposure against a 200% ceiling, and shelved.
 
 **Retired 2026-08-18:** `tenb51_surprise` (Sharpe 0.68). Runner unloaded, plist
