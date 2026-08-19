@@ -307,3 +307,23 @@ writers:
     sla_hours: 26
     required_for: ['*']
     notes: "Depends on ticker_metadata. Refresh sectors weekly via com.openclaw.refresh-ticker-metadata (Sundays 09:00 PT)."
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Insider ↔ company mapping — ADDED 2026-08-19.
+# Was an orphan: written only by a full historical backfill, read by both the
+# /insider page and the PIT scorer's role weighting. Three months stale when
+# found. Exactly the class of bug this registry exists to surface.
+# ─────────────────────────────────────────────────────────────────────────────
+
+  - column: insider_companies.last_trade
+    script: pipelines/insider_study/rebuild_insider_companies.py
+    plists: [com.openclaw.rebuild-insider-companies]
+    schedule: "daily 05:30 PT (own plist, before any scoring)"
+    sla_hours: 30
+    required_for: ['*']
+    notes: >
+      Must run BEFORE any scoring step in the chain: pit_scoring.py reads
+      insider_companies.title for role_at_ticker and derives is_primary from
+      trade_count, so a stale mapping silently drops a scoring input. Rebuilds
+      wholesale over every trans_code — NOT just P/S. 40,384 pairs have only
+      F/A/M/X/G and are legitimate insider relationships.

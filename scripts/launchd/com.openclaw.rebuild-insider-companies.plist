@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Rebuild the insider <-> company mapping. STUDIO ONLY — never load on the
+  Mini (see the Studio-only plist guard in ~/.local/bin/studio).
+
+  WHY THIS EXISTS AS ITS OWN JOB
+
+  insider_companies had no recurring writer at all. It was built once by
+  strategies/insider_catalog/backfill.py during a full historical backfill and
+  then left; on 2026-08-19 its newest row was last_trade=2026-05-15, three
+  months stale, missing 9,779 of 126,839 pairs.
+
+  The natural home would have been refresh_features_daily.sh, but that chain
+  has not run since 2026-08-12 — its plist exists only as a .bak and the
+  feature columns it used to own are now covered inline by insider-fetch's
+  subprocess chain. Rather than revive a dead chain to carry one script, this
+  runs on its own.
+
+  05:30 PT: after the overnight ingest has settled and BEFORE any scoring,
+  because pit_scoring.py reads insider_companies.title for role_at_ticker and
+  derives is_primary from trade_count. A stale mapping silently drops a
+  scoring input rather than failing.
+
+  Install (on Studio):
+    cp scripts/launchd/com.openclaw.rebuild-insider-companies.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.openclaw.rebuild-insider-companies.plist
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.openclaw.rebuild-insider-companies</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/python3.12</string>
+    <string>/Users/derekg/trading-framework/pipelines/insider_study/rebuild_insider_companies.py</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/derekg/trading-framework</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>5</integer>
+    <key>Minute</key>
+    <integer>30</integer>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/Users/derekg/trading-framework/logs/rebuild-insider-companies.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/derekg/trading-framework/logs/rebuild-insider-companies.log</string>
+</dict>
+</plist>

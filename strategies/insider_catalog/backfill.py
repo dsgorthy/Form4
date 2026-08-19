@@ -975,9 +975,16 @@ def _build_insider_companies(conn: sqlite3.Connection):
             MIN(t.trade_date),
             MAX(t.trade_date)
         FROM trades t
-        WHERE t.trans_code IN ('P', 'S')
-          AND t.trade_date <= CURRENT_DATE::text
+        -- Every trans_code, not just P/S. This filtered to P and S while the
+        -- table in production held 40,384 pairs that have only F/A/M/X/G —
+        -- an executive who has only received awards and had shares withheld
+        -- for tax is still an insider at that company, and pit_scoring reads
+        -- role_at_ticker from here. Running the narrow version would have
+        -- deleted them. See pipelines/insider_study/rebuild_insider_companies.py,
+        -- which is the recurring writer and must stay in step with this.
+        WHERE t.trade_date <= CURRENT_DATE::text
           AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
+          AND t.ticker IS NOT NULL
         GROUP BY t.insider_id, t.ticker
     """)
     conn.commit()

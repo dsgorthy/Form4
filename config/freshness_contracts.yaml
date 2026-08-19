@@ -178,3 +178,17 @@ trades.industry_buy_pct_90d:
   description: "PIT industry-level signal: % of sector peers with >=1 unscheduled buy in [F-90d, F) minus trailing-3y median. NULL if ticker has no sector classification."
   populated_by: pipelines/insider_study/compute_industry_net_flow.py
   notes: "Depends on ticker_metadata being populated. Sector classification is a snapshot — see TestNoFutureDataInTickerMetadata for the PIT contract."
+
+# ── Insider ↔ company mapping (orphan found 2026-08-19) ──
+insider_companies.last_trade:
+  max_staleness_hours: 30
+  required_for: ['*']
+  description: "Newest last_trade across the insider↔company mapping. Feeds /insider company lists AND pit_scoring's role_at_ticker + is_primary lookups."
+  populated_by: pipelines/insider_study/rebuild_insider_companies.py
+  notes: >
+    Had NO recurring writer until 2026-08-19 — built once by
+    strategies/insider_catalog/backfill.py during a full historical backfill,
+    then left. Found three months stale (newest last_trade 2026-05-15) and
+    missing 9,779 of 126,839 pairs. Because pit_scoring reads role_at_ticker
+    from this table, every grade computed for a new insider in that window was
+    missing its role weight. This contract exists so that cannot recur.
