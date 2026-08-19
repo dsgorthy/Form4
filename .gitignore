@@ -89,3 +89,9 @@ scripts/seed_positions.py
 # Thesis monitor — personal position data
 pipelines/thesis_monitor/positions.yaml
 .venv-test/
+
+# Cached ThetaData CSV pulls (8.7MB, regenerable) — see pipeline_options_backfill
+tradingview/theta_cache/
+
+# Claude Code session state
+.claude/
