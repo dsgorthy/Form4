@@ -75,7 +75,7 @@ export function SignalsTable({ filings }: SignalsTableProps) {
                 </Badge>
               </TableCell>
               <TableCell className="hidden md:table-cell">
-                <InsiderGradeBadge grade={f.pit_grade} compact />
+                <InsiderGradeBadge rating={(f as any).insider_rating} grade={(f as any).career_grade} compact />
               </TableCell>
               <TableCell className="hidden md:table-cell">
                 {(f as any).trade_grade ? <TradeGradeBadge grade={(f as any).trade_grade} /> : <span className="text-[#55556A]">—</span>}

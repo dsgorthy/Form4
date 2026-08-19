@@ -84,7 +84,7 @@ export function PrivateTradesTable({ slug, initialData }: PrivateTradesTableProp
                     {t.insider_name}
                   </span>
                   {t.pit_grade && (
-                    <InsiderGradeBadge grade={t.pit_grade} />
+                    <InsiderGradeBadge rating={(t as any).insider_rating} grade={(t as any).career_grade} />
                   )}
                 </div>
                 <Badge
@@ -149,7 +149,7 @@ export function PrivateTradesTable({ slug, initialData }: PrivateTradesTableProp
                   )}
                 </td>
                 <td className="px-4 py-3">
-                  {t.pit_grade ? <InsiderGradeBadge grade={t.pit_grade} /> : <span className="text-[#55556A]">—</span>}
+                  {t.pit_grade ? <InsiderGradeBadge rating={(t as any).insider_rating} grade={(t as any).career_grade} /> : <span className="text-[#55556A]">—</span>}
                 </td>
                 <td className="px-4 py-3">
                   <Badge

@@ -10,20 +10,31 @@ from api.db import get_db
 from api.gating import null_items_track_records, redact_gated_items, require_pro
 from api.id_encoding import decode_insider_id, encode_response_ids
 from api.pit_helpers import enrich_with_best_pit_grade
+from api.ratings import insider_rating
 
 router = APIRouter(prefix="/api/v1/leaderboard", tags=["leaderboard"])
 
+# One ranking, and it is PIT-correct.
+#
+# The default already used bc.best_career_score, with a comment explaining that
+# itr.score is not PIT-correct — while four of the five offered sorts read the
+# very columns that comment warns about. insider_track_records is recomputed
+# across the entire history on every refresh, so ranking by buy_win_rate_7d
+# ranks an insider on trades that had not happened yet at the date being
+# displayed beside them.
+#
+# Removed 2026-08-18 rather than fixed: a PIT-correct win rate is a different
+# column that does not exist, and offering four ways to sort a leaderboard is
+# itself part of the confusion this change is removing. Rank by the one number
+# we can defend. `buy_count` went with them — sorting people by how often they
+# trade is an activity ranking wearing a quality ranking's clothes.
+#
+# Unknown sort values fall back to the default instead of 422ing, so an old
+# bookmark or a cached client still renders.
 SORT_COLUMNS = {
-    # Default sort uses Career Grade score (PIT-correct, V3 scorer).
-    # itr.score (legacy global track-record score) is NOT PIT-correct and
-    # was producing rankings where a top-ranked insider could have a low
-    # current PIT grade. See audit 2026-05-07.
     "score": "bc.best_career_score",
-    "win_rate": "itr.buy_win_rate_7d",
-    "alpha": "itr.buy_avg_abnormal_7d",
-    "buy_count": "itr.buy_count",
-    "percentile": "itr.percentile",
 }
+DEFAULT_SORT = "score"
 
 
 # Free/Pro users see this many ranked insiders; Pro+ sees the full list.
@@ -37,7 +48,7 @@ FREE_PREVIEW_LIMIT = 10
 @router.get("")
 def leaderboard(
     user: UserContext = Depends(get_current_user),
-    sort_by: str = Query(default="score", pattern="^(score|win_rate|alpha|buy_count|percentile)$"),
+    sort_by: str = Query(default=DEFAULT_SORT),
     order: str = Query(default="desc", pattern="^(asc|desc)$"),
     min_trades: Optional[int] = Query(default=None, ge=1),
     min_tier: Optional[int] = Query(default=None, ge=1, le=5),
@@ -90,7 +101,7 @@ def leaderboard(
         params.append(active_since)
 
     where_clause = " AND ".join(conditions)
-    sort_col = SORT_COLUMNS[sort_by]
+    sort_col = SORT_COLUMNS.get(sort_by, SORT_COLUMNS[DEFAULT_SORT])
     order_dir = order.upper()
 
     # CTE: max Career Grade score per insider (PIT-correct via latest as_of_date
@@ -151,6 +162,11 @@ def leaderboard(
 
         items = [dict(r) for r in rows]
         enrich_with_best_pit_grade(conn, items)
+        # The same rating the feed and the filing pages show. A leaderboard
+        # that ranks on one scale while every other surface displays another
+        # is the confusion this is removing.
+        for item in items:
+            item["insider_rating"] = insider_rating(item.get("best_career_grade"))
     if not user.is_pro:
         items = null_items_track_records(items)
     # Preview rows deliberately keep names and career grade visible — redacting

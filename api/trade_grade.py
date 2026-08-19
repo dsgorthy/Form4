@@ -13,7 +13,11 @@ Validated on 50K buy trades (2020-2026):
   3★: -0.62% avg 30d abnormal, 44.5% WR
   1★: -0.82% avg 30d abnormal, 43.4% WR
 
-Star thresholds: 5★ >72, 4★ 63-72, 3★ 55-62, 2★ 45-54, 1★ <45
+Bands and their measured performance now live in api/ratings.py. The figures
+in this docstring are the ORIGINAL trade-date-anchored validation and are
+retained only as history — they are inflated, because trade_returns measures
+from the transaction date rather than from the first close a subscriber could
+have acted on. The filing-anchored numbers are in api/ratings.py.
 """
 
 from __future__ import annotations
@@ -54,15 +58,35 @@ ROLE_POINTS = {
     "other": 0,
 }
 
-STAR_THRESHOLDS = [(73, 5), (63, 4), (55, 3), (45, 2)]
-STAR_LABELS = {5: "Exceptional", 4: "Strong", 3: "Average", 2: "Weak", 1: "Poor"}
+# Bands live in api.ratings, which is the single definition of every rating
+# this product publishes. They used to be declared here as 73/63/55/45 with
+# their own labels, and drifted from the methodology page (which said 2 stars
+# was "Below Average" where this said "Weak", and claimed +4.78% for 5 stars
+# where the docstring above says +3.0%). Deriving them removes the second copy.
+#
+# The recut to 80/70/60/50 also fixed a real defect: under the old thresholds
+# the top band returned +1.51% against the second band's +1.28% but had the
+# LOWER win rate, so our best rating told a reader nothing the second-best did
+# not. See api/ratings.py for the measurement.
+from api.ratings import (  # noqa: E402
+    TRADE_RATING_META,
+    trade_rating,
+    trade_rating_segments,
+)
+
+STAR_LABELS = {
+    meta["segments"]: name for name, meta in TRADE_RATING_META.items()
+}
+STAR_THRESHOLDS = sorted(
+    ((meta["min_score"], meta["segments"]) for meta in TRADE_RATING_META.values()
+     if meta["min_score"] > 0),
+    reverse=True,
+)
 
 
 def score_to_stars(score: int) -> int:
-    for threshold, stars in STAR_THRESHOLDS:
-        if score >= threshold:
-            return stars
-    return 1
+    """1-5 segments. A rendering of the band, not a separate scale."""
+    return trade_rating_segments(score)
 
 
 def compute_trade_grade(item: dict) -> dict:
@@ -198,8 +222,12 @@ def compute_trade_grade(item: dict) -> dict:
 
     return {
         "score": score,
+        # `rating` is the canonical answer. `stars` and `label` are kept as
+        # aliases so existing consumers keep working and pick up the recut
+        # bands automatically rather than rendering a stale scale.
+        "rating": trade_rating(score),
         "stars": stars,
-        "label": STAR_LABELS[stars],
+        "label": trade_rating(score),
         "factors": factors,
     }
 

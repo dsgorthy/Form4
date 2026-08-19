@@ -30,6 +30,7 @@ export interface ResultsInsider {
   slug?: string | null;
   score?: number | null;
   best_pit_grade?: string | null;
+  best_career_grade?: string | null;
   primary_title: string | null;
   primary_ticker: string | null;
 }
@@ -134,7 +135,7 @@ export function ExploreResultsView({
                 </td>
                 <td className="px-4 py-2 text-right">
                   {ins.best_pit_grade ? (
-                    <InsiderGradeBadge grade={ins.best_pit_grade} />
+                    <InsiderGradeBadge grade={ins.best_career_grade} />
                   ) : (
                     <span className="text-[#55556A]">—</span>
                   )}

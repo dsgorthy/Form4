@@ -45,6 +45,7 @@ interface InsiderResult {
   slug?: string | null;
   score?: number | null;
   best_pit_grade?: string | null;
+  best_career_grade?: string | null;
   primary_title: string | null;
   primary_ticker: string | null;
 }
@@ -367,7 +368,9 @@ export function EntitySearch({
                               <span className="truncate text-sm text-[#E8E8ED]">
                                 <Highlight text={ins.name} q={term} />
                               </span>
-                              {ins.best_pit_grade && <InsiderGradeBadge grade={ins.best_pit_grade} />}
+                              {(ins.best_career_grade || ins.best_pit_grade) && (
+                                <InsiderGradeBadge grade={ins.best_career_grade} />
+                              )}
                             </div>
                             {ins.primary_title && (
                               <div className="truncate text-[10px] text-[#55556A]">

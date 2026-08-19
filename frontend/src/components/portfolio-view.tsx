@@ -803,7 +803,7 @@ export function PortfolioView() {
                     </td>
                     <td className={`hidden md:table-cell px-3 py-2 text-center ${gated ? "blur-[3px]" : ""}`}>
                       {!gated && (t as any).career_grade ? (
-                        <InsiderGradeBadge grade={(t as any).career_grade} compact tooltip={`Career: ${(t as any).career_grade}`} />
+                        <InsiderGradeBadge grade={(t as any).career_grade} compact />
                       ) : !gated && (t as any).pit_grade ? (
                         <InsiderGradeBadge grade={(t as any).pit_grade} compact tooltip={`Recent Form: ${(t as any).pit_grade}`} />
                       ) : (

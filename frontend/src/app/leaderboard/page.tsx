@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 export const metadata = {
   title: "Top Insider Traders — Leaderboard",
   description:
-    "Ranked insiders by track record. See who consistently beats the market. Sortable by grade, win rate, and alpha.",
+    "Every insider ranked by the one thing we can measure point-in-time: how their own past buys performed.",
 };
 
 import Link from "next/link";

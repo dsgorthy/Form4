@@ -402,7 +402,7 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
           <InfoRow label="Title">{(filing.normalized_title || filing.title)?.replace(/;/g, ", ")}</InfoRow>
           <div className="flex items-center justify-between py-2 border-b border-[#2A2A3A]/50">
             <span className="text-[#8888A0] text-sm">PIT Grade</span>
-            <InsiderGradeBadge grade={filing.pit_grade} showLabel />
+            <InsiderGradeBadge rating={(filing as any).insider_rating} grade={(filing as any).career_grade} showLabel />
           </div>
           <InfoRow label="Score">{filing.score?.toFixed(2) ?? "\u2014"}</InfoRow>
           {filing.percentile != null && (

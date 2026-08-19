@@ -151,7 +151,8 @@ export function LeaderboardTable({ filters, sort, order }: LeaderboardTableProps
                 </td>
                 <td className="px-3 md:px-4 py-3 text-center">
                   <InsiderGradeBadge
-                    grade={(entry as any).best_career_grade ?? entry.best_pit_grade}
+                    rating={(entry as any).insider_rating}
+                    grade={(entry as any).best_career_grade}
                     compact
                     tooltip={(entry as any).best_career_grade
                       ? `Career: ${(entry as any).best_career_grade}`

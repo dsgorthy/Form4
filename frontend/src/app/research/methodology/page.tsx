@@ -14,21 +14,26 @@ export const metadata = {
   },
 };
 
+// Measured 2026-08-18: 76,909 open-market buys 2018-2026, held 30 trading
+// days, return minus SPY, entry at the first close AFTER the filing was public.
+// See api/ratings.py, which is the source of truth for these values.
 const insiderGrades = [
-  { grade: "A+", threshold: ">=2.5", description: "Exceptional track record. Consistently profitable across multiple time horizons with strong abnormal returns." },
-  { grade: "A", threshold: ">=2.0", description: "Strong track record. Reliable alpha generation with good win rates across most windows." },
-  { grade: "B", threshold: ">=1.2", description: "Above-average performer. Positive alpha with reasonable consistency." },
-  { grade: "C", threshold: ">=0.6", description: "Below-average track record. Some positive signals but inconsistent performance." },
-  { grade: "D", threshold: ">=0.0", description: "Weak track record. Minimal or negative alpha historically." },
-  { grade: "New", threshold: "No data", description: "Insufficient history to score." },
+  { grade: "A+", share: "3.2%", abnormal: "+4.88%", winRate: "53.7%", description: "The top 3%. Their buys beat the market by the widest margin we measure." },
+  { grade: "A", share: "4.0%", abnormal: "+2.00%", winRate: "48.5%", description: "A consistent record of buying ahead of gains." },
+  { grade: "B", share: "15.1%", abnormal: "+0.41%", winRate: "47.0%", description: "Slightly better than the market on average." },
+  { grade: "C", share: "65.6%", abnormal: "\u22120.25%", winRate: "45.1%", description: "Measured, and no better than the market." },
+  { grade: "Unrated", share: "12.1%", abnormal: "+1.41%", winRate: "46.1%", description: "Not enough history at this company to judge \u2014 and not a bad sign. Unrated buys have beaten every graded tier below A." },
 ];
 
+// Recut 2026-08-18. The previous bands (73/63/55/45) did not separate at the
+// top: the best rating returned +1.51% against the second-best's +1.28% and
+// had the LOWER win rate. These separate on both measures.
 const tradeGradeStars = [
-  { stars: 5, range: "73+", label: "Exceptional", avgReturn: "+4.78%", publicReturn: "Strong positive", description: "Top-tier transaction with multiple strong factors aligning." },
-  { stars: 4, range: "63-72", label: "Strong", avgReturn: "Positive", publicReturn: "Positive", description: "Well above average. Several favorable factors present." },
-  { stars: 3, range: "55-62", label: "Average", avgReturn: "Neutral", publicReturn: "Neutral", description: "Typical transaction. Some positive factors but nothing that strongly distinguishes it." },
-  { stars: 2, range: "45-54", label: "Below Average", avgReturn: "Weak", publicReturn: "Weak", description: "Below baseline. May have negative factors." },
-  { stars: 1, range: "<45", label: "Poor", avgReturn: "-0.74%", publicReturn: "Negative", description: "Multiple negative factors." },
+  { stars: 5, range: "80+", label: "Exceptional", share: "1.4%", abnormal: "+2.74%", winRate: "50.1%", description: "Several strong factors at once. The rarest rating we give." },
+  { stars: 4, range: "70\u201379", label: "Strong", share: "11.3%", abnormal: "+1.88%", winRate: "49.8%", description: "Clearly above the average filing." },
+  { stars: 3, range: "60\u201369", label: "Notable", share: "34.5%", abnormal: "+0.73%", winRate: "47.8%", description: "Something here stands out, but not much." },
+  { stars: 2, range: "50\u201359", label: "Routine", share: "35.1%", abnormal: "+0.12%", winRate: "44.4%", description: "Nothing distinguishes this filing." },
+  { stars: 1, range: "<50", label: "Weak", share: "17.6%", abnormal: "\u22121.35%", winRate: "42.7%", description: "Negative factors outweigh the positive ones." },
 ];
 
 const tradeFactors = [
@@ -109,21 +114,21 @@ export default async function ScoringPage() {
       </p>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-10">
         <div className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/40 p-4">
-          <p className="text-sm font-semibold text-[#E8E8ED] mb-1">Career Grade</p>
+          <p className="text-sm font-semibold text-[#E8E8ED] mb-1">Insider Rating</p>
           <p className="text-sm text-[#8888A0]">
-            <strong className="text-[#E8E8ED]">WHO</strong> they are. Insider&apos;s career-cumulative track record across all observable trades.
+            <strong className="text-[#E8E8ED]">WHO</strong> they are &mdash; how this insider&apos;s own past buys performed. One rating per person, per company.
           </p>
         </div>
         <div className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/40 p-4">
-          <p className="text-sm font-semibold text-[#E8E8ED] mb-1">Recent Form</p>
+          <p className="text-sm font-semibold text-[#E8E8ED] mb-1">Tags</p>
           <p className="text-sm text-[#8888A0]">
-            <strong className="text-[#E8E8ED]">HOW THEY&apos;RE TRADING</strong> right now. Recency-weighted view (1.5y half-life) — captures hot/cold streaks.
+            <strong className="text-[#E8E8ED]">WHAT HAPPENED</strong>. Facts about the filing &mdash; bought a dip, first purchase, unusually large. A filing carries as many as apply, and they never rate it.
           </p>
         </div>
         <div className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/40 p-4">
-          <p className="text-sm font-semibold text-[#E8E8ED] mb-1">Trade Grade</p>
+          <p className="text-sm font-semibold text-[#E8E8ED] mb-1">Trade Rating</p>
           <p className="text-sm text-[#8888A0]">
-            <strong className="text-[#E8E8ED]">HOW GOOD</strong> this specific transaction looks. 13 factors per trade.
+            <strong className="text-[#E8E8ED]">HOW NOTABLE</strong> this one filing is. Twelve factors, including the insider&apos;s rating. One rating per filing.
           </p>
         </div>
       </div>
@@ -145,20 +150,22 @@ export default async function ScoringPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[#2A2A3A] bg-[#1A1A26]/50">
-                <th className="px-4 py-3 text-left text-[#55556A] font-medium w-20">Grade</th>
-                {isAuthed && <th className="px-4 py-3 text-left text-[#55556A] font-medium w-28">Score</th>}
-                <th className="px-4 py-3 text-left text-[#55556A] font-medium">Description</th>
+                <th className="px-4 py-3 text-left text-[#55556A] font-medium w-24">Rating</th>
+                <th className="px-4 py-3 text-right text-[#55556A] font-medium w-24">Share</th>
+                <th className="px-4 py-3 text-right text-[#55556A] font-medium w-28">Avg 30d vs S&amp;P</th>
+                <th className="px-4 py-3 text-right text-[#55556A] font-medium w-24">Win rate</th>
+                <th className="px-4 py-3 text-left text-[#55556A] font-medium">What it means</th>
               </tr>
             </thead>
             <tbody>
               {insiderGrades.map((g, i) => (
                 <tr key={g.grade} className={i < insiderGrades.length - 1 ? "border-b border-[#2A2A3A]/50" : ""}>
                   <td className="px-4 py-3 align-top">
-                    <InsiderGradeBadge grade={g.grade === "New" ? undefined : g.grade} />
+                    <InsiderGradeBadge rating={g.grade} />
                   </td>
-                  {isAuthed && (
-                    <td className="px-4 py-3 font-mono text-[#E8E8ED] align-top">{g.threshold}</td>
-                  )}
+                  <td className="px-4 py-3 text-right font-mono tabular-nums text-[#55556A] align-top">{g.share}</td>
+                  <td className="px-4 py-3 text-right font-mono tabular-nums text-[#E8E8ED] align-top">{g.abnormal}</td>
+                  <td className="px-4 py-3 text-right font-mono tabular-nums text-[#8888A0] align-top">{g.winRate}</td>
                   <td className="px-4 py-3 text-[#8888A0] leading-relaxed">{g.description}</td>
                 </tr>
               ))}
@@ -270,16 +277,18 @@ export default async function ScoringPage() {
         <h2 className="text-xl font-bold text-[#E8E8ED] mb-1">Trade Grade</h2>
         <p className="text-sm text-[#55556A] font-mono mb-4">1 to 5 stars</p>
         <p className="text-sm text-[#8888A0] mb-6 leading-relaxed">
-          Each individual transaction is scored on 13 trade-level factors and mapped to a star rating.
+          Every filing is scored on twelve factors \u2014 including the insider's own rating \u2014 and lands in one of five bands. Figures below are measured from the first close after the filing was public, not from the transaction date.
         </p>
 
         <div className="overflow-x-auto rounded-lg border border-[#2A2A3A] mb-6">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[#2A2A3A] bg-[#1A1A26]/50">
-                <th className="px-4 py-3 text-left text-[#55556A] font-medium w-24">Rating</th>
-                <th className="px-4 py-3 text-left text-[#55556A] font-medium w-28">Avg 30d Alpha</th>
-                <th className="px-4 py-3 text-left text-[#55556A] font-medium">Description</th>
+                <th className="px-4 py-3 text-left text-[#55556A] font-medium w-32">Rating</th>
+                <th className="px-4 py-3 text-right text-[#55556A] font-medium w-24">Share</th>
+                <th className="px-4 py-3 text-right text-[#55556A] font-medium w-28">Avg 30d vs S&amp;P</th>
+                <th className="px-4 py-3 text-right text-[#55556A] font-medium w-24">Win rate</th>
+                <th className="px-4 py-3 text-left text-[#55556A] font-medium">What it means</th>
               </tr>
             </thead>
             <tbody>
@@ -289,9 +298,9 @@ export default async function ScoringPage() {
                     <StarDisplay count={s.stars} />
                     <span className="text-[10px] text-[#55556A] ml-1.5">{s.label}</span>
                   </td>
-                  <td className="px-4 py-3 font-mono text-[#E8E8ED] align-top">
-                    {isAuthed ? s.avgReturn : s.publicReturn}
-                  </td>
+                  <td className="px-4 py-3 text-right font-mono tabular-nums text-[#55556A] align-top">{s.share}</td>
+                  <td className="px-4 py-3 text-right font-mono tabular-nums text-[#E8E8ED] align-top">{s.abnormal}</td>
+                  <td className="px-4 py-3 text-right font-mono tabular-nums text-[#8888A0] align-top">{s.winRate}</td>
                   <td className="px-4 py-3 text-[#8888A0] leading-relaxed">{s.description}</td>
                 </tr>
               ))}

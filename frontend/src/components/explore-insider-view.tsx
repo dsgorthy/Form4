@@ -71,7 +71,7 @@ export function ExploreInsiderView({
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-bold text-[#E8E8ED] md:text-3xl">{profile.name}</h1>
           {profile.best_career_grade && (
-            <InsiderGradeBadge grade={profile.best_career_grade} label="Career" />
+            <InsiderGradeBadge grade={profile.best_career_grade} label="Insider" />
           )}
           {profile.best_pit_grade && (
             <InsiderGradeBadge grade={profile.best_pit_grade} label="Form" />

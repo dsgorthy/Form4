@@ -14,6 +14,7 @@ from api.ownership import position_change
 from api.signals_enrichment import enrich_items_with_signals
 from api.context_enrichment import enrich_items_with_context
 from api.price_dates import enrich_items_with_price_end
+from api.ratings import attach_ratings
 from api.trade_grade import enrich_items_with_trade_grade
 
 router = APIRouter(prefix="/api/v1/filings", tags=["filings"])
@@ -291,6 +292,7 @@ def list_filings(
         enrich_items_with_context(sig_conn, items)
     enrich_items_with_price_end(items)
     enrich_items_with_trade_grade(None, items)
+    attach_ratings(items)
 
     # The score, stars and label are the teaser and stay public. `factors` is
     # the model — named signals with their point contributions — and reading a
@@ -578,6 +580,7 @@ def get_filing(trade_id: str, user: UserContext = Depends(get_current_user)) -> 
         enrich_items_with_context(sig_conn, [result])
     enrich_items_with_price_end([result])
     enrich_items_with_trade_grade(None, [result])
+    attach_ratings([result])
 
     # "Why this matters" narrative — always present, with depth proportional to signal.
     #   high_signal → LLM-generated 4-field narrative (from trade_narrative)
