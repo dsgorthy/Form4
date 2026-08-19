@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 from api.auth import UserContext
 from api.db import get_db
 from api.filters import add_signal_class_filter, add_trans_code_filter
-from api.gating import require_pro
+from api.gating import require_pro_plus
 from api.rate_limit import limiter, EXPENSIVE_RATE
 
 router = APIRouter(prefix="/api/v1/export", tags=["export"])
@@ -20,7 +20,7 @@ router = APIRouter(prefix="/api/v1/export", tags=["export"])
 @limiter.limit(EXPENSIVE_RATE)
 def export_filings(
     request: Request,
-    user: UserContext = Depends(require_pro),
+    user: UserContext = Depends(require_pro_plus),
     trade_type: Optional[str] = Query(default=None, pattern="^(buy|sell)$"),
     ticker: Optional[str] = Query(default=None),
     date_from: Optional[str] = Query(default=None),

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useAuth } from "@clerk/nextjs";
+import { useAuth, useUser } from "@clerk/nextjs";
 import Link from "next/link";
 import { formatCurrency, formatPercent, isReturnUnavailable, unavailableReason } from "@/lib/format";
 import { formatTitle } from "@/lib/title-format";
@@ -20,6 +20,7 @@ const apiBase =
 const PAGE_SIZE = 50;
 
 import { FeedFilters, EMPTY_FILTERS } from "@/components/feed-filters";
+import { isPro } from "@/lib/subscription";
 import type { FeedFilterState } from "@/components/feed-filters";
 
 interface FeedListProps {
@@ -59,8 +60,11 @@ function FeedCardSkeleton() {
 
 export function FeedList({ initialTicker = "" }: FeedListProps) {
   const { getToken } = useAuth();
+  const { user } = useUser();
+  const userIsPro = isPro(user);
   const [data, setData] = useState<PaginatedResponse<Filing> | null>(null);
   const [offset, setOffset] = useState(0);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState<FeedFilterState>({
     ...EMPTY_FILTERS,
@@ -91,12 +95,20 @@ export function FeedList({ initialTicker = "" }: FeedListProps) {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
         if (res.ok) {
+          setLoadError(null);
           const json: PaginatedResponse<Filing> = await res.json();
           setData(json);
           setOffset(newOffset);
+        } else if (res.status === 403) {
+          // Quality filters are Pro. The controls are locked in the UI, so
+          // reaching here means a shared link or a stale tab — say so rather
+          // than silently leaving the previous page on screen.
+          setLoadError("Filtering by insider grade is a Pro feature.");
+        } else {
+          setLoadError("Could not load filings. Try again in a moment.");
         }
       } catch {
-        // silent
+        setLoadError("Could not load filings. Check your connection.");
       } finally {
         setLoading(false);
       }
@@ -140,7 +152,16 @@ export function FeedList({ initialTicker = "" }: FeedListProps) {
           filters={filters}
           onChange={handleFilterChange}
           resultCount={data?.total}
+          userIsPro={userIsPro}
         />
+        {loadError && (
+          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-[#F59E0B]/30 bg-[#F59E0B]/5 px-4 py-3 text-xs text-[#F59E0B]">
+            {loadError}
+            <Link href="/pricing" className="font-semibold underline hover:no-underline">
+              See plans →
+            </Link>
+          </div>
+        )}
       </div>
 
       {/* Sell signal explainer */}

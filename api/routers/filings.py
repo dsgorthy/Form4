@@ -93,6 +93,27 @@ def list_filings(
     if min_value is not None:
         conditions.append("t.value >= ?")
         params.append(min_value)
+    # ── Quality filters are the product ──────────────────────────────────
+    #
+    # min_grade and min_tier both filter on t.pit_grade, which is our scoring
+    # output, not a fact from the filing. Until 2026-08-18 either could be
+    # passed by anyone, including an anonymous caller: `?min_grade=A` returned
+    # a clean list of A-graded buys with no account at all. That is the whole
+    # Pro proposition available over an unauthenticated GET.
+    #
+    # The rule Derek set is that we may tell you an insider traded a ticker,
+    # but selecting on quality is Pro. A 403 rather than silently dropping the
+    # filter: a caller that asks for A-grade buys and receives everything has
+    # been given wrong data, which is worse than being told no.
+    if (min_grade is not None or min_tier is not None) and not user.is_pro:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Filtering by insider grade is a Pro feature. "
+                "Start a 7-day trial at /pricing — no card required."
+            ),
+        )
+
     if min_tier is not None:
         if min_tier >= 3:
             conditions.append("t.pit_grade = 'A'")
@@ -270,6 +291,15 @@ def list_filings(
         enrich_items_with_context(sig_conn, items)
     enrich_items_with_price_end(items)
     enrich_items_with_trade_grade(None, items)
+
+    # The score, stars and label are the teaser and stay public. `factors` is
+    # the model — named signals with their point contributions — and reading a
+    # few hundred of those reconstructs the weighting. Pro only.
+    if not user.is_pro:
+        for item in items:
+            grade = item.get("trade_grade")
+            if isinstance(grade, dict):
+                grade.pop("factors", None)
 
     if free_cutoff:
         items = null_items_track_records(items)
@@ -571,6 +601,11 @@ def get_filing(trade_id: str, user: UserContext = Depends(get_current_user)) -> 
     if not user.is_pro:
         from api.gating import null_track_record_fields
         null_track_record_fields(result)
+        # Same split as the list endpoint: the star rating is the teaser, the
+        # factor breakdown is the model.
+        grade = result.get("trade_grade")
+        if isinstance(grade, dict):
+            grade.pop("factors", None)
 
     # Encode top-level IDs
     if result.get("trade_id") is not None:

@@ -4,6 +4,7 @@ import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { EquitySparkline } from "@/components/equity-sparkline";
 import { insiderPath } from "@/lib/insider-url";
+import { insiderGradeColor } from "@/lib/grade-colors";
 
 export const metadata = {
   title: "Form4 — Insider Trading Intelligence",
@@ -125,12 +126,20 @@ export default async function LandingPage() {
   if (userId) redirect("/portfolio");
 
   const [filings, overlay, ...books] = await Promise.all([
-    getJson("/filings?limit=6&min_grade=B&trade_type=buy"),
+    // No min_grade: grade filtering is Pro and this page is fetched
+    // anonymously. Over-fetch and keep the rows that carry a grade, which is
+    // not the same thing — we are dropping rows with nothing to show, not
+    // selecting for quality. The surviving mix is usually a B next to two Ds,
+    // which is the section above ("most insider buying is noise")
+    // demonstrating itself on live filings.
+    getJson("/filings?limit=25&trade_type=buy&min_value=250000"),
     getJson(`/portfolio/overlay?strategy=${STRATEGIES[0].key}`),
     ...STRATEGIES.map((s) => getJson(`/portfolio?strategy=${s.key}`)),
   ]);
 
-  const recentTrades: RecentTrade[] = filings?.items ?? [];
+  const recentTrades: RecentTrade[] = (filings?.items ?? [])
+    .filter((t: RecentTrade) => Boolean(t.pit_grade))
+    .slice(0, 6);
   // The lead book backs the hero chart, so its win rate belongs on the same
   // card rather than a fourth stat that repeats the start date under it.
   const lead: BookSummary | null = books[0]?.summary ?? null;
@@ -361,7 +370,7 @@ export default async function LandingPage() {
               </Link>
             </div>
             <p className="text-[#8888A0] mb-6 text-sm">
-              Buys from the last few days, already graded.
+              Buys from the last few days, each one already graded.
             </p>
             <div className="rounded-xl border border-[#2A2A3A] bg-[#12121A] divide-y divide-[#2A2A3A]/60">
               {recentTrades.map((t: RecentTrade) => (
@@ -387,8 +396,16 @@ export default async function LandingPage() {
                       {t.insider_name || "—"}
                     </span>
                   )}
+                  {/* Colour comes from lib/grade-colors, the same scale every
+                      other grade on the site uses. A D must not render green. */}
                   {t.pit_grade && (
-                    <span className="hidden sm:inline-flex shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold bg-[#22C55E]/10 text-[#22C55E] ring-1 ring-[#22C55E]/25">
+                    <span
+                      className="shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold"
+                      style={{
+                        color: insiderGradeColor(t.pit_grade),
+                        boxShadow: `inset 0 0 0 1px ${insiderGradeColor(t.pit_grade)}40`,
+                      }}
+                    >
                       {t.pit_grade}
                     </span>
                   )}
@@ -409,7 +426,8 @@ export default async function LandingPage() {
             Alerts are free. The judgement is what you pay for.
           </h2>
           <p className="text-[#8888A0] text-center mb-10 max-w-lg mx-auto">
-            Follow any company or insider on a free account, permanently.
+            Follow any company or insider free, permanently. Pro adds the
+            grades, the filters and the screener &mdash; everything we compute.
           </p>
 
           {/* items-stretch plus mt-auto on the buttons: the previous version
@@ -417,20 +435,35 @@ export default async function LandingPage() {
               three out of alignment and left two tiers with no way to act. */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 items-stretch">
             {[
+              // Mirrors /pricing. Pro is everything we compute; Pro+ is
+              // getting it out of the product.
               {
                 name: "Free", price: "$0", cadence: "",
                 cta: "Get started", featured: false,
-                perks: ["Follow up to 10 companies", "Email alerts when they file", "90 days of filings"],
+                perks: [
+                  "Follow up to 10 companies",
+                  "Email alerts when they file",
+                  "90 days of filings",
+                ],
               },
               {
                 name: "Pro", price: "$25", cadence: "/mo",
                 cta: "Start 7-day trial", featured: true,
-                perks: ["Insider track records & grades", "Real-time, full filing history", "Alert on grade, clusters, spikes"],
+                perks: [
+                  "Insider grades & full track records",
+                  "Filter any feed by grade",
+                  "Screener, leaderboard & clusters",
+                  "Real-time alerts and full history",
+                ],
               },
               {
                 name: "Pro+", price: "$75", cadence: "/mo",
                 cta: "Get Pro+", featured: false,
-                perks: ["Everything in Pro", "Screener & leaderboard", "Export and API access"],
+                perks: [
+                  "Everything in Pro",
+                  "CSV export of any view",
+                  "Programmatic API access",
+                ],
               },
             ].map((tier) => (
               <div

@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuth, useUser } from "@clerk/nextjs";
-import { isPro } from "@/lib/subscription";
+import { isProPlus } from "@/lib/subscription";
 
 interface ExportButtonProps {
   params?: Record<string, string>;
@@ -11,7 +11,9 @@ export function ExportButton({ params }: ExportButtonProps) {
   const { getToken } = useAuth();
   const { user } = useUser();
 
-  if (!isPro(user)) return null;
+  // /api/v1/export is require_pro_plus. Showing this to a Pro user
+  // renders a button that 403s.
+  if (!isProPlus(user)) return null;
 
   async function handleExport() {
     const token = await getToken();

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Query
 
 from api.auth import UserContext, get_current_user
 from api.db import get_db
-from api.gating import null_items_track_records, redact_gated_items, require_pro_plus
+from api.gating import null_items_track_records, redact_gated_items, require_pro
 from api.id_encoding import decode_insider_id, encode_response_ids
 from api.pit_helpers import enrich_with_best_pit_grade
 
@@ -54,9 +54,10 @@ def leaderboard(
     was a known PIT violation — it ranked by global all-time stats while the
     UI displayed PIT grades, producing inconsistent rankings.
     """
-    # Preview mode: anyone below Pro+ gets the top N of the default ranking.
-    # Paging and deep offsets stay Pro+ so the full list keeps its value.
-    preview = not (user.is_pro_plus or user.is_admin)
+    # Preview mode: anyone below Pro gets the top N of the default ranking.
+    # Paging and deep offsets are Pro — the leaderboard moved down from Pro+ on
+    # 2026-08-18, when Pro became "everything except export and the API".
+    preview = not (user.is_pro or user.is_admin)
     if preview:
         limit = min(limit, FREE_PREVIEW_LIMIT)
         offset = 0
@@ -176,7 +177,7 @@ def leaderboard(
 @router.get("/sparklines")
 def sparklines(
     insider_ids: str = Query(..., description="Comma-separated insider IDs"),
-    user: UserContext = Depends(require_pro_plus),
+    user: UserContext = Depends(require_pro),
 ) -> dict:
     """Return last 10 trades' return_7d per insider for inline sparklines."""
     raw_tokens = [s.strip() for s in insider_ids.split(",") if s.strip()]

@@ -23,31 +23,35 @@ function billingFromPriceId(priceId: string): string {
   return "unknown";
 }
 
+// These three lists are marketing copy for real gates. Keep them honest:
+// FREE listed "Congress trades" while /api/v1/congress required Pro+, and
+// PRO_PLUS listed "CSV export" while /api/v1/export required only Pro. Both
+// were fixed on 2026-08-18 by moving the code, not the copy.
+//
+// The split now: Pro is everything we compute. Pro+ is getting it out of the
+// product — bulk export and programmatic access.
 const FREE_FEATURES = [
-  "24h-delayed portfolio view",
+  "Follow up to 10 companies",
+  "Email alerts when they file",
   "Last 90 days of filings",
-  "Basic trade grades",
   "Company & insider pages",
-  "Congress trades",
+  "24h-delayed portfolio view",
 ];
 
 const PRO_FEATURES = [
+  "Insider grades & full track records",
+  "Filter any feed by grade or tier",
   "Real-time portfolio & positions",
   "Trade entry/exit alerts",
-  "Full history (2016+)",
-  "Insider grades & track records",
-  "Cluster detection & analysis",
-  "Activity inflections",
-  "Sell cessation signals",
+  "Full filing history (2016+)",
+  "Screener & leaderboard",
+  "Clusters, spikes & sell-cessation signals",
+  "Congress trades & convergence alerts",
 ];
 
 const PRO_PLUS_FEATURES = [
   "Everything in Pro",
-  "Screener & Leaderboard",
-  "Insider profiles & return distributions",
-  "Percentile rankings",
-  "Congress convergence alerts",
-  "CSV export",
+  "CSV export of any view",
   "Programmatic API access (3 keys)",
 ];
 

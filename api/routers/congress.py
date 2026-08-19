@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Query
 
 from api.auth import UserContext, get_current_user
 from api.db import get_db
-from api.gating import require_pro_plus
+from api.gating import require_pro
 
 router = APIRouter(prefix="/api/v1/congress", tags=["congress"])
 
@@ -36,7 +36,7 @@ def list_trades(
     date_to: Optional[str] = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
-    user: UserContext = Depends(require_pro_plus),
+    user: UserContext = Depends(require_pro),
 ) -> dict:
     """Paginated list of congress trades with politician details."""
     with get_db() as conn:
@@ -119,7 +119,7 @@ def list_trades(
 
 
 @router.get("/politicians")
-def list_politicians(user: UserContext = Depends(require_pro_plus)) -> dict:
+def list_politicians(user: UserContext = Depends(require_pro)) -> dict:
     """List politicians with trade counts, ordered by total estimated value."""
     with get_db() as conn:
         if not _tables_exist(conn):
@@ -150,7 +150,7 @@ def list_politicians(user: UserContext = Depends(require_pro_plus)) -> dict:
 
 
 @router.get("/analytics")
-def congress_analytics(days: int = Query(default=90, ge=7, le=365), user: UserContext = Depends(require_pro_plus)) -> dict:
+def congress_analytics(days: int = Query(default=90, ge=7, le=365), user: UserContext = Depends(require_pro)) -> dict:
     """Summary stats, daily heatmap, and top tickers for the congress page."""
     with get_db() as conn:
         if not _tables_exist(conn):
@@ -260,7 +260,7 @@ def congress_analytics(days: int = Query(default=90, ge=7, le=365), user: UserCo
 
 
 @router.get("/convergence")
-def convergence(days: int = Query(default=90, ge=7, le=365), user: UserContext = Depends(require_pro_plus)) -> dict:
+def convergence(days: int = Query(default=90, ge=7, le=365), user: UserContext = Depends(require_pro)) -> dict:
     """Detect tickers where both insiders and politicians bought within a 30-day window.
 
     Uses trailing N days from the latest data in each table.
