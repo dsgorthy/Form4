@@ -60,7 +60,15 @@ interface Props {
   }>;
 }
 
-const PAGE_SIZE = 30;
+// 30 clusters, each with its full insider roster inline, rendered a 555KB
+// page — ten times any other route on the site. The API payload for the same
+// data is 57KB, so the weight is markup: every cluster is a card with a
+// header, four stat blocks and a row per insider.
+//
+// 12 is roughly one screen of scanning, and pagination already exists. This
+// takes the page to about a fifth of its former weight without hiding
+// anything — the clusters are all still reachable, one page further along.
+const PAGE_SIZE = 12;
 
 export default async function ClustersPage({ searchParams }: Props) {
   const sp = await searchParams;
