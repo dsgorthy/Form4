@@ -282,6 +282,8 @@ Historical options EOD pricing for insider event backtesting. **Check `pipeline_
 
 **"Board review"** — Requires: strategy name and path to backtest JSON. Command: `python3 pipelines/run_board.py --strategy NAME --backtest-file reports/NAME/backtest_latest.json`. 5 personas evaluate independently. Approval rules in Strategy Lifecycle section above.
 
+**"Anything with a score, grade, star or badge"** — `api/ratings.py` is the single definition of every rating this product publishes: Insider Rating (A+/A/B/C/Unrated, from `career_grade`) and Trade Rating (Exceptional/Strong/Notable/Routine/Weak, from the 0-100 trade score). Tags are 1-to-many and never rate. Never add a new scale, never retype a band name or threshold, never render `pit_grade` or `conviction` as a user-facing rating. `frontend/src/lib/ratings.ts` mirrors it; `tests/unit/test_ratings_parity.py` fails the build on drift. Read `reference_rating_taxonomy.md` in Claude memory first.
+
 **"PIT audit / scoring change"** — MANDATORY: read `reference_signal_registry.md` from Claude memory first. Then follow the full PIT Validation Checklist above. Never skip this even if the change seems safe.
 
 **"Insider pipeline work"** — Clarify which step: fetch (`fetch_latest.py`), compute returns (`compute_returns.py`), score (`pit_scoring.py`), or options pull (`options_pull.py --from-db`). Always specify date range. DB source is PostgreSQL `form4` — never CSV or SQLite.
