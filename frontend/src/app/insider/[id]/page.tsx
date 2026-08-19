@@ -208,22 +208,15 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
       {/* Header */}
       <div className="flex items-center gap-4 mb-2 flex-wrap">
         <h1 className="text-2xl font-bold text-[#E8E8ED]">{profile.name}</h1>
-        {(profile as any).best_career_grade && (
-          <InsiderGradeBadge
-            grade={(profile as any).best_career_grade}
-            bestTicker={(profile as any).best_career_ticker}
-            tickerCount={(profile as any).n_scored_tickers}
-            label="Career"
-            tooltip={`Career Grade: ${(profile as any).best_career_grade} — career-cumulative track record across all observable trades.`}
-          />
-        )}
-        {(profile as any).best_pit_grade && (
-          <InsiderGradeBadge
-            grade={(profile as any).best_pit_grade}
-            label="Form"
-            tooltip={`Recent Form: ${(profile as any).best_pit_grade} — recency-weighted (1.5y half-life). Captures whether the insider is currently hitting.`}
-          />
-        )}
+        {/* One rating. This drew a "Career" badge and a "Form" badge side by
+            side — two scores of the same person on two scales, and Recent Form
+            is not a scale we publish any more. See api/ratings.py. */}
+        <InsiderGradeBadge
+          grade={(profile as any).best_career_grade}
+          bestTicker={(profile as any).best_career_ticker}
+          tickerCount={(profile as any).n_scored_tickers}
+          showLabel
+        />
       </div>
       {(() => {
         const cos = companies.companies;
@@ -331,16 +324,19 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
         const sellCount = fc?.sell ?? tr.sell_count;
         return (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-            {/* Omitted rather than shown empty when gated: the API nulls
-                score/percentile/best_window for non-Pro, and a StatBox reading
-                "\u2014" tells a first-time visitor we have no data on this
-                person — the opposite of the pitch. */}
-            {!isGated && (
-              <>
-                <StatBox label="Track Record" value={tr.score != null ? tr.score.toFixed(2) : "\u2014"} sub={tr.percentile != null ? `${tr.percentile.toFixed(0)}th percentile` : undefined} />
-                <StatBox label="Best Window" value={tr.best_window || "\u2014"} />
-              </>
-            )}
+            {/* "Track Record 3.00 / 100th percentile" was itr.score and
+                itr.percentile — the insider_track_records family, recomputed
+                over the entire history on every refresh and a documented PIT
+                violation. It also sat directly beside the Insider Rating,
+                giving the same person two scores on two scales, which is the
+                thing the rating taxonomy exists to stop. Removed 2026-08-19;
+                the rating in the header is the answer.
+
+                Best Window stays, gated: it names a holding period, not a
+                score, and a StatBox reading "\u2014" for an anonymous visitor
+                says we have no data on this person, which is the opposite of
+                the pitch. */}
+            {!isGated && <StatBox label="Best Window" value={tr.best_window || "\u2014"} />}
             <StatBox label="Tickers Traded" value={String(tr.n_tickers)} />
             <StatBox
               label="Total Filings"

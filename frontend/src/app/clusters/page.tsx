@@ -7,6 +7,7 @@ export const metadata = {
 };
 
 import Link from "next/link";
+import { auth } from "@clerk/nextjs/server";
 import { fetchAPIAuth } from "@/lib/auth";
 import { formatCurrency, formatPercent } from "@/lib/format";
 import { InsiderGradeBadge } from "@/components/insider-grade-badge";
@@ -79,6 +80,8 @@ export default async function ClustersPage({ searchParams }: Props) {
 
   const data = await fetchAPIAuth<ClusterResponse & { gated?: boolean }>("/clusters", params);
   const isGated = (data as any).gated === true;
+  // Signed in, not entitled: a free account still wants the tool.
+  const { userId } = await auth();
 
   const totalPages = Math.ceil(data.total / PAGE_SIZE);
 
@@ -185,7 +188,18 @@ export default async function ClustersPage({ searchParams }: Props) {
             {/* Cluster header */}
             <div className="p-4 md:p-5 border-b border-[#2A2A3A]/50 space-y-3 md:space-y-0">
               <div className="flex items-center gap-3 flex-wrap">
-                <TickerDisplay ticker={cluster.ticker} company={cluster.company} className="text-xl font-bold" />
+                {/* Signed-in readers go to /explore, not /company/{ticker}. The public
+                    company page is built for search traffic — it answers "who is
+                    this company" for someone who arrived from Google. Someone
+                    already looking at a cluster wants the tool: filters, the
+                    insider roster and the trade table. Anonymous visitors keep
+                    the public page, which is the one that ranks. */}
+                <TickerDisplay
+                  ticker={cluster.ticker}
+                  company={cluster.company}
+                  href={userId ? `/explore?ticker=${encodeURIComponent(cluster.ticker)}` : undefined}
+                  className="text-xl font-bold"
+                />
                 <Badge
                   variant="outline"
                   className={`text-xs font-mono ${

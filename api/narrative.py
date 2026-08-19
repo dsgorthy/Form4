@@ -146,6 +146,19 @@ def _role_phrase(t: dict) -> str:
     return "an insider"
 
 
+def _month_name(trade_date) -> str | None:
+    """Month name from a YYYY-MM-DD string, or None if unparseable."""
+    if not trade_date or len(str(trade_date)) < 7:
+        return None
+    try:
+        month = int(str(trade_date)[5:7])
+    except ValueError:
+        return None
+    names = ("January", "February", "March", "April", "May", "June", "July",
+             "August", "September", "October", "November", "December")
+    return names[month - 1] if 1 <= month <= 12 else None
+
+
 def _routine_blurb(t: dict) -> str:
     """Templated blurb for trades flagged scheduled / tax / recurring."""
     trans = t.get("trans_code")
@@ -164,9 +177,20 @@ def _routine_blurb(t: dict) -> str:
             "vesting with shares sold to cover withholding tax. Not a directional view."
         )
     if t.get("cohen_routine"):
+        # Say what the classifier actually found. This read "Routine quarterly
+        # {direction} matching this insider's regular compensation pattern",
+        # and both specifics were invented: Cohen et al. (2012) flags a trade
+        # when the insider traded the SAME TICKER in the SAME CALENDAR MONTH
+        # for 3+ consecutive prior years. That is annual seasonality, not a
+        # quarterly cadence, and it says nothing about compensation. Derek
+        # caught it on an EAT sale whose prior sells were 6, 15 and 6 months
+        # apart — nothing quarterly about it.
+        month = _month_name(t.get("trade_date"))
+        when = f" in {month}" if month else ""
         return (
-            f"Routine quarterly {direction} ({amount}) by {role} matching this "
-            "insider's regular compensation pattern. Limited signal."
+            f"Seasonal {direction} ({amount}) by {role} — this insider has "
+            f"traded {t.get('ticker') or 'this stock'}{when} in at least three "
+            "consecutive prior years. Pattern-driven, low signal."
         )
     if t.get("is_recurring"):
         return (

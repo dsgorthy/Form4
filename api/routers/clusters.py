@@ -22,6 +22,7 @@ def list_clusters(
     trade_type: Optional[str] = Query(default=None, pattern="^(buy|sell)$"),
     trans_codes: str = Query(default="P,S"),
     signal_class: Optional[str] = Query(default=None),
+    include_scheduled: bool = Query(default=False),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> dict:
@@ -31,6 +32,24 @@ def list_clusters(
 
     add_trans_code_filter(conditions, params, trans_codes)
     add_signal_class_filter(conditions, params, signal_class)
+
+    # A cluster is meant to say "several insiders independently decided to
+    # trade this name at once". Pre-arranged 10b5-1 sales are not a decision —
+    # the date was fixed months earlier — and they are 2,936 of the 5,626 sells
+    # filed in the last fortnight, 52%. Left in, they manufacture clusters out
+    # of nothing more than a vesting calendar: several executives at one
+    # company have their plans execute the same week, every quarter, forever.
+    #
+    # Tax-withholding sales are excluded for the same reason. They are the
+    # automatic disposal that follows a vest, not a view on the stock.
+    #
+    # Buys are untouched. There is no equivalent of a scheduled purchase in
+    # practice, and the whole product is built on discretionary buying.
+    if not include_scheduled:
+        conditions.append(
+            "NOT (t.trade_type = 'sell' AND "
+            "(COALESCE(t.is_10b5_1,0) = 1 OR COALESCE(t.is_tax_sale,0) = 1))"
+        )
 
     if trade_type is not None:
         conditions.append("t.trade_type = ?")
@@ -162,6 +181,13 @@ def list_clusters(
                 ins_list = redact_gated_items(ins_list)
             encode_response_ids(ins_list, trade=False, insider=True)
             cluster["insiders"] = ins_list
+            # insider_count came from COUNT(DISTINCT representative_insider) in
+            # SQL, computed BEFORE this dedup. Co-filers reporting one economic
+            # event — a fund and its manager filing the same $497.4M sale —
+            # counted twice there and merge to one here, so the header said
+            # "Insiders 2" above a list of one. The count a reader can verify
+            # is the one they can see.
+            cluster["insider_count"] = len(ins_list)
             cluster["gated"] = not user.has_full_feed
             clusters.append(cluster)
 
@@ -268,6 +294,8 @@ def get_cluster_detail(
             ins_list = redact_gated_items(ins_list)
         encode_response_ids(ins_list, trade=False, insider=True)
         result["insiders"] = ins_list
+        # Same correction as the list endpoint — see the note there.
+        result["insider_count"] = len(ins_list)
 
         # Individual trades (L2 aggregated)
         trade_rows = conn.execute(
