@@ -29,7 +29,7 @@ ENDPOINTS=(
   "dashboard-sentiment|/api/v1/dashboard/sentiment?days=30"
   "dashboard-heatmap|/api/v1/dashboard/heatmap?days=365"
   "dashboard-filing-delays|/api/v1/dashboard/filing-delays"
-  "filings-list|/api/v1/filings?limit=10&min_grade=B"
+  "filings-list|/api/v1/filings?limit=10&trade_type=buy"
   "clusters|/api/v1/clusters?days=14&limit=10&offset=0"
   "portfolio-quality|/api/v1/portfolio?strategy=quality_momentum&page=1&per_page=10"
   "company-detail|/api/v1/companies/AAPL"
@@ -71,6 +71,25 @@ for entry in "${ENDPOINTS[@]}"; do
     FAILED=$((FAILED + 1))
   fi
   rm -f /tmp/smoke_body.$$
+done
+
+
+# Quality filters must stay behind Pro. min_grade and min_tier both select on
+# t.pit_grade, our scoring output; until 2026-08-18 an anonymous GET could use
+# either, which handed away the whole Pro proposition. This smoke test itself
+# was calling min_grade=B unauthenticated, which is how the gate announced
+# itself on the first deploy. A 200 here means the gate is gone.
+for guarded in "min_grade=A" "min_tier=2"; do
+  code=$(curl -s -o /dev/null -w "%{http_code}" --max-time "$TIMEOUT" \
+    "$BASE/api/v1/filings?limit=1&$guarded" 2>&1 || echo "000")
+  if [ "$code" = "403" ]; then
+    printf "  PASS  %-25s 403 (anon correctly refused)\n" "gated-$guarded"
+    PASSED=$((PASSED + 1))
+  else
+    printf "  FAIL  %-25s %s — expected 403, Pro filter is public\n" "gated-$guarded" "$code"
+    FAILURES+=("gated-$guarded: HTTP $code, expected 403")
+    FAILED=$((FAILED + 1))
+  fi
 done
 
 
