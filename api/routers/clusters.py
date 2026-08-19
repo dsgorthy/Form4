@@ -188,6 +188,17 @@ def list_clusters(
             # "Insiders 2" above a list of one. The count a reader can verify
             # is the one they can see.
             cluster["insider_count"] = len(ins_list)
+            # Dedup can take a cluster below the threshold that qualified it.
+            # PRMB was two rows in SQL and one economic event; with the count
+            # corrected it rendered as "SELL CLUSTER — Insiders 1", which is a
+            # contradiction in terms. Drop it instead.
+            #
+            # `total` comes from a COUNT that runs before dedup, so it is an
+            # upper bound on what a reader can page through. Overstating the
+            # count by a few is the lesser evil against rendering a cluster of
+            # one; fixing it properly means moving the dedup into SQL.
+            if len(ins_list) < min_insiders:
+                continue
             cluster["gated"] = not user.has_full_feed
             clusters.append(cluster)
 
