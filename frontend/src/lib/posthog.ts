@@ -11,10 +11,15 @@ export function initPostHog() {
     capture_pageleave: true,
     autocapture: true,
     session_recording: {
-      maskAllInputs: false,
-      maskInputOptions: {
-        password: true,
-      },
+      // Mask every input. This was false, with only passwords masked, so
+      // session replays captured whatever anyone typed on an authenticated
+      // financial product — search terms, watchlist entries, email addresses
+      // in settings. Derek's call, 2026-08-19: mask by default.
+      //
+      // What replay still shows: clicks, scrolls, navigation and page state,
+      // which is what it is actually used for. Keystrokes were never the
+      // point.
+      maskAllInputs: true,
     },
   });
 }
