@@ -17,7 +17,71 @@ templates are generated from trade flags every request. Cheap (sub-ms).
 """
 from __future__ import annotations
 
+import json
+
 from typing import Optional
+
+
+
+def as_bullets(value: object) -> list[str] | None:
+    """Normalise a catalysts/risks field to a list of strings.
+
+    The column is TEXT but the content is a list — the prompt asks the model
+    for "1-3 SPECIFIC catalysts". demo_narratives passed that Python list
+    straight to psycopg2, which adapts a list to a Postgres ARRAY literal, and
+    storing that in a TEXT column leaves the literal itself behind:
+
+        {"Q2 2026 earnings on August 11...","CEO Sabo retires year-end..."}
+
+    which the filing page then printed to the reader, braces and all. It
+    affected 1,897 of 4,503 catalysts rows and 1,527 risks rows.
+
+    Three shapes have to be accepted, because all three are in the table:
+    a real list, a JSON array string (what the writer stores now), and the
+    legacy Postgres array literal. Anything else is prose and becomes a
+    single bullet.
+    """
+    if value is None:
+        return None
+    if isinstance(value, (list, tuple)):
+        items = [str(v).strip() for v in value]
+        return [i for i in items if i] or None
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    if text.startswith("[") and text.endswith("]"):
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, list):
+                items = [str(v).strip() for v in parsed if str(v).strip()]
+                return items or None
+        except (ValueError, TypeError):
+            pass
+
+    if text.startswith("{") and text.endswith("}"):
+        # Postgres array literal. Split on commas that sit outside quotes;
+        # catalysts routinely contain commas ("Q2 2026 earnings on August 11,
+        # 2026, showed..."), so a plain split would shred them.
+        inner = text[1:-1]
+        items, buf, in_quotes, escaped = [], [], False, False
+        for ch in inner:
+            if escaped:
+                buf.append(ch); escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_quotes = not in_quotes
+            elif ch == "," and not in_quotes:
+                items.append("".join(buf).strip()); buf = []
+            else:
+                buf.append(ch)
+        items.append("".join(buf).strip())
+        cleaned = [i for i in items if i]
+        return cleaned or None
+
+    return [text]
 
 
 def classify_tier(trade: dict) -> str:
@@ -160,8 +224,8 @@ def build_narrative(
         "tier": "high_signal" | "routine" | "low_signal",
         "summary": str,
         "price_context": str | None,
-        "catalysts": str | None,
-        "risks": str | None,
+        "catalysts": list[str] | None,
+        "risks": list[str] | None,
         "generated_at": str | None,
         "model_name": str | None,
       }
@@ -173,8 +237,8 @@ def build_narrative(
             "tier": "high_signal",
             "summary": llm_narrative.get("summary"),
             "price_context": llm_narrative.get("price_context"),
-            "catalysts": llm_narrative.get("catalysts"),
-            "risks": llm_narrative.get("risks"),
+            "catalysts": as_bullets(llm_narrative.get("catalysts")),
+            "risks": as_bullets(llm_narrative.get("risks")),
             "generated_at": llm_narrative.get("generated_at"),
             "model_name": llm_narrative.get("model_name"),
         }

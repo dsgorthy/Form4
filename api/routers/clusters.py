@@ -123,6 +123,7 @@ def list_clusters(
                 SELECT
                     t.insider_id, MAX(COALESCE(i.display_name, i.name)) AS name, MAX(i.cik) AS cik,
                     MAX(t.pit_grade) AS pit_grade,
+                    MAX(t.career_grade) AS career_grade,
                     MAX(t.pit_blended_score) AS pit_blended_score,
                     SUM(t.value) AS trade_value,
                     MAX(t.title) AS title,
@@ -150,7 +151,7 @@ def list_clusters(
                 raw_list,
                 value_key="trade_value",
                 date_key="last_trade_date",
-                identity_keys=("insider_id", "name", "cik", "pit_blended_score", "pit_grade", "title"),
+                identity_keys=("insider_id", "name", "cik", "pit_blended_score", "pit_grade", "career_grade", "title"),
             )
             ins_list = [dict(ir) for ir in insider_rows]
             if not user.is_pro:
@@ -232,6 +233,7 @@ def get_cluster_detail(
             SELECT
                 t.insider_id, MAX(COALESCE(i.display_name, i.name)) AS name, MAX(i.cik) AS cik,
                 MAX(t.pit_grade) AS pit_grade,
+                    MAX(t.career_grade) AS career_grade,
                 MAX(t.pit_blended_score) AS pit_blended_score,
                 SUM(t.value) AS trade_value, MAX(t.title) AS title,
                 MAX(t.is_csuite) AS is_csuite,
@@ -256,7 +258,7 @@ def get_cluster_detail(
             raw_list,
             value_key="trade_value",
             date_key="last_trade_date",
-            identity_keys=("insider_id", "name", "cik", "pit_blended_score", "pit_grade", "title"),
+            identity_keys=("insider_id", "name", "cik", "pit_blended_score", "pit_grade", "career_grade", "title"),
         )
         if not user.is_pro:
             ins_list = null_items_track_records(ins_list)
@@ -275,7 +277,7 @@ def get_cluster_detail(
                 agg.trade_type, agg.trade_date, agg.filing_date,
                 agg.price, agg.qty, agg.value,
                 agg.is_csuite,
-                agg.pit_grade, agg.pit_blended_score,
+                agg.pit_grade, agg.career_grade, agg.pit_blended_score,
                 COALESCE(i.display_name, i.name) AS insider_name, i.cik,
                 tr.return_7d, tr.return_30d, tr.return_90d,
                 tr.abnormal_7d, tr.abnormal_30d, tr.abnormal_90d
@@ -289,6 +291,7 @@ def get_cluster_detail(
                     SUM(t.value) AS value,
                     MAX(t.is_csuite) AS is_csuite,
                     MAX(t.pit_grade) AS pit_grade,
+                    MAX(t.career_grade) AS career_grade,
                     MAX(t.pit_blended_score) AS pit_blended_score
                 FROM trades t
                 WHERE t.ticker = ? AND t.trade_type = ?

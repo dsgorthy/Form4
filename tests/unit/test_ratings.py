@@ -230,3 +230,49 @@ def test_ratings_module_has_no_heavy_imports():
     for banned in ("import fastapi", "from fastapi", "import psycopg2",
                    "from config.database"):
         assert banned not in src, f"api/ratings.py imports {banned}"
+
+
+# ── the rating is a word, not a symbol ──────────────────────────────────────
+
+def test_trade_rating_renders_as_a_word_not_stars():
+    """Stars looked tidy and said nothing. Three filled stars beside a letter
+    grade is two symbol systems for one filing, and the reader has to already
+    know both scales to decode either — which is how "1.5/10 next to Grade A"
+    happened in the first place."""
+    src = (REPO / "frontend/src/components/trade-grade-badge.tsx").read_text()
+    assert "★" not in src and "☆" not in src, "star glyphs are back"
+    assert "tradeRating(" in src, "badge must resolve through the canonical module"
+
+
+def test_methodology_page_shows_no_star_glyphs():
+    src = (REPO / "frontend/src/app/research/methodology/page.tsx").read_text()
+    assert "★" not in src and "☆" not in src
+
+
+# ── nothing ranks or ships the PIT-violating family ─────────────────────────
+
+def test_leaderboard_payload_drops_the_track_record_score_family():
+    """Serving legacy_score 2.99, score_tier 3 and a percentile beside a
+    point-in-time ranking put two contradictory measurements of the same
+    person in one row."""
+    src = (REPO / "api/routers/leaderboard.py").read_text()
+    select = src.split("bc.best_career_score AS score,", 1)[1].split("FROM insider_track_records", 1)[0]
+    code = "\n".join(l for l in select.splitlines() if not l.lstrip().startswith("--"))
+    for field in ("legacy_score", "score_tier", "percentile", "buy_win_rate_7d",
+                  "buy_avg_abnormal_7d", "sell_win_rate_7d", "tier_recency"):
+        assert field not in code, f"leaderboard still serves {field}"
+
+
+def test_leaderboard_filters_on_the_pit_correct_score():
+    """min_tier filtered on itr.score_tier — an all-time figure, which is not
+    something you can filter a point-in-time leaderboard by."""
+    src = (REPO / "api/routers/leaderboard.py").read_text()
+    assert "itr.score_tier >= ?" not in src
+    assert "itr.score_tier = ?" not in src
+    assert "bc.best_career_score >= ?" in src
+
+
+def test_leaderboard_table_shows_no_pit_violating_columns():
+    src = (REPO / "frontend/src/components/leaderboard-table.tsx").read_text()
+    for field in ("buy_win_rate_7d", "buy_avg_abnormal_7d", "score_tier", "percentile"):
+        assert field not in src, f"leaderboard table renders {field}"

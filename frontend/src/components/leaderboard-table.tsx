@@ -116,10 +116,8 @@ export function LeaderboardTable({ filters, sort, order }: LeaderboardTableProps
               <th className="px-3 md:px-4 py-3 text-left text-[#55556A] font-medium w-10">#</th>
               <th className="px-3 md:px-4 py-3 text-left text-[#55556A] font-medium">Insider</th>
               <th className="hidden md:table-cell px-4 py-3 text-left text-[#55556A] font-medium">Title</th>
-              <th className="px-3 md:px-4 py-3 text-center text-[#55556A] font-medium w-16">Career</th>
+              <th className="px-3 md:px-4 py-3 text-center text-[#55556A] font-medium w-16">Rating</th>
               <th className="px-3 md:px-4 py-3 text-right text-[#55556A] font-medium">Buys</th>
-              <th className="hidden md:table-cell px-4 py-3 text-right text-[#55556A] font-medium">Win Rate</th>
-              <th className="hidden md:table-cell px-4 py-3 text-right text-[#55556A] font-medium">Avg Alpha</th>
               <th className="hidden md:table-cell px-4 py-3 text-center text-[#55556A] font-medium">Trend</th>
               <th className="hidden md:table-cell px-4 py-3 text-right text-[#55556A] font-medium">Ticker</th>
               <th className="hidden lg:table-cell px-4 py-3 text-right text-[#55556A] font-medium">Last Active</th>
@@ -154,31 +152,10 @@ export function LeaderboardTable({ filters, sort, order }: LeaderboardTableProps
                     rating={(entry as any).insider_rating}
                     grade={(entry as any).best_career_grade}
                     compact
-                    tooltip={(entry as any).best_career_grade
-                      ? `Career: ${(entry as any).best_career_grade}`
-                      : `Recent Form: ${entry.best_pit_grade}`}
                   />
                 </td>
                 <td className="px-3 md:px-4 py-3 text-right font-mono text-[#E8E8ED]">
                   {entry.buy_count}
-                </td>
-                <td className={`hidden md:table-cell px-4 py-3 text-right font-mono ${isGated ? "blur-[3px]" : ""}`}>
-                  <span
-                    className={
-                      entry.buy_win_rate_7d != null && entry.buy_win_rate_7d >= 0.6
-                        ? "text-[#22C55E]"
-                        : entry.buy_win_rate_7d != null && entry.buy_win_rate_7d >= 0.5
-                          ? "text-[#E8E8ED]"
-                          : "text-[#EF4444]"
-                    }
-                  >
-                    {entry.buy_win_rate_7d != null ? `${(entry.buy_win_rate_7d * 100).toFixed(0)}%` : "\u2014"}
-                  </span>
-                </td>
-                <td className={`hidden md:table-cell px-4 py-3 text-right font-mono ${isGated ? "blur-[3px]" : ""}`}>
-                  <span className={entry.buy_avg_abnormal_7d != null && entry.buy_avg_abnormal_7d >= 0 ? "text-[#22C55E]" : "text-[#EF4444]"}>
-                    {formatPercent(entry.buy_avg_abnormal_7d)}
-                  </span>
                 </td>
                 <td className={`hidden md:table-cell px-4 py-3 text-center ${isGated ? "blur-[3px]" : ""}`}>
                   <Sparkline returns={sparklines[entry.insider_id] || []} />
@@ -220,7 +197,7 @@ export function LeaderboardTable({ filters, sort, order }: LeaderboardTableProps
             {data.total.toLocaleString()} ranked insiders.
           </p>
           <p className="mt-1 text-sm text-[#8888A0]">
-            Pro+ unlocks the full leaderboard, sorting, and filters.
+            Pro unlocks the full leaderboard and its filters.
           </p>
           <Link
             href="/pricing"

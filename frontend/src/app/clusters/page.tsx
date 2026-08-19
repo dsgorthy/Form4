@@ -238,7 +238,9 @@ export default async function ClustersPage({ searchParams }: Props) {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <span className={`text-sm truncate ${isGated ? "text-blue-400/40 blur-[3px]" : "text-blue-400"}`}>{ins.name}</span>
-                          {(ins as any).pit_grade != null ? <InsiderGradeBadge grade={(ins as any).pit_grade} /> : null}
+                          {((ins as any).career_grade ?? (ins as any).pit_grade) != null ? (
+                            <InsiderGradeBadge grade={(ins as any).career_grade} />
+                          ) : null}
                         </div>
                         <div className={`text-xs truncate mt-0.5 ${isGated ? "text-[#55556A]/40 blur-[3px]" : "text-[#55556A]"}`}>
                           {ins.title}

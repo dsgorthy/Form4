@@ -52,6 +52,7 @@ def leaderboard(
     order: str = Query(default="desc", pattern="^(asc|desc)$"),
     min_trades: Optional[int] = Query(default=None, ge=1),
     min_tier: Optional[int] = Query(default=None, ge=1, le=5),
+    min_rating: Optional[str] = Query(default=None, pattern="^(A\\+|A|B|C)$"),
     title: Optional[str] = Query(default=None),
     tier: Optional[int] = Query(default=None, ge=1, le=5),
     hide_entities: bool = Query(default=False),
@@ -81,12 +82,22 @@ def leaderboard(
     if min_trades is not None:
         conditions.append("itr.buy_count >= ?")
         params.append(min_trades)
-    if min_tier is not None:
-        conditions.append("itr.score_tier >= ?")
-        params.append(min_tier)
-    if tier is not None:
-        conditions.append("itr.score_tier = ?")
-        params.append(tier)
+    # min_tier / tier used to filter on itr.score_tier, which is recomputed
+    # across the whole history on every refresh — filtering a point-in-time
+    # leaderboard by it selects people on trades that had not happened yet.
+    # Both are still accepted so existing links do not 422, and both are
+    # translated onto the PIT-correct career score.
+    _rating_floor = {"A+": 2.5, "A": 2.0, "B": 1.2, "C": 0.6}
+    floor = None
+    if min_rating:
+        floor = _rating_floor.get(min_rating.strip().upper())
+    elif min_tier is not None:
+        floor = {3: 2.5, 2: 2.0}.get(min_tier, 1.2)
+    elif tier is not None:
+        floor = {3: 2.5, 2: 2.0}.get(tier, 1.2)
+    if floor is not None:
+        conditions.append("bc.best_career_score >= ?")
+        params.append(floor)
     if title is not None:
         conditions.append("itr.primary_title LIKE ?")
         params.append(f"%{title}%")
@@ -142,13 +153,15 @@ def leaderboard(
                 i.insider_id, COALESCE(i.display_name, i.name) AS name, i.cik,
                 COALESCE(i.is_entity, 0) as is_entity,
                 bc.best_career_score AS score,
-                itr.score AS legacy_score,
-                itr.score_tier, itr.percentile,
-                itr.buy_count, itr.buy_win_rate_7d,
-                itr.buy_avg_return_7d, itr.buy_avg_abnormal_7d,
-                itr.sell_count, itr.sell_win_rate_7d,
+                -- The insider_track_records score family is gone from this
+                -- payload. It is recomputed over the entire history on every
+                -- refresh, so serving it beside a point-in-time ranking put
+                -- two contradictory measurements of the same person in one
+                -- row: legacy_score 2.99, score_tier 3, percentile, and a
+                -- buy_win_rate_7d that was NULL for most of the list anyway.
+                -- Nothing renders them any more and nothing ranks by them.
+                itr.buy_count, itr.sell_count,
                 itr.primary_title, itr.primary_ticker, itr.n_tickers,
-                itr.score_recency_weighted, itr.tier_recency,
                 itr.buy_last_date, itr.sell_last_date
             FROM insider_track_records itr
             JOIN insiders i ON itr.insider_id = i.insider_id

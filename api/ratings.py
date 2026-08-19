@@ -346,6 +346,12 @@ RETIRED_SORT_KEYS = ("win_rate", "alpha", "percentile", "buy_count")
 #: 1.5 on both quality books, so a stored 1.5 means "cleared the bar".
 INTERNAL_ONLY_FIELDS = ("conviction", "signal_quality")
 
+#: Surfaces confirmed reading the canonical rating as of 2026-08-18: the feed,
+#: filing pages, filing detail panel, trades tables, portfolio, signals table,
+#: leaderboard, entity search, explore, clusters, the insider roster and the
+#: sell-cessation card. The badge normalises whatever it is handed, so a new
+#: surface is wrong only if it renders a grade without going through it.
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 5. ONE PLACE THAT STAMPS THE PAYLOAD

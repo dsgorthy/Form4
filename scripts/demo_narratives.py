@@ -105,6 +105,14 @@ Hard rules:
 - Do not include reasoning, just the four fields.
 """
 
+def _as_json_text(value):
+    """Lists become a JSON array string; prose is stored unchanged."""
+    if isinstance(value, (list, tuple)):
+        items = [str(v).strip() for v in value if str(v).strip()]
+        return json.dumps(items) if items else None
+    return value
+
+
 
 def high_signal_query(since: str, limit: int) -> str:
     return f"""
@@ -431,8 +439,12 @@ def upsert_narrative(conn, trade_id: int, payload: dict, narrative: dict | None,
             trade_id, inputs_sha,
             narrative.get("summary"),
             narrative.get("price_context"),
-            narrative.get("catalysts"),
-            narrative.get("risks"),
+            # json.dumps, not the raw value. These arrive from the model as
+            # lists; handing a list to psycopg2 for a TEXT column adapts it to
+            # a Postgres ARRAY literal and stores `{"a","b"}` as the text. The
+            # filing page printed that verbatim for 1,897 rows.
+            _as_json_text(narrative.get("catalysts")),
+            _as_json_text(narrative.get("risks")),
             json.dumps(payload, default=str),
             OLLAMA_MODEL,
             generation_ms,

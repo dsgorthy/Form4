@@ -50,8 +50,10 @@ interface FilingDetail extends Filing {
     tier?: "high_signal" | "high_signal_pending" | "routine" | "low_signal";
     summary?: string;
     price_context?: string | null;
-    catalysts?: string | null;
-    risks?: string | null;
+    // Lists, not prose. The API normalises whatever is stored — a real list,
+    // a JSON array, or a legacy Postgres array literal — into string[].
+    catalysts?: string[] | string | null;
+    risks?: string[] | string | null;
     generated_at?: string | null;
     model_name?: string | null;
   };
@@ -316,23 +318,38 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
                 </div>
               )}
 
-              {filing.narrative.catalysts && (
-                <div>
-                  <div className="text-[10px] font-semibold uppercase tracking-wider text-[#55556A] mb-1">
-                    Catalysts to watch
+              {([
+                ["Catalysts to watch", filing.narrative.catalysts, "#22C55E"],
+                ["Risks", filing.narrative.risks, "#F59E0B"],
+              ] as const).map(([heading, value, tone]) => {
+                // Tolerate a bare string as well as a list: the API normalises,
+                // but a cached response from before that change may not have.
+                const bullets = Array.isArray(value)
+                  ? value.filter(Boolean)
+                  : value
+                    ? [String(value)]
+                    : [];
+                if (bullets.length === 0) return null;
+                return (
+                  <div key={heading}>
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-[#55556A] mb-1">
+                      {heading}
+                    </div>
+                    {bullets.length === 1 ? (
+                      <p style={{ color: `${tone}E6` }}>{bullets[0]}</p>
+                    ) : (
+                      <ul className="space-y-1">
+                        {bullets.map((b, i) => (
+                          <li key={i} className="flex gap-2" style={{ color: `${tone}E6` }}>
+                            <span className="select-none opacity-50">&bull;</span>
+                            <span>{b}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
-                  <p className="text-[#22C55E]/90">{filing.narrative.catalysts}</p>
-                </div>
-              )}
-
-              {filing.narrative.risks && (
-                <div>
-                  <div className="text-[10px] font-semibold uppercase tracking-wider text-[#55556A] mb-1">
-                    Risks
-                  </div>
-                  <p className="text-[#F59E0B]/90">{filing.narrative.risks}</p>
-                </div>
-              )}
+                );
+              })}
             </div>
             {isHighSignal && (
               <div className="mt-3 pt-3 border-t border-[#3B82F6]/10 text-[10px] text-[#55556A] italic">

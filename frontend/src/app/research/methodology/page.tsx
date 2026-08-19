@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { currentUser } from "@clerk/nextjs/server";
 import { InsiderGradeBadge } from "@/components/insider-grade-badge";
+import { TradeRatingMeter } from "@/components/trade-grade-badge";
+import { tradeRatingColor, type TradeRating } from "@/lib/ratings";
 import { getUserTier } from "@/lib/subscription";
 
 export const metadata = {
@@ -51,23 +53,7 @@ const tradeFactors = [
   { name: "Largest Ever", description: "This is the insider's largest-ever purchase in this stock" },
 ];
 
-function StarDisplay({ count }: { count: number }) {
-  // Match the semantic palette used by TradeGradeBadge: 5=green, 4=blue, 3=slate, 2=amber, 1=red
-  const colorMap: Record<number, string> = {
-    5: "#22C55E",
-    4: "#3B82F6",
-    3: "#8888A0",
-    2: "#F59E0B",
-    1: "#EF4444",
-  };
-  const color = colorMap[count] || "#55556A";
-  return (
-    <span className="font-mono tracking-wide" style={{ color }}>
-      {"★".repeat(count)}
-      <span className="opacity-30">{"☆".repeat(5 - count)}</span>
-    </span>
-  );
-}
+
 
 function GatedSection({ visible, label, isAuthed, children }: { visible: boolean; label: string; isAuthed?: boolean; children: React.ReactNode }) {
   if (visible) return <>{children}</>;
@@ -295,8 +281,16 @@ export default async function ScoringPage() {
               {tradeGradeStars.map((s, i) => (
                 <tr key={s.stars} className={i < tradeGradeStars.length - 1 ? "border-b border-[#2A2A3A]/50" : ""}>
                   <td className="px-4 py-3 align-top">
-                    <StarDisplay count={s.stars} />
-                    <span className="text-[10px] text-[#55556A] ml-1.5">{s.label}</span>
+                    {/* Same meter and colour the product uses, from
+                        lib/ratings — this page had its own star renderer with
+                        its own palette table, which is how it came to disagree
+                        with the code about what 2 stars was called. */}
+                    <span className="inline-flex items-center gap-2">
+                      <TradeRatingMeter score={s.range === "<50" ? 40 : parseInt(s.range, 10)} />
+                      <span className="text-xs font-medium" style={{ color: tradeRatingColor(s.label as TradeRating) }}>
+                        {s.label}
+                      </span>
+                    </span>
                   </td>
                   <td className="px-4 py-3 text-right font-mono tabular-nums text-[#55556A] align-top">{s.share}</td>
                   <td className="px-4 py-3 text-right font-mono tabular-nums text-[#E8E8ED] align-top">{s.abnormal}</td>

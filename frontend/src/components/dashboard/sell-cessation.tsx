@@ -64,7 +64,7 @@ export async function SellCessation() {
                 </td>
                 <td className="py-1.5 text-center">
                   {item.score_tier != null || item.best_pit_grade || item.pit_grade ? (
-                    <InsiderGradeBadge grade={item.best_pit_grade || item.pit_grade} compact />
+                    <InsiderGradeBadge grade={(item as any).best_career_grade ?? (item as any).career_grade} compact />
                   ) : (
                     <span className="text-[#55556A]">{"\u2014"}</span>
                   )}

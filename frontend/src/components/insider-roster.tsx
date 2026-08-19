@@ -28,6 +28,7 @@ interface Insider {
   score_tier: number | null;
   percentile: number | null;
   pit_grade?: string | null;
+  career_grade?: string | null;
 }
 
 interface InsiderRosterProps {
@@ -57,8 +58,8 @@ export function InsiderRoster({ insiders, gated = false }: InsiderRosterProps) {
    * follows the reader through pagination is just an ungated column.
    */
   function Grade({ ins, i }: { ins: Insider; i: number }) {
-    if (!ins.pit_grade) return null;
-    const badge = <InsiderGradeBadge grade={ins.pit_grade} />;
+    if (!ins.pit_grade && !ins.career_grade) return null;
+    const badge = <InsiderGradeBadge grade={ins.career_grade} />;
     if (!gated || (offset === 0 && i === 0)) return badge;
     return <ProGate compact>{badge}</ProGate>;
   }
