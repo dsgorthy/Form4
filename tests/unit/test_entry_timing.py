@@ -23,27 +23,30 @@ REPO = Path(__file__).resolve().parents[2]
 
 
 class TestFiledBeforeClose:
-    @pytest.mark.parametrize("utc,expected", [
-        # EST (UTC-5): the bell is 21:00 UTC
-        ("2026-01-15 20:59:00", True),
-        ("2026-01-15 21:00:00", False),
-        ("2026-01-15 21:01:00", False),
-        # EDT (UTC-4): the bell is 20:00 UTC. A naive UTC hour test would call
-        # 20:30 "before close" here and be wrong for half the year.
-        ("2026-07-15 19:59:00", True),
-        ("2026-07-15 20:00:00", False),
-        ("2026-07-15 20:30:00", False),
-        # Pre-open on the filing's own ET date: 12:00 UTC is 08:00 ET, which
-        # is before that session's bell.
-        ("2026-07-15 12:00:00", True),
-        # Late-evening UTC belongs to the PREVIOUS ET date: 02:00 UTC on the
-        # 15th is 22:00 ET on the 14th, and filing_date is the ET date, so
-        # this is after its own session's close.
-        ("2026-07-15 02:00:00", False),
-        ("2026-07-16 01:00:00", False),
+    # filed_at is EASTERN as of 2026-08-19 — see
+    # migrations/2026-08-19_filed_at_normalize_eastern.sql. These cases used to
+    # be expressed in UTC, which is what let a real after-bell filing (CDNL,
+    # accepted 17:37:34 ET) pass as tradeable at that afternoon's close.
+    #
+    # There is no DST arithmetic left to get wrong, which is the point: the
+    # value is already in the timezone the market runs on.
+    #
+    # Note the bell test is applied to PICKUP, not acceptance, so anything from
+    # 15:55 onward rounds to the 16:00 poll and misses.
+    @pytest.mark.parametrize("eastern,expected", [
+        ("2026-01-15 15:49:00", True),
+        ("2026-01-15 16:00:00", False),
+        ("2026-01-15 16:01:00", False),
+        ("2026-07-15 15:49:00", True),
+        ("2026-07-15 16:00:00", False),
+        ("2026-07-15 16:30:00", False),
+        ("2026-07-15 08:00:00", True),
+        # Evening filings, the case that started all this.
+        ("2026-07-15 22:00:00", False),
+        ("2026-07-16 17:37:34", False),
     ])
-    def test_dst_correct_boundaries(self, utc, expected):
-        assert filed_before_close(utc) is expected
+    def test_bell_boundaries_in_eastern(self, eastern, expected):
+        assert filed_before_close(eastern) is expected
 
     @pytest.mark.parametrize("bad", [
         None, "", "   ", "not-a-timestamp", "2026-07-15", "2026",
@@ -54,18 +57,19 @@ class TestFiledBeforeClose:
         assert filed_before_close(bad) is False
 
     def test_accepts_datetime_and_iso_t(self):
-        assert filed_before_close("2026-07-15T19:59:00") is True
-        aware = datetime(2026, 7, 15, 19, 59, tzinfo=ZoneInfo("UTC"))
-        assert filed_before_close(aware) is True
+        assert filed_before_close("2026-07-15T09:59:00") is True
+        assert filed_before_close(datetime(2026, 7, 15, 9, 59)) is True
 
-    def test_naive_datetime_is_read_as_utc(self):
-        assert filed_before_close(datetime(2026, 7, 15, 19, 59)) is True
-        assert filed_before_close(datetime(2026, 7, 15, 20, 30)) is False
+    def test_datetime_is_read_as_eastern_not_utc(self):
+        """19:59 is an evening filing. Read as UTC it would be 15:59 ET and
+        squeak in before the bell — which is exactly the bug."""
+        assert filed_before_close(datetime(2026, 7, 15, 19, 59)) is False
+        assert filed_before_close(datetime(2026, 7, 15, 9, 30)) is True
 
 
 class TestFirstTradeableIndex:
     def test_same_session_when_it_beat_the_bell(self):
-        assert first_tradeable_index(100, "2026-07-15 19:59:00") == 100
+        assert first_tradeable_index(100, "2026-07-15 09:59:00") == 100
 
     def test_next_session_when_it_did_not(self):
         assert first_tradeable_index(100, "2026-07-15 20:30:00") == 101

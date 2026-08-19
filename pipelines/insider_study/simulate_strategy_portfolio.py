@@ -165,6 +165,7 @@ class ClosedPosition:
 # Moved to framework.decision.filters as part of Stage 3 (shared engine).
 # Re-exported here so callers that imported from this module keep working
 # during the migration window.
+from framework.decision.entry_timing import entry_fill
 from framework.decision.filters import evaluate_filters  # noqa: F401
 
 
@@ -192,7 +193,11 @@ def load_trading_calendar(conn, start: str, end: str) -> List[str]:
 
 
 def preload_prices(conn, tickers: set, start: str, end: str) -> dict:
-    """Bulk-load close prices into a dict[(ticker, date)] = close."""
+    """Bulk-load prices into dict[(ticker, date)] = (open, close).
+
+    Opens are needed because a filing accepted after the bell fills at the next
+    session's OPEN, not its close.
+    """
     out = {}
     BATCH = 200
     tickers_list = sorted(tickers)
@@ -200,26 +205,34 @@ def preload_prices(conn, tickers: set, start: str, end: str) -> dict:
         chunk = tickers_list[i:i + BATCH]
         placeholders = ",".join(["?"] * len(chunk))
         rows = conn.execute(
-            f"""SELECT ticker, date::text, close FROM prices.daily_prices
+            f"""SELECT ticker, date::text, close, open FROM prices.daily_prices
                 WHERE ticker IN ({placeholders}) AND date >= ? AND date <= ?""",
             tuple(chunk) + (start, end),
         ).fetchall()
         for r in rows:
-            if r[2] and r[2] > 0:
-                out[(r[0], r[1])] = float(r[2])
+            close, opn = r[2], r[3]
+            if close and close > 0:
+                # Fall back to the close when a session has no open recorded.
+                out[(r[0], r[1])] = (float(opn) if opn and opn > 0 else float(close),
+                                     float(close))
     return out
 
 
-def find_first_price_on_or_after(prices, calendar, ticker, cal_idx, max_forward=5):
-    """First available close for ticker at or after calendar[cal_idx].
-    Returns (cal_idx, close) or None."""
+def find_first_price_on_or_after(prices, calendar, ticker, cal_idx,
+                                 max_forward=5, field="close"):
+    """First available price for ticker at or after calendar[cal_idx].
+
+    `field` is "close" or "open" — an after-the-bell filing fills at the next
+    session's open. Returns (cal_idx, price) or None.
+    """
+    slot = 0 if field == "open" else 1
     for off in range(max_forward + 1):
         i = cal_idx + off
         if i >= len(calendar):
             return None
-        c = prices.get((ticker, calendar[i]))
-        if c is not None:
-            return i, c
+        bar = prices.get((ticker, calendar[i]))
+        if bar is not None:
+            return i, bar[slot]
     return None
 
 
@@ -277,38 +290,16 @@ def simulate_one_strategy(
                   t.is_10b5_1, t.is_recurring, t.is_tax_sale, t.cohen_routine,
                   t.pit_grade, t.career_grade,
                   t.net_buyer_flow_90d, t.industry_buy_pct_90d,
-                  -- Could this filing have been acted on at that day's close?
-                  -- EDGAR accepts Form 4 until 22:00 ET and 43.5% of A+/A
-                  -- filings land after the 16:00 bell. Filling those at the
-                  -- filing day's close is a look-ahead, and an expensive one:
-                  -- it was worth 26 points of CAGR on the no-momentum variant
-                  -- (59.9% -> 33.8%). Filings without a timestamp are treated
-                  -- as after-close, which is the conservative direction.
-                  --
-                  -- filed_at is TEXT holding a UTC wall-clock time. The first
-                  -- version of this guard cast it with ::timestamptz, which
-                  -- makes Postgres read it in the SERVER timezone — Studio runs
-                  -- America/Los_Angeles — and then shifted it a further three
-                  -- hours into ET. Net effect: every filing appeared SEVEN
-                  -- hours earlier than it was, so an 20:00 ET filing scored as
-                  -- 03:00 and was ruled tradeable at a close that had happened
-                  -- four hours before it was public. The guard was written to
-                  -- stop exactly that and silently did the opposite.
-                  --
-                  -- 64 of quality_notrend's 149 positions were affected, and
-                  -- they were disproportionately the winners: CoreWeave filed
-                  -- at 20:00 ET and booked +122% from that afternoon's close.
-                  --
-                  -- Interpret as UTC, convert to ET, and require the resulting
-                  -- ET date to still be the filing date — an evening filing
-                  -- rolls into the next UTC day and must not be credited to a
-                  -- session that already closed.
-                  COALESCE(
-                      ((t.filed_at::timestamp AT TIME ZONE 'UTC')
-                          AT TIME ZONE 'America/New_York')::time < TIME '16:00'
-                      AND ((t.filed_at::timestamp AT TIME ZONE 'UTC')
-                          AT TIME ZONE 'America/New_York')::date::text = t.filing_date,
-                      FALSE) AS tradeable_same_day
+                  -- Raw acceptance timestamp. The SQL used to decide
+                  -- tradeability itself, converting UTC->ET inline, and that
+                  -- copy of the rule drifted from the Python twice: once
+                  -- inverted (fixed 2026-08-18) and once because the column
+                  -- silently became Eastern in 2026 while the conversion
+                  -- stayed (fixed 2026-08-19, 37 positions entered a day
+                  -- early). The decision now lives only in
+                  -- framework.decision.entry_timing, which is also where the
+                  -- five-minute pickup model lives.
+                  t.filed_at
            FROM trades t
            JOIN insiders i ON t.insider_id = i.insider_id
            WHERE t.trans_code = 'P'
@@ -384,7 +375,9 @@ def simulate_one_strategy(
         # ── 1) Exit checks for held positions ──────────────────────────
         kept = []
         for pos in held:
-            close_today = prices.get((pos.ticker, d))
+            # prices maps to (open, close); exits mark at the close.
+            _bar = prices.get((pos.ticker, d))
+            close_today = _bar[1] if _bar is not None else None
             exit_was_stale = False
             if close_today is not None:
                 pos.last_seen_close = close_today
@@ -513,11 +506,21 @@ def simulate_one_strategy(
                 # layered in later if backtests show it's meaningful.
                 break
 
-            # Entry price: the close of the first session we could actually
-            # have traded. Same day only when the filing was public before the
-            # bell; otherwise the next session. See tradeable_same_day above.
-            first_idx = cal_idx if t.get("tradeable_same_day") else cal_idx + 1
-            entry_lookup = find_first_price_on_or_after(prices, cal, ticker, first_idx)
+            # When could we actually have filled, and at what?
+            #
+            #   picked up before 16:00 ET -> that session's CLOSE
+            #   picked up after           -> the NEXT session's OPEN
+            #
+            # Not the next close. A filing accepted after the bell is
+            # actionable at the next open, and using that session's close
+            # instead hands the model a free day of drift in whichever
+            # direction the news pushed the stock. CDNL: accepted 17:37,
+            # booked at the $39.34 close, first real price $41.74 the next
+            # morning.
+            offset, price_field = entry_fill(t.get("filed_at"), t.get("trade_id"))
+            first_idx = cal_idx + offset
+            entry_lookup = find_first_price_on_or_after(
+                prices, cal, ticker, first_idx, field=price_field)
             if entry_lookup is None:
                 continue
             entry_idx, entry_price = entry_lookup
