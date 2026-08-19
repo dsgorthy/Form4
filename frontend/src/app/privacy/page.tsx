@@ -73,18 +73,34 @@ export default function PrivacyPage() {
         <section className="space-y-2">
           <h2 className="text-lg font-medium text-[#E8E8ED]">5. We Do Not Sell Your Data</h2>
           <p>
-            We do not sell, rent, or trade your personal information to third parties. We share
-            data only with service providers necessary to operate Form4 (Clerk for
-            authentication, Stripe for payments).
+            We do not sell, rent, or trade your personal information to third parties. We
+            share data only with the service providers necessary to operate Form4:
+            <strong className="text-[#E8E8ED]"> Clerk</strong> (authentication),
+            <strong className="text-[#E8E8ED]"> Stripe</strong> (payments),
+            <strong className="text-[#E8E8ED]"> Resend</strong> (email delivery, which
+            receives your email address and the contents of alerts we send you), and
+            <strong className="text-[#E8E8ED]"> PostHog</strong> (product analytics — see
+            the next section).
           </p>
         </section>
 
         <section className="space-y-2">
           <h2 className="text-lg font-medium text-[#E8E8ED]">6. Cookies</h2>
           <p>
-            We use cookies strictly for authentication purposes (Clerk session cookies). We do
-            not use third-party tracking cookies or sell cookie data. Google Analytics uses a
-            first-party cookie for anonymized usage statistics.
+            We use cookies for authentication (Clerk session cookies) and for product
+            analytics. We do not sell cookie data.
+          </p>
+          <p>
+            Analytics are provided by PostHog. To be specific about what that involves:
+            it records page views, clicks and other interactions, associates them with
+            your account once you sign in, and captures session recordings — a replay of
+            your interactions with the page. Password fields are masked and never
+            recorded. We use this to find where the product is confusing or broken.
+          </p>
+          <p>
+            You can opt out of analytics with your browser&apos;s Do Not Track setting or
+            an ad blocker; the product works normally without it. To have existing
+            analytics data deleted, email the address in section 7.
           </p>
         </section>
 
