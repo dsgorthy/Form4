@@ -90,8 +90,10 @@ scripts/seed_positions.py
 pipelines/thesis_monitor/positions.yaml
 .venv-test/
 
-# Cached ThetaData CSV pulls (8.7MB, regenerable) — see pipeline_options_backfill
+# VolSpike research: source is tracked, pulled data and outputs are not.
 tradingview/theta_cache/
+tradingview/__pycache__/
+tradingview/volspike_signals.csv
 
 # Claude Code session state
 .claude/
