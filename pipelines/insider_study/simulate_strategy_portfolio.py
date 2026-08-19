@@ -112,6 +112,13 @@ class OpenPosition:
     insider_title: Optional[str]
     company: Optional[str]
     entry_date: str
+    # The filing's own dates, kept distinct from entry_date. These three are
+    # three different days: trade_date is when the insider dealt, filing_date
+    # is when EDGAR received it, entry_date is the first close we could have
+    # bought at. Stamping entry_date into all three (which this did until
+    # 2026-08-18) makes the product contradict the SEC filing it links to.
+    filing_date: Optional[str]
+    trade_date: Optional[str]
     entry_price: float
     capital_at_entry: float       # $ allocated at entry (position_size_pct × equity_at_entry)
     target_exit_idx: int          # calendar index when hold_td expires
@@ -136,6 +143,8 @@ class ClosedPosition:
     insider_title: Optional[str]
     company: Optional[str]
     entry_date: str
+    filing_date: Optional[str]
+    trade_date: Optional[str]
     entry_price: float
     capital_at_entry: float
     exit_date: str
@@ -409,6 +418,7 @@ def simulate_one_strategy(
                     exit_reason=("stop_stale" if exit_was_stale else "stop"),
                     hold_days=hold_days_actual,
                     pnl_pct=pnl_pct, pnl_dollar=pnl_dollar,
+                    filing_date=pos.filing_date, trade_date=pos.trade_date,
                     pit_grade=pos.pit_grade, career_grade=pos.career_grade,
                     conviction=pos.conviction,
                     is_csuite=pos.is_csuite, is_rare_reversal=pos.is_rare_reversal,
@@ -433,6 +443,7 @@ def simulate_one_strategy(
                     exit_reason=("time_stale" if exit_was_stale else "time"),
                     hold_days=hold_days_actual,
                     pnl_pct=pnl_pct, pnl_dollar=pnl_dollar,
+                    filing_date=pos.filing_date, trade_date=pos.trade_date,
                     pit_grade=pos.pit_grade, career_grade=pos.career_grade,
                     conviction=pos.conviction,
                     is_csuite=pos.is_csuite, is_rare_reversal=pos.is_rare_reversal,
@@ -533,6 +544,7 @@ def simulate_one_strategy(
                 capital_at_entry=capital,
                 target_exit_idx=target_exit_idx,
                 stop_price=entry_price * (1 + STOP_LOSS_PCT),
+                filing_date=t.get("filing_date"), trade_date=t.get("trade_date"),
                 pit_grade=t.get("pit_grade"), career_grade=t.get("career_grade"),
                 conviction=t["_conviction"],
                 is_csuite=bool(t.get("is_csuite")),
@@ -631,7 +643,7 @@ def persist_positions(
                 c.capital_at_entry,
                 c.equity_after - c.pnl_dollar, c.equity_after,
                 c.insider_name, c.insider_title, int(bool(c.is_csuite)),
-                c.company, c.entry_date, c.entry_date,
+                c.company, c.filing_date, c.trade_date,
                 c.career_grade, c.conviction, 1 if c.is_rare_reversal else 0,
                 c.exit_reason,
                 reasoning,
@@ -678,7 +690,7 @@ def persist_positions(
                 o.capital_at_entry / max(STARTING_CAPITAL, final_equity),
                 o.capital_at_entry, final_equity,
                 o.insider_name, o.insider_title, int(bool(o.is_csuite)),
-                o.company, o.entry_date, o.entry_date,
+                o.company, o.filing_date, o.trade_date,
                 o.career_grade, o.conviction, 1 if o.is_rare_reversal else 0,
                 reasoning,
                 int(o.capital_at_entry / o.entry_price) if o.entry_price else 0,

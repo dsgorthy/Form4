@@ -1,0 +1,80 @@
+//@version=6
+indicator("Volume Surge + Price Spike", "VolSpike", overlay=true, max_labels_count=200)
+
+// ── Window (timeframe-agnostic) ───────────────────────────────
+winMin  = input.int(5, "Move window (minutes)", minval=1, group="Window",
+     tooltip="Price move & window-volume are measured over this many minutes regardless of chart TF. On a 1m chart 5 = last 5 bars; on a 5m chart = last 1 bar.")
+tfSec   = timeframe.in_seconds()
+winBars = int(math.max(1, math.round(winMin * 60 / tfSec)))
+
+// ── Price move ────────────────────────────────────────────────
+pctThr  = input.float(0.5, "Min move over window (%)", minval=0.0, step=0.1, group="Price",
+     tooltip="Stark move over the window, either direction. SPY 727->734 was +0.96%; 0.5% also catches more moderate spikes. Raise to cut noise.")
+useUp   = input.bool(true, "Up moves",   inline="d", group="Price")
+useDn   = input.bool(true, "Down moves", inline="d", group="Price")
+dolThr  = 2.0  // hardcoded $ move threshold for now; an alternative path that needs less volume
+basePx  = close[winBars]
+pctChg  = (close - basePx) / basePx * 100.0
+dolChg  = close - basePx
+upPct   = useUp and pctChg >=  pctThr
+dnPct   = useDn and pctChg <= -pctThr
+upDol   = useUp and dolChg >=  dolThr
+dnDol   = useDn and dolChg <= -dolThr
+
+// ── Volume vs current-session pace ────────────────────────────
+volMult = input.float(1.5, "Min volume multiple (% path)", minval=1.0, step=0.1, group="Volume",
+     tooltip="Window volume must be >= this x baseline. 1.5 = at least 50% above the session's normal pace. Raise toward 3x to require a real surge.")
+volMultLt = input.float(1.2, "Min volume multiple ($ path)", minval=1.0, step=0.1, group="Volume",
+     tooltip="Lighter volume gate applied only to the $-move path. 1.0 = ignore volume for $ moves.")
+basis   = input.string("Session running average", "Baseline",
+     options=["Session running average", "Rolling average (last N bars)"], group="Volume")
+rollLen = input.int(20, "Rolling length (bars)", minval=1, group="Volume")
+
+// Session volume average accumulates from the REAL open (includes the first
+// hour). Only the trade-window gate below is time-restricted, not this baseline.
+newDay  = barstate.isfirst or ta.change(time("D")) != 0
+var float sessVol  = 0.0
+var int   sessBars = 0
+sessVol  := newDay ? volume : sessVol + volume
+sessBars := newDay ? 1 : sessBars + 1
+avgBar   = sessVol / sessBars
+
+winVol  = math.sum(volume, winBars)
+baseVol = basis == "Rolling average (last N bars)" ? ta.sma(volume, rollLen) * winBars : avgBar * winBars
+volRto  = baseVol > 0 ? winVol / baseVol : na
+volHit     = not na(volRto) and volRto >= volMult
+volHitLite = not na(volRto) and volRto >= volMultLt
+
+// ── Trade window (gates SIGNALS only; volume stats above are unaffected) ──
+actSess  = input.session("0730-1230", "Trade window (PT)", group="Session",
+     tooltip="Pacific-time window in which signals may fire. Default 07:30-12:30 PT excludes the first hour (06:30-07:30) and the last 30 min (12:30-13:00). First-hour bars STILL feed the volume average above.")
+inWindow = not na(time(timeframe.period, actSess, "America/Los_Angeles"))
+
+// ── Trigger ───────────────────────────────────────────────────
+confirmOnly = input.bool(true, "Signal only on bar close", group="Signal",
+     tooltip="ON = stable, no repaint, fires when the bar completing the move closes. OFF = intrabar (faster, marker can repaint).")
+upHit = (upPct and volHit) or (upDol and volHitLite)
+dnHit = (dnPct and volHit) or (dnDol and volHitLite)
+raw   = (upHit or dnHit) and inWindow
+gated = confirmOnly ? (raw and barstate.isconfirmed) : raw
+fresh = gated and not gated[1]
+
+// ── Plot ──────────────────────────────────────────────────────
+plotshape(fresh and upHit, "Up surge",   shape.triangleup,   location.belowbar, color.new(color.lime, 0), size=size.small)
+plotshape(fresh and dnHit, "Down surge", shape.triangledown, location.abovebar, color.new(color.red,  0), size=size.small)
+bgcolor(fresh ? color.new(upHit ? color.lime : color.red, 85) : na)
+
+showLbl = input.bool(true, "Show detail label", group="Signal")
+if fresh and showLbl
+    label.new(bar_index, upHit ? low : high,
+         str.format("{0,number,0.00}%  -  {1,number,0.0}x vol", pctChg, volRto),
+         yloc      = upHit ? yloc.belowbar : yloc.abovebar,
+         style     = upHit ? label.style_label_up : label.style_label_down,
+         color     = color.new(upHit ? color.lime : color.red, 20),
+         textcolor = color.black, size = size.small)
+
+// ── Alerts ────────────────────────────────────────────────────
+alertcondition(fresh, "Volume surge + price spike", "Volume surge + price spike detected")
+if fresh
+    alert(str.format("{0} {1}m: {2,number,0.00}% on {3,number,0.0}x volume",
+         syminfo.ticker, winMin, pctChg, volRto), alert.freq_once_per_bar)

@@ -239,18 +239,27 @@ export default async function TradeDetailPage({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             <h1 className="text-2xl font-bold font-mono text-[#E8E8ED]">{trade.ticker}</h1>
-            {trade.signal_quality != null && (
-              <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-sm font-mono font-bold ${
-                trade.signal_quality >= 8 ? "bg-[#22C55E]/15 text-[#22C55E]" :
-                trade.signal_quality >= 7 ? "bg-[#3B82F6]/15 text-[#3B82F6]" :
-                "bg-[#8888A0]/10 text-[#8888A0]"
-              }`}>
-                {trade.signal_quality.toFixed(1)}
-                <span className="text-[10px] font-normal opacity-60">/10</span>
+            {/* Two different measures of two different things, shown side by
+                side with no labels until 2026-08-18: a bare "1.5 /10" next to
+                a bare "Grade A" reads as a contradiction. The number is the
+                conviction score, whose entry floor is 1.5, so a value at the
+                bottom of the scale means the grade carried the trade and
+                conviction merely cleared — not that we rated it 1.5 out of 10.
+                The letter is the insider's career grade. Both get a word. */}
+            {trade.signal_grade && (
+              <span className="inline-flex items-baseline gap-1.5 rounded-md bg-[#1A1A26] px-2.5 py-1">
+                <span className="text-[10px] uppercase tracking-wider text-[#55556A]">Career grade</span>
+                <span className={`text-sm font-semibold ${gradeColor(trade.signal_grade)}`}>{trade.signal_grade}</span>
               </span>
             )}
-            {trade.signal_grade && (
-              <span className={`text-sm font-semibold ${gradeColor(trade.signal_grade)}`}>Grade {trade.signal_grade}</span>
+            {trade.signal_quality != null && (
+              <span className="inline-flex items-baseline gap-1.5 rounded-md bg-[#1A1A26] px-2.5 py-1">
+                <span className="text-[10px] uppercase tracking-wider text-[#55556A]">Conviction</span>
+                <span className="font-mono text-sm font-semibold text-[#8888A0]">
+                  {trade.signal_quality.toFixed(1)}
+                  <span className="text-[10px] font-normal text-[#55556A]">/10</span>
+                </span>
+              </span>
             )}
             <ExecutionBadge source={trade.execution_source} estimated={trade.is_estimated} />
             {isOpen && <Badge variant="outline" className="text-[10px] border-[#3B82F6]/30 text-[#3B82F6]">OPEN</Badge>}
@@ -292,7 +301,7 @@ export default async function TradeDetailPage({
           {er?.signal?.breakdown ? (
             <div className="space-y-0.5">
               <div className="flex items-baseline justify-between mb-3">
-                <span className="text-sm text-[#E8E8ED]">Signal Quality</span>
+                <span className="text-sm text-[#E8E8ED]">Conviction</span>
                 <span className="text-xl font-mono font-bold text-[#E8E8ED]">
                   {(er.signal.quality ?? trade.signal_quality ?? 0).toFixed(1)}
                   <span className="text-[#55556A] text-sm">/10</span>
@@ -307,7 +316,7 @@ export default async function TradeDetailPage({
               )}
             </div>
           ) : (
-            <Row label="Signal Quality" value={trade.signal_quality?.toFixed(1) ?? "—"} mono />
+            <Row label="Conviction" value={trade.signal_quality != null ? `${trade.signal_quality.toFixed(1)}/10` : "—"} mono />
           )}
 
           {/* Badges row */}
@@ -366,8 +375,8 @@ export default async function TradeDetailPage({
 
         {/* Filing Details */}
         <Section title="SEC Filing">
-          <Row label="Filing Date" value={trade.filing_date || "—"} />
-          <Row label="Trade Date" value={trade.trade_date || "—"} />
+          <Row label="Insider traded" value={trade.trade_date || "—"} />
+          <Row label="Filed with SEC" value={trade.filing_date || "—"} />
           <Row
             label="Trade Value"
             value={trade.trade_value ? formatCurrency(trade.trade_value) : "—"}
