@@ -74,6 +74,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from config.database import get_connection
+from framework.contracts.freshness_writer import write_freshness
 from framework.observability.pipeline_runner import pipeline_run
 
 logging.basicConfig(
@@ -137,6 +138,21 @@ def rebuild(dry_run: bool = False) -> dict:
     # role weight out of every score computed while it was empty.
     conn.execute("DELETE FROM insider_companies")
     conn.execute(BUILD_SQL)
+
+    after_rows = conn.execute(
+        "SELECT COUNT(*) AS n FROM insider_companies").fetchone()["n"]
+    # Inside the same transaction as the rebuild: signal_freshness must not be
+    # able to claim a write that then rolled back. This is also what the
+    # preflight enforces — a freshness contract whose script never calls
+    # write_freshness is an orphan wearing a contract, which is the exact
+    # failure that let this table sit three months stale.
+    write_freshness(
+        conn,
+        table="insider_companies",
+        column="last_trade",
+        n_rows_affected=after_rows,
+        populated_by="pipelines/insider_study/rebuild_insider_companies.py",
+    )
     conn.commit()
 
     after = conn.execute("SELECT COUNT(*) AS n FROM insider_companies").fetchone()["n"]
