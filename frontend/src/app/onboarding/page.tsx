@@ -10,19 +10,19 @@ const STRATEGIES = [
     value: "quality_notrend",
     label: "A-List Buys",
     brief: "A proven insider buys \u2014 the person is the whole signal",
-    stats: "55.4% CAGR \u00b7 67% WR \u00b7 ~40 trades/yr",
+    stats: "+37 pts vs S&P \u00b7 67% WR \u00b7 ~40 trades/yr",
   },
   {
     value: "quality_momentum",
     label: "Insider Breakout",
     brief: "A proven insider buys a stock already trending up",
-    stats: "19.0% CAGR \u00b7 71% WR \u00b7 ~15 trades/yr",
+    stats: "+24 pts vs S&P \u00b7 70% WR \u00b7 ~15 trades/yr",
   },
   {
     value: "reversal_dip",
     label: "Insider Dip Buys",
     brief: "A serial seller finally buys, into a 25% drawdown",
-    stats: "15.4% CAGR \u00b7 67% WR \u00b7 ~18 trades/yr",
+    stats: "+16 pts vs S&P \u00b7 65% WR \u00b7 ~15 trades/yr",
   },
 ];
 

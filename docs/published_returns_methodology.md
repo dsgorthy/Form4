@@ -17,9 +17,16 @@ excess as the emphasised figure.**
 
 | | blended CAGR | SPY | **excess** | avg deployed |
 |---|---|---|---|---|
-| A-List Buys (`quality_notrend`) | 58.9% | 21.5% | **+37.4** | 59% |
-| Insider Breakout (`quality_momentum`) | 32.3% | 21.5% | **+10.8** | 19% |
-| Insider Dip Buys (`reversal_dip`) | 31.4% | 21.5% | **+9.9** | 13% |
+| A-List Buys (`quality_notrend`) | 58.6% | 21.4% | **+37.2** | 59% |
+| Insider Breakout (`quality_momentum`) | 45.3% | 21.4% | **+24.0** | 41% |
+| Insider Dip Buys (`reversal_dip`) | 37.4% | 21.3% | **+16.0** | 28% |
+
+Position caps were set per strategy on 2026-08-20 rather than sharing one
+`10 x 10%`. Breakout and Dip Buys had `max_concurrent: 10` against books that
+hold 2.4 and 1.6 positions, so the slot count was decoration and only the 10%
+size was live — leaving 81% and 86% of their capital in SPY. Breakout is now
+`5 x 20%`, Dip Buys `4 x 25%`; A-List keeps `10 x 10%` because its slot count
+genuinely binds. All three cap at 100% gross, so none can lever.
 
 Window: 2023-01-03 → present (3.61y). $100,000 start.
 
@@ -37,10 +44,11 @@ low-deployment books most of it *is* SPY.
 
 ### Why excess is the headline
 
-Insider Breakout is 19% deployed. Its 32.3% is roughly two-thirds market beta.
-Quoting 32.3% without the benchmark implies a stock-picking result that is
-mostly the index. **+10.8 over SPY** is the actual claim and it survives the
-sleeve-vs-blended question.
+Even after the resize, Insider Dip Buys is only 28% deployed — roughly
+seven-tenths of what a holder experiences is the index. Quoting 37.4% without
+the benchmark implies a stock-picking result that is mostly beta. **+16.0 over
+SPY** is the actual claim, and unlike the raw CAGR it survives the
+sleeve-vs-blended question untouched.
 
 ---
 
@@ -79,18 +87,21 @@ different *set* of trades. Read the sleeve figure as ~50% ± 5.
 
 | year | A-List | Breakout | Dip Buys | SPY |
 |---|---|---|---|---|
-| 2023 | +63.9% | +34.6% | +53.8% | +24.8% |
-| 2024 | +26.3% | +34.8% | +29.4% | +24.0% |
-| 2025 | +86.5% | +25.0% | +24.1% | +16.6% |
-| 2026 | +40.8% | +24.2% | **+9.1%** | +12.6% |
+| 2023 | +63.9% | +44.9% | +48.4% | +24.8% |
+| 2024 | +26.3% | +47.5% | +38.4% | +24.0% |
+| 2025 | +86.5% | +34.8% | +43.8% | +16.6% |
+| 2026 | +40.8% | +41.6% | **+3.9%** | +12.6% |
 
-**Insider Dip Buys is underperforming SPY in 2026** (+9.1% vs +12.6%) and its
-2026 trades average −3.40% with a 37.5% win rate.
+**Insider Dip Buys is underperforming SPY in 2026** (+3.9% vs +12.6%) and its
+2026 trades average −3.40% with a 37.5% win rate. It is on watch: if it
+finishes the year behind the index, retire it.
 
-**Concentration.** Top-10 trades are 85% of Insider Breakout's P&L and 84% of
-Insider Dip Buys'. A-List Buys is the least concentrated at 53%.
+**Concentration, and it got worse with the resize.** Top-10 trades are now 88%
+of Insider Breakout's P&L and **99% of Insider Dip Buys'** — larger positions
+concentrate the outcome as well as the capital. A-List Buys is much the
+healthiest at 53%. Dip Buys effectively rests on ten trades.
 
-**SPY returned 21.5% CAGR over this window.** These books have only ever run in
+**SPY returned 21.4% CAGR over this window.** These books have only ever run in
 a strong bull market.
 
 **Two directional biases, both small.** ~2% of qualifying candidates are
@@ -100,9 +111,9 @@ The −30% stop is evaluated on the close, so gaps fill below it (two of twelve
 at −43.6% and −42.3%).
 
 **What is solid.** Bootstrap CI on the mean trade excludes zero for all three:
-A-List +12.73% [+8.14, +17.62], Breakout +12.53% [+5.49, +20.59], Dip Buys
-+7.61% [+3.25, +12.30]. There is a real edge at the trade level. The dispute is
-only over its size.
+A-List +12.73% [+8.22, +17.54], Breakout +12.76% [+5.63, +21.02], Dip Buys
++6.03% [+1.94, +10.14]. There is a real edge at the trade level. The dispute is
+only over its size — and for Dip Buys the interval now nearly touches zero.
 
 ---
 
@@ -114,7 +125,13 @@ only over its size.
 | 2026-08-19 | 43.1% → 48.8% | `filed_at` Eastern for 2026 rows; after-bell fills moved to the next open |
 | 2026-08-19 | 48.8% → 55.4% | `is_largest_ever` wrong on 23.7% of flags |
 | 2026-08-20 | definition settled | sleeve vs blended, and the period bug |
+| 2026-08-20 | per-strategy position caps | one shared `10 x 10%` left two books ~85% in SPY |
 
-Every one was a definitional or data defect, none a market event. Each now has
-a regression test: `test_entry_timing_eastern`, `test_cumulative_signal_windows`,
-`test_published_returns`.
+Every move before 2026-08-20 was a definitional or data defect, none a market
+event, and each now has a regression test: `test_entry_timing_eastern`,
+`test_cumulative_signal_windows`, `test_published_returns`.
+
+**This is the last planned move.** The sizing change is the one deliberate
+parameter decision on the list, taken before the figures are marketed rather
+than after. Anything that moves these numbers from here should be a new trade
+or a decision made on purpose — not a discovery.
