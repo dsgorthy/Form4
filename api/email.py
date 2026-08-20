@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import hashlib
 import hmac
 import logging
@@ -58,6 +60,41 @@ def send_email(
         return False
 
 
+
+# ─── CAN-SPAM footer ─────────────────────────────────────────────────────────
+#
+# 15 U.S.C. 7704(a)(5) requires every commercial email to carry the sender's
+# valid physical postal address and a working opt-out. We had the opt-out and
+# not the address.
+#
+# Set FORM4_POSTAL_ADDRESS to the real mailing address — a street address, PO
+# box, or registered-agent address all qualify. The default below is a city and
+# state only, which is NOT sufficient on its own; it exists so the footer
+# renders rather than silently disappearing, not as a compliant value.
+POSTAL_ADDRESS = os.getenv("FORM4_POSTAL_ADDRESS", "Form4, Seattle, WA, USA")
+
+
+def _legal_footer(unsubscribe_url: str = "") -> str:
+    """Postal address, opt-out, and why this landed in their inbox."""
+    unsub = (
+        f'<a href="{unsubscribe_url}" style="color:#888;">Unsubscribe</a> &middot; '
+        if unsubscribe_url else ""
+    )
+    return (
+        '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #2A2A3A;'
+        'font-size:11px;color:#666;line-height:1.6;">'
+        '<p style="margin:0 0 6px;">You are receiving this because you follow this '
+        'company or insider on Form4.</p>'
+        f'<p style="margin:0 0 6px;">{unsub}'
+        '<a href="https://form4.app/settings" style="color:#888;">Manage alerts</a> &middot; '
+        '<a href="https://form4.app/privacy" style="color:#888;">Privacy</a></p>'
+        f'<p style="margin:0;">{POSTAL_ADDRESS}</p>'
+        '<p style="margin:6px 0 0;">Not investment advice. Simulated strategy '
+        'results &mdash; see form4.app/performance.</p>'
+        '</div>'
+    )
+
+
 def generate_unsubscribe_token(user_id: str) -> str:
     """Generate a signed token for one-click unsubscribe links."""
     if not RESEND_API_KEY:
@@ -77,9 +114,7 @@ def verify_unsubscribe_token(user_id: str, token: str) -> bool:
 
 def build_notification_email(title: str, body: str, unsubscribe_url: str = "") -> str:
     """Build HTML email for a single notification."""
-    unsub = ""
-    if unsubscribe_url:
-        unsub = f'<p style="margin-top:24px;font-size:12px;color:#888;"><a href="{unsubscribe_url}" style="color:#888;">Unsubscribe from email alerts</a></p>'
+    unsub = _legal_footer(unsubscribe_url)
 
     return f"""
     <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#0A0A0F;color:#E8E8ED;">
@@ -109,9 +144,7 @@ def build_digest_email(
         </div>
         """
 
-    unsub = ""
-    if unsubscribe_url:
-        unsub = f'<p style="margin-top:24px;font-size:12px;color:#888;"><a href="{unsubscribe_url}" style="color:#888;">Unsubscribe from email alerts</a></p>'
+    unsub = _legal_footer(unsubscribe_url)
 
     return f"""
     <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#0A0A0F;color:#E8E8ED;">

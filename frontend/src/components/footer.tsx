@@ -26,6 +26,13 @@ export function Footer() {
             Terms of Service
           </Link>
           <Link
+            href="/performance"
+            prefetch={false}
+            className="text-xs text-[#55556A] transition-colors hover:text-[#8888A0]"
+          >
+            Performance
+          </Link>
+          <Link
             href="/disclaimer"
             prefetch={false}
             className="text-xs text-[#55556A] transition-colors hover:text-[#8888A0]"

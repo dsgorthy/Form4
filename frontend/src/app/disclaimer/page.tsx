@@ -66,6 +66,19 @@ export default function DisclaimerPage() {
         <section className="space-y-2">
           <h2 className="text-lg font-medium text-[#E8E8ED]">Past Performance</h2>
           <p>
+            <strong className="text-[#E8E8ED]">
+              The strategy returns published on this site are simulated, not a
+              live trading record.
+            </strong>{" "}
+            No real money was traded and the results were produced with the
+            benefit of hindsight. Hypothetical performance has limitations that
+            an actual track record does not, and they are set out in full on the{" "}
+            <Link href="/performance" className="text-[#3B82F6] hover:underline">
+              performance disclosure
+            </Link>{" "}
+            page.
+          </p>
+          <p>
             Past performance of insider trading signals, scores, or any analytical output does
             not guarantee future results. The securities markets are inherently unpredictable.
             Historical patterns shown on this platform may not repeat.

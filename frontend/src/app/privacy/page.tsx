@@ -127,7 +127,45 @@ export default function PrivacyPage() {
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-lg font-medium text-[#E8E8ED]">9. Changes to This Policy</h2>
+          <h2 className="text-lg font-medium text-[#E8E8ED]">9. Your Rights Over Your Data</h2>
+          <p>
+            Wherever you live, you can ask us to show you the personal data we
+            hold about you, correct it, delete it, or send you a copy in a
+            portable format. Email the address in the contact section and we
+            will action it within 30 days. We will not charge you, and we will
+            not treat you differently for asking.
+          </p>
+          <p>
+            <strong className="text-[#E8E8ED]">If you are in California</strong>{" "}
+            (CCPA/CPRA), you additionally have the right to know what categories
+            of personal information we collect and why, to opt out of sale or
+            sharing, and to limit the use of sensitive personal information.{" "}
+            <strong className="text-[#E8E8ED]">We do not sell or share your
+            personal information</strong> as those terms are defined by the
+            CCPA, and we do not collect sensitive personal information as
+            defined there, so there is nothing to opt out of — but the right to
+            ask stands and the response is the same.
+          </p>
+          <p>
+            <strong className="text-[#E8E8ED]">If you are in the UK or EEA</strong>{" "}
+            (UK GDPR / GDPR), our lawful bases are: performance of a contract,
+            for the account and subscription features you asked us to provide;
+            legitimate interests, for product analytics and fraud prevention;
+            and consent, where you opted into email alerts. You may object to
+            processing based on legitimate interests at any time, withdraw
+            consent for alerts from your settings, and lodge a complaint with
+            your supervisory authority.
+          </p>
+          <p>
+            Form4 is operated from the United States, and our service providers
+            (listed in section 5) process data there. If you use the service
+            from outside the US, your information is transferred to and stored
+            in the US.
+          </p>
+        </section>
+
+        <section className="space-y-2">
+          <h2 className="text-lg font-medium text-[#E8E8ED]">10. Changes to This Policy</h2>
           <p>
             We may update this Privacy Policy from time to time. We will notify you of material
             changes by posting the updated policy on this page with a revised effective date.
@@ -135,7 +173,7 @@ export default function PrivacyPage() {
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-lg font-medium text-[#E8E8ED]">10. Contact</h2>
+          <h2 className="text-lg font-medium text-[#E8E8ED]">11. Contact</h2>
           <p>
             For privacy-related inquiries, contact us at{" "}
             <a href="mailto:support@form4.app" className="text-[#3B82F6] hover:underline">

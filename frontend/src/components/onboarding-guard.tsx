@@ -10,6 +10,7 @@ const SKIP_PATHS = [
   "/sign-up",
   "/pricing",
   "/privacy",
+  "/performance",
   "/terms",
   "/disclaimer",
   "/research/methodology",

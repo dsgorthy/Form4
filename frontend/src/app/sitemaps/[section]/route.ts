@@ -17,7 +17,7 @@ const STATIC_PATHS = [
   "/explore", "/pricing",
   "/research",
   ...RESEARCH_TYPES.map((t) => `/research/${t}`),
-  "/privacy", "/terms", "/disclaimer",
+  "/privacy", "/terms", "/disclaimer", "/performance",
 ];
 
 /**

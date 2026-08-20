@@ -300,7 +300,31 @@ export default function PricingPage() {
         </div>
       </div>
 
-      <div className="mt-12 text-center text-sm text-[#55556A]">
+      <div className="mx-auto mt-10 max-w-2xl rounded-lg border border-[#2A2A3A] bg-[#12121A] p-4 text-xs leading-relaxed text-[#8888A0]">
+        <p>
+          <strong className="text-[#E8E8ED]">Automatic renewal.</strong> The
+          7-day trial requires no card. If you subscribe, your plan renews
+          automatically at the end of each billing period — $25/month or
+          $250/year for Pro, $75/month or $750/year for Pro+ — and your payment
+          method is charged until you cancel.
+        </p>
+        <p className="mt-2">
+          <strong className="text-[#E8E8ED]">Cancelling.</strong> Cancel any
+          time from{" "}
+          <Link href="/settings" className="text-[#3B82F6] hover:underline">
+            account settings
+          </Link>{" "}
+          — it takes effect at the end of the period you have already paid for,
+          and you keep access until then. No phone call, no email required.
+          Fees already charged are generally non-refundable; see the{" "}
+          <Link href="/terms" className="text-[#3B82F6] hover:underline">
+            terms
+          </Link>
+          .
+        </p>
+      </div>
+
+      <div className="mt-8 text-center text-sm text-[#55556A]">
         All plans include a 7-day free trial. Cancel anytime.
         <br />
         Questions? <a href="mailto:support@form4.app" className="text-[#3B82F6] hover:underline">support@form4.app</a>
