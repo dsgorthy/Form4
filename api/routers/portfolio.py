@@ -99,13 +99,24 @@ ALLOWED_STRATEGIES = set(ACTIVE_STRATEGIES)
 
 
 
-def _blended_and_benchmark(conn, strategy: str, starting: float, years: float):
+def _blended_and_benchmark(strategy: str, starting: float, years: float):
     """CAGR of the book with idle cash in SPY, and SPY's own CAGR, same window.
 
     Walks the day series once: idle cash compounds at SPY, positions mark to
     their own close. Returns (blended_cagr, spy_cagr) or (None, None) when the
     price data is not there — a missing benchmark must not fabricate a number.
+
+    Opens its own connection rather than borrowing the caller's: the call site
+    sits after the endpoint's `with get_db()` block has closed, and reusing a
+    returned-to-pool connection 500s the busiest page on the site. It did.
     """
+    from collections import defaultdict
+
+    with get_db() as conn:
+        return _blended_inner(conn, strategy, starting, years)
+
+
+def _blended_inner(conn, strategy: str, starting: float, years: float):
     from collections import defaultdict
 
     spy = {r["date"]: float(r["close"]) for r in conn.execute(
@@ -520,7 +531,7 @@ def get_portfolio(
     # stock-picking result that is mostly beta.
     #
     # See docs/published_returns_methodology.md.
-    blended_cagr, spy_cagr = _blended_and_benchmark(conn, strategy, starting, years)
+    blended_cagr, spy_cagr = _blended_and_benchmark(strategy, starting, years)
 
     # Gating: free users see last FREE_VISIBLE trades ungated, rest blurred
     FREE_VISIBLE = 10
