@@ -198,10 +198,35 @@ covered — and that always removes the worst outcomes rather than a random
 sample. And the −30% stop is evaluated on the CLOSE, so a gap-down fills
 below it: two of twelve stops came out at −43.6% and −42.3%.
 
-**These CAGRs have not been validated out of sample at this level.** 55.4% on
-141 trades with a 6.8% drawdown is mechanically verified but statistically
-extraordinary; the drawdown is flattered by the book sitting ~41% in cash.
-Treat it as a measured result, not a forecast, until a holdout confirms it. Idle cash held in SPY; 1x leverage — the 2x book was built,
+**THE HEADLINE CAGR IS NEAR THE TOP OF A WIDE BAND, NOT A CENTRAL ESTIMATE.**
+
+Measured 2026-08-20. Perturbing conviction by ±0.25 — less than any single
+component of the score — and re-running 14 times gives quality_notrend:
+
+| | CAGR |
+|---|---|
+| min | 46.2% |
+| **median** | **49.7%** |
+| max | 55.7% |
+| published | **55.4% — 13 of 14 draws fall below it** |
+
+The mechanism is the CONVICTION GATE, not tie-breaking. Tie-break-only noise
+(+0..0.004) moved the book **$0** across 14 seeds. But `min_conviction` is 1.5
+and the score is built from ~12 half-point components, so any ±0.5 change to
+one input pushes a whole band of candidates across the floor. Forcing
+`is_largest_ever` on gives 148 trades and $346,851; off gives 126 and $425,851;
+correct gives 141 and $495,797 — **non-monotonic**, so it is which trades get
+admitted, not how many.
+
+Practical consequences:
+- Read the published figure as roughly **50% ± 5**, not 55.4%.
+- Any change to any conviction input will move the book by tens of percent.
+  That is not a bug being reintroduced; it is this design.
+- The gate threshold is doing more work than any individual signal. Worth
+  revisiting `min_conviction` as a tuned parameter in its own right.
+
+Still unvalidated out of sample at this level, and the 6.8% drawdown is
+flattered by the book sitting ~41% in cash. Idle cash held in SPY; 1x leverage — the 2x book was built,
 measured at 61% average gross exposure against a 200% ceiling, and shelved.
 
 **Retired 2026-08-18:** `tenb51_surprise` (Sharpe 0.68). Runner unloaded, plist
