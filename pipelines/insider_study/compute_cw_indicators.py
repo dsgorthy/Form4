@@ -270,14 +270,30 @@ def compute_purchase_size_metrics(conn) -> int:
     print("\n=== Purchase Size Metrics ===")
     t0 = time.time()
 
-    # Load all trades grouped by (insider_id, ticker, trans_code)
+    # HISTORY IS NOT THE UPDATE WINDOW.
+    #
+    # This used to load `trade_date >= MIN_DATE` and then mark the first trade
+    # it saw in each group as "trivially the largest". That is fine on a full
+    # run, where MIN_DATE is 2016 and only 1,471 P-trades predate it — and
+    # badly wrong on the incremental one, because fetch_latest calls this every
+    # five minutes with `--since <7 days ago>`, which overrides MIN_DATE. Each
+    # insider's first purchase inside a seven-day window was being crowned
+    # their largest ever.
+    #
+    # 23.7% of is_largest_ever=1 flags had a bigger purchase by the same
+    # insider in the same ticker already filed before them. Scott Gordon's
+    # LIEN buy was published as "largest purchase they've ever made in it"
+    # against his own $490,336 in 2022 — this one was $421K.
+    #
+    # So: load the FULL history for comparison, and restrict only which rows
+    # get written.
     rows = conn.execute("""
         SELECT trade_id, insider_id, ticker, trans_code, trade_date, value
         FROM trades
-        WHERE trade_date >= ? AND value > 0
+        WHERE value > 0
         ORDER BY insider_id, ticker, trans_code, trade_date, trade_id
-    """, (MIN_DATE,)).fetchall()
-    print(f"  Loaded {len(rows):,} trades with value > 0")
+    """).fetchall()
+    print(f"  Loaded {len(rows):,} trades with value > 0 (full history for comparison)")
 
     # Group by (insider_id, ticker, trans_code)
     groups = defaultdict(list)
@@ -297,8 +313,12 @@ def compute_purchase_size_metrics(conn) -> int:
                 largest = 1 if value > prior_max else 0
             else:
                 ratio = None  # first trade — no prior reference
-                largest = 1   # trivially the largest
-            updates.append((ratio, largest, trade_id))
+                largest = 1   # genuinely their first, so genuinely the largest
+            # Only write rows inside the requested window. The comparison above
+            # always walks the whole history, so a short --since no longer
+            # rewrites the past OR mistakes a window boundary for a career start.
+            if trade_date >= MIN_DATE:
+                updates.append((ratio, largest, trade_id))
             prior_values.append(value)
             prior_max = max(prior_max, value)
 
