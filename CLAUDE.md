@@ -168,9 +168,9 @@ to move.
 
 | Key | Public name | Status | CAGR | Key Metric |
 |-----|-------------|--------|------|------------|
-| quality_notrend | **A-List Buys** | LIVE alert-only | 48.8% | A+/A insider buys, no chart condition. 141 closed sim trades. The strongest book: the trend filter QM applies costs more in trades foregone than it saves — QM fills 2.6 of 10 slots against notrend's 6.4. |
-| quality_momentum | **Insider Breakout** | LIVE alert-only | 17.0% | Same insider grade, plus above SMA50 and SMA200. 55 closed sim trades. Kept as the A/B control. |
-| reversal_dip | **Insider Dip Buys** | LIVE alert-only | 13.6% | 10+ consecutive sells then a buy, into a 25%+ 3-month drawdown. Genuinely lumpy — went dark Dec 2025–Feb 2026 and again Jun–Aug 2026, then fired 3 in a month. Sparse alerts are expected, not a fault. |
+| quality_notrend | **A-List Buys** | LIVE alert-only | 55.4% | A+/A insider buys, no chart condition. 141 closed sim trades. The strongest book: the trend filter QM applies costs more in trades foregone than it saves — QM fills 2.6 of 10 slots against notrend's 6.4. |
+| quality_momentum | **Insider Breakout** | LIVE alert-only | 19.0% | Same insider grade, plus above SMA50 and SMA200. 55 closed sim trades. Kept as the A/B control. |
+| reversal_dip | **Insider Dip Buys** | LIVE alert-only | 15.4% | 10+ consecutive sells then a buy, into a 25%+ 3-month drawdown. Genuinely lumpy — went dark Dec 2025–Feb 2026 and again Jun–Aug 2026, then fired 3 in a month. Sparse alerts are expected, not a fault. |
 
 CAGRs are post-audit (2026-08-19). Two corrections landed that day, and they
 pull in opposite directions:
@@ -182,8 +182,26 @@ pull in opposite directions:
   76% of filings arrive after the bell, and this is what a subscriber acting on
   the alert would actually get: **+1.5 to +6.7 points**.
 
-Entries are verified against primary sources: 278/278 land on the first
-session we could have traded, at that session's actual open or close. Idle cash held in SPY; 1x leverage — the 2x book was built,
+A third correction landed 2026-08-19: `is_largest_ever` was wrong on 23.7% of
+flags (a `--since` window was being mistaken for an insider's whole career).
+It feeds conviction, which gates entry, so false flags were admitting trades
+that had not earned their score. Removing them moved the three books
+**+$79,930** and cut six unqualified positions out of Insider Breakout.
+
+Entries are verified against primary sources: 271/271 land on the first
+session we could have traded, at that session's actual open or close.
+
+**Two known biases, both directional and both small.** Roughly 2% of
+qualifying candidates are dropped because the ticker has no usable price
+series — NH delisted between the filing and the entry, DRTTF was never
+covered — and that always removes the worst outcomes rather than a random
+sample. And the −30% stop is evaluated on the CLOSE, so a gap-down fills
+below it: two of twelve stops came out at −43.6% and −42.3%.
+
+**These CAGRs have not been validated out of sample at this level.** 55.4% on
+141 trades with a 6.8% drawdown is mechanically verified but statistically
+extraordinary; the drawdown is flattered by the book sitting ~41% in cash.
+Treat it as a measured result, not a forecast, until a holdout confirms it. Idle cash held in SPY; 1x leverage — the 2x book was built,
 measured at 61% average gross exposure against a 200% ceiling, and shelved.
 
 **Retired 2026-08-18:** `tenb51_surprise` (Sharpe 0.68). Runner unloaded, plist

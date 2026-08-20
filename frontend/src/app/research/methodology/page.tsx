@@ -392,6 +392,14 @@ export default async function ScoringPage() {
               no tight stop. That is a deliberate, data-driven decision.
             </p>
             <p>
+              The stop is checked on the <strong className="text-[#E8E8ED]">closing
+              price</strong>, so a stock that gaps down through it fills below
+              &minus;30%. Two of the twelve stops we have taken came out at
+              &minus;43.6% and &minus;42.3% for exactly that reason. A stop is a
+              backstop, not a guarantee, and the published returns include those
+              overshoots rather than assuming a clean exit.
+            </p>
+            <p>
               Our grid search tested every combination of stop losses and trailing stops.{" "}
               <strong className="text-[#E8E8ED]">Tight stops reduced risk-adjusted returns by 18&ndash;25%</strong>.
               Quality insider picks recover from temporary dips, and stops trigger whipsaw exits.
