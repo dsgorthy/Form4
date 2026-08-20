@@ -390,13 +390,19 @@ def compute_recurring_purchase(conn) -> int:
     print("\n=== Recurring Purchase Detection ===")
     t0 = time.time()
 
-    # Load all P-code trades grouped by (insider_id, ticker)
+    # Full history, same reason as compute_purchase_size_metrics and
+    # compute_consecutive_sells. This one was the worst of the three: detecting
+    # a monthly/quarterly/yearly cadence needs 3+ instances, which a seven-day
+    # --since window can never contain, and the loop below writes 0 for any
+    # group with fewer than three trades. So the five-minute incremental run
+    # could not ever SET is_recurring and actively ERASED whatever a full run
+    # had set. 42 flags survive across 66,711 trades filed this year.
     rows = conn.execute("""
         SELECT trade_id, insider_id, ticker, trade_date
         FROM trades
-        WHERE trans_code = 'P' AND trade_date >= ?
+        WHERE trans_code = 'P'
         ORDER BY insider_id, ticker, trade_date
-    """, (MIN_DATE,)).fetchall()
+    """).fetchall()
 
     groups = defaultdict(list)
     for trade_id, insider_id, ticker, trade_date in rows:
@@ -414,8 +420,9 @@ def compute_recurring_purchase(conn) -> int:
 
     for key, trades in groups.items():
         if len(trades) < 3:
-            for trade_id, _ in trades:
-                updates.append((0, None, trade_id))
+            for trade_id, td in trades:
+                if td >= MIN_DATE:
+                    updates.append((0, None, trade_id))
             continue
 
         # Compute intervals between consecutive trades
@@ -434,7 +441,9 @@ def compute_recurring_purchase(conn) -> int:
                 intervals.append(None)
 
         # For each trade, check if PIT intervals match a pattern
-        for idx, (trade_id, _) in enumerate(trades):
+        for idx, (trade_id, _td) in enumerate(trades):
+            if _td < MIN_DATE:
+                continue          # outside the write window; history only
             pit_intervals = [iv for iv in intervals[:idx] if iv is not None]
             if len(pit_intervals) < 2:
                 updates.append((0, None, trade_id))
