@@ -504,10 +504,11 @@ export default async function LandingPage() {
           </div>
 
           <p className="mt-10 text-center text-xs text-[#55556A] max-w-2xl mx-auto">
-            Strategy results are <strong className="text-[#8888A0]">simulated</strong> —
-            no real money was traded, and they were produced with the benefit of
-            hindsight. Idle cash is modelled as held in SPY, so the S&amp;P is
-            shown alongside. Past performance does not guarantee future results.{" "}
+            Strategy results are simulated, using estimated fill prices; actual
+            fills will differ. Idle cash is modelled as held in SPY, so the
+            S&amp;P is shown alongside. For educational purposes only, not
+            investment advice. Past performance does not indicate future
+            results.{" "}
             <Link href="/performance" className="text-[#8888A0] hover:text-[#E8E8ED] underline">
               How these figures are calculated, and what they leave out
             </Link>

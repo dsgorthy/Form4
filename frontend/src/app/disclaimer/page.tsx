@@ -67,16 +67,15 @@ export default function DisclaimerPage() {
           <h2 className="text-lg font-medium text-[#E8E8ED]">Past Performance</h2>
           <p>
             <strong className="text-[#E8E8ED]">
-              The strategy returns published on this site are simulated, not a
-              live trading record.
+              Strategy returns published on this site are simulated, using
+              estimated fill prices.
             </strong>{" "}
-            No real money was traded and the results were produced with the
-            benefit of hindsight. Hypothetical performance has limitations that
-            an actual track record does not, and they are set out in full on the{" "}
+            Actual fills will differ, and the figures exclude commissions,
+            spreads, slippage and taxes. See the{" "}
             <Link href="/performance" className="text-[#3B82F6] hover:underline">
               performance disclosure
             </Link>{" "}
-            page.
+            for how they are constructed.
           </p>
           <p>
             Past performance of insider trading signals, scores, or any analytical output does

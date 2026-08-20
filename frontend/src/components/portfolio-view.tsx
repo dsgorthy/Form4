@@ -907,10 +907,10 @@ export function PortfolioView() {
         ))}
         <p>Entry is the next market open after the Form 4 reaches EDGAR.</p>
         <p className="pt-1">
-          Simulated — no real money traded. Past performance does not guarantee
-          future results.{" "}
+          Simulated results using estimated fills; actual fills will differ.
+          Past performance does not indicate future results.{" "}
           <Link href="/performance" className="underline hover:text-[#8888A0]">
-            How this is calculated
+            Performance disclosure
           </Link>
           .
         </p>
