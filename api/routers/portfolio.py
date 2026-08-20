@@ -424,12 +424,19 @@ def get_portfolio(
                 max_dd_post2020 = dd2
 
     final = curve[-1]["equity_after"] if curve else starting
-    years = 1
-    if summary["first_trade"] and summary["last_trade"]:
+
+    # PERIOD IS FIRST TRADE -> TODAY, NOT FIRST TRADE -> LAST TRADE.
+    #
+    # Measuring to the last trade silently deletes any stretch where the book
+    # stopped trading, which is exactly when a strategy is doing badly. Insider
+    # Dip Buys last entered in May; running the clock to May instead of today
+    # published 15.4% where the full window gives 13.7%. A strategy that goes
+    # quiet has to carry the cost of going quiet.
+    years = 1.0
+    if summary["first_trade"]:
         try:
             d1 = datetime.strptime(summary["first_trade"][:10], "%Y-%m-%d")
-            d2 = datetime.strptime(summary["last_trade"][:10], "%Y-%m-%d")
-            years = max(0.5, (d2 - d1).days / 365)
+            years = max(0.5, (datetime.utcnow() - d1).days / 365.25)
         except Exception:
             pass
     cagr = ((final / starting) ** (1 / years) - 1) * 100 if final > 0 else 0
