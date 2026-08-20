@@ -213,11 +213,22 @@ def render(t: dict) -> str:
     # leading with. The individual becomes the supporting detail rather than
     # the headline.
     others = max((t.get("day_cluster_n") or 1) - 1, 0)
+    noun = "buying" if verb == "bought" else "selling"
     lines: list[str] = []
     if others >= 2:
         n = t["day_cluster_n"]
-        lines = [f"${t['ticker']} — {n} insiders {verb} "
-                 f"{_amount(t.get('day_cluster_value') or val)} the same day", ""]
+        # "the same day" meant the same FILING day — day_cluster_n and
+        # day_cluster_value both group on filing_date — but a reader takes it
+        # as the same trading day, and the two are routinely different. IRDM's
+        # six sellers disclosed together on 2026-08-19 having traded across
+        # 08-17 and 08-18; Fitzpatrick's $11.2M is a single accession covering
+        # both. The totals were right and the sentence was not.
+        #
+        # Disclosure day is also the more interesting claim: six people
+        # choosing to surface on one date is the story, and it is the date the
+        # market actually learns.
+        lines = [f"${t['ticker']} — {n} insiders disclosed "
+                 f"{_amount(t.get('day_cluster_value') or val)} of {noun} the same day", ""]
         lines.append(f"· {who} {verb} {_amount(val)} of it.")
     else:
         lines = [f"${t['ticker']} — {who} {verb} {_amount(val)}", ""]
