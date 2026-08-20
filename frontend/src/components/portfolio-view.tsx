@@ -39,7 +39,10 @@ interface Summary {
   starting_capital: number;
   current_equity: number;
   total_pnl: number;
-  cagr: number;
+  cagr: number;              // sleeve: idle cash at 0%
+  blended_cagr?: number | null;   // published figure: idle cash in SPY
+  spy_cagr?: number | null;
+  excess_vs_spy?: number | null;
   total_trades: number;
   wins: number;
   win_rate: number;
@@ -729,7 +732,13 @@ export function PortfolioView() {
               </div>
               <p className="text-xs text-[#55556A]">
                 Pro members receive real-time notifications when this portfolio enters or exits positions.
-                Follow the same trades that produced {s.cagr > 0 ? "+" : ""}{s.cagr}% CAGR.
+                {/* Blended (idle cash in SPY), shown against SPY. The sleeve
+                    figure leaves uninvested capital at 0% and is not what
+                    anyone would run — see docs/published_returns_methodology.md. */}
+                Follow the same trades that produced{" "}
+                {(s.blended_cagr ?? s.cagr) > 0 ? "+" : ""}
+                {s.blended_cagr ?? s.cagr}% a year
+                {s.spy_cagr != null && <> against the S&amp;P&apos;s {s.spy_cagr}%</>}.
               </p>
             </div>
             <Link

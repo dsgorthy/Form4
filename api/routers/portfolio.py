@@ -98,6 +98,71 @@ def _build_trade_row(r: dict, scale: float, gated: bool = False, current_price=N
 ALLOWED_STRATEGIES = set(ACTIVE_STRATEGIES)
 
 
+
+def _blended_and_benchmark(conn, strategy: str, starting: float, years: float):
+    """CAGR of the book with idle cash in SPY, and SPY's own CAGR, same window.
+
+    Walks the day series once: idle cash compounds at SPY, positions mark to
+    their own close. Returns (blended_cagr, spy_cagr) or (None, None) when the
+    price data is not there — a missing benchmark must not fabricate a number.
+    """
+    from collections import defaultdict
+
+    spy = {r["date"]: float(r["close"]) for r in conn.execute(
+        "SELECT date::text AS date, close FROM prices.daily_prices "
+        "WHERE ticker = 'SPY' ORDER BY date")}
+    rows = [dict(r) for r in conn.execute(
+        "SELECT ticker, entry_date, exit_date, entry_price, dollar_amount "
+        "FROM strategy_portfolio WHERE strategy = ? AND execution_source = 'simulated'",
+        (strategy,))]
+    if not spy or not rows:
+        return None, None
+
+    first = min(r["entry_date"] for r in rows if r["entry_date"])
+    days = sorted(d for d in spy if d >= first)
+    if len(days) < 30:
+        return None, None
+
+    tickers = {r["ticker"] for r in rows}
+    px = defaultdict(dict)
+    for r in conn.execute(
+        "SELECT ticker, date::text AS d, close FROM prices.daily_prices "
+        "WHERE ticker = ANY(?) AND date >= ?", (list(tickers), first)):
+        px[r["ticker"]][r["d"]] = float(r["close"])
+
+    opens = defaultdict(list)
+    for r in rows:
+        opens[r["entry_date"]].append(r)
+
+    equity = idle = starting
+    held, prev = [], None
+    for d in days:
+        if prev and spy.get(prev):
+            idle *= 1 + (spy[d] - spy[prev]) / spy[prev]
+        prev = d
+        keep = []
+        for h in held:
+            if h["exit"] and h["exit"] <= d:
+                idle += h["sh"] * (px[h["tk"]].get(d) or h["px"])
+            else:
+                keep.append(h)
+        held = keep
+        for t in opens.get(d, []):
+            p, cap = t["entry_price"], (t["dollar_amount"] or 0)
+            if not p or p <= 0 or cap <= 0:
+                continue
+            idle -= cap
+            held.append({"tk": t["ticker"], "sh": cap / p,
+                         "exit": t["exit_date"], "px": p})
+        equity = idle + sum(h["sh"] * (px[h["tk"]].get(d) or h["px"]) for h in held)
+
+    if equity <= 0 or years <= 0:
+        return None, None
+    blended = ((equity / starting) ** (1 / years) - 1) * 100
+    bench = ((spy[days[-1]] / spy[days[0]]) ** (1 / years) - 1) * 100
+    return blended, bench
+
+
 @router.get("")
 def get_portfolio(
     strategy: str = Query(default="quality_momentum"),
@@ -441,6 +506,22 @@ def get_portfolio(
             pass
     cagr = ((final / starting) ** (1 / years) - 1) * 100 if final > 0 else 0
 
+    # BLENDED IS THE PUBLISHED FIGURE — idle cash held in SPY.
+    #
+    # `cagr` above is the sleeve: uninvested capital earning 0%. Nobody runs a
+    # book that leaves 87% of its money in a mattress, and the sleeve figure
+    # punishes a selective strategy for being selective. This page was serving
+    # the sleeve while the homepage served blended — 13.7% against 31.4% for
+    # reversal_dip, same book, two pages.
+    #
+    # SPY over the identical window ships with it and is not optional. Two of
+    # the three books are under 20% deployed, so most of their blended return
+    # IS the index; a blended number without the benchmark beside it implies a
+    # stock-picking result that is mostly beta.
+    #
+    # See docs/published_returns_methodology.md.
+    blended_cagr, spy_cagr = _blended_and_benchmark(conn, strategy, starting, years)
+
     # Gating: free users see last FREE_VISIBLE trades ungated, rest blurred
     FREE_VISIBLE = 10
     is_pro = user.has_full_feed
@@ -466,7 +547,14 @@ def get_portfolio(
             "starting_capital": starting,
             "current_equity": round(final, 2),
             "total_pnl": round((summary["total_pnl"] or 0) * scale, 2),
+            # `cagr` stays for the sleeve, but `blended_cagr` is what the UI
+            # shows. Both are exposed so the gap is inspectable rather than a
+            # mystery two pages apart.
             "cagr": round(cagr, 1),
+            "blended_cagr": round(blended_cagr, 1) if blended_cagr is not None else None,
+            "spy_cagr": round(spy_cagr, 1) if spy_cagr is not None else None,
+            "excess_vs_spy": (round(blended_cagr - spy_cagr, 1)
+                              if blended_cagr is not None and spy_cagr is not None else None),
             "total_trades": summary["total_trades"],
             "wins": summary["wins"],
             "win_rate": round((summary["wins"] / summary["total_trades"]) * 100, 1) if summary["total_trades"] else 0,
