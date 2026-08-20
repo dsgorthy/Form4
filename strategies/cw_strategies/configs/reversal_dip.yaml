@@ -4,8 +4,30 @@ alert_prefix: "[RDip]"
 # Dedicated paper account — reads ALPACA_API_KEY_REVERSAL_DIP / _SECRET_REVERSAL_DIP from .env
 alpaca_env_prefix: REVERSAL_DIP
 starting_capital: 100000
-position_size_pct: 0.10
-max_concurrent: 10
+# POSITION SIZING — 4 x 25%, set 2026-08-20 (was 10 x 10%).
+#
+# Same story as quality_momentum: max_concurrent 10 was decoration for a book
+# that holds 1.6 positions on average and sits fully in cash 38% of days. At
+# 10% sizing it ran 11% deployed, so 89% of the "strategy" was SPY.
+#
+#   10 x 10%  (old)   11% deployed   Sharpe 0.56
+#    4 x 25%  (new)   24% deployed   Sharpe 0.84
+#
+# HOLD PERIOD LEFT AT 21 DAYS ON PURPOSE. Sizing cannot reach 50% deployment
+# here — the ceiling is 29% — because the constraint is signal supply, ~18
+# trades a year. Hold length is the only other lever and it destroys the edge:
+#
+#   21d   24% deployed   in-sample CAGR 34.8%   Sharpe 0.84
+#   42d   43% deployed   in-sample CAGR 34.5%   Sharpe 0.79
+#   63d   59% deployed   in-sample CAGR  6.9%   Sharpe 0.39
+#
+# The existing comment on hold_days — "edge vanishes at 90d" — is correct and
+# now measured. 50% deployment is reachable only by giving up the edge.
+#
+# ON WATCH: behind SPY in 2026 (+9.1% vs +12.6%), 2026 trades averaging -3.40%
+# at a 37.5% win rate. If it finishes the year behind the index, retire it.
+position_size_pct: 0.25
+max_concurrent: 4
 filing_lookback_days: 2
 
 # Decision sink: 'paper' | 'live' | 'alert_only'.

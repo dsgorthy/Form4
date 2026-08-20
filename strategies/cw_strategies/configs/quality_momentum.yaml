@@ -4,8 +4,26 @@ alert_prefix: "[QM]"
 # Dedicated paper account — reads ALPACA_API_KEY_QUALITY_MOMENTUM / _SECRET_QUALITY_MOMENTUM from .env
 alpaca_env_prefix: QUALITY_MOMENTUM
 starting_capital: 100000
-position_size_pct: 0.10
-max_concurrent: 10
+# POSITION SIZING — 5 x 20%, set 2026-08-20 (was 10 x 10%).
+#
+# max_concurrent: 10 was doing nothing. This book has never held more than five
+# positions, so 5, 8 and 10 slots produce byte-identical books; only
+# position_size_pct was ever live. At 10% it left 81% of capital in SPY, which
+# made the published return roughly two-thirds index.
+#
+# Grid searched with a 2025-06 holdout, scored on blended equity (idle cash in
+# SPY), ranked on excess-over-SPY per unit of vol:
+#
+#   10 x 10%  (old)   24% deployed   Sharpe 0.84   dd  5.8%
+#    5 x 20%  (new)   47% deployed   Sharpe 1.04   dd  9.0%
+#    4 x 25%          53% deployed   Sharpe 0.73   dd 10.5%
+#
+# 5 x 20% is the peak of the grid. Deliberately NOT chasing the 50% deployment
+# target — 4 x 25% clears it and costs 30% of the Sharpe.
+#
+# Gross cap is 5 x 20% = 100%, so the book still cannot lever.
+position_size_pct: 0.20
+max_concurrent: 5
 filing_lookback_days: 2
 
 # Decision sink: 'paper' | 'live' | 'alert_only'.
