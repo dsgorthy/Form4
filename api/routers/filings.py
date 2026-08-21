@@ -236,6 +236,7 @@ def list_filings(
                 agg.price, agg.qty, agg.value, agg.lot_count,
                 agg.is_csuite, agg.accession, agg.trans_code,
                 agg.is_10b5_1, agg.is_routine,
+                agg.is_largest_ever, agg.dip_1mo, agg.dip_3mo, agg.cluster_size,
                 agg.cohen_routine, agg.shares_owned_after, agg.is_rare_reversal, agg.insider_switch_rate, agg.week52_proximity,
                 agg.pit_grade, agg.pit_blended_score, agg.career_grade,
                 agg.n_filers, agg.n_filings, agg.is_amendment, agg.document_type,
@@ -272,6 +273,19 @@ def list_filings(
                         MAX(t.is_csuite) AS is_csuite,
                         MIN(t.accession) AS accession,
                         GROUP_CONCAT(DISTINCT t.trans_code) AS trans_code,
+                        -- Scoring inputs. compute_trade_grade reads all of
+                        -- these; when the list query omitted them the same
+                        -- trade scored differently in the feed than on its own
+                        -- page (MED xm7gfj: 58 vs 59 on 2026-08-21). The gap
+                        -- reaches 13 points — Dip is worth up to 10 and
+                        -- Largest Trade 3 — against bands only 10 wide, so two
+                        -- surfaces could publish two different ratings for one
+                        -- filing. MIN on the dips because more negative is a
+                        -- deeper drawdown and the scorer takes the best one.
+                        MAX(t.is_largest_ever) AS is_largest_ever,
+                        MIN(t.dip_1mo) AS dip_1mo,
+                        MIN(t.dip_3mo) AS dip_3mo,
+                        MAX(t.pit_cluster_size) AS cluster_size,
                         MAX(t.is_10b5_1) AS is_10b5_1,
                         MAX(t.is_routine) AS is_routine,
                         MAX(t.cohen_routine) AS cohen_routine,
@@ -382,6 +396,7 @@ def get_related_trades(trade_id: str, limit: int = Query(default=5, ge=1, le=20)
                 agg.price, agg.qty, agg.value, agg.lot_count,
                 agg.is_csuite, agg.accession, agg.trans_code,
                 agg.is_10b5_1, agg.is_routine,
+                agg.is_largest_ever, agg.dip_1mo, agg.dip_3mo, agg.cluster_size,
                 agg.cohen_routine, agg.shares_owned_after, agg.is_rare_reversal, agg.insider_switch_rate, agg.week52_proximity,
                 agg.pit_grade, agg.pit_blended_score, agg.career_grade,
                 COALESCE(i.display_name, i.name) AS insider_name, i.cik,
@@ -406,6 +421,13 @@ def get_related_trades(trade_id: str, limit: int = Query(default=5, ge=1, le=20)
                     COUNT(*) AS lot_count,
                     MAX(t.is_csuite) AS is_csuite, MIN(t.accession) AS accession,
                     GROUP_CONCAT(DISTINCT t.trans_code) AS trans_code,
+                    -- See the sibling query above: these four are scoring
+                    -- inputs and their absence made the feed and the filing
+                    -- page disagree.
+                    MAX(t.is_largest_ever) AS is_largest_ever,
+                    MIN(t.dip_1mo) AS dip_1mo,
+                    MIN(t.dip_3mo) AS dip_3mo,
+                    MAX(t.pit_cluster_size) AS cluster_size,
                     MAX(t.is_10b5_1) AS is_10b5_1,
                     MAX(t.is_routine) AS is_routine,
                     MAX(t.cohen_routine) AS cohen_routine,
@@ -471,7 +493,16 @@ def get_filing(trade_id: str, user: UserContext = Depends(get_current_user)) -> 
                 COALESCE(t.is_tax_sale, 0) AS is_tax_sale,
                 COALESCE(t.is_recurring, 0) AS is_recurring,
                 COALESCE(t.is_largest_ever, 0) AS is_largest_ever,
-                t.pit_cluster_size,
+                -- Aliased, not bare. compute_trade_grade reads `cluster_size`
+                -- (falling back to `n_filers`); it has never read
+                -- `pit_cluster_size`, so selecting it under that name meant the
+                -- cluster factor — worth up to 12 points — silently scored 0
+                -- on this endpoint.
+                t.pit_cluster_size AS cluster_size,
+                -- Dip depth, worth up to 10. Absent here entirely until
+                -- 2026-08-21 while the list queries had it, so the same filing
+                -- graded differently depending on which page you were on.
+                t.dip_1mo, t.dip_3mo,
                 t.pit_grade, t.pit_blended_score, t.career_grade,
                 t.is_amendment, t.document_type, t.date_of_orig_sub,
                 COALESCE(i.is_entity, 0) as is_entity,
