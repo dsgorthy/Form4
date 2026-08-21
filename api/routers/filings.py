@@ -61,7 +61,7 @@ def _cached_total(key: str, compute) -> int:
 
 
 
-def _reconcile_positions(conn, items: list[dict]) -> None:
+def _reconcile_positions(items: list[dict]) -> None:
     """Give list rows the same reconciled position the detail endpoint uses.
 
     The aggregate took MAX(shares_owned_after) across a filing's lots, which is
@@ -88,18 +88,23 @@ def _reconcile_positions(conn, items: list[dict]) -> None:
     if not keyed:
         return                      # single-lot filings need no reconciling
 
+    # Opens its own connection ON PURPOSE. The caller's `with get_db()` block
+    # has already exited by the time enrichment runs, and borrowing that handle
+    # raises "connection already closed" — the same way _blended_and_benchmark
+    # broke /portfolio on 2026-08-19.
     placeholders = ",".join("?" for _ in keyed)
-    rows = conn.execute(
-        f"""SELECT COALESCE(t.txn_group_id::text, t.accession) AS group_key,
-                   t.insider_id, t.ticker, t.trade_type,
-                   t.qty, t.shares_owned_after, t.trade_date, t.trade_id,
-                   t.direct_indirect, t.nature_of_ownership
-              FROM trades t
-             WHERE COALESCE(t.txn_group_id::text, t.accession) IN ({placeholders})
-               AND t.superseded_by IS NULL
-               AND t.is_derivative = 0""",
-        tuple(k[0] for k in keyed),
-    ).fetchall()
+    with get_db() as conn:
+        rows = conn.execute(
+            f"""SELECT COALESCE(t.txn_group_id::text, t.accession) AS group_key,
+                       t.insider_id, t.ticker, t.trade_type,
+                       t.qty, t.shares_owned_after, t.trade_date, t.trade_id,
+                       t.direct_indirect, t.nature_of_ownership
+                  FROM trades t
+                 WHERE COALESCE(t.txn_group_id::text, t.accession) IN ({placeholders})
+                   AND t.superseded_by IS NULL
+                   AND t.is_derivative = 0""",
+            tuple(k[0] for k in keyed),
+        ).fetchall()
 
     grouped: dict[tuple, list[dict]] = {}
     for r in rows:
@@ -383,7 +388,7 @@ def list_filings(
         enrich_items_with_signals(sig_conn, items)
         enrich_items_with_context(sig_conn, items)
     enrich_items_with_price_end(items)
-    _reconcile_positions(conn, items)
+    _reconcile_positions(items)
     enrich_items_with_trade_grade(None, items)
     attach_ratings(items)
 
