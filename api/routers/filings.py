@@ -81,20 +81,21 @@ def _reconcile_positions(conn, items: list[dict]) -> None:
     which is the correct outcome for a filing we cannot reconcile.
     """
     keyed = {
-        (it["filing_key"], it["insider_id"], it["ticker"], it["trade_type"]): it
+        (it["group_key"], it["insider_id"], it["ticker"], it["trade_type"]): it
         for it in items
-        if it.get("filing_key") and (it.get("lot_count") or 1) > 1
+        if it.get("group_key") and (it.get("lot_count") or 1) > 1
     }
     if not keyed:
         return                      # single-lot filings need no reconciling
 
     placeholders = ",".join("?" for _ in keyed)
     rows = conn.execute(
-        f"""SELECT t.filing_key, t.insider_id, t.ticker, t.trade_type,
+        f"""SELECT COALESCE(t.txn_group_id::text, t.accession) AS group_key,
+                   t.insider_id, t.ticker, t.trade_type,
                    t.qty, t.shares_owned_after, t.trade_date, t.trade_id,
                    t.direct_indirect, t.nature_of_ownership
               FROM trades t
-             WHERE t.filing_key IN ({placeholders})
+             WHERE COALESCE(t.txn_group_id::text, t.accession) IN ({placeholders})
                AND t.superseded_by IS NULL
                AND t.is_derivative = 0""",
         tuple(k[0] for k in keyed),
@@ -102,7 +103,7 @@ def _reconcile_positions(conn, items: list[dict]) -> None:
 
     grouped: dict[tuple, list[dict]] = {}
     for r in rows:
-        k = (r["filing_key"], r["insider_id"], r["ticker"], r["trade_type"])
+        k = (r["group_key"], r["insider_id"], r["ticker"], r["trade_type"])
         if k in keyed:
             grouped.setdefault(k, []).append(dict(r))
 
@@ -290,7 +291,10 @@ def list_filings(
                 agg.trade_type, agg.trade_date, agg.last_trade_date,
                 agg.filing_date, agg.filed_at,
                 agg.price, agg.qty, agg.value, agg.lot_count,
-                agg.is_csuite, agg.accession, agg.filing_key, agg.trans_code,
+                agg.is_csuite, agg.accession, agg.trans_code,
+                -- Already aliased by the aggregate. The reconciler keys on it to
+                -- refetch exactly the lots this row collapsed.
+                agg._group_key AS group_key,
                 agg.is_10b5_1, agg.is_routine,
                 agg.is_largest_ever, agg.dip_1mo, agg.dip_3mo, agg.cluster_size,
                 agg.cohen_routine, agg.shares_owned_after, agg.is_rare_reversal, agg.insider_switch_rate, agg.week52_proximity,
@@ -328,7 +332,6 @@ def list_filings(
                         COUNT(*) AS lot_count,
                         MAX(t.is_csuite) AS is_csuite,
                         MIN(t.accession) AS accession,
-                        t.filing_key,
                         GROUP_CONCAT(DISTINCT t.trans_code) AS trans_code,
                         -- Scoring inputs. compute_trade_grade reads all of
                         -- these; when the list query omitted them the same
@@ -452,7 +455,7 @@ def get_related_trades(trade_id: str, limit: int = Query(default=5, ge=1, le=20)
                 agg.trade_type, agg.trade_date, agg.last_trade_date,
                 agg.filing_date,
                 agg.price, agg.qty, agg.value, agg.lot_count,
-                agg.is_csuite, agg.accession, agg.filing_key, agg.trans_code,
+                agg.is_csuite, agg.accession, agg.trans_code,
                 agg.is_10b5_1, agg.is_routine,
                 agg.is_largest_ever, agg.dip_1mo, agg.dip_3mo, agg.cluster_size,
                 agg.cohen_routine, agg.shares_owned_after, agg.is_rare_reversal, agg.insider_switch_rate, agg.week52_proximity,
@@ -478,7 +481,6 @@ def get_related_trades(trade_id: str, limit: int = Query(default=5, ge=1, le=20)
                     SUM(t.value) AS value,
                     COUNT(*) AS lot_count,
                     MAX(t.is_csuite) AS is_csuite, MIN(t.accession) AS accession,
-                    t.filing_key,
                     GROUP_CONCAT(DISTINCT t.trans_code) AS trans_code,
                     -- See the sibling query above: these four are scoring
                     -- inputs and their absence made the feed and the filing
