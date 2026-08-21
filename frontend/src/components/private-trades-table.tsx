@@ -83,7 +83,7 @@ export function PrivateTradesTable({ slug, initialData }: PrivateTradesTableProp
                   <span className={`text-sm truncate ${t.gated ? "text-blue-400/40 blur-[3px]" : "text-blue-400"}`}>
                     {t.insider_name}
                   </span>
-                  {t.pit_grade && (
+                  {((t as any).insider_rating || (t as any).career_grade) && (
                     <InsiderGradeBadge rating={(t as any).insider_rating} grade={(t as any).career_grade} />
                   )}
                 </div>
@@ -149,7 +149,7 @@ export function PrivateTradesTable({ slug, initialData }: PrivateTradesTableProp
                   )}
                 </td>
                 <td className="px-4 py-3">
-                  {t.pit_grade ? <InsiderGradeBadge rating={(t as any).insider_rating} grade={(t as any).career_grade} /> : <span className="text-[#55556A]">—</span>}
+                  {((t as any).insider_rating || (t as any).career_grade) ? <InsiderGradeBadge rating={(t as any).insider_rating} grade={(t as any).career_grade} /> : <span className="text-[#55556A]">—</span>}
                 </td>
                 <td className="px-4 py-3">
                   <Badge

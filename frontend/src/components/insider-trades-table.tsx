@@ -12,6 +12,7 @@ import { TickerDisplay } from "@/components/ui/ticker-display";
 import { Pagination } from "@/components/pagination";
 import { TransCodeSelector } from "@/components/trans-code-selector";
 import type { Filing, PaginatedResponse } from "@/lib/types";
+import { isDiscretionary } from "@/lib/classification";
 
 const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
 const PAGE_SIZE = 25;
@@ -191,7 +192,7 @@ export function InsiderTradesTable({
       {/* Mobile: Card layout */}
       <div className={`md:hidden space-y-2 ${loading ? "opacity-60" : ""} transition-opacity`}>
         {data.items.map((t) => {
-          const isRoutineSell = t.trade_type === "sell" && (t.is_routine === 1 || t.is_10b5_1 === 1);
+          const isRoutineSell = t.trade_type === "sell" && !isDiscretionary(t.signal_class);
           return (
           <Link
             key={t.trade_id}
@@ -279,7 +280,7 @@ export function InsiderTradesTable({
           </thead>
           <tbody>
             {data.items.map((t) => {
-              const isRoutineSell = t.trade_type === "sell" && (t.is_routine === 1 || t.is_10b5_1 === 1);
+              const isRoutineSell = t.trade_type === "sell" && !isDiscretionary(t.signal_class);
               return (
               <tr
                 key={t.trade_id}

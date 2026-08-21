@@ -134,7 +134,7 @@ export function ExploreResultsView({
                   {ins.primary_ticker || "—"}
                 </td>
                 <td className="px-4 py-2 text-right">
-                  {ins.best_pit_grade ? (
+                  {ins.best_career_grade ? (
                     <InsiderGradeBadge grade={ins.best_career_grade} />
                   ) : (
                     <span className="text-[#55556A]">—</span>

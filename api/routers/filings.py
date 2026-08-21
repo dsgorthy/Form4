@@ -15,6 +15,7 @@ from api.ownership import position_change
 from api.signals_enrichment import enrich_items_with_signals
 from api.context_enrichment import enrich_items_with_context
 from api.price_dates import enrich_items_with_price_end
+from api.classification import attach_classification
 from api.ratings import attach_ratings
 from api.trade_grade import enrich_items_with_trade_grade
 
@@ -320,8 +321,8 @@ def list_filings(
                 -- Already aliased by the aggregate. The reconciler keys on it to
                 -- refetch exactly the lots this row collapsed.
                 agg._group_key AS group_key,
-                agg.is_10b5_1, agg.is_routine,
-                agg.is_largest_ever, agg.dip_1mo, agg.dip_3mo, agg.cluster_size,
+                agg.signal_class, agg.is_10b5_1, agg.is_routine,
+                agg.is_largest_ever, agg.dip_1mo, agg.dip_3mo, agg.cluster_size_pit,
                 agg.cohen_routine, agg.shares_owned_after, agg.is_rare_reversal, agg.insider_switch_rate, agg.week52_proximity,
                 agg.pit_grade, agg.pit_blended_score, agg.career_grade,
                 agg.n_filers, agg.n_filings, agg.is_amendment, agg.document_type,
@@ -370,7 +371,11 @@ def list_filings(
                         MAX(t.is_largest_ever) AS is_largest_ever,
                         MIN(t.dip_1mo) AS dip_1mo,
                         MIN(t.dip_3mo) AS dip_3mo,
-                        MAX(t.pit_cluster_size) AS cluster_size,
+                        MAX(t.pit_cluster_size) AS cluster_size_pit,
+                        -- Constant within the group (derived from trans_code);
+                        -- MAX is a picker, not a choice. api/classification
+                        -- turns it into the published filing kind.
+                        MAX(t.signal_class) AS signal_class,
                         MAX(t.is_10b5_1) AS is_10b5_1,
                         MAX(t.is_routine) AS is_routine,
                         MAX(t.cohen_routine) AS cohen_routine,
@@ -411,6 +416,7 @@ def list_filings(
     _reconcile_positions(items)
     enrich_items_with_trade_grade(None, items)
     attach_ratings(items)
+    attach_classification(items)
 
     # The score, stars and label are the teaser and stay public. `factors` is
     # the model — named signals with their point contributions — and reading a
@@ -481,8 +487,8 @@ def get_related_trades(trade_id: str, limit: int = Query(default=5, ge=1, le=20)
                 agg.filing_date,
                 agg.price, agg.qty, agg.value, agg.lot_count,
                 agg.is_csuite, agg.accession, agg.trans_code,
-                agg.is_10b5_1, agg.is_routine,
-                agg.is_largest_ever, agg.dip_1mo, agg.dip_3mo, agg.cluster_size,
+                agg.signal_class, agg.is_10b5_1, agg.is_routine,
+                agg.is_largest_ever, agg.dip_1mo, agg.dip_3mo, agg.cluster_size_pit,
                 agg.cohen_routine, agg.shares_owned_after, agg.is_rare_reversal, agg.insider_switch_rate, agg.week52_proximity,
                 agg.pit_grade, agg.pit_blended_score, agg.career_grade,
                 COALESCE(i.display_name, i.name) AS insider_name, i.cik,
@@ -513,7 +519,8 @@ def get_related_trades(trade_id: str, limit: int = Query(default=5, ge=1, le=20)
                     MAX(t.is_largest_ever) AS is_largest_ever,
                     MIN(t.dip_1mo) AS dip_1mo,
                     MIN(t.dip_3mo) AS dip_3mo,
-                    MAX(t.pit_cluster_size) AS cluster_size,
+                    MAX(t.pit_cluster_size) AS cluster_size_pit,
+                    MAX(t.signal_class) AS signal_class,
                     MAX(t.is_10b5_1) AS is_10b5_1,
                     MAX(t.is_routine) AS is_routine,
                     MAX(t.cohen_routine) AS cohen_routine,
@@ -574,6 +581,7 @@ def get_filing(trade_id: str, user: UserContext = Depends(get_current_user)) -> 
                 -- with EDGAR has to say so itself.
                 t.price_as_filed, t.value_as_filed, t.correction_method,
                 t.value_suspect,
+                t.signal_class,
                 t.is_10b5_1, t.is_routine, t.cohen_routine, t.shares_owned_after, t.is_rare_reversal, t.insider_switch_rate, t.week52_proximity,
                 -- Flags consumed by api/narrative.classify_tier
                 COALESCE(t.is_tax_sale, 0) AS is_tax_sale,
@@ -584,7 +592,7 @@ def get_filing(trade_id: str, user: UserContext = Depends(get_current_user)) -> 
                 -- `pit_cluster_size`, so selecting it under that name meant the
                 -- cluster factor — worth up to 12 points — silently scored 0
                 -- on this endpoint.
-                t.pit_cluster_size AS cluster_size,
+                t.pit_cluster_size AS cluster_size_pit,
                 -- Dip depth, worth up to 10. Absent here entirely until
                 -- 2026-08-21 while the list queries had it, so the same filing
                 -- graded differently depending on which page you were on.
@@ -716,6 +724,7 @@ def get_filing(trade_id: str, user: UserContext = Depends(get_current_user)) -> 
     enrich_items_with_price_end([result])
     enrich_items_with_trade_grade(None, [result])
     attach_ratings([result])
+    attach_classification([result])
 
     # "Why this matters" narrative — always present, with depth proportional to signal.
     #   high_signal → LLM-generated 4-field narrative (from trade_narrative)

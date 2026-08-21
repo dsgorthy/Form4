@@ -155,10 +155,20 @@ SELECT
    AND t.superseded_by IS NULL
    AND t.ticker NOT IN ('NONE', 'NA', 'N/A', '')
    -- Routine and pre-scheduled activity is not a signal and should not be a
-   -- post. NOTE: is_10b5_1 and aff_10b5_1 are NOT usable — both are 0 on all
-   -- 33,533 discretionary sells since 2026-01-01, i.e. the columns exist and
-   -- are never populated. is_routine (9,747) and cohen_routine (5,831) are
-   -- the two that actually carry signal.
+   -- post.
+   --
+   -- CORRECTION 2026-08-21: an earlier version of this comment claimed
+   -- is_10b5_1 and aff_10b5_1 were "never populated" because both are 0 across
+   -- all 33,533 discretionary sells. That was a scoping error, not a dead
+   -- column. is_10b5_1 is set on 27,800 filings; it is zero here BY
+   -- CONSTRUCTION, because signal_class routes 10b5-1 sells to `planned_sell`
+   -- and this query only admits the discretionary classes. All 23,885 planned
+   -- sells carry it.
+   --
+   -- The filters below are therefore belt-and-braces over the signal_class
+   -- restriction rather than the primary defence: cohen_routine (100%
+   -- populated) and is_routine (16%) both cut ACROSS signal_class and catch
+   -- discretionary-looking activity that is really recurring.
    AND COALESCE(t.is_routine, 0) = 0
    AND COALESCE(t.cohen_routine, 0) = 0
    AND COALESCE(t.is_tax_sale, 0) = 0

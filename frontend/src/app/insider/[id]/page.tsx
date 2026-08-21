@@ -34,7 +34,10 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
     }
     const profile: InsiderProfile = await res.json();
     const tr = profile.track_record;
-    const grade = (profile as any).best_pit_grade;
+    // career_grade, not pit_grade: the page's own badge renders the career
+    // grade, so describing the page with the other scale made the meta
+    // description disagree with the page it describes.
+    const grade = (profile as any).best_career_grade;
     const parts: string[] = [];
     if (grade) parts.push(`Grade ${grade}`);
     if (tr) parts.push(`${tr.buy_count + tr.sell_count} trades across ${tr.n_tickers} companies`);

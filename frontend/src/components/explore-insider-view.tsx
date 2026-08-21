@@ -73,9 +73,11 @@ export function ExploreInsiderView({
           {profile.best_career_grade && (
             <InsiderGradeBadge grade={profile.best_career_grade} label="Insider" />
           )}
-          {profile.best_pit_grade && (
-            <InsiderGradeBadge grade={profile.best_pit_grade} label="Form" />
-          )}
+          {/* The "Form" badge is gone. It rendered pit_grade as a second
+              published scale beside the Insider Rating — two letters for one
+              person, from two scores of two different things, which is the
+              contradiction api/ratings.py exists to remove. pit_grade is also
+              not monotonic, so "Form" could read worse than the truth. */}
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-[#55556A] md:gap-4">
           {tr && <span>{tr.buy_count + tr.sell_count} trades</span>}

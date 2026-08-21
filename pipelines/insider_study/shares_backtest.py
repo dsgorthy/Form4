@@ -155,13 +155,20 @@ def compute_confidence_v2(trade: dict, conn: sqlite3.Connection) -> tuple[float,
     except Exception:
         factors.append(("pit_unknown", 0.4, 0.30))
 
-    # Factor 3: Signal quality (0.20 weight)
-    signal_quality = trade.get("signal_quality")
-    if signal_quality is not None:
-        factors.append((f"sq_{signal_quality:.1f}", signal_quality, 0.20))
-    else:
-        # Default: assume open market buy if no signal_quality
-        factors.append(("sq_default", 1.0, 0.20))
+    # Factor 3: retired 2026-08-21, weight preserved as the constant it
+    # already was for most rows.
+    #
+    # This read trades.signal_quality, which CLAUDE.md lists as PIT red flag
+    # #1 — sell_win_rate_7d uses the full track record, so the score knows
+    # things that were not knowable at filing_date. Feeding it into a backtest
+    # at 0.20 weight contaminated every result this script produced.
+    #
+    # The column was only 16% populated, so 84% of rows already took the
+    # constant 1.0 branch. Holding the factor at that constant keeps the
+    # weights summing as before rather than silently rescaling the score;
+    # anyone reviving this should supply a PIT-clean input, not restore the
+    # old column.
+    factors.append(("sq_default", 1.0, 0.20))
 
     # Factor 4: Seniority (0.15 weight)
     tw = trade.get("title_weight", 0) or 0
@@ -461,11 +468,11 @@ def main():
     print("Building cluster flags...")
     cluster_flags = build_cluster_flags(db, TRAIN_START, TRAIN_END)
 
-    # Load all buy trades with returns (include signal_quality for v2)
+    # Load all buy trades with returns
     rows = db.execute("""
         SELECT t.trade_id, t.insider_id, t.ticker, t.trade_date, t.value,
                t.is_csuite, t.title_weight, t.title,
-               tr.return_7d, tr.abnormal_7d, t.signal_quality
+               tr.return_7d, tr.abnormal_7d
         FROM trades t
         JOIN trade_returns tr ON t.trade_id = tr.trade_id
         WHERE t.trade_type = 'buy'
@@ -485,7 +492,6 @@ def main():
             "title_weight": r[6],
             "title": r[7],
             "is_cluster": cluster_flags.get(r[0], False),
-            "signal_quality": r[10],
         })
 
     print(f"Total buy trades with returns: {len(all_trades)}")

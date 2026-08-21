@@ -126,7 +126,24 @@ def compute_trade_grade(item: dict) -> dict:
         factors.append({"name": "Role", "points": pts, "description": f"{label}"})
 
     # --- 3. Cluster size ---
-    cluster = item.get("cluster_size") or item.get("n_filers") or 0
+    # EXPLICIT, and no fallback chain. A cluster gets counted four ways in
+    # this codebase and they answer different questions:
+    #
+    #   cluster_size_pit    point-in-time — counts only filers who filed BEFORE
+    #                       this row. Correct for a backtest; the first filer of
+    #                       any cluster scores 0 by construction. Stored as
+    #                       trades.pit_cluster_size.
+    #   n_filers            as-of publication — everyone on the ticker that day,
+    #                       known by the time a page renders. Computed per query.
+    #
+    # This scorer wants the PIT count, because a grade must not depend on
+    # filings that arrived after the one being graded. It used to read
+    # `item.get("cluster_size") or item.get("n_filers")`, which silently took
+    # whichever the caller happened to supply — and on 2026-08-21 the detail
+    # endpoint supplied neither, because it selected `t.pit_cluster_size` under
+    # that name and nothing read it. The cluster factor, worth up to 12 points,
+    # had been scoring 0 on filing pages for its whole life.
+    cluster = item.get("cluster_size_pit") or 0
     if cluster >= 4:
         score += 12
         factors.append({"name": "Cluster", "points": 12, "description": f"{cluster} insiders buying together"})

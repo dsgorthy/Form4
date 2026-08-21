@@ -815,8 +815,10 @@ export function PortfolioView() {
                     <td className={`hidden md:table-cell px-3 py-2 text-center ${gated ? "blur-[3px]" : ""}`}>
                       {!gated && (t as any).career_grade ? (
                         <InsiderGradeBadge grade={(t as any).career_grade} compact />
-                      ) : !gated && (t as any).pit_grade ? (
-                        <InsiderGradeBadge grade={(t as any).pit_grade} compact tooltip={`Recent Form: ${(t as any).pit_grade}`} />
+                      /* The pit_grade fallback is gone: it filled the cell
+                         with a letter from the other scale whenever the career
+                         grade was missing, so one column showed two scales. An
+                         absent career grade now shows nothing. */
                       ) : (
                         <span className="text-[#55556A]">\u2014</span>
                       )}

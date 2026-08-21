@@ -210,7 +210,7 @@ def run_simulation(
         SELECT t.trade_id, t.insider_id, t.ticker, t.trade_date, t.filing_date,
                t.value, t.is_csuite, t.title_weight, t.title,
                tr.return_7d, tr.abnormal_7d,
-               t.signal_quality, t.trans_code
+               t.trans_code
         FROM trades t
         JOIN trade_returns tr ON t.trade_id = tr.trade_id
         WHERE t.trade_type = 'buy'
@@ -256,8 +256,7 @@ def run_simulation(
             "title": r[8],
             "return_7d": r[9],
             "abnormal_7d": r[10],
-            "signal_quality": r[11],
-            "trans_code": r[12],
+            "trans_code": r[11],
             "is_cluster": is_cluster,
             "pit_score": pit_score,
         })

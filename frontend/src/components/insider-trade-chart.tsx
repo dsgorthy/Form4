@@ -351,7 +351,9 @@ export function InsiderTradeChart({ ticker }: InsiderTradeChartProps) {
                 </div>`;
               }
               const typeColor = t.trade_type === "buy" ? "#22C55E" : "#EF4444";
-              const gradeStr = (t as any).pit_grade ? ` · ${(t as any).pit_grade}` : "";
+              // career_grade: the chart tooltip sat beside badges rendering
+              // the career scale and quoted the other one.
+              const gradeStr = (t as any).career_grade ? ` · ${(t as any).career_grade}` : "";
               return `<div style="margin-bottom:4px">
                 <div style="font-weight:500;color:#E8E8ED">${t.insider_name}</div>
                 <div style="color:#8888A0">

@@ -8,9 +8,9 @@ never fires, and the trade scores lower — but only on that endpoint.
 
 MED trade xm7gfj on 2026-08-21 scored 58 in /filings and 59 in /filings/{id}.
 Four scoring inputs were missing from the list queries and present in the
-detail one: is_largest_ever, dip_1mo, dip_3mo and cluster_size. Together those
-are worth up to 13 points (Dip up to 10, Largest Trade 3, Cluster up to 12 with
-n_filers only partly covering it) against rating bands that are 10 points wide.
+detail one: is_largest_ever, dip_1mo, dip_3mo and the cluster count. Together
+those are worth up to 13 points (Dip up to 10, Largest Trade 3, Cluster up to
+12) against rating bands that are 10 points wide.
 So the feed and the filing page could publish two different ratings for the
 same filing — the exact contradiction api/ratings.py exists to prevent.
 
@@ -35,15 +35,25 @@ FILINGS = REPO / "api" / "routers" / "filings.py"
 #: Inputs the scorer reads that are NOT expected to come from the trades query.
 #: Keep this list short and justified — it is the exemption, not the rule.
 _NOT_FROM_QUERY: set[str] = {
-    # Supplied by the caller as an alternative spelling of cluster_size.
+    # Computed per query as the AS-OF cluster count (everyone on the ticker
+    # that day). Distinct from cluster_size_pit, which is the point-in-time
+    # count the scorer actually uses — see the note in trade_grade.py.
     "n_filers",
 }
 
 
 def _scorer_inputs() -> set[str]:
-    """Every column name compute_trade_grade pulls off its input dict."""
-    src = TRADE_GRADE.read_text()
-    found = set(re.findall(r"""item\.get\(\s*["']([a-z0-9_]+)["']""", src))
+    """Every column name compute_trade_grade pulls off its input dict.
+
+    Comment lines are skipped: the module documents the fields it USED to read
+    and why it stopped, and a test that treats prose as code would demand the
+    queries keep selecting a retired column.
+    """
+    code = "\n".join(
+        line for line in TRADE_GRADE.read_text().splitlines()
+        if not line.lstrip().startswith("#")
+    )
+    found = set(re.findall(r"""item\.get\(\s*["']([a-z0-9_]+)["']""", code))
     assert found, "parsed no inputs from trade_grade.py — did item.get() change shape?"
     return found - _NOT_FROM_QUERY
 
@@ -100,7 +110,7 @@ def test_every_scoring_input_is_selected_by_every_grading_query(field):
 def test_the_four_fields_that_caused_this_are_present():
     """Explicit regression guard, independent of the parsing above."""
     sql = FILINGS.read_text()
-    for field in ("is_largest_ever", "dip_1mo", "dip_3mo", "cluster_size"):
+    for field in ("is_largest_ever", "dip_1mo", "dip_3mo", "cluster_size_pit"):
         # Once in each list aggregate plus the outer select, or the detail
         # query. Two occurrences is the minimum that means "more than the
         # detail endpoint alone".

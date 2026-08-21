@@ -58,7 +58,8 @@ export function InsiderRoster({ insiders, gated = false }: InsiderRosterProps) {
    * follows the reader through pagination is just an ungated column.
    */
   function Grade({ ins, i }: { ins: Insider; i: number }) {
-    if (!ins.pit_grade && !ins.career_grade) return null;
+    // The badge renders career_grade, so that is what gates it.
+    if (!ins.career_grade) return null;
     const badge = <InsiderGradeBadge grade={ins.career_grade} />;
     if (!gated || (offset === 0 && i === 0)) return badge;
     return <ProGate compact>{badge}</ProGate>;
@@ -164,7 +165,7 @@ export function InsiderRoster({ insiders, gated = false }: InsiderRosterProps) {
                   })()}
                 </td>
                 <td className="px-4 py-3 text-center">
-                  {ins.pit_grade ? (
+                  {ins.career_grade ? (
                     <Grade ins={ins} i={i} />
                   ) : (
                     <span className="text-[#55556A]">{"\u2014"}</span>

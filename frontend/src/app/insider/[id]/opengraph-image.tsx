@@ -36,7 +36,12 @@ export default async function Image({ params }: { params: Promise<{ id: string }
     if (resp.ok) {
       const data = await resp.json();
       name = data.name || "Insider";
-      grade = data.best_pit_grade || data.best_career_grade || "";
+      // career_grade first, and never pit_grade as a substitute. The order was
+      // reversed until 2026-08-21, so a share card could show a letter the
+      // insider's own page did not — and pit_grade is not monotonic, so it
+      // could show a worse letter than the truth. An insider with no career
+      // grade is Unrated; the card renders no badge rather than borrowing one.
+      grade = data.best_career_grade || "";
       role = data.primary_title || data.title || "";
       const tr = data.track_record || {};
       tickers = String(tr.n_tickers ?? "—");

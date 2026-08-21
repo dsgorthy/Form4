@@ -10,6 +10,7 @@ import { ProGate } from "@/components/pro-gate";
 import { Pagination } from "@/components/pagination";
 import { TradeGradeBadge } from "@/components/trade-grade-badge";
 import type { Filing, PaginatedResponse } from "@/lib/types";
+import { filingKind } from "@/lib/classification";
 
 function TradeTags({ item }: { item: Filing }) {
   const tags: React.ReactNode[] = [];
@@ -17,17 +18,27 @@ function TradeTags({ item }: { item: Filing }) {
   if (tg?.stars) {
     tags.push(<TradeGradeBadge key="tg" grade={tg} />);
   }
-  if ((item as any).is_10b5_1 === 1) {
+  // One chip, from one source. This used to be three overlapping checks —
+  // is_10b5_1 for the "10b5-1" chip, is_routine for "Routine", and
+  // cohen_routine === 0 && !is_10b5_1 && !is_routine for "Opportunistic" —
+  // and because is_routine is only 16% populated, 22,937 10b5-1 planned sells
+  // showed "SELL · Routine" in the feed and nothing at all here. filing_kind
+  // comes off the payload from api/classification, derived from the
+  // trigger-maintained signal_class. See lib/classification.ts.
+  const kind = filingKind((item as any).signal_class);
+  if (kind && kind !== "Discretionary") {
     tags.push(
-      <span key="10b5" className="rounded px-1.5 py-0.5 text-[9px] font-medium bg-[#55556A]/20 text-[#8888A0] border border-[#55556A]/30">
-        10b5-1
+      <span key="kind" className="rounded px-1.5 py-0.5 text-[9px] font-medium bg-[#55556A]/20 text-[#8888A0] border border-[#55556A]/30">
+        {kind}
       </span>
     );
   }
-  if ((item as any).is_routine === 1) {
+  // A behavioural tag, not a kind — an insider can trade discretionarily AND
+  // on a rhythm, and 5,831 discretionary sells do.
+  if ((item as any).cohen_routine === 1 || (item as any).is_recurring === 1) {
     tags.push(
-      <span key="routine" className="rounded px-1.5 py-0.5 text-[9px] font-medium bg-[#55556A]/20 text-[#8888A0] border border-[#55556A]/30">
-        Routine
+      <span key="recur" className="rounded px-1.5 py-0.5 text-[9px] font-medium bg-[#55556A]/20 text-[#8888A0] border border-[#55556A]/30">
+        Recurring
       </span>
     );
   }
@@ -38,13 +49,9 @@ function TradeTags({ item }: { item: Filing }) {
       </span>
     );
   }
-  if ((item as any).cohen_routine === 0 && !((item as any).is_10b5_1 === 1) && !((item as any).is_routine === 1)) {
-    tags.push(
-      <span key="opp" className="rounded px-1.5 py-0.5 text-[9px] font-medium bg-[#3B82F6]/10 text-[#3B82F6] border border-[#3B82F6]/20">
-        Opportunistic
-      </span>
-    );
-  }
+  // "Opportunistic" is gone. It was the negation of three flags with
+  // different coverage, so it fired on filings nothing else called routine and
+  // stayed silent on ones everything did. Discretionary already says it.
   const w52 = (item as any).week52_proximity;
   if (w52 != null && w52 >= 0.8 && item.trade_type === "buy") {
     tags.push(
@@ -59,13 +66,15 @@ function TradeTags({ item }: { item: Filing }) {
       </span>
     );
   }
-  if ((item as any).is_amendment === 1) {
-    tags.push(
-      <span key="amend" className="rounded px-1.5 py-0.5 text-[9px] font-medium bg-[#F59E0B]/10 text-[#F59E0B] border border-[#F59E0B]/20">
-        Amended
-      </span>
-    );
-  }
+  // DEAD UI REMOVED 2026-08-21. `is_amendment` has no writer anywhere in
+  // the codebase — the 6,033 rows that carry it predate 2026 and came
+  // from a writer that no longer exists. Coverage by year: 408 (2023),
+  // 390 (2024), 316 (2025), 0 (2026). document_type and superseded_by
+  // are equally unpopulated, and trans_form_type only ever holds '4' or
+  // '5', never '4/A', so amendment status is not derivable from anything
+  // we currently ingest. Restoring the badge means capturing the form
+  // suffix from EDGAR at ingest first; until then this rendered a
+  // condition that could never be true.
   if (tags.length === 0) return null;
   return <div className="flex items-center gap-1 mt-0.5 flex-wrap">{tags}</div>;
 }

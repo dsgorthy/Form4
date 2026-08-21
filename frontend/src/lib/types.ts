@@ -44,8 +44,22 @@ export interface Filing {
   signals?: TradeSignal[];
   signal_types?: string;
   context?: TradeContext[];
+  /**
+   * The canonical filing classification, trigger-maintained in Postgres.
+   * Read this via lib/classification, never the raw flags below it —
+   * is_routine is only 16% populated and building a "routine" test out of it
+   * is how five different definitions came to disagree on tens of thousands
+   * of filings.
+   */
+  signal_class?: string | null;
+  /** Published kind, stamped by api/classification.attach_classification. */
+  filing_kind?: string | null;
+  recurring_pattern?: boolean;
+  /** Raw inputs. Present for detail views; not for classification tests. */
   is_10b5_1?: number;
   is_routine?: number;
+  cohen_routine?: number;
+  is_recurring?: number;
   price_data_end?: string;
   pit_grade?: string;
   pit_blended_score?: number;

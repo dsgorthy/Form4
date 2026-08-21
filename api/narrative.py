@@ -17,6 +17,8 @@ templates are generated from trade flags every request. Cheap (sub-ms).
 """
 from __future__ import annotations
 
+from api.classification import is_discretionary, is_recurring_pattern
+
 import json
 
 from typing import Optional
@@ -94,11 +96,20 @@ def classify_tier(trade: dict) -> str:
 
 
 def _is_routine(t: dict) -> bool:
-    return bool(
-        t.get("is_10b5_1")
-        or t.get("is_tax_sale")
-        or t.get("is_recurring")
-        or t.get("cohen_routine")
+    """Not a discretionary decision, or done on a rhythm.
+
+    This used to be its own fourth definition of "routine" — a four-flag OR
+    that called 45,371 of the 126,521 filings since January routine, against
+    68,394 for signal_class and 11,477 for the /explore table. The flags it
+    leaned on have wildly different coverage (is_routine 16%, cohen_routine
+    100%, is_10b5_1 96%), so it agreed with nothing.
+
+    Now: the KIND comes from api.classification (one source, 100% populated),
+    and recurrence stays as the separate behavioural test it always was.
+    """
+    return (
+        not is_discretionary(t.get("signal_class"))
+        or is_recurring_pattern(t)
     )
 
 

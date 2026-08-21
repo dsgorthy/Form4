@@ -14,6 +14,7 @@ import { TradeGradeBadge } from "@/components/trade-grade-badge";
 import { ContextFacts } from "@/components/context-facts";
 import { Pagination } from "@/components/pagination";
 import type { Filing, PaginatedResponse } from "@/lib/types";
+import { isDiscretionary } from "@/lib/classification";
 
 const apiBase =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
@@ -176,8 +177,7 @@ export function FeedList({ initialTicker = "" }: FeedListProps) {
       <div className={`space-y-2 ${loading ? "opacity-60" : ""} transition-opacity`}>
         {items.map((f) => {
           const isRoutineSell =
-            f.trade_type === "sell" &&
-            (f.is_routine === 1 || f.is_10b5_1 === 1);
+            f.trade_type === "sell" && !isDiscretionary(f.signal_class);
           const isGood7d =
             f.return_7d != null &&
             (f.trade_type === "buy" ? f.return_7d >= 0 : f.return_7d <= 0);
@@ -284,11 +284,17 @@ export function FeedList({ initialTicker = "" }: FeedListProps) {
                         Near 52w High
                       </span>
                     )}
-                    {(f as any).is_amendment === 1 && (
-                      <span className="rounded px-1.5 py-0.5 text-[9px] font-medium bg-[#F59E0B]/10 text-[#F59E0B] border border-[#F59E0B]/20">
-                        Amended
-                      </span>
-                    )}
+{/*
+                         DEAD UI REMOVED 2026-08-21. `is_amendment` has no writer anywhere in
+                         the codebase — the 6,033 rows that carry it predate 2026 and came
+                         from a writer that no longer exists. Coverage by year: 408 (2023),
+                         390 (2024), 316 (2025), 0 (2026). document_type and superseded_by
+                         are equally unpopulated, and trans_form_type only ever holds '4' or
+                         '5', never '4/A', so amendment status is not derivable from anything
+                         we currently ingest. Restoring the badge means capturing the form
+                         suffix from EDGAR at ingest first; until then this rendered a
+                         condition that could never be true.
+                    */}
                     {f.signals && f.signals.length > 0 && <SignalBadges signals={f.signals} />}
                   </div>
                 )}

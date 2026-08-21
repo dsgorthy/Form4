@@ -368,7 +368,7 @@ export function EntitySearch({
                               <span className="truncate text-sm text-[#E8E8ED]">
                                 <Highlight text={ins.name} q={term} />
                               </span>
-                              {(ins.best_career_grade || ins.best_pit_grade) && (
+                              {ins.best_career_grade && (
                                 <InsiderGradeBadge grade={ins.best_career_grade} />
                               )}
                             </div>

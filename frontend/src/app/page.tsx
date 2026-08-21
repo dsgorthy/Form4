@@ -4,7 +4,7 @@ import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { EquitySparkline } from "@/components/equity-sparkline";
 import { insiderPath } from "@/lib/insider-url";
-import { insiderGradeColor } from "@/lib/grade-colors";
+import { insiderRating, insiderRatingColor } from "@/lib/ratings";
 
 export const metadata = {
   title: "Form4 — Insider Trading Intelligence",
@@ -53,7 +53,19 @@ type RecentTrade = {
   insider_slug: string | null;
   cik: string | null;
   value: number;
-  pit_grade: string | null;
+  /**
+   * career_grade, NOT pit_grade. This page published pit_grade until
+   * 2026-08-21, which api/ratings.py forbids: it is an input to the Trade
+   * Rating, it is not monotonic (C ranks below D on mean return), and the
+   * published scale has no D at all because _GRADE_DISPLAY merges D into C.
+   *
+   * 34,198 filings showed a letter here while the insider page said Unrated,
+   * and 18,241 of those were labelled "D" — a grade the product does not
+   * offer, applied to a cohort that OUTPERFORMS every measured grade below A
+   * (+1.41% vs C -0.38%). It inverted the meaning rather than merely
+   * disagreeing.
+   */
+  career_grade: string | null;
 };
 
 type BookSummary = {
@@ -137,9 +149,10 @@ export default async function LandingPage() {
     ...STRATEGIES.map((s) => getJson(`/portfolio?strategy=${s.key}`)),
   ]);
 
-  const recentTrades: RecentTrade[] = (filings?.items ?? [])
-    .filter((t: RecentTrade) => Boolean(t.pit_grade))
-    .slice(0, 6);
+  // No grade filter. Filtering to graded insiders dropped ~44% of candidates
+  // and quietly biased the page toward filers with history at that company;
+  // Unrated is a real rating with real performance behind it, so it is shown.
+  const recentTrades: RecentTrade[] = (filings?.items ?? []).slice(0, 6);
   // The lead book backs the hero chart, so its win rate belongs on the same
   // card rather than a fourth stat that repeats the start date under it.
   const lead: BookSummary | null = books[0]?.summary ?? null;
@@ -396,19 +409,23 @@ export default async function LandingPage() {
                       {t.insider_name || "—"}
                     </span>
                   )}
-                  {/* Colour comes from lib/grade-colors, the same scale every
-                      other grade on the site uses. A D must not render green. */}
-                  {t.pit_grade && (
-                    <span
-                      className="shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold"
-                      style={{
-                        color: insiderGradeColor(t.pit_grade),
-                        boxShadow: `inset 0 0 0 1px ${insiderGradeColor(t.pit_grade)}40`,
-                      }}
-                    >
-                      {t.pit_grade}
-                    </span>
-                  )}
+                  {/* insiderRating() is the single definition — it merges D
+                      into C and returns "Unrated" for a null career_grade,
+                      so this badge cannot disagree with the insider page. */}
+                  {(() => {
+                    const rating = insiderRating(t.career_grade);
+                    return (
+                      <span
+                        className="shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold"
+                        style={{
+                          color: insiderRatingColor(rating),
+                          boxShadow: `inset 0 0 0 1px ${insiderRatingColor(rating)}40`,
+                        }}
+                      >
+                        {rating}
+                      </span>
+                    );
+                  })()}
                   <span className="font-mono text-sm text-[#8888A0] tabular-nums shrink-0 w-16 text-right">
                     {fmtValue(t.value)}
                   </span>

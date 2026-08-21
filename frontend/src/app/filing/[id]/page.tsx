@@ -247,23 +247,17 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
       )}
 
       {/* Amendment notice */}
-      {(filing as any).is_amendment === 1 && (
-        <div className="mb-6 rounded-lg border border-[#F59E0B]/20 bg-[#F59E0B]/5 px-5 py-3">
-          <div className="flex items-center gap-2">
-            <span className="text-[#F59E0B] text-sm font-medium">Amended Filing</span>
-            <span className="text-[#8888A0] text-xs">
-              (Form {(filing as any).document_type ?? "4/A"})
-            </span>
-          </div>
-          <div className="text-xs text-[#55556A] mt-1">
-            This filing is an amendment that corrects an earlier submission
-            {(filing as any).date_of_orig_sub && (
-              <> originally filed on {(filing as any).date_of_orig_sub}</>
-            )}
-            . The data shown reflects the corrected values.
-          </div>
-        </div>
-      )}
+      {/*
+         DEAD UI REMOVED 2026-08-21. `is_amendment` has no writer anywhere in
+         the codebase — the 6,033 rows that carry it predate 2026 and came
+         from a writer that no longer exists. Coverage by year: 408 (2023),
+         390 (2024), 316 (2025), 0 (2026). document_type and superseded_by
+         are equally unpopulated, and trans_form_type only ever holds '4' or
+         '5', never '4/A', so amendment status is not derivable from anything
+         we currently ingest. Restoring the badge means capturing the form
+         suffix from EDGAR at ingest first; until then this rendered a
+         condition that could never be true.
+      */}
 
       {/* Trade narrative — depth varies by tier:
          - high_signal: full 4-field LLM narrative, blue accent

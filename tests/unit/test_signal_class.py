@@ -127,8 +127,17 @@ class TestMigrationIsSourceOfTruth:
 class TestNoPythonReimplementation:
     """The classification lives in SQL. Nothing may recreate it in Python."""
 
-    # api/filters.py names the sets (that is its job). Tests reference them.
-    ALLOWED = {"api/filters.py"}
+    # Two modules legitimately name every class, and neither derives one.
+    #
+    #   api/filters.py         names the sets so callers can filter on them
+    #   api/classification.py  maps an existing signal_class to its PUBLISHED
+    #                          label ("planned_sell" -> "Scheduled")
+    #
+    # The distinction that matters: the SQL decides which class a filing IS,
+    # from trans_code and the flags. These two only consume that answer. A
+    # module that looked at trans_code and produced a class would be the
+    # violation, and still is.
+    ALLOWED = {"api/filters.py", "api/classification.py"}
 
     def test_no_module_maps_trans_codes_to_classes(self):
         # A module that mentions two classes which only co-occur in a full
