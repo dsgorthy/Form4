@@ -97,7 +97,34 @@ STRATEGY_CONFIG = {
 }
 
 STARTING_CAPITAL = 100_000.0
-STOP_LOSS_PCT = -0.30   # Derek's override 2026-05-12, applied to all strategies retroactively
+def resolve_stop_pct(config: dict) -> Optional[float]:
+    """The stop comes from the strategy yaml, the same place cw_runner reads it.
+
+    Until 2026-08-20 this module carried `STOP_LOSS_PCT = -0.30` as a global
+    override, applied to every strategy regardless of its config. All three
+    yamls said `stop_loss_pct: null`, so the published book was simulating a
+    -30% stop that the live alert runner never applied — cw_runner.py reads the
+    yaml and treats null as no stop. The two surfaces disagreed for three
+    months.
+
+    Measured on 2026-08-20 before removing it: the -30% stop cost 6.4 CAGR
+    points on quality_notrend in-sample and 4.4 on quality_momentum, and bought
+    no drawdown protection (23.5% either way). A -50% stop is indistinguishable
+    from no stop over the whole sample — nothing ever closed below -50% — so it
+    is free as catastrophic insurance while remaining inert in the figures.
+
+    Normalisation follows cw_runner exactly: a stop must be negative, and
+    None / 0 / positive all mean no stop.
+    """
+    exit_cfg = (config.get("theses") or [{}])[0].get("exit") or config.get("exit") or {}
+    raw = exit_cfg.get("stop_loss_pct")
+    if raw is None:
+        return None
+    raw = float(raw)
+    if raw == 0:
+        return None
+    return -abs(raw)
+
 
 
 # ── State types ─────────────────────────────────────────────────────────
@@ -122,7 +149,7 @@ class OpenPosition:
     entry_price: float
     capital_at_entry: float       # $ allocated at entry (position_size_pct × equity_at_entry)
     target_exit_idx: int          # calendar index when hold_td expires
-    stop_price: float             # entry_price × (1 + stop_loss_pct)
+    stop_price: Optional[float]   # entry_price × (1 + stop_loss_pct); None = no stop
     pit_grade: Optional[str]
     career_grade: Optional[str]
     conviction: float
@@ -269,11 +296,13 @@ def simulate_one_strategy(
     margin_rate = float(config.get("margin_rate", 0.06))
     financing_paid = 0.0
     min_conviction = float(config.get("min_conviction", 1.5))
+    stop_pct = resolve_stop_pct(config)
 
     logger.info(
-        "[%s] config: hold_td=%d, pos=%.0f%%, max=%d, min_conv=%.1f, stop=%.0f%%",
+        "[%s] config: hold_td=%d, pos=%.0f%%, max=%d, min_conv=%.1f, stop=%s",
         strategy_name, hold_td, position_size_pct * 100, max_concurrent,
-        min_conviction, STOP_LOSS_PCT * 100,
+        min_conviction,
+        "none" if stop_pct is None else f"{stop_pct * 100:.0f}%",
     )
 
     # Load every P-trade in the window with all features needed for filter+conviction
@@ -394,8 +423,8 @@ def simulate_one_strategy(
                     close_today = pos.entry_price
                     exit_was_stale = True
 
-            # Stop hit?
-            if close_today <= pos.stop_price:
+            # Stop hit? `None` means the yaml declares no stop.
+            if pos.stop_price is not None and close_today <= pos.stop_price:
                 pnl_pct = (close_today - pos.entry_price) / pos.entry_price
                 pnl_dollar = pos.capital_at_entry * pnl_pct
                 equity += pnl_dollar
@@ -546,7 +575,7 @@ def simulate_one_strategy(
                 entry_date=cal[entry_idx], entry_price=entry_price,
                 capital_at_entry=capital,
                 target_exit_idx=target_exit_idx,
-                stop_price=entry_price * (1 + STOP_LOSS_PCT),
+                stop_price=None if stop_pct is None else entry_price * (1 + stop_pct),
                 filing_date=t.get("filing_date"), trade_date=t.get("trade_date"),
                 pit_grade=t.get("pit_grade"), career_grade=t.get("career_grade"),
                 conviction=t["_conviction"],
@@ -595,9 +624,12 @@ def persist_positions(
     closed: List[ClosedPosition],
     open_at_end: List[OpenPosition],
     final_equity: float,
+    stop_pct: Optional[float] = None,
 ):
     """Write all positions to strategy_portfolio."""
     portfolio_id = ensure_portfolio_row(conn, strategy_name)
+    # stop_pct is NOT NULL in strategy_portfolio; 0 is how "no stop" is stored.
+    stop_col = 0.0 if stop_pct is None else abs(stop_pct)
 
     # Closed
     for c in closed:
@@ -640,7 +672,7 @@ def persist_positions(
                 strategy_name, portfolio_id, c.trade_id, c.ticker,
                 c.entry_date, c.entry_price, c.exit_date, c.exit_price,
                 c.hold_days, c.hold_days,
-                abs(STOP_LOSS_PCT), 1 if c.exit_reason == "stop" else 0,
+                stop_col, 1 if c.exit_reason == "stop" else 0,
                 c.pnl_pct, c.pnl_dollar,
                 c.capital_at_entry / max(STARTING_CAPITAL, c.equity_after - c.pnl_dollar),
                 c.capital_at_entry,
@@ -689,7 +721,7 @@ def persist_positions(
                 strategy_name, portfolio_id, o.trade_id, o.ticker,
                 o.entry_date, o.entry_price,
                 (o.target_exit_idx - 0),  # rough — actual td count
-                abs(STOP_LOSS_PCT),
+                stop_col,
                 o.capital_at_entry / max(STARTING_CAPITAL, final_equity),
                 o.capital_at_entry, final_equity,
                 o.insider_name, o.insider_title, int(bool(o.is_csuite)),
@@ -740,7 +772,8 @@ def run(strategy_name: str, mode: str, end_date: str) -> Dict[str, int]:
     logger.info("[%s] sim done in %.1fs — closed=%d, open=%d, final_equity=$%.0f",
                 strategy_name, elapsed, len(closed), len(open_at_end), final_equity)
 
-    persist_positions(conn, strategy_name, closed, open_at_end, final_equity)
+    persist_positions(conn, strategy_name, closed, open_at_end, final_equity,
+                      stop_pct=resolve_stop_pct(cfg))
     logger.info("[%s] persisted %d closed + %d open positions",
                 strategy_name, len(closed), len(open_at_end))
 

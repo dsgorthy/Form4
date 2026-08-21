@@ -17,9 +17,13 @@ excess as the emphasised figure.**
 
 | | blended CAGR | SPY | **excess** | avg deployed |
 |---|---|---|---|---|
-| A-List Buys (`quality_notrend`) | 58.6% | 21.4% | **+37.2** | 59% |
-| Insider Breakout (`quality_momentum`) | 45.3% | 21.4% | **+24.0** | 41% |
-| Insider Dip Buys (`reversal_dip`) | 37.4% | 21.3% | **+16.0** | 28% |
+| A-List Buys (`quality_notrend`) | 62.8% | 21.2% | **+41.7** | 60% |
+| Insider Breakout (`quality_momentum`) | 48.0% | 21.2% | **+26.8** | 42% |
+| Insider Dip Buys (`reversal_dip`) | 35.9% | 21.2% | **+14.7** | 25% |
+
+Measured 2026-08-20 after the stop correction below. The SPY figure drifts by a
+tenth or two as the window end moves; it is recomputed from the same day range
+on every measurement rather than carried forward.
 
 Position caps were set per strategy on 2026-08-20 rather than sharing one
 `10 x 10%`. Breakout and Dip Buys had `max_concurrent: 10` against books that
@@ -104,11 +108,15 @@ healthiest at 53%. Dip Buys effectively rests on ten trades.
 **SPY returned 21.4% CAGR over this window.** These books have only ever run in
 a strong bull market.
 
-**Two directional biases, both small.** ~2% of qualifying candidates are
-dropped for want of a price series — and a stock with no forward prices usually
-stopped trading, so it removes the worst outcomes rather than a random sample.
-The −30% stop is evaluated on the close, so gaps fill below it (two of twelve
-at −43.6% and −42.3%).
+**Two directional biases, both small, and the second now matters more.** ~2% of
+qualifying candidates are dropped for want of a price series — and a stock with
+no forward prices usually stopped trading, so it removes the worst outcomes
+rather than a random sample. Separately, when a held position's price series
+ends the simulator marks it to the **last close it saw, never to zero**
+(`simulate_strategy_portfolio.py`, the stale-exit fallback). A delisting
+therefore exits at its last quote. That was always true, but with the stop at
+−50% instead of −30% there is less between a collapsing position and its time
+exit, so the optimism in that fallback carries more weight than it used to.
 
 **What is solid.** Bootstrap CI on the mean trade excludes zero for all three:
 A-List +12.73% [+8.22, +17.54], Breakout +12.76% [+5.63, +21.02], Dip Buys
@@ -126,12 +134,52 @@ only over its size — and for Dip Buys the interval now nearly touches zero.
 | 2026-08-19 | 48.8% → 55.4% | `is_largest_ever` wrong on 23.7% of flags |
 | 2026-08-20 | definition settled | sleeve vs blended, and the period bug |
 | 2026-08-20 | per-strategy position caps | one shared `10 x 10%` left two books ~85% in SPY |
+| 2026-08-20 | stop moved −30% → −50% | the −30% was a simulator-only override the live runner never applied |
 
 Every move before 2026-08-20 was a definitional or data defect, none a market
 event, and each now has a regression test: `test_entry_timing_eastern`,
 `test_cumulative_signal_windows`, `test_published_returns`.
 
-**This is the last planned move.** The sizing change is the one deliberate
-parameter decision on the list, taken before the figures are marketed rather
-than after. Anything that moves these numbers from here should be a new trade
-or a decision made on purpose — not a discovery.
+The last two rows are deliberate parameter decisions, taken before the figures
+are marketed rather than after. The rows above them were defects. Anything that
+moves these numbers from here should be a new trade or a decision made on
+purpose — not a discovery.
+
+---
+
+## The stop, and why it is −50%
+
+`simulate_strategy_portfolio.py` carried `STOP_LOSS_PCT = -0.30` as a module
+constant from 2026-05-12. All three yamls said `stop_loss_pct: null`, and
+`cw_runner.py` — the live alert runner — reads the yaml. **For three months the
+published book simulated a stop that subscribers' alerts never applied.**
+
+Measured before changing it, split at 2025-06:
+
+| | −30% in | no-stop in | −30% out | no-stop out |
+|---|---|---|---|---|
+| A-List | 43.6% | 50.0% | 79.3% | 80.9% |
+| Breakout | 38.7% | 43.1% | 42.3% | 42.3% |
+| Dip Buys | 34.8% | 34.8% | 40.1% | 40.2% |
+
+No variant was ever better with the stop. Max drawdown was unchanged in-sample
+(23.5% either way on A-List) and the stop bought 1.2 points out-of-sample while
+costing 1.6 of CAGR.
+
+**−50% and no-stop produced identical results on all three books.** Nothing any
+of them held has ever closed below −50% in 3.6 years, so the backstop is inert
+in every published figure while still capping a genuine blowup. That is why the
+answer is −50% rather than removing the stop: it costs nothing measurable and
+the sample contains no bankruptcy, only a bull market.
+
+The parameter now lives in the yaml, which both the simulator and the live
+runner read. `tests/unit/test_stop_is_config_driven.py` fails the build if a
+module-level constant reappears or if the two surfaces resolve different values
+from the same config.
+
+**What this does not do.** The stop is still evaluated on the CLOSE, not the
+intraday low. Modelling it against the low was measured on 2026-08-20 and would
+have converted four of 255 positions into −30% losses, two of which actually
+finished positive (CATX +8.2%, ENVX +0.4%). All four touched the level intraday
+and recovered — the close-only check is acting as a whipsaw filter and is worth
+keeping.

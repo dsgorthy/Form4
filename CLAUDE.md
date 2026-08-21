@@ -168,11 +168,12 @@ to move.
 
 | Key | Public name | Status | CAGR | Key Metric |
 |-----|-------------|--------|------|------------|
-| quality_notrend | **A-List Buys** | LIVE alert-only | 58.6% blended (+37.2 vs SPY), 10x10% | A+/A insider buys, no chart condition. 141 closed sim trades. The strongest book: the trend filter QM applies costs more in trades foregone than it saves — QM fills 2.6 of 10 slots against notrend's 6.4. |
-| quality_momentum | **Insider Breakout** | LIVE alert-only | 45.3% blended (+24.0 vs SPY), 5x20% | Same insider grade, plus above SMA50 and SMA200. 55 closed sim trades. Kept as the A/B control. |
-| reversal_dip | **Insider Dip Buys** | LIVE alert-only | 37.4% blended (+16.0 vs SPY), 4x25%, ON WATCH | 10+ consecutive sells then a buy, into a 25%+ 3-month drawdown. Genuinely lumpy — went dark Dec 2025–Feb 2026 and again Jun–Aug 2026, then fired 3 in a month. Sparse alerts are expected, not a fault. |
+| quality_notrend | **A-List Buys** | LIVE alert-only | 62.8% blended (+41.7 vs SPY), 10x10% | A+/A insider buys, no chart condition. 141 closed sim trades. The strongest book: the trend filter QM applies costs more in trades foregone than it saves — QM fills 2.6 of 10 slots against notrend's 6.4. |
+| quality_momentum | **Insider Breakout** | LIVE alert-only | 48.0% blended (+26.8 vs SPY), 5x20% | Same insider grade, plus above SMA50 and SMA200. 55 closed sim trades. Kept as the A/B control. |
+| reversal_dip | **Insider Dip Buys** | LIVE alert-only | 35.9% blended (+14.7 vs SPY), 4x25%, ON WATCH | 10+ consecutive sells then a buy, into a 25%+ 3-month drawdown. Genuinely lumpy — went dark Dec 2025–Feb 2026 and again Jun–Aug 2026, then fired 3 in a month. Sparse alerts are expected, not a fault. |
 
-CAGRs are post-audit (2026-08-19). Two corrections landed that day, and they
+CAGRs are as of 2026-08-20, after the stop correction below. Two earlier
+corrections landed 2026-08-19, and they
 pull in opposite directions:
 
 - **Look-ahead removed** (`filed_at` was Eastern for 2026 rows but read as UTC,
@@ -195,13 +196,33 @@ session we could have traded, at that session's actual open or close.
 qualifying candidates are dropped because the ticker has no usable price
 series — NH delisted between the filing and the entry, DRTTF was never
 covered — and that always removes the worst outcomes rather than a random
-sample. And the −30% stop is evaluated on the CLOSE, so a gap-down fills
-below it: two of twelve stops came out at −43.6% and −42.3%.
+sample. And when a held position's price series ends, the simulator marks it to
+the LAST CLOSE IT SAW, never to zero — a delisting exits at its last quote. That
+matters more since the stop moved to −50%, because less now sits between a
+collapsing position and its time exit.
+
+**The stop is −50%, declared in each strategy yaml, and it has never fired.**
+Until 2026-08-20 `simulate_strategy_portfolio.py` carried
+`STOP_LOSS_PCT = -0.30` as a module constant while all three yamls said
+`stop_loss_pct: null` — and `cw_runner` reads the yaml, so for three months the
+published book simulated a stop the live alerts never applied. Removing it was
+worth +5.3 CAGR points on A-List and +3.2 on Breakout with max drawdown
+unchanged. −50% and no-stop are identical over the whole sample (nothing ever
+closed below −50%), so the backstop is inert in the figures while still capping
+a blowup. Both surfaces now read the yaml;
+`tests/unit/test_stop_is_config_driven.py` fails the build if a module constant
+reappears or the two disagree. The stop is still evaluated on the CLOSE, not the
+intraday low — checked 2026-08-20, an intraday stop would have converted four of
+255 positions into −30% losses and two of those finished POSITIVE.
 
 **THE HEADLINE CAGR IS NEAR THE TOP OF A WIDE BAND, NOT A CENTRAL ESTIMATE.**
 
-Measured 2026-08-20. Perturbing conviction by ±0.25 — less than any single
-component of the score — and re-running 14 times gives quality_notrend:
+Measured 2026-08-20 **under the old −30% stop, and NOT yet re-run under −50%.**
+The sleeve figures below are therefore stale in level. The *shape* of the
+finding — a wide band driven by the conviction gate — is a property of the gate
+and is not expected to change, but do not quote these numbers as current. Re-run
+before publishing any band. Perturbing conviction by ±0.25 — less than any
+single component of the score — and re-running 14 times gave quality_notrend:
 
 | | CAGR |
 |---|---|
@@ -219,7 +240,9 @@ correct gives 141 and $495,797 — **non-monotonic**, so it is which trades get
 admitted, not how many.
 
 Practical consequences:
-- Read the published figure as roughly **50% ± 5**, not 55.4%.
+- Read the sleeve figure as a band, not a point. The ±5 spread was measured on
+  a 55.4% sleeve under the old stop; the spread is the durable part, the centre
+  needs re-measuring.
 - Any change to any conviction input will move the book by tens of percent.
   That is not a bug being reintroduced; it is this design.
 - The gate threshold is doing more work than any individual signal. Worth

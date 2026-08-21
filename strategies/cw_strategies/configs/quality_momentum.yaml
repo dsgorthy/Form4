@@ -65,7 +65,15 @@ filters:
 exit:
   strategy: fixed_hold
   hold_days: 42  # Full backtest (2026-04-09): 42td Sharpe 0.49 (ann 1.20), 68.7% WR, +15.5% mean. Peak at ~60 calendar days.
-  stop_loss_pct: null  # Grid search validated: stops degrade Sharpe by 25% (1.44 → 1.08). Quality picks recover from dips.
+  stop_loss_pct: -0.50  # Catastrophic backstop only, set 2026-08-20.
+    # Measured over 2023-01-03..2026-08-20: nothing this book ever held closed
+    # below -50%, so this is byte-identical to no stop in every published
+    # figure while still capping a genuine blowup. The -30% it replaces was a
+    # module-level override in simulate_strategy_portfolio.py that the live
+    # runner never applied; it cost 4.4 CAGR points in-sample and bought no drawdown protection.
+    # Prior grid search still stands, and is why this is a backstop and not a
+    # trading stop: tight stops degraded Sharpe 25% (1.44 -> 1.08). Quality
+    # picks recover from dips.
 
 at_capacity: skip
 

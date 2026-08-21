@@ -67,7 +67,17 @@ filters:
 exit:
   strategy: fixed_hold
   hold_days: 21  # mean reversion — take profit quickly, edge vanishes at 90d
-  stop_loss_pct: null  # Grid search validated: stops degrade Sharpe by 18% (1.27 → 1.04). Short hold limits downside.
+  stop_loss_pct: -0.50  # Catastrophic backstop only, set 2026-08-20.
+    # Measured over 2023-01-03..2026-08-20: nothing this book ever held closed
+    # below -50%, so this is byte-identical to no stop in every published
+    # figure while still capping a genuine blowup. The -30% it replaces was a
+    # module-level override in simulate_strategy_portfolio.py that the live
+    # runner never applied. On this book it cost almost nothing (+0.1 CAGR to
+    # remove) — but sim and live disagreeing on an exit rule is the defect,
+    # regardless of how little it happened to be worth here.
+    # Prior grid search still stands, and is why this is a backstop and not a
+    # trading stop: tight stops degraded Sharpe 18% (1.27 -> 1.04). The 21-day
+    # hold already limits downside.
 
 # Rotation — when at max_concurrent and a higher-conviction signal arrives,
 # close the weakest held position and enter the new one. Backtest evidence

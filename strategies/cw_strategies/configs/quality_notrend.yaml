@@ -74,7 +74,15 @@ exit:
   # Mean alpha keeps climbing out to 180td, but by then the median is -10.63%
   # and the win rate 51.4% — two lottery tickets carrying thirty-seven trades.
   hold_days: 42
-  stop_loss_pct: null
+  stop_loss_pct: -0.50  # Catastrophic backstop only, set 2026-08-20.
+    # Measured over 2023-01-03..2026-08-20: nothing this book ever held closed
+    # below -50%, so this is byte-identical to no stop in every published
+    # figure while still capping a genuine blowup. The -30% it replaces was a
+    # module-level override in simulate_strategy_portfolio.py that the live
+    # runner never applied; it cost 6.4 CAGR points in-sample and bought no
+    # drawdown protection (23.5% max either way).
+    # Prior grid search still stands, and is why this is a backstop and not a
+    # trading stop: tight stops degraded Sharpe on every sibling book tested.
 
 at_capacity: skip
 
