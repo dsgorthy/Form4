@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from api.auth import UserContext, get_current_user
 from api.db import get_db
 from api.filters import add_signal_class_filter, add_trans_code_filter, filing_group_by
+from api.titles import clean_title
 from api.gating import get_free_cutoff_date, get_grace_cutoff_datetime, null_items_track_records, redact_gated_items
 from api.id_encoding import decode_trade_id, encode_trade_id, encode_insider_id, encode_response_ids
 from api.ownership import position_change
@@ -56,6 +57,23 @@ def _cached_total(key: str, compute) -> int:
         _count_cache.clear()
     _count_cache[key] = (now, total)
     return total
+
+
+
+def _display_titles(items):
+    """Replace the stored title with a renderable one, in place.
+
+    The `title` column is typed by the filer and unvalidated, so it reaches us
+    as "GroupPresident IntlVehiclePmts" or "Director,TenPercentOwner". Cleaning
+    here rather than in each frontend means the feed, the filing page, the
+    insider page and every OG card agree without any of them importing rules.
+    `normalized_title` is left untouched — it is a classification used for
+    filtering, not a label.
+    """
+    for it in items:
+        if "title" in it:
+            it["title"] = clean_title(it.get("title"))
+    return items
 
 
 @router.get("")
@@ -284,7 +302,7 @@ def list_filings(
             params + [fetch_limit, fetch_offset],
         ).fetchall()
 
-    items = [dict(r) for r in rows]
+    items = _display_titles([dict(r) for r in rows])
 
     # Enrich with signal tags, context facts, and price end dates
     with get_db() as sig_conn:
@@ -414,7 +432,7 @@ def get_related_trades(trade_id: str, limit: int = Query(default=5, ge=1, le=20)
             (insider_id, exclude_param, limit),
         ).fetchall()
 
-    items = [dict(r) for r in rows]
+    items = _display_titles([dict(r) for r in rows])
     if not user.is_pro:
         items = null_items_track_records(items)
     # Grace users: filter out filings from last 24h
@@ -484,7 +502,7 @@ def get_filing(trade_id: str, user: UserContext = Depends(get_current_user)) -> 
             if filed > get_grace_cutoff_datetime():
                 raise HTTPException(status_code=403, detail="This filing is delayed 24h for your account. Upgrade for real-time access.")
 
-        result = dict(row)
+        result = _display_titles([dict(row)])[0]
 
         # Add effective insider info if different from trade's insider
         try:
@@ -647,7 +665,7 @@ def what_if_simulation(trade_id: str, user: UserContext = Depends(get_current_us
         if row is None:
             raise HTTPException(status_code=404, detail="Filing not found")
 
-        result = dict(row)
+        result = _display_titles([dict(row)])[0]
         ticker = result["ticker"]
         filing_date = result["filing_date"]
 

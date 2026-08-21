@@ -174,8 +174,12 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
         <span>/</span>
         <span>Filing</span>
         <span>/</span>
+        {/* Ticker only. The trade type was here too, and the h1 immediately
+            below already carries it as a coloured badge — "CPAY SELL" then
+            "CPAY [SELL] CORPAY, INC." two lines apart reads as a rendering
+            bug rather than a hierarchy. */}
         <span className="text-[#E8E8ED] flex items-center gap-1 min-w-0">
-          <TickerDisplay ticker={filing.ticker} company={filing.company} href={null} /> {filing.trade_type.toUpperCase()}
+          <TickerDisplay ticker={filing.ticker} company={filing.company} href={null} />
         </span>
       </nav>
 
@@ -416,7 +420,12 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
               {filing.insider_name}
             </Link>
           </InfoRow>
-          <InfoRow label="Title">{(filing.normalized_title || filing.title)?.replace(/;/g, ", ")}</InfoRow>
+          {/* `title` arrives cleaned by api/titles.clean_title. Do NOT prefer
+              normalized_title here — it is a classification, not a label, and
+              it buckets anything it does not recognise to "Other". CPAY's
+              "GroupPresident IntlVehiclePmts" normalises to "Other" and reads
+              as though we lost the data. */}
+          <InfoRow label="Title">{filing.title}</InfoRow>
           <div className="flex items-center justify-between py-2 border-b border-[#2A2A3A]/50">
             <span className="text-[#8888A0] text-sm">PIT Grade</span>
             <InsiderGradeBadge rating={(filing as any).insider_rating} grade={(filing as any).career_grade} showLabel />

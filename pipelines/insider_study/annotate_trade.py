@@ -44,6 +44,7 @@ from typing import Optional
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from api.ownership import position_change  # noqa: E402
+from api.titles import TITLE_FIXUPS, TITLE_UNKNOWN, clean_title  # noqa: E402
 
 __all__ = ["annotate", "headline", "clean_title"]
 
@@ -75,97 +76,11 @@ def _pct(v: Optional[float]) -> str:
     return f"{v * 100:+.0f}%" if v is not None else ""
 
 
-#: SEC filers abbreviate freely and it reads as sloppiness in a public post.
-_TITLE_FIXUPS = {
-    "dir": "Director", "dir.": "Director",
-    "pres": "President", "ceo": "CEO", "cfo": "CFO", "coo": "COO",
-    "evp": "EVP", "svp": "SVP", "vp": "VP",
-    "off": "Officer", "10%": "10% Owner",
-}
-
-
-#: Values that mean "we do not know", which must read as the generic noun
-#: rather than as a job title. "Unknown Goldman Sachs Group Inc. bought $10.3M"
-#: shipped as a public post; 892 rows carried this in 2026 alone.
-_TITLE_UNKNOWN = {"unknown", "n/a", "na", "none", "null", "-", "--", "other"}
-
-
-#: Word-level expansions applied after a run-together title is split apart.
-#: Only abbreviations that actually appear in the corpus — this is not a
-#: general dictionary, and a wrong expansion is worse than none.
-_WORD_FIXUPS = {
-    "intl": "International", "internatl": "International",
-    "pmts": "Payments", "pmt": "Payment",
-    "svcs": "Services", "svc": "Service",
-    "mgmt": "Management", "mktg": "Marketing",
-    "ops": "Operations", "admin": "Administration",
-    "acctg": "Accounting", "cnsl": "Counsel",
-    "treas": "Treasurer", "asst": "Assistant",
-    "corp": "Corporate", "grp": "Group", "div": "Division",
-    "gen": "General", "exec": "Executive", "sr": "Senior",
-    "prin": "Principal", "off": "Officer", "offcr": "Officer",
-    "dir": "Director", "pres": "President", "chrmn": "Chairman",
-    "secy": "Secretary", "sec": "Secretary", "tech": "Technology",
-    "comml": "Commercial", "bus": "Business", "dev": "Development",
-}
-
-_RUN_TOGETHER = re.compile(r"(?<=[a-z])(?=[A-Z])")
-
-
-def _clean_component(part: str) -> Optional[str]:
-    """One comma- or semicolon-separated piece of a title."""
-    part = part.strip().strip(".").strip()
-    if not part:
-        return None
-    key = part.lower()
-    if key in _TITLE_UNKNOWN:
-        return None
-    if key in _TITLE_FIXUPS:
-        return _TITLE_FIXUPS[key]
-
-    # "GroupPresident IntlVehiclePmts" -> "Group President Intl Vehicle Pmts".
-    # SEC filers submit these jammed together and they shipped that way into
-    # public posts.
-    part = _RUN_TOGETHER.sub(" ", part)
-
-    # "TenPercentOwner" is 11,703 of the 13,672 run-together filings — by far
-    # the most common, and it has a canonical rendering we already use.
-    if part.lower() == "ten percent owner":
-        return "10% Owner"
-
-    words = []
-    for w in part.split():
-        lw = w.lower().strip(".")
-        if lw in _WORD_FIXUPS:
-            words.append(_WORD_FIXUPS[lw])
-        elif lw in _TITLE_FIXUPS:
-            words.append(_TITLE_FIXUPS[lw])
-        else:
-            words.append(w)
-    return " ".join(words) or None
-
-
-def clean_title(title: Optional[str]) -> str:
-    """Expand the abbreviations SEC filers use and unjam run-together titles.
-
-    Composite titles are the norm, not the exception — "Director,TenPercentOwner
-    ; Director" is a real value — so this splits on both separators, cleans each
-    piece, drops the ones that mean nothing, and de-duplicates. 5% of filings
-    since 2026-01-01 carry a run-together boundary.
-    """
-    raw = (title or "").strip()
-    if not raw:
-        return "Insider"
-    if raw.lower().rstrip(".") in _TITLE_UNKNOWN:
-        return "Insider"
-
-    seen, parts = set(), []
-    for chunk in re.split(r"[;,]", raw):
-        cleaned = _clean_component(chunk)
-        if cleaned and cleaned.lower() not in seen:
-            seen.add(cleaned.lower())
-            parts.append(cleaned)
-    return ", ".join(parts) if parts else "Insider"
+# Title cleaning lives in api/titles.py — one definition, so the social posts
+# and the website cannot disagree about what somebody's job is. Re-exported
+# here because this module's callers have always imported it from here.
+_TITLE_FIXUPS = TITLE_FIXUPS
+_TITLE_UNKNOWN = TITLE_UNKNOWN
 
 
 def headline(t: dict) -> str:
