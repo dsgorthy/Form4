@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 CONTENT_DIR = Path(__file__).resolve().parent / "data" / "content"
 DB_PATH = Path(__file__).resolve().parent.parent / "strategies" / "insider_catalog" / "insiders.db"
-PRICES_DB = DB_PATH.parent / "prices.db"  # daily_prices, option_prices
+PRICES_DB = DB_PATH.parent / "prices.db"  # daily_prices (option_prices dropped 2026-08-20)
 SITE_URL = "https://form4.app"
 WIDTH = 1080
 HEIGHT = 1920

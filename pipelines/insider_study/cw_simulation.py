@@ -535,7 +535,7 @@ def simulate_option_trade(event: dict, prices: dict[str, float],
     For calls: buy OTM call, target_dte DTE.
     For puts: sell ATM put, 45 DTE (cash-secured).
 
-    Attempts to find real option prices from the option_prices table first,
+    option_prices was dropped 2026-08-20 (ThetaData cancelled), so this now
     falling back to Black-Scholes pricing from framework.pricing.black_scholes.
     """
     trade_date = event["trade_date"]

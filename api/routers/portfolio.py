@@ -176,7 +176,7 @@ def _blended_inner(conn, strategy: str, starting: float, years: float):
 
 @router.get("")
 def get_portfolio(
-    strategy: str = Query(default="quality_momentum"),
+    strategy: str = Query(default="quality_notrend"),
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=25, ge=10, le=100),
     user: UserContext = Depends(get_current_user),
@@ -611,7 +611,7 @@ BASE_ASSETS = ["SPY", "QQQ", "IWM", "TLT", "GLD", "CASH"]
 
 @router.get("/overlay")
 def get_portfolio_overlay(
-    strategy: str = Query(default="quality_momentum"),
+    strategy: str = Query(default="quality_notrend"),
 ) -> dict:
     """Daily equity curves for insider-only vs blended (idle cash in base ETF).
 

@@ -136,7 +136,6 @@ class StoragePaths:
         for path in [
             self.root,
             self.equity, self.equity_1min, self.equity_daily, self.equity_taq,
-            self.options, self.options_eod, self.options_1min, self.options_cache,
             self.edgar, self.edgar_filings, self.edgar_indexes,
             self.fundamentals, self.news, self.transcripts,
             self.short_metrics, self.etf_data, self.manifest,
@@ -148,7 +147,6 @@ class StoragePaths:
         rows = []
         for name in [
             "root", "equity_1min", "equity_daily", "equity_taq",
-            "options_eod", "options_1min", "options_cache",
             "edgar_filings", "edgar_indexes",
             "fundamentals", "news", "transcripts",
             "short_metrics", "etf_data", "manifest",

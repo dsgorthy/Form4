@@ -359,7 +359,7 @@ def section_statistical_notes(rows: list[dict]) -> str:
     lines.append(f"- **Options configs with trades:** {len(options_configs)}")
     lines.append("")
     lines.append("### Caveats\n")
-    lines.append("- Options pricing uses ThetaData EOD data where available, Black-Scholes fallback otherwise.")
+    # Options pricing line removed 2026-08-20 — ThetaData cancelled, option_prices dropped.
     lines.append("  Approximately 26% of events lack options data (OTC/micro-cap stocks).")
     lines.append("- Sharpe ratios assume 252 trading days/year and 0% risk-free rate.")
     lines.append("- Small sample sizes (N < 30) should be treated with caution.")

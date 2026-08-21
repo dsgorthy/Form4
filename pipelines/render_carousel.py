@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 CONTENT_DIR = Path(__file__).resolve().parent / "data" / "content"
 BRAND_DIR = Path(__file__).resolve().parent.parent / "brand"
 _DB_DIR = Path(__file__).resolve().parent.parent / "strategies" / "insider_catalog"
-PRICES_DB = _DB_DIR / "prices.db"  # daily_prices, option_prices
+PRICES_DB = _DB_DIR / "prices.db"  # daily_prices (option_prices dropped 2026-08-20)
 WIDTH = 1080
 HEIGHT = 1080
 

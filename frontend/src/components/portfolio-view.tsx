@@ -401,7 +401,9 @@ export function PortfolioView() {
   const { user } = useUser();
   const userIsPro = isPro(user);
 
-  const [strategy, setStrategy] = useState("quality_momentum");
+  // A-List Buys is the default: it is the strongest book, the only one above
+  // 50% deployed, and STRATEGIES[0] — the landing page already leads with it.
+  const [strategy, setStrategy] = useState("quality_notrend");
   const [summary, setSummary] = useState<Summary | null>(null);
   const [equityCurve, setEquityCurve] = useState<CurvePoint[]>([]);
   const [spyBenchmark, setSpyBenchmark] = useState<{ date: string; equity: number }[]>([]);

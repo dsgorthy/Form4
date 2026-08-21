@@ -505,48 +505,27 @@ class PortfolioSimulator:
         return self.size_min + t * (self.size_max - self.size_min)
 
     def find_call_option(self, ticker: str, trade_date: str, stock_price: float) -> dict | None:
-        """Find a suitable OTM call for a high-conviction trade.
-        Returns dict with expiration, strike, entry_price or None."""
-        if stock_price <= 5:
-            return None
+        """DEPRECATED 2026-08-20 — always None.
 
-        target_strike = stock_price * (1 + self.option_otm_pct)
-        strike_lo = stock_price * 1.02
-        strike_hi = stock_price * 1.15
-        dte_min, dte_max = self.option_dte_range
+        Read prices.option_prices, which was dropped: ThetaData was cancelled
+        2026-06-07, the pull went dormant 2026-04-09, and options performance
+        left the product on 2026-08-13. The 23.5M-row table was 29% of the
+        database and had been read 196 times in nine days.
 
-        opt = self.conn.execute("""
-            SELECT expiration, strike, close as opt_price, bid, ask
-            FROM option_prices
-            WHERE ticker = ? AND "right" = 'C' AND trade_date = ?
-              AND strike BETWEEN ? AND ?
-              AND julianday(expiration) - julianday(trade_date) BETWEEN ? AND ?
-              AND close > 0.10
-            ORDER BY ABS(strike - ?) ASC
-            LIMIT 1
-        """, (ticker, trade_date, strike_lo, strike_hi,
-              dte_min, dte_max, target_strike)).fetchone()
-
-        if not opt or not opt["opt_price"]:
-            return None
-
-        return {
-            "expiration": opt["expiration"],
-            "strike": opt["strike"],
-            "entry_price": opt["opt_price"],
-            "right": "C",
-        }
+        Kept as a stub rather than deleted because the two call sites in this
+        file already treat None as "no option available" and fall through to
+        the stock leg — removing the methods would mean restructuring legacy
+        code that nothing schedules. The data is restorable from the nightly
+        pg_dump if options work ever resumes; see
+        migrations/2026-08-20_deprecate_options_data.sql.
+        """
+        return None
 
     def get_option_exit_price(self, ticker: str, expiration: str, strike: float,
-                               trade_date: str) -> float | None:
-        """Get the option close price on a specific date."""
-        row = self.conn.execute("""
-            SELECT close FROM option_prices
-            WHERE ticker = ? AND expiration = ? AND strike = ? AND "right" = 'C'
-              AND trade_date = ?
-            LIMIT 1
-        """, (ticker, expiration, strike, trade_date)).fetchone()
-        return row["close"] if row and row["close"] else None
+                              date: str) -> float | None:
+        """DEPRECATED 2026-08-20 — always None. See find_call_option."""
+        return None
+
 
     def _get_spy_close(self, date: str) -> float | None:
         row = self.conn.execute(

@@ -37,7 +37,7 @@ if str(_FRAMEWORK_ROOT) not in sys.path:
     sys.path.insert(0, str(_FRAMEWORK_ROOT))
 
 DB_PATH = _FRAMEWORK_ROOT / "strategies" / "insider_catalog" / "insiders.db"
-PRICES_DB = DB_PATH.parent / "prices.db"  # daily_prices, option_prices
+PRICES_DB = DB_PATH.parent / "prices.db"  # daily_prices (option_prices dropped 2026-08-20)
 PRICES_DIR = _SCRIPT_DIR / "data" / "prices"
 FAILED_TICKERS_PATH = _SCRIPT_DIR / "data" / "failed_tickers.json"
 

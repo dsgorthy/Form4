@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Keep marks on open positions current during the session. STUDIO ONLY.
+
+  prices.daily_prices was refreshed once a day by the evening chain, so every
+  unrealised P&L on the site showed the previous close. The existing 10-minute
+  strategy-intraday job did not help — it reads daily_prices, so it re-read the
+  same stale row.
+
+  Every 15 minutes. The script no-ops outside the regular session, so the
+  interval runs around the clock and costs nothing overnight. Scope is ~20
+  tickers with an open position; the evening chain still owns the full universe.
+
+  Install (on Studio):
+    cp scripts/launchd/com.openclaw.refresh-open-position-prices.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.openclaw.refresh-open-position-prices.plist
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.openclaw.refresh-open-position-prices</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/python3</string>
+    <string>-m</string>
+    <string>pipelines.insider_study.refresh_open_position_prices</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/derekg/trading-framework</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+
+  <key>StartInterval</key>
+  <integer>900</integer>
+
+  <key>StandardOutPath</key>
+  <string>/Users/derekg/trading-framework/logs/refresh-open-position-prices.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/derekg/trading-framework/logs/refresh-open-position-prices.log</string>
+</dict>
+</plist>

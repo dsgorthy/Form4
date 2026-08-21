@@ -230,9 +230,15 @@ def render(t: dict) -> str:
         lines = [f"${t['ticker']} — {n} insiders disclosed "
                  f"{_amount(t.get('day_cluster_value') or val)} of {noun} the same day", ""]
         lines.append(f"· {who} {verb} {_amount(val)} of it.")
+        lines += [f"· {a}" for a in annotate(t, max_lines=3 if others < 2 else 2)]
     else:
-        lines = [f"${t['ticker']} — {who} {verb} {_amount(val)}", ""]
-    lines += [f"· {a}" for a in annotate(t, max_lines=3 if others < 2 else 2)]
+        # The blank separator belongs to the bullet block, not the headline.
+        # Emitting it unconditionally left a doubled blank line on every post
+        # that had no annotation to make — which is most of the small buys.
+        lines = [f"${t['ticker']} — {who} {verb} {_amount(val)}"]
+        bullets = [f"· {a}" for a in annotate(t, max_lines=3 if others < 2 else 2)]
+        if bullets:
+            lines += [""] + bullets
 
     # Stated as a data point, not a pitch. Stocktwits bans links used as
     # "direct advertisements or sales pitches for a paid product", and the
@@ -243,20 +249,11 @@ def render(t: dict) -> str:
     if grade:
         lines += ["", f"Insider grade: {grade} (from their own prior trades)"]
 
-    # A bare domain is not a call to action — it gives the reader nowhere in
-    # particular to go. Deep-link the insider so the click lands on their full
-    # record, which is both the obvious next question and an SEO surface.
-    # Link the COMPANY page, not the insider page. Stocktwits requires the link
-    # to "directly relate to the tagged ticker" — a company page is
-    # unambiguously about $TICKER, whereas an insider page is about a person
-    # who happens to trade it, and enforcement here is not worth arguing with.
-    #
-    # Phrased as a source citation rather than a call to action, for the same
-    # reason the performance claim came out above.
-    # Full scheme, not a bare domain. Auto-linking keys off a recognisable
-    # URL, and "form4.app/company/CDNL" is just as likely to render as plain
-    # unclickable text — which would waste the one link the post gets.
-    lines += ["", f"Full filing history: https://form4.app/company/{t['ticker']}"]
+    # NO LINK. Removed 2026-08-20: Stocktwits demotes posts containing links,
+    # so the one link per post was costing far more reach than the clicks it
+    # earned. The $CASHTAG is the distribution mechanism here, not the URL —
+    # readers who want the filing history search the ticker. Do not reinstate
+    # a link without measuring impressions on a linked vs unlinked cohort.
     lines += ["", "Not investment advice."]
     return "\n".join(lines)
 

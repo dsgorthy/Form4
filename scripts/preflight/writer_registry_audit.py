@@ -62,6 +62,7 @@ STUDIO_ONLY_PLISTS = {
     "com.openclaw.reversal-dip",
     "com.openclaw.quality-notrend",
     "com.openclaw.rebuild-insider-companies",
+    "com.openclaw.refresh-open-position-prices",
     "com.openclaw.quality-momentum-live",
     # Refresh-features chain orchestrator
     "com.openclaw.refresh-features",
