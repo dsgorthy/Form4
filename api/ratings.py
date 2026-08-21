@@ -181,12 +181,25 @@ def insider_rating(
 #     Exceptional (80+)   n= 1,113   +2.74%   50.1% win
 #     Strong    (70-79)   n= 8,700   +1.88%   49.8% win
 #     Notable   (60-69)   n=26,505   +0.73%   47.8% win
-#     Routine   (50-59)   n=27,025   +0.12%   44.4% win
+#     Modest    (50-59)   n=27,025   +0.12%   44.4% win
 #     Weak       (<50)    n=13,566   -1.35%   42.7% win
 #
-# Monotonic on both. "Average" became "Routine" because a bucket with +0.12%
+# Monotonic on both. This band was called "Average" and then "Routine", and is
+# now "Modest". The first rename was right in substance — a bucket with +0.12%
 # and a 44.4% win rate is not average performance, it is the absence of a
 # signal, and a reader deciding whether to act should be told that.
+#
+# But "Routine" was the wrong WORD, because this product already uses routine
+# to mean something specific and unrelated: pre-scheduled, 10b5-1, tax
+# withholding — `is_routine`, `cohen_routine`, and the "SELL · Routine" chip.
+# The two could disagree on one filing and did. A first-ever discretionary
+# purchase in MED on 2026-08-21 scored 58 and so displayed "Routine" while
+# `is_routine` was NULL, which reads as "pre-scheduled, ignore this" about a
+# trade that was nothing of the sort. Renamed 2026-08-21.
+#
+# The rule this is an instance of: a rating band names a POSITION ON A SCALE.
+# If the word also names a KIND OF FILING anywhere in the product, pick a
+# different word.
 #
 # ONE RENDERING, NOT THREE. The API used to return score AND stars AND label
 # for the same number. The band name is the answer; `score` stays available for
@@ -197,7 +210,7 @@ TRADE_RATING_BANDS: tuple[tuple[int, str], ...] = (
     (80, "Exceptional"),
     (70, "Strong"),
     (60, "Notable"),
-    (50, "Routine"),
+    (50, "Modest"),
     (0,  "Weak"),
 )
 
@@ -213,7 +226,7 @@ TRADE_RATING_META: dict[str, dict[str, Any]] = {
     "Notable":     {"min_score": 60, "segments": 3, "share_pct": 34.5,
                     "mean_abnormal_30d": 0.73, "win_rate": 47.8,
                     "blurb": "Something here stands out, but not much."},
-    "Routine":     {"min_score": 50, "segments": 2, "share_pct": 35.1,
+    "Modest":      {"min_score": 50, "segments": 2, "share_pct": 35.1,
                     "mean_abnormal_30d": 0.12, "win_rate": 44.4,
                     "blurb": "Nothing distinguishes this filing."},
     "Weak":        {"min_score": 0,  "segments": 1, "share_pct": 17.6,
@@ -253,7 +266,7 @@ def trade_rating_segments(score: Optional[float]) -> int:
 # The verdict tags are retired from display, not deleted. `top_trade` is on
 # 495,478 trades and `high_signal` on 12,724; both are an opinion about
 # quality, which is what the Trade Rating is for. Showing "Top Trade" beside a
-# rating of Routine is the contradiction this whole exercise is removing.
+# rating of Modest is the contradiction this whole exercise is removing.
 #
 # DIRECTION IS NOT IN THE NAME. Six types carry both a bullish and a bearish
 # signal_class — `opportunistic_trade` is 640,269 bearish and 123,643 bullish,

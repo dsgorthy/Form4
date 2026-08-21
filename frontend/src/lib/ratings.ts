@@ -85,7 +85,7 @@ export function insiderRatingColor(rating: InsiderRating): string {
 
 // ── Trade rating ───────────────────────────────────────────────────────────
 
-export const TRADE_RATINGS = ["Exceptional", "Strong", "Notable", "Routine", "Weak"] as const;
+export const TRADE_RATINGS = ["Exceptional", "Strong", "Notable", "Modest", "Weak"] as const;
 export type TradeRating = (typeof TRADE_RATINGS)[number];
 
 /** Recut 2026-08-18. The old 73/63/55/45 bands put +1.51% above +1.28% while
@@ -95,19 +95,19 @@ const TRADE_BANDS: ReadonlyArray<readonly [number, TradeRating]> = [
   [80, "Exceptional"],
   [70, "Strong"],
   [60, "Notable"],
-  [50, "Routine"],
+  [50, "Modest"],
   [0, "Weak"],
 ];
 
 export const TRADE_RATING_SEGMENTS: Record<TradeRating, number> = {
-  Exceptional: 5, Strong: 4, Notable: 3, Routine: 2, Weak: 1,
+  Exceptional: 5, Strong: 4, Notable: 3, Modest: 2, Weak: 1,
 };
 
 export const TRADE_RATING_BLURB: Record<TradeRating, string> = {
   Exceptional: "Several strong factors at once. The rarest rating we give.",
   Strong: "Clearly above the average filing.",
   Notable: "Something here stands out, but not much.",
-  Routine: "Nothing distinguishes this filing.",
+  Modest: "Nothing distinguishes this filing.",
   Weak: "Negative factors outweigh the positive ones.",
 };
 
@@ -129,7 +129,7 @@ export function tradeRatingColor(rating: TradeRating): string {
     case "Exceptional": return GRADE_COLORS.strong;
     case "Strong":      return GRADE_COLORS.above;
     case "Notable":     return GRADE_COLORS.average;
-    case "Routine":     return GRADE_COLORS.below;
+    case "Modest":      return GRADE_COLORS.below;
     default:            return GRADE_COLORS.weak;
   }
 }
@@ -140,7 +140,7 @@ export type TagKind = "pattern" | "scale" | "strategy" | "verdict";
 
 /** Verdict tags (`top_trade`, `high_signal`, `insider_returns`) are our own
  *  opinion about quality, which is what the Trade Rating is for. Rendering
- *  "Top Trade" beside a rating of Routine is the contradiction being removed.
+ *  "Top Trade" beside a rating of Modest is the contradiction being removed.
  *  They stay in the database; they are not shown. */
 const TAG_KINDS: Record<string, TagKind> = {
   buying_the_dip: "pattern",

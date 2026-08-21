@@ -34,7 +34,7 @@ const tradeGradeStars = [
   { stars: 5, range: "80+", label: "Exceptional", share: "1.4%", abnormal: "+2.74%", winRate: "50.1%", description: "Several strong factors at once. The rarest rating we give." },
   { stars: 4, range: "70\u201379", label: "Strong", share: "11.3%", abnormal: "+1.88%", winRate: "49.8%", description: "Clearly above the average filing." },
   { stars: 3, range: "60\u201369", label: "Notable", share: "34.5%", abnormal: "+0.73%", winRate: "47.8%", description: "Something here stands out, but not much." },
-  { stars: 2, range: "50\u201359", label: "Routine", share: "35.1%", abnormal: "+0.12%", winRate: "44.4%", description: "Nothing distinguishes this filing." },
+  { stars: 2, range: "50\u201359", label: "Modest", share: "35.1%", abnormal: "+0.12%", winRate: "44.4%", description: "Nothing distinguishes this filing." },
   { stars: 1, range: "<50", label: "Weak", share: "17.6%", abnormal: "\u22121.35%", winRate: "42.7%", description: "Negative factors outweigh the positive ones." },
 ];
 

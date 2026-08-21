@@ -101,7 +101,7 @@ def test_unrated_is_not_the_worst_bucket():
 @pytest.mark.parametrize("score,expected", [
     (100, "Exceptional"), (80, "Exceptional"), (79.9, "Strong"),
     (70, "Strong"), (69, "Notable"), (60, "Notable"),
-    (59, "Routine"), (50, "Routine"), (49, "Weak"), (0, "Weak"),
+    (59, "Modest"), (50, "Modest"), (49, "Weak"), (0, "Weak"),
 ])
 def test_trade_bands(score, expected):
     assert trade_rating(score) == expected
