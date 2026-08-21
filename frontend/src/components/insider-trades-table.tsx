@@ -19,9 +19,43 @@ const PAGE_SIZE = 25;
 interface InsiderTradesTableProps {
   identifier: string;
   initialData: PaginatedResponse<Filing>;
+  /** Every transaction code this insider has on file, with counts. Drives the
+   *  empty state — without it a filer whose only activity is awards or tax
+   *  withholding got a bare header and nothing else. */
+  volumeByType?: { trans_code: string; label: string; count: number }[];
 }
 
-export function InsiderTradesTable({ identifier, initialData }: InsiderTradesTableProps) {
+/** Plain-English names for the codes we hide by default. Matches
+ *  TRANS_CODE_LABELS in api/routers/insiders.py; kept lowercase because these
+ *  appear mid-sentence. */
+const CODE_PHRASES: Record<string, [string, string]> = {
+  M: ["option exercise", "option exercises"],
+  A: ["share award", "share awards"],
+  F: ["tax withholding", "tax withholdings"],
+  G: ["gift", "gifts"],
+  X: ["RSU exercise", "RSU exercises"],
+  V: ["voluntary report", "voluntary reports"],
+  P: ["open-market purchase", "open-market purchases"],
+  S: ["open-market sale", "open-market sales"],
+};
+
+function phrase(code: string, n: number): string {
+  const pair = CODE_PHRASES[code];
+  const word = pair ? (n === 1 ? pair[0] : pair[1]) : `${code} filing${n === 1 ? "" : "s"}`;
+  return `${n.toLocaleString()} ${word}`;
+}
+
+/** "2 option exercises", "3 share awards and 1 gift", "A, B and C". */
+function joinPhrases(parts: string[]): string {
+  if (parts.length <= 1) return parts[0] ?? "";
+  return `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+}
+
+export function InsiderTradesTable({
+  identifier,
+  initialData,
+  volumeByType,
+}: InsiderTradesTableProps) {
   const { getToken } = useAuth();
   const [data, setData] = useState(initialData);
   const [offset, setOffset] = useState(initialData.offset);
@@ -75,6 +109,20 @@ export function InsiderTradesTable({ identifier, initialData }: InsiderTradesTab
   // one row on the page can fill it.
   const hasGrades = data.items.some((t) => (t as { trade_grade?: unknown }).trade_grade);
 
+  // Records this insider has that the current filter is hiding. 52% of insider
+  // pages have no P/S activity at all, and until this existed they rendered a
+  // header, a "0 total", and blank space — a dead end that never said why.
+  const hidden = (volumeByType ?? [])
+    .filter((v) => v.count > 0 && !transCodes.has(v.trans_code))
+    .sort((a, b) => b.count - a.count);
+  const hiddenTotal = hidden.reduce((n, v) => n + v.count, 0);
+  const showingDefault =
+    transCodes.size === 2 && transCodes.has("P") && transCodes.has("S");
+
+  const revealHidden = useCallback(() => {
+    handleTransCodeChange(new Set([...transCodes, ...hidden.map((v) => v.trans_code)]));
+  }, [handleTransCodeChange, transCodes, hidden]);
+
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
@@ -86,6 +134,59 @@ export function InsiderTradesTable({ identifier, initialData }: InsiderTradesTab
       <div className="mb-4">
         <TransCodeSelector selected={transCodes} onChange={handleTransCodeChange} />
       </div>
+
+      {data.items.length === 0 && !loading && (
+        <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] p-5 text-sm">
+          {hiddenTotal > 0 ? (
+            <>
+              <p className="font-medium text-[#E8E8ED]">
+                {showingDefault
+                  ? "No open-market purchases or sales on record."
+                  : "Nothing matches the selected transaction types."}
+              </p>
+              <p className="mt-2 leading-relaxed text-[#8888A0]">
+                {showingDefault ? (
+                  <>
+                    A Form 4 also reports activity that isn&apos;t a decision to
+                    buy or sell — exercising options, receiving shares as
+                    compensation, or having shares withheld to cover tax. We
+                    hide those by default because they say nothing about what an
+                    insider thinks the stock is worth.
+                  </>
+                ) : (
+                  <>This insider does have other filings on record.</>
+                )}
+              </p>
+              <p className="mt-3 text-[#8888A0]">
+                On file for this insider:{" "}
+                <span className="text-[#E8E8ED]">
+                  {joinPhrases(hidden.map((v) => phrase(v.trans_code, v.count)))}
+                </span>
+                .
+              </p>
+              <button
+                onClick={revealHidden}
+                className="mt-4 rounded-md border border-[#3B82F6]/40 bg-[#3B82F6]/10 px-3 py-1.5 text-xs font-medium text-[#3B82F6] transition-colors hover:bg-[#3B82F6]/20"
+              >
+                Show {hiddenTotal.toLocaleString()}{" "}
+                {hiddenTotal === 1 ? "record" : "records"}
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="font-medium text-[#E8E8ED]">
+                No transactions on record.
+              </p>
+              <p className="mt-2 leading-relaxed text-[#8888A0]">
+                This person has been named as an insider in an SEC filing, but
+                hasn&apos;t reported a transaction we track. That is normal for
+                someone who filed a Form 3 to declare an existing stake and has
+                not traded since.
+              </p>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Mobile: Card layout */}
       <div className={`md:hidden space-y-2 ${loading ? "opacity-60" : ""} transition-opacity`}>

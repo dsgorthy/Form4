@@ -243,6 +243,11 @@ def get_insider(identifier: str, user: UserContext = Depends(get_current_user)) 
                 WHERE insider_id = ? AND trans_code IS NOT NULL
                   AND superseded_by IS NULL
                   AND is_derivative = 0
+                  -- Match the /trades endpoint exactly. Without this, a row
+                  -- stored twice inflated the volume stats, and the empty
+                  -- state below it would offer to show records that the table
+                  -- then filtered out. 20,299 rows across the corpus.
+                  AND (is_duplicate = 0 OR is_duplicate IS NULL)
                 GROUP BY trans_code, COALESCE(filing_key, accession, trade_date)
             )
             GROUP BY trans_code

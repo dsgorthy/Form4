@@ -685,7 +685,11 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
       )}
 
       {/* Trade History */}
-      <InsiderTradesTable identifier={id} initialData={trades} />
+      <InsiderTradesTable
+        identifier={id}
+        initialData={trades}
+        volumeByType={profile.volume_by_type}
+      />
     </div>
   );
 }
