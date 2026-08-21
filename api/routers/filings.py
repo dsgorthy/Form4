@@ -60,6 +60,62 @@ def _cached_total(key: str, compute) -> int:
 
 
 
+
+def _reconcile_positions(conn, items: list[dict]) -> None:
+    """Give list rows the same reconciled position the detail endpoint uses.
+
+    The aggregate took MAX(shares_owned_after) across a filing's lots, which is
+    "the biggest single balance" and not the holding. api/ownership documents
+    what that costs: DST Global reports through seven partnerships, and the
+    page and the Stocktwits post disagreed by 14x on one filing. The detail
+    endpoint fixed it by reconciling through position_change; the list queries
+    never did, so compute_trade_grade's Holdings factor scored the two
+    endpoints differently — MED xm7gfj came out 61 "Notable" in the feed and
+    59 "Modest" on its own page.
+
+    Rather than reimplement the reconciliation in SQL, where it would drift
+    from the Python, this refetches the lots for the page's filings in ONE
+    query and calls the same function. When position_change declines to answer
+    the balance is dropped rather than replaced with a guess, exactly as
+    api/ownership instructs — the Holdings factor then contributes nothing,
+    which is the correct outcome for a filing we cannot reconcile.
+    """
+    keyed = {
+        (it["filing_key"], it["insider_id"], it["ticker"], it["trade_type"]): it
+        for it in items
+        if it.get("filing_key") and (it.get("lot_count") or 1) > 1
+    }
+    if not keyed:
+        return                      # single-lot filings need no reconciling
+
+    placeholders = ",".join("?" for _ in keyed)
+    rows = conn.execute(
+        f"""SELECT t.filing_key, t.insider_id, t.ticker, t.trade_type,
+                   t.qty, t.shares_owned_after, t.trade_date, t.trade_id,
+                   t.direct_indirect, t.nature_of_ownership
+              FROM trades t
+             WHERE t.filing_key IN ({placeholders})
+               AND t.superseded_by IS NULL
+               AND t.is_derivative = 0""",
+        tuple(k[0] for k in keyed),
+    ).fetchall()
+
+    grouped: dict[tuple, list[dict]] = {}
+    for r in rows:
+        k = (r["filing_key"], r["insider_id"], r["ticker"], r["trade_type"])
+        if k in keyed:
+            grouped.setdefault(k, []).append(dict(r))
+
+    for k, lots in grouped.items():
+        item = keyed[k]
+        pc = position_change(lots, is_buy=(k[3] == "buy"))
+        if pc is not None:
+            item["shares_owned_after"] = pc.after
+            item["qty"] = pc.qty
+        else:
+            item["shares_owned_after"] = None
+
+
 def _display_titles(items):
     """Replace the stored title with a renderable one, in place.
 
@@ -234,7 +290,7 @@ def list_filings(
                 agg.trade_type, agg.trade_date, agg.last_trade_date,
                 agg.filing_date, agg.filed_at,
                 agg.price, agg.qty, agg.value, agg.lot_count,
-                agg.is_csuite, agg.accession, agg.trans_code,
+                agg.is_csuite, agg.accession, agg.filing_key, agg.trans_code,
                 agg.is_10b5_1, agg.is_routine,
                 agg.is_largest_ever, agg.dip_1mo, agg.dip_3mo, agg.cluster_size,
                 agg.cohen_routine, agg.shares_owned_after, agg.is_rare_reversal, agg.insider_switch_rate, agg.week52_proximity,
@@ -272,6 +328,7 @@ def list_filings(
                         COUNT(*) AS lot_count,
                         MAX(t.is_csuite) AS is_csuite,
                         MIN(t.accession) AS accession,
+                        t.filing_key,
                         GROUP_CONCAT(DISTINCT t.trans_code) AS trans_code,
                         -- Scoring inputs. compute_trade_grade reads all of
                         -- these; when the list query omitted them the same
@@ -323,6 +380,7 @@ def list_filings(
         enrich_items_with_signals(sig_conn, items)
         enrich_items_with_context(sig_conn, items)
     enrich_items_with_price_end(items)
+    _reconcile_positions(conn, items)
     enrich_items_with_trade_grade(None, items)
     attach_ratings(items)
 
@@ -394,7 +452,7 @@ def get_related_trades(trade_id: str, limit: int = Query(default=5, ge=1, le=20)
                 agg.trade_type, agg.trade_date, agg.last_trade_date,
                 agg.filing_date,
                 agg.price, agg.qty, agg.value, agg.lot_count,
-                agg.is_csuite, agg.accession, agg.trans_code,
+                agg.is_csuite, agg.accession, agg.filing_key, agg.trans_code,
                 agg.is_10b5_1, agg.is_routine,
                 agg.is_largest_ever, agg.dip_1mo, agg.dip_3mo, agg.cluster_size,
                 agg.cohen_routine, agg.shares_owned_after, agg.is_rare_reversal, agg.insider_switch_rate, agg.week52_proximity,
@@ -420,6 +478,7 @@ def get_related_trades(trade_id: str, limit: int = Query(default=5, ge=1, le=20)
                     SUM(t.value) AS value,
                     COUNT(*) AS lot_count,
                     MAX(t.is_csuite) AS is_csuite, MIN(t.accession) AS accession,
+                    t.filing_key,
                     GROUP_CONCAT(DISTINCT t.trans_code) AS trans_code,
                     -- See the sibling query above: these four are scoring
                     -- inputs and their absence made the feed and the filing
