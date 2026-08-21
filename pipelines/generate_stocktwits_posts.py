@@ -67,6 +67,7 @@ SQL = """
 -- no single lot of his outranked anyone.
 SELECT
     MIN(t.trade_id)              AS trade_id,
+    MIN(t.filing_key)            AS filing_key,
     t.ticker,
     MAX(t.company)               AS company,
     t.signal_class,
@@ -172,6 +173,26 @@ SELECT
    AND COALESCE(t.is_routine, 0) = 0
    AND COALESCE(t.cohen_routine, 0) = 0
    AND COALESCE(t.is_tax_sale, 0) = 0
+   -- SUBSCRIBER GUARD. Never post a filing a live strategy traded around.
+   --
+   -- The case for posting freely is that the product is the SELECTION, not the
+   -- ticker: 2026 had 9,340 postable filings against 41 strategy entries, a
+   -- 228x pool, so a reader seeing ~200 posts a month cannot tell which two
+   -- became positions. That holds in aggregate and fails for the individual
+   -- name — a subscriber should never read their own alert here for free. At
+   -- ~41 filings a year against ~3,600 posts this costs about 1% of volume,
+   -- which is a cheap way to make "no posting delay" safe to commit to.
+   --
+   -- +/-3 sessions rather than same-day: entry can lag the filing by a session
+   -- (after-bell filings fill at the next open) and the alert goes out first.
+   AND NOT EXISTS (
+       SELECT 1 FROM strategy_portfolio sp
+        WHERE sp.ticker = t.ticker
+          AND sp.execution_source = 'simulated'
+          AND sp.strategy IN ('quality_notrend', 'quality_momentum', 'reversal_dip')
+          AND sp.entry_date::date BETWEEN t.filing_date::date - 3
+                                      AND t.filing_date::date + 3
+   )
  GROUP BY t.insider_id, t.ticker, t.signal_class, t.filing_date, t.security_title
 HAVING SUM(t.value) > 25000
 """
@@ -356,6 +377,52 @@ def render(t: dict) -> str:
     return "\n".join(lines)
 
 
+def record_posts(conn, picked: list[dict], bodies: list[str]) -> int:
+    """Write each generated post to social_posts.
+
+    Without this there is no follow-up: "30 days ago we flagged this" needs to
+    know that we flagged it, when, and at what price. `ref_price` is the whole
+    point — it freezes the claim at the moment it was made, so a later scorecard
+    cannot quietly re-derive a kinder number than the one we published.
+
+    Idempotent per filing via the one-alert-per-trade unique index, so
+    re-running the generator for a day does not double-post.
+    """
+    written = 0
+    for t, body in zip(picked, bodies):
+        try:
+            cur = conn.execute(
+                """INSERT INTO social_posts
+                     (platform, post_kind, ticker, trade_id, filing_key,
+                      ref_price, ref_date, direction, insider_name, value, body)
+                   VALUES ('stocktwits', 'alert', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT DO NOTHING""",
+                (
+                    t.get("ticker"),
+                    t.get("trade_id"),
+                    t.get("filing_key"),
+                    # The mark a follow-up measures against: the latest close we
+                    # had when the post was written. NOT the insider's fill — a
+                    # reader acts on the post, not on the filing.
+                    t.get("current_price"),
+                    t.get("filing_date"),
+                    "buy" if t.get("signal_class") == "discretionary_buy" else "sell",
+                    t.get("insider_name"),
+                    t.get("value"),
+                    body,
+                ),
+            )
+            # rowcount, not a blind increment. ON CONFLICT DO NOTHING makes a
+            # second run a no-op, and counting attempts would report ten fresh
+            # posts every time the job ran twice in a day.
+            written += getattr(cur, "rowcount", 1) or 0
+        except Exception as e:                     # noqa: BLE001
+            logger.warning("could not record post for %s: %s", t.get("ticker"), e)
+    conn.commit()
+    logger.info("recorded %d posts to social_posts", written)
+    return written
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--date", default=None, help="Filing date (default: today)")
@@ -365,6 +432,8 @@ def main() -> int:
                     help="Always post at least this many, even on a thin day")
     ap.add_argument("--max-count", type=int, default=10)
     ap.add_argument("--write", action="store_true", help="Also write to data/content/")
+    ap.add_argument("--no-record", action="store_true",
+                    help="Skip writing to social_posts (dry run)")
     args = ap.parse_args()
 
     day = args.date or date.today().isoformat()
@@ -431,6 +500,9 @@ def main() -> int:
         out.append(post)
         print(f"\n{'─' * 58}\n  POST {i}/{len(picked)}   ({len(post)} chars)\n{'─' * 58}")
         print(post)
+
+    if not args.no_record:
+        record_posts(conn, picked, out)
 
     if args.write:
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
