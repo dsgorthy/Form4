@@ -92,7 +92,27 @@ def _reconcile_positions(items: list[dict]) -> None:
     # has already exited by the time enrichment runs, and borrowing that handle
     # raises "connection already closed" — the same way _blended_and_benchmark
     # broke /portfolio on 2026-08-19.
-    placeholders = ",".join("?" for _ in keyed)
+    # Split the keys by which column they came from, and compare each in its
+    # OWN type. `COALESCE(txn_group_id::text, accession) IN (...)` reads
+    # naturally and is a sequential scan of 1.65M rows — casting the column
+    # defeats idx_trades_txn_group, and the COALESCE defeats both indexes. It
+    # took the unfiltered feed from 0.36s to 2.5s. Written this way Postgres
+    # bitmap-ORs the two existing indexes.
+    #
+    # txn_group_id is bigint and accession is text, so a key that parses as an
+    # integer is a group id and anything else is an accession.
+    group_ids, accessions = [], []
+    for key, *_ in keyed:
+        (group_ids if str(key).lstrip("-").isdigit() else accessions).append(key)
+
+    clauses, params = [], []
+    if group_ids:
+        clauses.append(f"t.txn_group_id IN ({','.join('?' for _ in group_ids)})")
+        params += [int(g) for g in group_ids]
+    if accessions:
+        clauses.append(f"t.accession IN ({','.join('?' for _ in accessions)})")
+        params += accessions
+
     with get_db() as conn:
         rows = conn.execute(
             f"""SELECT COALESCE(t.txn_group_id::text, t.accession) AS group_key,
@@ -100,10 +120,10 @@ def _reconcile_positions(items: list[dict]) -> None:
                        t.qty, t.shares_owned_after, t.trade_date, t.trade_id,
                        t.direct_indirect, t.nature_of_ownership
                   FROM trades t
-                 WHERE COALESCE(t.txn_group_id::text, t.accession) IN ({placeholders})
+                 WHERE ({' OR '.join(clauses)})
                    AND t.superseded_by IS NULL
                    AND t.is_derivative = 0""",
-            tuple(k[0] for k in keyed),
+            tuple(params),
         ).fetchall()
 
     grouped: dict[tuple, list[dict]] = {}
