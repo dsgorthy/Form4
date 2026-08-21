@@ -112,6 +112,22 @@ SELECT
         AND NOT COALESCE(c.value_suspect, FALSE)
         AND (c.is_duplicate = 0 OR c.is_duplicate IS NULL)
         AND c.superseded_by IS NULL)          AS day_cluster_n,
+    -- How many insiders in this cluster filed MORE THAN ONE trade.
+    --
+    -- This is what separates a decision from a window opening. When a trading
+    -- window opens after earnings, everyone sells once and the cluster is an
+    -- artefact of the calendar, not of anybody's conviction. MEDP on
+    -- 2026-08-21 was exactly that: three insiders, four filings, all traded
+    -- 08-19/08-20, none carrying a routine marker — and it led the feed over
+    -- genuinely interesting trades.
+    (SELECT COUNT(*) FROM (
+        SELECT c.insider_id FROM trades c
+         WHERE c.ticker = t.ticker AND c.filing_date = t.filing_date
+           AND c.signal_class = t.signal_class
+           AND NOT COALESCE(c.value_suspect, FALSE)
+           AND (c.is_duplicate = 0 OR c.is_duplicate IS NULL)
+           AND c.superseded_by IS NULL
+         GROUP BY c.insider_id HAVING COUNT(*) > 1) m)  AS cluster_multi_filers,
     (SELECT SUM(c.value) FROM trades c
       WHERE c.ticker = t.ticker AND c.filing_date = t.filing_date
         AND c.signal_class = t.signal_class
@@ -138,9 +154,81 @@ SELECT
    AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
    AND t.superseded_by IS NULL
    AND t.ticker NOT IN ('NONE', 'NA', 'N/A', '')
+   -- Routine and pre-scheduled activity is not a signal and should not be a
+   -- post. NOTE: is_10b5_1 and aff_10b5_1 are NOT usable — both are 0 on all
+   -- 33,533 discretionary sells since 2026-01-01, i.e. the columns exist and
+   -- are never populated. is_routine (9,747) and cohen_routine (5,831) are
+   -- the two that actually carry signal.
+   AND COALESCE(t.is_routine, 0) = 0
+   AND COALESCE(t.cohen_routine, 0) = 0
+   AND COALESCE(t.is_tax_sale, 0) = 0
  GROUP BY t.insider_id, t.ticker, t.signal_class, t.filing_date, t.security_title
 HAVING SUM(t.value) > 25000
 """
+
+
+def is_cluster_story(t: dict) -> bool:
+    """Should this be told as "N insiders did X the same day"?
+
+    A BUY cluster always qualifies — several people independently choosing to
+    put money in on one day is the story, whatever size their individual
+    cheques.
+
+    A SELL cluster does not. Post-earnings the window opens and everyone sells
+    once; the cluster is the calendar, not a decision. Derek's rule after MEDP
+    led the 2026-08-21 feed: a selling cluster is only a story when at least
+    two of its participants filed more than one trade, which is the signature
+    of people acting rather than people being unblocked.
+    """
+    if (t.get("day_cluster_n") or 1) - 1 < 2:
+        return False
+    if t["signal_class"] == "discretionary_buy":
+        return True
+    return (t.get("cluster_multi_filers") or 0) >= 2
+
+
+def hooks(t: dict) -> list[str]:
+    """Why this trade is worth a post. Empty means it is not.
+
+    The feed used to be a ranking with no floor: the top five of whatever
+    filed that day got posted, so on a quiet day the fifth-best trade was
+    still a post. This is the floor. A trade needs at least one concrete
+    reason to exist beyond being large.
+    """
+    found: list[str] = []
+    is_buy = t["signal_class"] == "discretionary_buy"
+
+    if is_cluster_story(t) and (t.get("day_cluster_value") or 0) >= 1_000_000:
+        found.append("cluster")
+
+    if is_buy:
+        if (t.get("career_grade") or "") in ("A+", "A", "B"):
+            found.append("graded insider")
+        if t.get("is_first_ever"):
+            found.append("first ever purchase")
+        if t.get("is_largest_ever"):
+            found.append("largest ever purchase")
+        if t.get("is_rare_reversal"):
+            found.append("reversal")
+        dip = t.get("dip_3mo")
+        if dip is not None and dip <= -0.25:
+            found.append("bought a drawdown")
+        return found
+
+    # Sells. No career grade exists on the sell side, so the hook has to come
+    # from the position: someone leaving, or cutting deeply. Trimming is not
+    # news no matter how many dollars it represents.
+    pc = position_change(t.get("lots") or [t], is_buy=False)
+    if pc is not None:
+        if pc.is_full_exit:
+            found.append("full exit")
+        elif pc.fraction is not None and pc.fraction >= 0.33:
+            # `fraction` is POSITIVE and of the prior position — 0.33 means the
+            # stake was cut by a third. It is not a signed pct_change.
+            found.append("cut a third of the stake")
+    if t.get("is_largest_ever"):
+        found.append("largest ever sale")
+    return found
 
 
 def score(t: dict) -> float:
@@ -215,7 +303,7 @@ def render(t: dict) -> str:
     others = max((t.get("day_cluster_n") or 1) - 1, 0)
     noun = "buying" if verb == "bought" else "selling"
     lines: list[str] = []
-    if others >= 2:
+    if is_cluster_story(t):
         n = t["day_cluster_n"]
         # "the same day" meant the same FILING day — day_cluster_n and
         # day_cluster_value both group on filing_date — but a reader takes it
@@ -261,7 +349,11 @@ def render(t: dict) -> str:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--date", default=None, help="Filing date (default: today)")
-    ap.add_argument("--count", type=int, default=5)
+    ap.add_argument("--count", type=int, default=None,
+                    help="Exact number of posts (overrides --min/--max)")
+    ap.add_argument("--min-count", type=int, default=3,
+                    help="Always post at least this many, even on a thin day")
+    ap.add_argument("--max-count", type=int, default=10)
     ap.add_argument("--write", action="store_true", help="Also write to data/content/")
     args = ap.parse_args()
 
@@ -272,20 +364,35 @@ def main() -> int:
         logger.info("No qualifying filings for %s", day)
         return 0
 
-    buys = sorted([r for r in rows if r["signal_class"] == "discretionary_buy"],
-                  key=score, reverse=True)
-    sells = sorted([r for r in rows if r["signal_class"] == "discretionary_sell"],
-                   key=score, reverse=True)
+    # How many posts today is a property of the day, not a constant. A day
+    # with eleven genuinely notable filings should produce eleven posts; a
+    # quiet one should not be padded to five with whatever ranked fifth.
+    lo = args.count or args.min_count
+    hi = args.count or args.max_count
+
+    notable = [r for r in rows if hooks(r)]
+    filler = [r for r in rows if not hooks(r)]
+    logger.info("%s: %d candidates, %d clear the notability bar",
+                day, len(rows), len(notable))
+
+    def split(pool):
+        return (sorted([r for r in pool if r["signal_class"] == "discretionary_buy"],
+                       key=score, reverse=True),
+                sorted([r for r in pool if r["signal_class"] == "discretionary_sell"],
+                       key=score, reverse=True))
+
+    buys, sells = split(notable)
 
     # One post per ticker, and hold the buy/sell mix near 3:2 so the feed does
     # not read as a permabull on a heavy buy day or a doomsayer on a heavy sell
     # one. Caps are soft: if a side runs out, the other fills the slots.
-    n_sell = max(1, args.count * 2 // 5)
+    target = max(lo, min(hi, len(notable)))
+    n_sell = max(1, target * 2 // 5)
     picked, seen = [], set()
 
     def take(pool, limit):
         for r in pool:
-            if limit <= 0 or len(picked) >= args.count:
+            if limit <= 0 or len(picked) >= target:
                 return
             if r["ticker"] in seen:
                 continue
@@ -294,8 +401,18 @@ def main() -> int:
             limit -= 1
 
     take(sells, n_sell)
-    take(buys, args.count - len(picked))
-    take(sells + buys, args.count - len(picked))   # one side ran thin
+    take(buys, target - len(picked))
+    take(sells + buys, target - len(picked))       # one side ran thin
+
+    # The floor is a promise to post daily, so it is allowed to reach past the
+    # notability bar — but only that far, and it is logged as what it is.
+    if len(picked) < lo:
+        short = lo - len(picked)
+        fb, fs = split(filler)
+        take(sorted(fb + fs, key=score, reverse=True), short)
+        logger.info("only %d notable; backfilled %d to meet the %d floor",
+                    len(notable), short, lo)
+
     picked.sort(key=score, reverse=True)
 
     out = []
