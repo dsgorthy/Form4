@@ -102,12 +102,35 @@ export default function OnboardingPage() {
   return (
     <div className="min-h-screen bg-[#07070C] flex items-start justify-center pt-12 px-4 pb-16">
       <div className="w-full max-w-lg">
-        <div className="text-center mb-8">
+        <div className="text-center mb-6">
           <h1 className="text-2xl font-bold text-[#E8E8ED] mb-2">
             Welcome to Form<span className="text-[#3B82F6]">4</span>
           </h1>
           <p className="text-sm text-[#8888A0]">
             We run three live insider-trading strategies. Pick the one you want to follow first.
+          </p>
+        </div>
+
+        {/* The trial, said out loud at the only moment the user is certain to
+            be reading.
+            
+            It was already granted automatically and already surfaced — a
+            banner on every page and a six-email ladder from day 0 — but
+            nowhere in the signup flow did anything say what had just been
+            given. A thin strip above the fold is easy to read as an upsell;
+            the sentence below is the one that lands, because it arrives while
+            the user is still deciding whether this was worth signing up for.
+            
+            No card was taken and none is required, so that is stated plainly:
+            it is the single most reassuring fact available here and leaving it
+            implied wastes it. */}
+        <div className="mb-8 rounded-lg border border-[#22C55E]/25 bg-[#22C55E]/5 px-5 py-4 text-center">
+          <p className="text-sm font-semibold text-[#22C55E]">
+            Your 7 days of Pro start now — free
+          </p>
+          <p className="mt-1.5 text-xs leading-relaxed text-[#8888A0]">
+            Every strategy, the full filing feed, insider ratings and real-time
+            alerts. No card required, and nothing to cancel.
           </p>
         </div>
 
