@@ -46,7 +46,38 @@ async function getAliases(): Promise<Record<string, string>> {
   return aliases;
 }
 
+// The apex is the canonical host. Anything on www is sent there BEFORE it
+// renders.
+//
+// This is not an SEO nicety, it is a hard breakage. NEXT_PUBLIC_API_URL is
+// baked in at build time as https://form4.app/api/v1, so a page served from
+// www.form4.app makes every client-side fetch CROSS-ORIGIN — and CORS_ORIGINS
+// lists only the apex. The API answers 200 with no
+// access-control-allow-origin header, the browser discards the response, and
+// every component that loads its own data shows its failure state. On
+// 2026-08-22 that was a signup landing on www.form4.app/portfolio and reading
+// "Failed to load portfolio data" under a correctly rendered heading: the
+// server-rendered shell arrives, none of the data does.
+//
+// Google sign-in through Clerk is what puts people on www, so this cannot be
+// left to whoever remembers to type the bare domain.
+//
+// A redirect rather than widening CORS, because two live hostnames also means
+// split Clerk cookies and duplicate crawlable content. CORS_ORIGINS does now
+// include www as a second line of defence — if this redirect ever regresses,
+// the site degrades to "works, wrong hostname" instead of "loads nothing".
+function apexRedirect(req: { nextUrl: URL; url: string }) {
+  const host = req.nextUrl.hostname;
+  if (!host.startsWith("www.")) return null;
+  const url = new URL(req.url);
+  url.hostname = host.slice(4);
+  return NextResponse.redirect(url, 308);
+}
+
 export default clerkMiddleware(async (_auth, req) => {
+  const toApex = apexRedirect(req);
+  if (toApex) return toApex;
+
   const match = req.nextUrl.pathname.match(/^\/insider\/([^/]+)\/?$/);
   if (match) {
     const requested = decodeURIComponent(match[1]);
