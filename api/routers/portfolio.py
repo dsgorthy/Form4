@@ -4,12 +4,13 @@ import json
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
-from api.public_fields import ACTIVE_STRATEGIES
+from api.public_fields import ACTIVE_STRATEGIES, strategy_label
 
 from api.auth import UserContext, get_current_user
 from api.db import get_db
 from api.gating import FREE_TIER_DAYS
-from api.id_encoding import encode_trade_id
+from api.id_encoding import encode_insider_id, encode_trade_id
+from api.titles import clean_title
 
 router = APIRouter(prefix="/api/v1/portfolio", tags=["portfolio"])
 
@@ -804,15 +805,26 @@ def get_trade_detail(
 
     row = dict(row)
 
-    # Look up insider_id from trades table for cross-linking
+    # Look up the insider for cross-linking.
+    #
+    # The SLUG, not the raw numeric id. /insider/{identifier} resolves a slug,
+    # a retired slug, an encoded sqid or a CIK — never a bare row id — so
+    # linking `/insider/12345` was a guaranteed 404 on every trade detail page
+    # that had an insider attached.
     insider_id = None
+    insider_slug = None
     if row.get("trade_id"):
         with get_db() as conn2:
             insider_row = conn2.execute(
-                "SELECT insider_id FROM trades WHERE trade_id = ?", (row["trade_id"],)
+                """SELECT t.insider_id, i.slug
+                     FROM trades t
+                     LEFT JOIN insiders i ON i.insider_id = t.insider_id
+                    WHERE t.trade_id = ?""",
+                (row["trade_id"],),
             ).fetchone()
             if insider_row:
                 insider_id = insider_row["insider_id"]
+                insider_slug = insider_row["slug"]
 
     # Scale factor — simulation now runs at display capital directly
     scale = 1.0
@@ -870,13 +882,28 @@ def get_trade_detail(
 
         # Insider
         "insider_name": row["insider_name"],
-        "insider_id": insider_id,
-        "insider_title": row.get("insider_title"),
+        # Encoded, so the value is usable as a URL segment on its own. The raw
+        # id stays out of the payload entirely — it was only ever there to be
+        # put in a link, and it 404s there.
+        "insider_id": encode_insider_id(insider_id) if insider_id else None,
+        "insider_slug": insider_slug,
+        # Filers type this field by hand: "Unknown", "Dir", and run-together
+        # values like "GroupPresident IntlVehiclePmts" all reach us verbatim.
+        # api/titles is the single definition — see reference_rating_taxonomy.
+        "insider_title": clean_title(row.get("insider_title")),
         "insider_pit_n": row.get("insider_pit_n"),
         "insider_pit_wr": round(row["insider_pit_wr"] * 100, 1) if row.get("insider_pit_wr") else None,
         "trade_value": row.get("trade_value"),
 
-        # Signal
+        # The public name for the book this trade belongs to. Resolved here
+        # because api/public_fields is the single place a label may be typed —
+        # test_strategy_registry fails the build on a retyped one.
+        "strategy": row.get("strategy"),
+        "strategy_label": strategy_label(row["strategy"]) if row.get("strategy") else None,
+
+        # Signal. `signal_quality` is the strategy's own conviction and is
+        # INTERNAL ONLY (api.ratings.INTERNAL_ONLY_FIELDS) — kept in the
+        # payload for the admin surfaces, never rendered to a subscriber.
         "signal_quality": row.get("signal_quality"),
         "signal_grade": row.get("signal_grade"),
         "is_csuite": bool(row.get("is_csuite")),

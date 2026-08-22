@@ -625,6 +625,7 @@ def persist_positions(
     open_at_end: List[OpenPosition],
     final_equity: float,
     stop_pct: Optional[float] = None,
+    hold_td: int = 0,
 ):
     """Write all positions to strategy_portfolio."""
     portfolio_id = ensure_portfolio_row(conn, strategy_name)
@@ -720,7 +721,14 @@ def persist_positions(
             (
                 strategy_name, portfolio_id, o.trade_id, o.ticker,
                 o.entry_date, o.entry_price,
-                (o.target_exit_idx - 0),  # rough — actual td count
+                # The HOLD LENGTH, not the exit index.
+                #
+                # This wrote target_exit_idx, which is a position in the
+                # trading-day calendar array — so every open position reported
+                # a target hold of 917-958 days while closed ones correctly
+                # showed 29-92. On the trade detail page that rendered as
+                # "Target Hold 947 days" for a book whose thesis holds 42.
+                hold_td,
                 stop_col,
                 o.capital_at_entry / max(STARTING_CAPITAL, final_equity),
                 o.capital_at_entry, final_equity,
@@ -772,8 +780,10 @@ def run(strategy_name: str, mode: str, end_date: str) -> Dict[str, int]:
     logger.info("[%s] sim done in %.1fs — closed=%d, open=%d, final_equity=$%.0f",
                 strategy_name, elapsed, len(closed), len(open_at_end), final_equity)
 
+    thesis_exit = (cfg.get("theses") or [{}])[0].get("exit") or cfg.get("exit") or {}
     persist_positions(conn, strategy_name, closed, open_at_end, final_equity,
-                      stop_pct=resolve_stop_pct(cfg))
+                      stop_pct=resolve_stop_pct(cfg),
+                      hold_td=int(thesis_exit.get("hold_days", 30)))
     logger.info("[%s] persisted %d closed + %d open positions",
                 strategy_name, len(closed), len(open_at_end))
 

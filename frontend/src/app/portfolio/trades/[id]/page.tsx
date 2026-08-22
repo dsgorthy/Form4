@@ -6,6 +6,7 @@ import { fetchAPI } from "@/lib/api";
 import { formatCurrency } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { insiderPath } from "@/lib/insider-url";
+import { INSIDER_RATING_BLURB, insiderRating } from "@/lib/ratings";
 
 interface SignalBreakdown {
   baseline: number;
@@ -16,6 +17,20 @@ interface SignalBreakdown {
 }
 
 interface EntryReasoning {
+  // The CURRENT shape written by simulate_strategy_portfolio:
+  //   {thesis, filing_date, conviction, career_grade, pit_grade,
+  //    is_csuite, is_rare_reversal}
+  // The nested signal/insider/filing blocks below are the OLD shape, produced
+  // by portfolio_simulator.compute_signal_quality — the PIT-violating scorer
+  // archived on 2026-08-21. Rows written before then still carry it, so both
+  // are typed and the page renders whichever it finds.
+  thesis?: string;
+  career_grade?: string | null;
+  pit_grade?: string | null;
+  conviction?: number | null;
+  is_csuite?: boolean;
+  is_rare_reversal?: boolean;
+
   signal?: {
     quality: number;
     grade: string | null;
@@ -108,7 +123,9 @@ interface TradeDetail {
   insider_pit_n: number | null;
   insider_pit_wr: number | null;
   trade_value: number | null;
-  signal_quality: number | null;
+  signal_quality: number | null;   // internal only — never rendered
+  strategy_label?: string | null;
+  insider_slug?: string | null;
   signal_grade: string | null;
   is_csuite: boolean;
   holdings_pct_change: number | null;
@@ -252,15 +269,14 @@ export default async function TradeDetailPage({
                 <span className={`text-sm font-semibold ${gradeColor(trade.signal_grade)}`}>{trade.signal_grade}</span>
               </span>
             )}
-            {trade.signal_quality != null && (
-              <span className="inline-flex items-baseline gap-1.5 rounded-md bg-[#1A1A26] px-2.5 py-1">
-                <span className="text-[10px] uppercase tracking-wider text-[#55556A]">Conviction</span>
-                <span className="font-mono text-sm font-semibold text-[#8888A0]">
-                  {trade.signal_quality.toFixed(1)}
-                  <span className="text-[10px] font-normal text-[#55556A]">/10</span>
-                </span>
-              </span>
-            )}
+            {/* Conviction is NOT rendered. api/ratings.py lists it in
+                INTERNAL_ONLY_FIELDS and says why: it is a strategy's own entry
+                threshold with a floor of 1.5, so "1.5" means CLEARED THE BAR,
+                not "scored 1.5 out of 10". Printed as "1.5/10" beside a career
+                grade of A it read as near-zero confidence in the strategy's
+                best trades, and the obvious question was why we entered at
+                all. The answer — an A+ insider on a validated thesis — was in
+                entry_reasoning the whole time and is now what the page shows. */}
             <ExecutionBadge source={trade.execution_source} estimated={trade.is_estimated} />
             {isOpen && <Badge variant="outline" className="text-[10px] border-[#3B82F6]/30 text-[#3B82F6]">OPEN</Badge>}
           </div>
@@ -300,13 +316,19 @@ export default async function TradeDetailPage({
         <Section title="Why This Trade Was Taken">
           {er?.signal?.breakdown ? (
             <div className="space-y-0.5">
-              <div className="flex items-baseline justify-between mb-3">
-                <span className="text-sm text-[#E8E8ED]">Conviction</span>
-                <span className="text-xl font-mono font-bold text-[#E8E8ED]">
-                  {(er.signal.quality ?? trade.signal_quality ?? 0).toFixed(1)}
-                  <span className="text-[#55556A] text-sm">/10</span>
-                </span>
-              </div>
+              {/* The score bars below ARE the explanation — what each factor
+                  contributed. The total that used to head them was conviction,
+                  which is internal (api/ratings.INTERNAL_ONLY_FIELDS) and
+                  reads as its own opposite: the floor is 1.5, so the strategy's
+                  best trades displayed "1.5/10". */}
+              {er.career_grade && (
+                <div className="mb-3">
+                  <Row
+                    label="Insider rating"
+                    value={`${er.career_grade} — ${INSIDER_RATING_BLURB[insiderRating(er.career_grade)]}`}
+                  />
+                </div>
+              )}
               <ScoreBar label="Baseline" value={0} />
               <ScoreBar label="PIT Win Rate" value={er.signal.breakdown.pit_win_rate_bonus} />
               <ScoreBar label="C-Suite" value={er.signal.breakdown.csuite_bonus} />
@@ -316,7 +338,26 @@ export default async function TradeDetailPage({
               )}
             </div>
           ) : (
-            <Row label="Conviction" value={trade.signal_quality != null ? `${trade.signal_quality.toFixed(1)}/10` : "—"} mono />
+            /* The reasons, not the score. entry_reasoning carries the thesis
+               and the grades the entry was actually made on; the old fallback
+               printed conviction alone, which answered a question nobody asked
+               and raised one nobody could answer from the page. */
+            <div className="space-y-0.5">
+              {er?.career_grade && (
+                <Row
+                  label="Insider rating"
+                  value={`${er.career_grade} — ${INSIDER_RATING_BLURB[insiderRating(er.career_grade)]}`}
+                />
+              )}
+              {er?.thesis && (
+                <Row label="Strategy" value={trade.strategy_label || er.thesis} />
+              )}
+              {!er?.career_grade && !er?.thesis && (
+                <div className="text-sm text-[#55556A]">
+                  No entry reasoning was recorded for this trade.
+                </div>
+              )}
+            </div>
           )}
 
           {/* Badges row */}
@@ -343,8 +384,11 @@ export default async function TradeDetailPage({
         {/* Insider Track Record */}
         <Section title="Insider at Time of Entry">
           <Row label="Name" value={
-            trade.insider_id ? (
-              <Link href={`/insider/${trade.insider_id}`} className="text-[#3B82F6] hover:text-[#60A5FA]">
+            /* slug first, encoded id as the fallback. This linked the raw
+               numeric row id, which /insider/{identifier} does not resolve —
+               every one of these links was a 404. */
+            (trade.insider_slug || trade.insider_id) ? (
+              <Link href={`/insider/${trade.insider_slug || trade.insider_id}`} className="text-[#3B82F6] hover:text-[#60A5FA]">
                 {trade.insider_name}
               </Link>
             ) : trade.insider_name
@@ -419,7 +463,9 @@ export default async function TradeDetailPage({
             <Row label="Portfolio at Entry" value={formatCurrency(trade.portfolio_value)} mono />
           )}
           <Row label="Target Hold" value={`${trade.target_hold} days`} />
-          <Row label="Hard Stop" value={`${(trade.stop_pct * 100).toFixed(0)}%`} mono color="text-[#EF4444]" />
+          {/* Signed. stop_pct is stored as a magnitude, and "50%" next to a
+              green return read as a target rather than a floor. */}
+          <Row label="Hard Stop" value={`-${(Math.abs(trade.stop_pct) * 100).toFixed(0)}%`} mono color="text-[#EF4444]" />
           {er?.position?.trailing_stop_drop != null && (
             <Row label="Trailing Stop" value={`${(er.position.trailing_stop_drop * 100).toFixed(0)}% from peak`} mono color="text-[#F59E0B]" />
           )}
