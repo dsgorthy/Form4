@@ -1,5 +1,5 @@
 import { clerkMiddleware } from "@clerk/nextjs/server";
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 
 // Permissive middleware — no routes are blocked.
 // Onboarding redirect is handled client-side via OnboardingGuard component
@@ -66,11 +66,26 @@ async function getAliases(): Promise<Record<string, string>> {
 // split Clerk cookies and duplicate crawlable content. CORS_ORIGINS does now
 // include www as a second line of defence — if this redirect ever regresses,
 // the site degrades to "works, wrong hostname" instead of "loads nothing".
-function apexRedirect(req: { nextUrl: URL; url: string }) {
-  const host = req.nextUrl.hostname;
+function apexRedirect(req: NextRequest) {
+  // The HEADER, not req.nextUrl.hostname. Behind Cloudflare Tunnel -> Caddy ->
+  // Next, nextUrl carries the internal origin, so the first version of this
+  // compiled correctly, deployed correctly, and never fired: www kept serving
+  // 200 with no redirect. x-forwarded-host first, then host, and nextUrl only
+  // as a local-dev fallback.
+  const host = (
+    req.headers.get("x-forwarded-host") ??
+    req.headers.get("host") ??
+    req.nextUrl.hostname
+  )
+    .split(":")[0]
+    .toLowerCase();
+
   if (!host.startsWith("www.")) return null;
-  const url = new URL(req.url);
-  url.hostname = host.slice(4);
+
+  const url = req.nextUrl.clone();
+  url.host = host.slice(4);
+  url.protocol = "https:";
+  url.port = "";
   return NextResponse.redirect(url, 308);
 }
 
