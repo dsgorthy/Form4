@@ -8,7 +8,7 @@ export const metadata = {
 
 import Link from "next/link";
 import { fetchAPIAuth } from "@/lib/auth";
-import { UpgradePrompt } from "@/components/upgrade-prompt";
+import { auth } from "@clerk/nextjs/server";
 import { Badge } from "@/components/ui/badge";
 import { CongressAnalytics } from "@/components/congress-analytics";
 import type { HeatmapDay } from "@/lib/types";
@@ -131,21 +131,41 @@ export default async function CongressPage({ searchParams }: Props) {
     fetchAPIAuth<CongressAnalytics>("/congress/analytics", { days: "365" }),
     ]);
   } catch {
-    // Congress data is a Pro feature. A free or signed-out visitor gets the
-    // upgrade prompt they were always meant to get; before this they got an
-    // empty page with no explanation, and so did everybody else.
+    // Congress data is a Pro feature, and refusal is an expected state.
+    //
+    // Rendered on the SERVER rather than through <UpgradePrompt>, which is a
+    // client component that returns null while `!isLoaded` — so it emits
+    // nothing during SSR and the page stays blank until Clerk hydrates. That
+    // is the same empty document this fix was for, just arriving a different
+    // way, and it is what a crawler sees permanently.
+    const { userId } = await auth();
     return (
-      <UpgradePrompt feature="Congressional Trading">
-        <div className="space-y-6">
-          <div className="h-8 w-56 rounded bg-[#1A1A26]" />
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="h-20 rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/50" />
-            ))}
-          </div>
-          <div className="h-64 rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/50" />
+      <div className="py-16 text-center">
+        <h1 className="text-xl font-semibold text-[#E8E8ED]">
+          Congressional trading is a Pro feature
+        </h1>
+        <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-[#8888A0]">
+          Every disclosed trade by a sitting member of Congress, filterable by
+          chamber, size and ticker — alongside the insider filings for the same
+          companies.
+        </p>
+        <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+          <Link
+            href="/pricing"
+            className="rounded-md border border-[#3B82F6]/40 bg-[#3B82F6]/10 px-4 py-2 text-sm font-medium text-[#3B82F6] transition-colors hover:bg-[#3B82F6]/20"
+          >
+            See what Pro includes
+          </Link>
+          {!userId && (
+            <Link
+              href="/sign-up"
+              className="rounded-md border border-[#2A2A3A] px-4 py-2 text-sm text-[#8888A0] transition-colors hover:text-[#E8E8ED]"
+            >
+              Start a free trial
+            </Link>
+          )}
         </div>
-      </UpgradePrompt>
+      </div>
     );
   }
 

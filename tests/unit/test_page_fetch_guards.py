@@ -122,9 +122,22 @@ def test_congress_specifically_is_authenticated_and_guarded():
     assert re.search(r"\bfetchAPI<", src) is None, (
         "congress is calling the unauthenticated fetchAPI again"
     )
-    assert "UpgradePrompt" in src, (
-        "a free user hitting congress should get the upgrade prompt, not an "
-        "empty page"
+    # The refusal path must render real markup, SERVER-SIDE. <UpgradePrompt> is
+    # a client component that returns null while `!isLoaded`, so using it here
+    # emits an empty document during SSR — the same blank page, arriving a
+    # different way, and permanent for anything without JS.
+    #
+    # Matching on the pricing link rather than a component name: an earlier
+    # version of this assertion looked for "UpgradePrompt" and passed against a
+    # comment that merely mentioned it.
+    catch_block = src.split("} catch {", 1)[1].split("\n  }", 1)[0]
+    assert "/pricing" in catch_block, (
+        "the congress refusal path renders no upgrade link. A free user should "
+        "be told what they are missing and how to get it, not shown a void."
+    )
+    assert "UpgradePrompt" not in catch_block.replace("<UpgradePrompt>", ""), (
+        "congress is rendering the client-side UpgradePrompt again — it emits "
+        "nothing during SSR, which is the bug this file exists for."
     )
 
 
