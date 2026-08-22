@@ -7,7 +7,8 @@ export const metadata = {
 };
 
 import Link from "next/link";
-import { fetchAPI } from "@/lib/api";
+import { fetchAPIAuth } from "@/lib/auth";
+import { UpgradePrompt } from "@/components/upgrade-prompt";
 import { Badge } from "@/components/ui/badge";
 import { CongressAnalytics } from "@/components/congress-analytics";
 import type { HeatmapDay } from "@/lib/types";
@@ -65,27 +66,7 @@ const PARTY_STYLES: Record<string, string> = {
   I: "border-[#8888A0]/30 text-[#8888A0] bg-[#8888A0]/10",
 };
 
-export default async function CongressPage({ searchParams }: Props) {
-  const sp = await searchParams;
-  const chamber = sp.chamber || "";
-  const tradeType = sp.trade_type || "";
-  const minValue = sp.min_value || "";
-  const ticker = sp.ticker || "";
-  const page = parseInt(sp.page || "1", 10);
-  const offset = (page - 1) * PAGE_SIZE;
-
-  const params: Record<string, string> = {
-    limit: String(PAGE_SIZE),
-    offset: String(offset),
-  };
-  if (chamber) params.chamber = chamber;
-  if (tradeType) params.trade_type = tradeType;
-  if (minValue) params.min_value = minValue;
-  if (ticker) params.ticker = ticker;
-
-  const [data, analytics] = await Promise.all([
-    fetchAPI<PaginatedResponse<CongressTrade>>("/congress/trades", params),
-    fetchAPI<{
+interface CongressAnalytics {
       summary: {
         total_trades: number;
         total_value: number;
@@ -115,8 +96,59 @@ export default async function CongressPage({ searchParams }: Props) {
         buys: number;
         sells: number;
       }[];
-    }>("/congress/analytics", { days: "365" }),
-  ]);
+    }
+
+export default async function CongressPage({ searchParams }: Props) {
+  const sp = await searchParams;
+  const chamber = sp.chamber || "";
+  const tradeType = sp.trade_type || "";
+  const minValue = sp.min_value || "";
+  const ticker = sp.ticker || "";
+  const page = parseInt(sp.page || "1", 10);
+  const offset = (page - 1) * PAGE_SIZE;
+
+  const params: Record<string, string> = {
+    limit: String(PAGE_SIZE),
+    offset: String(offset),
+  };
+  if (chamber) params.chamber = chamber;
+  if (tradeType) params.trade_type = tradeType;
+  if (minValue) params.min_value = minValue;
+  if (ticker) params.ticker = ticker;
+
+  // Guarded, and authenticated. This block used fetchAPI — which never
+  // attaches the Clerk token — against /congress/* endpoints that carry
+  // Depends(require_pro). Every request therefore arrived anonymous and was
+  // refused, for Pro subscribers exactly as much as for free users, and the
+  // unguarded await threw into a page with no error boundary. The result was a
+  // /congress that rendered 161 characters: nav, footer, and nothing between
+  // them. It is linked in the main nav, so it was one click from anywhere.
+  let data: PaginatedResponse<CongressTrade>;
+  let analytics: CongressAnalytics;
+  try {
+    [data, analytics] = await Promise.all([
+    fetchAPIAuth<PaginatedResponse<CongressTrade>>("/congress/trades", params),
+    fetchAPIAuth<CongressAnalytics>("/congress/analytics", { days: "365" }),
+    ]);
+  } catch {
+    // Congress data is a Pro feature. A free or signed-out visitor gets the
+    // upgrade prompt they were always meant to get; before this they got an
+    // empty page with no explanation, and so did everybody else.
+    return (
+      <UpgradePrompt feature="Congressional Trading">
+        <div className="space-y-6">
+          <div className="h-8 w-56 rounded bg-[#1A1A26]" />
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="h-20 rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/50" />
+            ))}
+          </div>
+          <div className="h-64 rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/50" />
+        </div>
+      </UpgradePrompt>
+    );
+  }
+
   const totalPages = Math.ceil(data.total / PAGE_SIZE);
 
   const hasFilters = !!(chamber || tradeType || minValue || ticker);

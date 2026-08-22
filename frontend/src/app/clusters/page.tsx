@@ -86,7 +86,32 @@ export default async function ClustersPage({ searchParams }: Props) {
   if (tradeType) params.trade_type = tradeType;
   if (minValue) params.min_value = minValue;
 
-  const data = await fetchAPIAuth<ClusterResponse & { gated?: boolean }>("/clusters", params);
+  // Guarded. This await was bare, and the endpoint declares
+  // days: Query(ge=1, le=90) — so /clusters?days=365, a URL anyone can type or
+  // land on from a stale link, returns 422, throws, and blanks the page.
+  // fetchAPIAuth throws on ANY non-2xx, not just auth failures.
+  let data: ClusterResponse & { gated?: boolean };
+  try {
+    data = await fetchAPIAuth<ClusterResponse & { gated?: boolean }>("/clusters", params);
+  } catch {
+    return (
+      <div className="py-16 text-center">
+        <h1 className="text-xl font-semibold text-[#E8E8ED]">
+          Couldn&apos;t load clusters
+        </h1>
+        <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-[#8888A0]">
+          The filters in this link may be out of range — the window has to be
+          between 1 and 90 days.
+        </p>
+        <Link
+          href="/clusters"
+          className="mt-6 inline-block rounded-md border border-[#3B82F6]/40 bg-[#3B82F6]/10 px-4 py-2 text-sm font-medium text-[#3B82F6] transition-colors hover:bg-[#3B82F6]/20"
+        >
+          Reset to the default view
+        </Link>
+      </div>
+    );
+  }
   const isGated = (data as any).gated === true;
   // Signed in, not entitled: a free account still wants the tool.
   const { userId } = await auth();

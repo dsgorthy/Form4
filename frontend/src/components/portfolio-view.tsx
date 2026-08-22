@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import { useAuth, useUser } from "@clerk/nextjs";
 import Link from "next/link";
 import dynamic from "next/dynamic";
@@ -401,9 +402,24 @@ export function PortfolioView() {
   const { user } = useUser();
   const userIsPro = isPro(user);
 
-  // A-List Buys is the default: it is the strongest book, the only one above
-  // 50% deployed, and STRATEGIES[0] — the landing page already leads with it.
-  const [strategy, setStrategy] = useState("quality_notrend");
+  // Honour ?strategy= before falling back to the default. Onboarding ends with
+  // router.push(`/portfolio?strategy=${chosen}`), and this component ignored
+  // the param entirely — so the one question onboarding asks was thrown away
+  // the moment it was answered, and every new user landed on A-List whatever
+  // they picked.
+  //
+  // Validated against the published list rather than trusted: the value
+  // reaches the API as a query param, and an unknown key returns an empty book
+  // that renders as "Failed to load portfolio data".
+  const searchParams = useSearchParams();
+  const requested = searchParams.get("strategy");
+  const initialStrategy =
+    requested && STRATEGIES.some((s) => s.value === requested)
+      ? requested
+      // A-List Buys is the default: the strongest book, the only one above
+      // 50% deployed, and STRATEGIES[0] — the landing page leads with it.
+      : "quality_notrend";
+  const [strategy, setStrategy] = useState(initialStrategy);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [equityCurve, setEquityCurve] = useState<CurvePoint[]>([]);
   const [spyBenchmark, setSpyBenchmark] = useState<{ date: string; equity: number }[]>([]);
