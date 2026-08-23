@@ -310,6 +310,11 @@ def simulate_one_strategy(
     financing_paid = 0.0
     min_conviction = float(config.get("min_conviction", 1.5))
     stop_pct = resolve_stop_pct(config)
+    # See the circuit-breaker note in the entry loop.
+    breaker_from_peak = bool(config.get("circuit_breaker_from_peak", False))
+    breaker_dd = float(config.get("circuit_breaker_dd_pct", 0.15))
+    peak_equity = STARTING_CAPITAL
+    halted_days = 0
 
     logger.info(
         "[%s] config: hold_td=%d, pos=%.0f%%, max=%d, min_conv=%.1f, stop=%s",
@@ -540,6 +545,29 @@ def simulate_one_strategy(
         passing.sort(key=lambda x: -x["_conviction"])
 
         # ── 3) Capacity check + entry ───────────────────────────────────
+        #
+        # CIRCUIT BREAKER. Every strategy yaml declares circuit_breaker_dd_pct
+        # and cw_runner enforces it; the simulator did not, so the published
+        # backtest ran a risk control the live alerts apply. Same class as the
+        # 2026-08-20 stop divergence, inverted.
+        #
+        # Measured from the PEAK, which is what "a 15% drawdown" means to a
+        # reader. cw_runner computes 1 - equity/starting_capital instead, so its
+        # breaker can only fire while the book is below its original stake —
+        # inert for any book that has grown. Insider Breakout fell from $628k to
+        # $315k in this sample without ever tripping it, because its minimum
+        # equity ($89,360) stayed above the $85,000 line.
+        #
+        # Halts NEW entries only; open positions run to their time exit and
+        # entries resume once the book recovers. Off unless the yaml opts in via
+        # circuit_breaker_from_peak, so no existing figure moves.
+        if breaker_from_peak:
+            peak_equity = max(peak_equity, equity)
+            if peak_equity > 0 and (peak_equity - equity) / peak_equity >= breaker_dd:
+                halted_days += 1
+                held_tickers = {p.ticker for p in held}
+                continue
+
         held_tickers = {p.ticker for p in held}
         entered_today = set()
         for t in passing:
