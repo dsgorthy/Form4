@@ -354,8 +354,13 @@ def compute_purchase_size_metrics(conn) -> int:
             updates = []
 
     flush_updates(conn, "trades", ["purchase_size_ratio", "is_largest_ever"], updates)
-    print(f"  Done: {sum(len(v) for v in groups.values()):,} trades in {time.time()-t0:.1f}s")
-    return sum(len(v) for v in groups.values())
+    # `filings`, not `groups` — renamed when this moved to filing-level
+    # comparison. The stale name survived here because it is only read in the
+    # summary, after every write has flushed, so the function wrote correct
+    # data and then raised NameError on its own last line.
+    n = sum(len(v) for v in filings.values())
+    print(f"  Done: {n:,} trades in {time.time()-t0:.1f}s")
+    return n
 
 
 # ---------------------------------------------------------------------------
