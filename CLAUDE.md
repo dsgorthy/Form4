@@ -267,7 +267,10 @@ single component of the score — and re-running 14 times gave quality_notrend:
 
 The mechanism is the CONVICTION GATE, not tie-breaking. Tie-break-only noise
 (+0..0.004) moved the book **$0** across 14 seeds. But `min_conviction` is 1.5
-and the score is built from ~12 half-point components, so any ±0.5 change to
+on A-List and Breakout and **3.0 on Dip Buys** — it is not one global number,
+and the simulator and `cw_runner` DEFAULT APART (1.5 vs 5.0), inert only
+because all three yamls declare it. `tests/unit/test_conviction_gate_is_config_driven.py`
+keeps it that way. The score is built from ~12 half-point components, so any ±0.5 change to
 one input pushes a whole band of candidates across the floor. Forcing
 `is_largest_ever` on gives 148 trades and $346,851; off gives 126 and $425,851;
 correct gives 141 and $495,797 — **non-monotonic**, so it is which trades get

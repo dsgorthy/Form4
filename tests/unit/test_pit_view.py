@@ -32,6 +32,12 @@ def conn():
             ticker TEXT,
             trade_date TEXT,
             filing_date TEXT,
+            -- A Form 4 reports ONE decision as however many tranches the
+            -- broker filled. Without these columns a fixture cannot express
+            -- "one filing, five rows", which is the assumption every tranche
+            -- bug was made of — so the suite could not see any of them.
+            filing_key TEXT,
+            accession TEXT,
             trade_type TEXT,
             title TEXT,
             is_csuite INTEGER,
@@ -96,12 +102,18 @@ def conn():
 
 
 def _insert_trade(conn, trade_id, insider_id, ticker, trade_date, filing_date,
-                  trade_type="buy", pit_grade="A", career_grade="A"):
+                  trade_type="buy", pit_grade="A", career_grade="A",
+                  filing_key=None, is_10b5_1=None):
+    """filing_key defaults to the trade_id — one row, one filing. Pass the SAME
+    key for several rows to model one Form 4 filled in tranches, which is what
+    a third of real filings look like and what no fixture here could express
+    until 2026-08-23."""
     conn.execute(
         "INSERT INTO trades (trade_id, insider_id, ticker, trade_date, filing_date, "
-        "trade_type, pit_grade, career_grade) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "trade_type, pit_grade, career_grade, filing_key, is_10b5_1) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (trade_id, insider_id, ticker, trade_date, filing_date, trade_type,
-         pit_grade, career_grade),
+         pit_grade, career_grade, filing_key or f"F{trade_id}", is_10b5_1),
     )
     conn.commit()
 
@@ -286,3 +298,31 @@ def test_get_close_rejects_future_target(conn):
     view = PITDataView(PITClock("2024-03-15"), conn)
     with pytest.raises(ValueError):
         view.get_close("AAPL", on_or_before="2024-03-16")
+
+
+# ── one filing, several lots ────────────────────────────────────────────
+
+
+def test_prior_trades_carry_their_filing_key(conn):
+    """Without this the caller cannot tell two lots of one filing apart from
+    two filings, which is how the tranche bug hid in every counter."""
+    _insert_trade(conn, 1, 100, "AAPL", "2024-03-01", "2024-03-03",
+                  filing_key="ACC-1")
+    view = PITDataView(PITClock("2024-03-15"), conn)
+    priors = view.get_prior_trades(insider_id=100)
+    assert [p.filing_key for p in priors] == ["ACC-1"]
+
+
+def test_five_lots_of_one_filing_are_five_events_but_one_filing(conn):
+    """The view returns rows — that is correct, it is a raw accessor. What must
+    hold is that a caller can collapse them, which is what the tenb51 10b5-1
+    counter now does."""
+    for i in range(5):
+        _insert_trade(conn, 10 + i, 100, "AAPL", "2024-03-01", "2024-03-03",
+                      trade_type="sell", filing_key="ONE-FILING", is_10b5_1=1)
+    view = PITDataView(PITClock("2024-03-15"), conn)
+    priors = view.get_prior_trades(insider_id=100, trade_type="sell")
+    assert len(priors) == 5, "the raw accessor should still return every lot"
+    assert len({p.filing_key for p in priors}) == 1, (
+        "five tranches of one Form 4 collapsed to more than one filing"
+    )

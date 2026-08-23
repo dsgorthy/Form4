@@ -43,6 +43,12 @@ def populated_conn():
             ticker TEXT,
             trade_date TEXT,
             filing_date TEXT,
+            -- A Form 4 reports ONE decision as however many tranches the
+            -- broker filled. Without these columns a fixture cannot express
+            -- "one filing, five rows", which is the assumption every tranche
+            -- bug was made of — so the suite could not see any of them.
+            filing_key TEXT,
+            accession TEXT,
             trade_type TEXT,
             title TEXT,
             is_csuite INTEGER,

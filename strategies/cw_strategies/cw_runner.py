@@ -938,8 +938,14 @@ def scan_signals(conn, config: dict) -> list[dict]:
                     "SELECT insider_id FROM trades WHERE trade_id = ?", (tid,)
                 ).fetchone()
                 if insider_id_row:
+                    # DISTINCT on the filing, not COUNT(*) on rows: a 10b5-1
+                    # sale filled in five tranches is one scheduled sale. Must
+                    # stay identical to the PIT path in
+                    # framework/pit/strategies/tenb51_surprise.py.
                     cnt_row = conn.execute("""
-                        SELECT COUNT(*) FROM trades
+                        SELECT COUNT(DISTINCT COALESCE(
+                                   filing_key, accession, CAST(trade_date AS TEXT)))
+                          FROM trades
                         WHERE insider_id = ? AND ticker = ?
                           AND trans_code = 'S' AND is_10b5_1 = 1
                           AND filing_date < ?

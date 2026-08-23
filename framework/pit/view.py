@@ -148,7 +148,8 @@ class PITDataView:
                    t.is_rare_reversal, t.is_10b5_1, t.is_recurring,
                    t.is_tax_sale, t.cohen_routine,
                    t.pit_grade, t.career_grade, t.pit_blended_score,
-                   t.company
+                   t.company,
+                   COALESCE(t.filing_key, t.accession, CAST(t.trade_date AS TEXT))
             FROM trades t
             WHERE t.insider_id = ?
               AND t.filing_date <= ?
@@ -177,7 +178,7 @@ class PITDataView:
                 is_rare_reversal=r[14], is_10b5_1=r[15], is_recurring=r[16],
                 is_tax_sale=r[17], cohen_routine=r[18],
                 pit_grade=r[19], career_grade=r[20], pit_blended_score=r[21],
-                company=r[22],
+                company=r[22], filing_key=r[23],
             ))
         return out
 

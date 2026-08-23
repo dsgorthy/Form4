@@ -50,10 +50,16 @@ class Tenb51SurpriseStrategy(PITStrategy):
                 insider_id=event.insider_id, ticker=event.ticker,
                 trade_type="sell",
             )
-            n_prior_10b5_1 = sum(
-                1 for p in priors
+            # Count FILINGS, not execution lots. A 10b5-1 sale filled in five
+            # tranches is one scheduled sale, and counting rows made it five —
+            # the same defect that cost the scorer 21% of its grades in
+            # August 2026. Fall back to the trade_id so a row with no filing
+            # identity still counts once rather than collapsing with others.
+            n_prior_10b5_1 = len({
+                p.filing_key or f"trade:{p.trade_id}"
+                for p in priors
                 if p.is_10b5_1 and p.filing_date < event.filing_date
-            )
+            })
             if n_prior_10b5_1 < int(min_10b5_1):
                 return Decision(
                     trade_id=event.trade_id, ticker=event.ticker,

@@ -103,8 +103,11 @@ outright: *"Eleven variants were tested and this is the winner, so the figures
 above are an upper bound, not an expectation."* The strategy was chosen on the
 same data it is measured over. There is no untouched holdout.
 
-**The result is fragile to the conviction gate — `min_conviction`, still 1.5
-and still never tuned — and the 2026-08-20 perturbation study is now STALE** — it was run before the tranche correction
+**The result is fragile to the conviction gate — `min_conviction`, still never
+tuned, and not one number: 1.5 on A-List and Breakout, 3.0 on Dip Buys. The
+simulator and `cw_runner` also default apart on it, 1.5 against 5.0, which is
+harmless only because all three yamls declare a value
+(`tests/unit/test_conviction_gate_is_config_driven.py` keeps it that way) — and the 2026-08-20 perturbation study is now STALE** — it was run before the tranche correction
 changed both `career_grade` and `is_largest_ever`, which are two of the gate's
 inputs. Its finding was a ±5 band around a 50% sleeve from a ±0.25 perturbation,
 less than one of the ~12 half-point components. The *shape* is a property of

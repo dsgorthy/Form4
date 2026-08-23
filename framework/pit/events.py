@@ -55,6 +55,12 @@ class TradeEvent:
     career_grade: Optional[str] = None
     pit_blended_score: Optional[float] = None
 
+    # The FILING this lot belongs to. A Form 4 reports one decision as however
+    # many tranches the broker filled, so anything that COUNTS events must
+    # group on this rather than on rows — see feedback_filing_not_lot_grouping.
+    # COALESCE(filing_key, accession, trade_date) is the canonical key.
+    filing_key: Optional[str] = None
+
     # For the audit trail
     company: Optional[str] = None
 
