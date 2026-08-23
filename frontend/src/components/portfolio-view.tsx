@@ -51,6 +51,10 @@ interface Summary {
   max_drawdown: number;
   max_drawdown_all_time?: number;
   max_drawdown_note?: string | null;
+  /** Daily-marked drawdown — what a holder actually experienced. Prefer this
+   *  over max_drawdown, which samples only at trade exits and understates:
+   *  Dip Buys reads 11.3% on trade rows against 21.5% daily. */
+  max_drawdown_daily?: number;
   avg_return: number;
   first_trade: string;
   last_trade: string;
@@ -548,7 +552,10 @@ export function PortfolioView() {
               }
               return maxDd;
             })()
-          : s.max_drawdown;
+          // Unfiltered: the daily-marked figure. The trade-row number it
+          // replaces could not see a drawdown that opened and closed between
+          // two exits, which is most of them.
+          : (s.max_drawdown_daily ?? s.max_drawdown);
 
         const rangeLabel = isFiltered
           ? `${dateRange.from?.slice(0,4) || ""} – ${dateRange.to?.slice(0,4) || ""}`
@@ -586,7 +593,11 @@ export function PortfolioView() {
         <StatCard
           label="Max Drawdown"
           value={`${mdd.toFixed(1)}%`}
-          sub={s.max_drawdown_note ? `${s.max_drawdown_note} | All-time: ${s.max_drawdown_all_time?.toFixed(1)}%` : `${fStops} stops hit`}
+          sub={
+            isFiltered
+              ? `${fStops} stops hit`
+              : `Marked daily · ${fStops} stops hit`
+          }
         />
       </div>
 

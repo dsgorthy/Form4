@@ -70,6 +70,36 @@ def pipeline_run(
     conn = get_connection()
     host = host or socket.gethostname()
 
+    # ── reap this service's abandoned runs ───────────────────────────────
+    #
+    # The with-block below catches BaseException, so a run that gets as far as
+    # Python exiting always writes a terminal status. What it cannot survive is
+    # SIGKILL, an OOM, or the box going down — and those left 7 rows stuck in
+    # 'running' on 2026-08-23, the oldest from May, showing forever as live
+    # jobs on /admin/pipelines.
+    #
+    # These are launchd services that do not overlap themselves, so a prior
+    # 'running' row for the same service on the same host is dead by
+    # definition once a new run starts. The age test is belt-and-braces
+    # against a genuinely concurrent invocation, and it is scaled to the
+    # service's OWN history rather than a flat number: refresh_ticker_metadata
+    # legitimately runs 72 hours, so any fixed threshold short enough to be
+    # useful for insider_fetch would falsely reap it.
+    conn.execute(
+        """UPDATE pipeline_runs SET status = 'abandoned', ended_at = NOW(),
+                  error_message = 'no terminal status recorded; reaped when a '
+                                  'later run of this service started'
+            WHERE service = ? AND host = ? AND status = 'running'
+              AND started_at < NOW() - GREATEST(
+                    INTERVAL '24 hours',
+                    COALESCE((SELECT 3 * MAX(duration_ms) * INTERVAL '1 millisecond'
+                                FROM pipeline_runs
+                               WHERE service = ? AND status = 'ok'),
+                             INTERVAL '24 hours'))""",
+        (service, host, service),
+    )
+    conn.commit()
+
     cur = conn.execute(
         """INSERT INTO pipeline_runs (service, host, log_path, status, run_uuid)
            VALUES (?, ?, ?, 'running', ?::uuid)

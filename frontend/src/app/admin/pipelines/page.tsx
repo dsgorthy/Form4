@@ -48,6 +48,9 @@ function statusColor(s: string | null): string {
   if (s === "running") return "text-[#3B82F6]";
   if (s === "failed") return "text-[#EF4444]";
   if (s === "timeout" || s === "partial") return "text-[#F59E0B]";
+  // Reaped: the process died without writing a terminal status (SIGKILL, OOM,
+  // host restart). Not a failure of the job — a failure to record one.
+  if (s === "abandoned") return "text-[#8888A0]";
   return "text-[#55556A]";
 }
 
@@ -56,6 +59,7 @@ function statusDot(s: string | null): string {
   if (s === "running") return "bg-[#3B82F6]";
   if (s === "failed") return "bg-[#EF4444]";
   if (s === "timeout" || s === "partial") return "bg-[#F59E0B]";
+  if (s === "abandoned") return "bg-[#8888A0]";
   return "bg-[#55556A]";
 }
 

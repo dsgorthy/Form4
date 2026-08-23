@@ -55,13 +55,42 @@ const tradeFactors = [
 
 
 
+/**
+ * Pro gate.
+ *
+ * WITHHOLDS, rather than blurring. Until 2026-08-23 this rendered `children`
+ * into the DOM and applied `blur-sm`, so the entire Pro methodology — the
+ * strategy theses, the stop levels, the win rates — was readable by anyone
+ * with view-source, and served to crawlers. A CSS filter is a visual effect,
+ * not access control.
+ *
+ * The blurred silhouette is kept because it is doing conversion work, but it
+ * is now a skeleton with no information in it rather than the real text.
+ */
+function GateSkeleton() {
+  // Deterministic widths — no randomness, so the markup is stable between
+  // server and client render.
+  const widths = ["92%", "78%", "85%", "61%", "88%", "70%", "94%", "54%"];
+  return (
+    <div aria-hidden className="space-y-3 select-none pointer-events-none">
+      {widths.map((w, i) => (
+        <div
+          key={i}
+          className="h-3 rounded bg-[#2A2A3A]"
+          style={{ width: w, opacity: 0.55 }}
+        />
+      ))}
+    </div>
+  );
+}
+
 function GatedSection({ visible, label, isAuthed, children }: { visible: boolean; label: string; isAuthed?: boolean; children: React.ReactNode }) {
   if (visible) return <>{children}</>;
   const ctaHref = isAuthed ? "/pricing" : "/sign-up";
   const ctaLabel = isAuthed ? "Upgrade to Pro" : "Start Free Trial";
   return (
-    <div className="relative my-6">
-      <div className="blur-sm select-none pointer-events-none">{children}</div>
+    <div className="relative my-6 min-h-[280px]">
+      <div className="blur-sm"><GateSkeleton /></div>
       <div className="absolute inset-0 z-10 bg-gradient-to-b from-transparent via-[#0A0A0F]/60 to-[#0A0A0F]/90 flex items-center justify-center">
         <div className="text-center">
           <div className="text-xs font-semibold uppercase tracking-widest text-[#8888A0] mb-2">{label}</div>

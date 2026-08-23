@@ -101,11 +101,21 @@ ALLOWED_STRATEGIES = set(ACTIVE_STRATEGIES)
 
 
 def _blended_and_benchmark(strategy: str, starting: float, years: float):
-    """CAGR of the book with idle cash in SPY, and SPY's own CAGR, same window.
+    """CAGR of the book with idle cash in SPY, SPY's own CAGR, and the DAILY
+    max drawdown — all over the same window.
 
     Walks the day series once: idle cash compounds at SPY, positions mark to
-    their own close. Returns (blended_cagr, spy_cagr) or (None, None) when the
-    price data is not there — a missing benchmark must not fabricate a number.
+    their own close. Returns (blended_cagr, spy_cagr, daily_max_dd) or
+    (None, None, None) when the price data is not there — a missing benchmark
+    must not fabricate a number.
+
+    THE DRAWDOWN IS THE POINT OF THE THIRD RETURN VALUE. `summary.max_drawdown`
+    walks `equity_after` on CLOSED TRADE ROWS, so it samples the book only at
+    exits and cannot see a drawdown that opens and closes between two of them.
+    That is how Insider Dip Buys published 11.3% while a holder lived 21.5%,
+    and Insider Breakout 20.2% against 43.8%. This walks every session with
+    open positions marked to market, which is what someone holding the book
+    actually experiences. Quote this one.
 
     Opens its own connection rather than borrowing the caller's: the call site
     sits after the endpoint's `with get_db()` block has closed, and reusing a
@@ -128,12 +138,12 @@ def _blended_inner(conn, strategy: str, starting: float, years: float):
         "FROM strategy_portfolio WHERE strategy = ? AND execution_source = 'simulated'",
         (strategy,))]
     if not spy or not rows:
-        return None, None
+        return None, None, None
 
     first = min(r["entry_date"] for r in rows if r["entry_date"])
     days = sorted(d for d in spy if d >= first)
     if len(days) < 30:
-        return None, None
+        return None, None, None
 
     tickers = {r["ticker"] for r in rows}
     px = defaultdict(dict)
@@ -148,6 +158,7 @@ def _blended_inner(conn, strategy: str, starting: float, years: float):
 
     equity = idle = starting
     held, prev = [], None
+    peak, daily_dd = starting, 0.0
     for d in days:
         if prev and spy.get(prev):
             idle *= 1 + (spy[d] - spy[prev]) / spy[prev]
@@ -167,12 +178,16 @@ def _blended_inner(conn, strategy: str, starting: float, years: float):
             held.append({"tk": t["ticker"], "sh": cap / p,
                          "exit": t["exit_date"], "px": p})
         equity = idle + sum(h["sh"] * (px[h["tk"]].get(d) or h["px"]) for h in held)
+        if equity > peak:
+            peak = equity
+        if peak > 0:
+            daily_dd = max(daily_dd, (peak - equity) / peak)
 
     if equity <= 0 or years <= 0:
-        return None, None
+        return None, None, None
     blended = ((equity / starting) ** (1 / years) - 1) * 100
     bench = ((spy[days[-1]] / spy[days[0]]) ** (1 / years) - 1) * 100
-    return blended, bench
+    return blended, bench, round(daily_dd * 100, 1)
 
 
 @router.get("")
@@ -532,7 +547,7 @@ def get_portfolio(
     # stock-picking result that is mostly beta.
     #
     # See docs/published_returns_methodology.md.
-    blended_cagr, spy_cagr = _blended_and_benchmark(strategy, starting, years)
+    blended_cagr, spy_cagr, daily_dd = _blended_and_benchmark(strategy, starting, years)
 
     # Gating: free users see last FREE_VISIBLE trades ungated, rest blurred
     FREE_VISIBLE = 10
@@ -575,8 +590,14 @@ def get_portfolio(
             "wins": summary["wins"],
             "win_rate": round((summary["wins"] / summary["total_trades"]) * 100, 1) if summary["total_trades"] else 0,
             "stops_hit": summary["stops"],
+            # Trade-row drawdown: sampled only at exits, so it understates.
+            # Kept because existing clients read it, but every surface should
+            # prefer max_drawdown_daily below.
             "max_drawdown": round((max_dd_post2020 if max_dd_post2020 > 0 else max_dd) * 100, 1),
             "max_drawdown_all_time": round(max_dd * 100, 1),
+            # What a holder actually experienced: every session, open positions
+            # marked to market. This is the honest figure and the one to show.
+            "max_drawdown_daily": daily_dd,
             "max_drawdown_note": "Excl. COVID crash (Mar 2020)" if max_dd_post2020 > 0 and max_dd_post2020 < max_dd else None,
             "avg_return": round((summary["avg_return"] or 0) * 100, 2),
             "first_trade": summary["first_trade"],
