@@ -126,6 +126,8 @@ interface TradeDetail {
   signal_quality: number | null;   // internal only — never rendered
   strategy_label?: string | null;
   insider_slug?: string | null;
+  insider_prior_scoreable?: number | null;
+  insider_prior_wins?: number | null;
   signal_grade: string | null;
   is_csuite: boolean;
   holdings_pct_change: number | null;
@@ -413,6 +415,10 @@ export default async function TradeDetailPage({
               could learn it, and the panel's title already says these are
               as-of-entry figures. Both values are computed from filings that
               predate this one; see the note in api/routers/portfolio.py. */}
+          {/* Filings, not rows. One Form 4 reports a laddered purchase as
+              several lots, and counting rows counted the ladder — this insider
+              showed 5 for what was a single decision filled across five
+              prices. */}
           <Row
             label="Buys before this one"
             value={trade.insider_pit_n != null ? String(trade.insider_pit_n) : "—"}
@@ -421,17 +427,26 @@ export default async function TradeDetailPage({
           {/* The denominator ships with the rate. This insider's 100% is five
               of five, and a bare "100%" invites a reader to weigh it like a
               hundred of a hundred. */}
+          {/* A fraction, not a percentage. "100% up after 7 days" read as
+              "the previous buys were up 100%" — the number attached itself to
+              the return instead of to the hit rate. "1 of 1 rose" cannot be
+              misread, and it shows the sample size in the same breath, which
+              a percentage actively hides. */}
           <Row
             label="How those worked out"
             value={
-              trade.insider_pit_wr != null
-                ? `${trade.insider_pit_wr}% up after 7 days`
+              trade.insider_prior_scoreable
+                ? `${trade.insider_prior_wins ?? 0} of ${trade.insider_prior_scoreable} rose within 7 days`
                 : trade.insider_pit_n
-                  ? "Not enough time has passed to score them"
+                  ? "Too recent to score yet"
                   : "—"
             }
-            mono
-            color={trade.insider_pit_wr != null && trade.insider_pit_wr >= 60 ? "text-[#22C55E]" : undefined}
+            color={
+              trade.insider_prior_scoreable &&
+              (trade.insider_prior_wins ?? 0) / trade.insider_prior_scoreable >= 0.6
+                ? "text-[#22C55E]"
+                : undefined
+            }
           />
           {er?.insider?.pit_win_rate_30d != null && (
             <Row label="Win rate (30d)" value={`${(er.insider.pit_win_rate_30d * 100).toFixed(0)}%`} mono />

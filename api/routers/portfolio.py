@@ -814,7 +814,8 @@ def get_trade_detail(
     insider_id = None
     insider_slug = None
     prior_buys = None
-    prior_win_rate = None
+    prior_scoreable = None
+    prior_wins = None
     trade_value = row.get("trade_value")
     if row.get("trade_id"):
         with get_db() as conn2:
@@ -838,49 +839,53 @@ def get_trade_detail(
             # strategy_portfolio.insider_pit_n and .insider_pit_wr are NULL on
             # every row ever written, and trades.pit_n_trades is NULL on all
             # 4,375 recent buys, so the "Insider at Time of Entry" panel showed
-            # "—" for every trade on the site. Benjamin Wood was carrying an A+
-            # career grade beside "PIT Trade Count —", having filed five times
-            # before.
+            # "—" for every trade on the site.
+            #
+            # GROUPED BY FILING, NOT BY ROW. A Form 4 reports one decision as
+            # however many execution lots it filled in, and counting rows
+            # counts the ladder. Benjamin Wood's "5 prior buys" were five lots
+            # of a single accession on a single day, laddered $49.89 to $54.33
+            # — one decision. Across the simulated book the raw count is 3,212
+            # against 1,242 actual filings, so rows overstate by 2.6x. Same
+            # grouping key as /insiders/{id}/trades, so the two agree.
             #
             # PIT DISCIPLINE, because the panel's own title is a point-in-time
             # claim:
             #   * only filings strictly BEFORE this one are counted;
-            #   * a prior trade only enters the win rate once its 7d return was
+            #   * a filing enters the win rate only once its 7d return was
             #     OBSERVABLE — trade_date + 10 days on or before this filing
             #     date. Without that lag the panel would grade an entry using
             #     outcomes that had not happened yet, which is the exact
             #     violation reference_signal_registry catalogues.
             #
-            # Buys only. A sell "wins" by falling, and mixing the two into one
-            # percentage produces a number that means nothing in either
-            # direction.
+            # Buys only. A sell "wins" by falling, and averaging the two gives
+            # a percentage that means nothing in either direction.
             if insider_id and insider_row and insider_row["filing_date"]:
                 stats = conn2.execute(
-                    """SELECT
-                           COUNT(*) AS n,
-                           COUNT(tr.return_7d) FILTER (
-                               WHERE p.trade_date::date + 10 <= ?::date
-                           ) AS scoreable,
-                           COUNT(*) FILTER (
-                               WHERE tr.return_7d > 0
-                                 AND p.trade_date::date + 10 <= ?::date
-                           ) AS wins
-                         FROM trades p
-                         LEFT JOIN trade_returns tr ON tr.trade_id = p.trade_id
-                        WHERE p.insider_id = ?
-                          AND p.filing_date < ?
-                          AND p.trans_code = 'P'
-                          AND p.superseded_by IS NULL
-                          AND (p.is_duplicate = 0 OR p.is_duplicate IS NULL)""",
-                    (insider_row["filing_date"], insider_row["filing_date"],
-                     insider_id, insider_row["filing_date"]),
+                    """SELECT COUNT(*) AS n,
+                              COUNT(*) FILTER (WHERE observable) AS scoreable,
+                              COUNT(*) FILTER (WHERE observable AND ret > 0) AS wins
+                         FROM (
+                           SELECT MAX(tr.return_7d) AS ret,
+                                  BOOL_OR(p.trade_date::date + 10 <= ?::date
+                                          AND tr.return_7d IS NOT NULL) AS observable
+                             FROM trades p
+                             LEFT JOIN trade_returns tr ON tr.trade_id = p.trade_id
+                            WHERE p.insider_id = ?
+                              AND p.filing_date < ?
+                              AND p.trans_code = 'P'
+                              AND p.superseded_by IS NULL
+                              AND (p.is_duplicate = 0 OR p.is_duplicate IS NULL)
+                            GROUP BY COALESCE(p.filing_key, p.accession,
+                                              p.trade_date::text)
+                         ) f""",
+                    (insider_row["filing_date"], insider_id,
+                     insider_row["filing_date"]),
                 ).fetchone()
                 if stats:
                     prior_buys = stats["n"] or 0
-                    if (stats["scoreable"] or 0) > 0:
-                        prior_win_rate = round(
-                            stats["wins"] / stats["scoreable"] * 100, 1
-                        )
+                    prior_scoreable = stats["scoreable"] or 0
+                    prior_wins = stats["wins"] or 0
 
     # Scale factor — simulation now runs at display capital directly
     scale = 1.0
@@ -950,7 +955,11 @@ def get_trade_detail(
         # Computed above from filings that predate this one — see the note
         # there. The stored columns they replace were NULL on every row.
         "insider_pit_n": prior_buys,
-        "insider_pit_wr": prior_win_rate,
+        # The numerator and denominator, not a percentage. "100%" reads
+        # identically at five-of-five and a hundred-of-a-hundred, and on this
+        # page it also read as "the previous buys were up 100%".
+        "insider_prior_scoreable": prior_scoreable,
+        "insider_prior_wins": prior_wins,
         "trade_value": trade_value,
 
         # The public name for the book this trade belongs to. Resolved here
