@@ -249,7 +249,38 @@ through −20% intraday and closed back above it, and one of them is **PDYN,
 +286.9% — the best trade in the book, saved by 0.7 of a point**. A low-based
 rule would have cost those four roughly 351 P&L points.
 
-**THE HEADLINE CAGR IS NEAR THE TOP OF A WIDE BAND, NOT A CENTRAL ESTIMATE.**
+**THE FRAGILE BOOK IS INSIDER BREAKOUT, NOT A-LIST — re-measured 2026-08-23.**
+
+±0.25 perturbation on conviction, 14 draws, current configs:
+
+| | min | median | max | published | below |
+|---|---|---|---|---|---|
+| A-List | 53.4% | **67.6%** | 80.3% | 63.3% | 3 of 14 |
+| Breakout | 33.7% | 49.2% | 67.4% | 64.3% | **13 of 14** |
+| Dip Buys | 31.6% | 35.3% | 37.1% | 36.5% | 10 of 14 |
+
+The August finding — A-List published near the top of a wide band — has
+INVERTED. A-List's published figure now sits *below* its perturbed median;
+Breakout is the 13-of-14 book with a 34-point band. Two consequences: read
+Breakout as the fragile one, and **A-List's gate looks mis-set**, since pure
+noise improves its median by 4.3 points.
+
+**Annual returns, 2026-08-23** — and Breakout's CAGR is ONE YEAR:
+
+| year | A-List | Breakout | Dip Buys | SPY |
+|---|---|---|---|---|
+| 2023 | +65.4% | +34.2% | +52.1% | +24.8% |
+| 2024 | +41.1% | **+231.2%** | +46.2% | +24.0% |
+| 2025 | +69.2% | +18.6% | +26.6% | +16.6% |
+| 2026 | +43.2% | +21.8% | **+10.1%** | +12.1% |
+
+That year is close to one position: PDYN was **+489.9% at the 2024 mark**
+before giving back to +296% at its January exit — the same position that
+survived its stop by 0.7 of a point. One intraday tick → one position → one
+year → the headline. A-List is the healthiest here, with no single year
+carrying it.
+
+The superseded 2026-08-20 study, kept for the shape of the argument:
 
 Measured 2026-08-20 **under the old −30% stop, and NOT yet re-run under −50%.**
 The sleeve figures below are therefore stale in level. The *shape* of the
