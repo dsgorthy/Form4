@@ -214,7 +214,20 @@ function ExecutionBadge({ source }: { source: string }) {
   if (source === "paper" || source === "live") {
     return <Badge variant="outline" className="text-[10px] border-[#22C55E]/30 text-[#22C55E]">LIVE</Badge>;
   }
-  return <Badge variant="outline" className="text-[10px] border-[#55556A]/30 text-[#55556A]">SIMULATED</Badge>;
+  // "ESTIMATED FILL", not "SIMULATED".
+  //
+  // Everything on this page is real except one thing: the filing, the insider,
+  // the grade, the rules and the prices are all actual, and what is modelled
+  // is the price we would have transacted at. "SIMULATED" put the doubt on all
+  // of it; this puts it on the part that is genuinely an estimate.
+  //
+  // Paired against LIVE above, so the distinction a reader needs — did money
+  // move — is still carried by the two labels.
+  return (
+    <Badge variant="outline" className="text-[10px] border-[#55556A]/30 text-[#55556A]">
+      ESTIMATED FILL
+    </Badge>
+  );
 }
 
 function gradeColor(grade: string | null): string {
@@ -542,25 +555,14 @@ export default async function TradeDetailPage({
         </Section>
       )}
 
-      {/* Execution details */}
-      <Section title="Execution">
-        {/* The "Fills: Estimated (daily open/close)" row is gone. The
-            SIMULATED badge on the same line already says the trade was not
-            executed, so the row restated it in more technical language and
-            invited a question the badge had already answered.
-            
-            This removes a LABEL, not the disclosure. That every figure comes
-            from estimated fills is still stated where it does real work: under
-            the performance numbers on the homepage, under the equity curve on
-            /portfolio, and in full on /performance and /disclaimer. */}
-        <Row label="Source" value={<ExecutionBadge source={trade.execution_source} />} />
-        {trade.actual_fill_price != null && (
-          <Row label="Actual Fill Price" value={`$${trade.actual_fill_price.toFixed(2)}`} mono />
-        )}
-        {trade.slippage_applied != null && (
-          <Row label="Slippage Applied" value={`${(trade.slippage_applied * 100).toFixed(2)}%`} mono />
-        )}
-      </Section>
+      {/* The Execution section is gone. It had one row left — Source —
+          and it rendered the same badge already shown beside the ticker at the
+          top of the page, so it existed to repeat itself.
+
+          Fill provenance is still disclosed where it sits next to a
+          performance claim: under the strategy numbers on the homepage, under
+          the equity curve on /portfolio, and in full on /performance and
+          /disclaimer. */}
     </div>
   );
 }
