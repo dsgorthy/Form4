@@ -204,8 +204,14 @@ It feeds conviction, which gates entry, so false flags were admitting trades
 that had not earned their score. Removing them moved the three books
 **+$79,930** and cut six unqualified positions out of Insider Breakout.
 
-Entries are verified against primary sources: 271/271 land on the first
-session we could have traded, at that session's actual open or close.
+**Every position has been audited individually.** On 2026-08-23 all 172
+simulated positions across the three books were walked one at a time and each
+stored value re-derived from source — 2,040 checks, **zero exceptions, zero PIT
+violations**. Entry sessions, fill prices to the cent, hold lengths, all 19 stop
+exits, career grades re-scored at filing date, and every signal input replayed
+through the same `entry_timing` / `evaluate_filters` the live runner uses. All
+three defects found during that audit were in the audit scripts, not the
+pipeline. Details in `docs/published_returns_methodology.md`.
 
 **Two known biases, both directional and both small.** Roughly 2% of
 qualifying candidates are dropped because the ticker has no usable price
@@ -216,19 +222,32 @@ the LAST CLOSE IT SAW, never to zero — a delisting exits at its last quote. Th
 matters more since the stop moved to −50%, because less now sits between a
 collapsing position and its time exit.
 
-**The stop is −50%, declared in each strategy yaml, and it has never fired.**
+**THE STOP IS NOT THE SAME ON EVERY BOOK. Never write "the stop" without
+naming one.** A-List Buys and Insider Dip Buys carry −50%; Insider Breakout
+carries **−20%** as of 2026-08-23. All three are declared in the strategy yaml
+and read from there by both surfaces;
+`tests/unit/test_stop_is_config_driven.py` fails the build if a module constant
+reappears or the two disagree.
+
+- **−50% on A-List / Dip Buys is a backstop and has never fired** — but it
+  clears by 2.5 points, not a wide margin: A-List's worst holding closed at
+  −47.5% (LRHC), its second worst at −47.1% (COE). Dip Buys' worst is −24.8%.
+- **−20% on Breakout is a working stop and has fired 19 times** out of 85
+  positions, averaging −22.2% on exit (13 of the 19 gapped through the level).
+  It cut the daily drawdown 49.9% → 43.8% *and raised* CAGR.
+
 Until 2026-08-20 `simulate_strategy_portfolio.py` carried
 `STOP_LOSS_PCT = -0.30` as a module constant while all three yamls said
 `stop_loss_pct: null` — and `cw_runner` reads the yaml, so for three months the
 published book simulated a stop the live alerts never applied. Removing it was
 worth +5.3 CAGR points on A-List and +3.2 on Breakout with max drawdown
-unchanged. −50% and no-stop are identical over the whole sample (nothing ever
-closed below −50%), so the backstop is inert in the figures while still capping
-a blowup. Both surfaces now read the yaml;
-`tests/unit/test_stop_is_config_driven.py` fails the build if a module constant
-reappears or the two disagree. The stop is still evaluated on the CLOSE, not the
-intraday low — checked 2026-08-20, an intraday stop would have converted four of
-255 positions into −30% losses and two of those finished POSITIVE.
+unchanged.
+
+The stop is evaluated on the CLOSE, not the intraday low, and that choice now
+carries real weight: re-measured 2026-08-23, four Breakout positions traded
+through −20% intraday and closed back above it, and one of them is **PDYN,
++286.9% — the best trade in the book, saved by 0.7 of a point**. A low-based
+rule would have cost those four roughly 351 P&L points.
 
 **THE HEADLINE CAGR IS NEAR THE TOP OF A WIDE BAND, NOT A CENTRAL ESTIMATE.**
 

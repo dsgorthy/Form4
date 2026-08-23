@@ -556,6 +556,10 @@ def get_portfolio(
     return {
         "summary": {
             "strategy": strategy,
+            # The public name travels with the figures so no surface has to
+            # retype it. api/public_fields.STRATEGIES stays the only definition
+            # — see tests/unit/test_strategy_registry.py.
+            "strategy_label": strategy_label(strategy),
             "starting_capital": starting,
             "current_equity": round(final, 2),
             "total_pnl": round((summary["total_pnl"] or 0) * scale, 2),

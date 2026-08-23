@@ -15,13 +15,55 @@ export const metadata: Metadata = {
  * the required bar is that published claims are substantiated and not
  * misleading, which the disclosures below meet.
  *
- * The detailed version — selection across eleven variants, the 46-56%
- * sensitivity band, year concentration, and the restatement history — lives in
+ * The detailed version — selection across eleven variants, the sensitivity
+ * band, year concentration, and the restatement history — lives in
  * docs/published_returns_methodology.md and is pinned by
  * tests/unit/test_published_returns.py. It stays on the record internally so
  * the figures can be defended if anyone asks; it is simply not the register
  * for a public page.
+ *
+ * THE FIGURES ARE FETCHED, NEVER TYPED. They were hard-coded until 2026-08-23
+ * and had drifted three days behind the books they describe — 58.6/45.3/37.4
+ * against an actual 64.8/64.3/38.4, on the one page whose entire job is to be
+ * accurate about them. The landing page learned this lesson already; this one
+ * now reads the same API it does.
  */
+
+const API = process.env.API_URL_INTERNAL || "http://localhost:8000/api/v1";
+
+// Rendered per request, not prerendered. The API is not reachable during the
+// image build, so a statically prerendered version of this page ships an empty
+// figures table and only fills in after the first revalidation. On a
+// low-traffic disclosure page whose entire job is to state accurate numbers,
+// that trade is the wrong way round.
+export const dynamic = "force-dynamic";
+
+// Keys only. The public name is fetched with the figures rather than typed
+// here — api/public_fields.STRATEGIES is the single definition of the label.
+const STRATEGY_KEYS = ["quality_notrend", "quality_momentum", "reversal_dip"];
+
+type Summary = {
+  strategy_label: string;
+  blended_cagr: number | null;
+  spy_cagr: number | null;
+  excess_vs_spy: number | null;
+};
+
+async function getSummary(key: string): Promise<Summary | null> {
+  try {
+    const res = await fetch(`${API}/portfolio?strategy=${key}`, {
+      next: { revalidate: 300 },
+    });
+    if (!res.ok) return null;
+    return (await res.json())?.summary ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function pct(v: number | null | undefined) {
+  return typeof v === "number" ? `${v.toFixed(1)}%` : "—";
+}
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
@@ -32,7 +74,11 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-export default function PerformancePage() {
+export default async function PerformancePage() {
+  const books = await Promise.all(STRATEGY_KEYS.map(getSummary));
+  // Every book is measured against SPY over its own window, so the index
+  // figure is per-strategy rather than one shared number.
+
   return (
     <div className="mx-auto max-w-3xl space-y-8 py-4">
       <nav className="text-sm text-[#55556A]">
@@ -97,14 +143,32 @@ export default function PerformancePage() {
         <section className="space-y-3">
           <h2 className="text-lg font-medium text-[#E8E8ED]">Current figures</h2>
           <p className="text-xs text-[#55556A]">
-            3 January 2023 to present. $100,000 start, idle cash in SPY.
-            Annualised.
+            Each strategy is measured from its own first trade to the present,
+            against the S&amp;P 500 over that identical window. $100,000 start,
+            idle cash in SPY. Annualised.
           </p>
           <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] p-5">
-            <Row label="A-List Buys" value="58.6%" />
-            <Row label="Insider Breakout" value="45.3%" />
-            <Row label="Insider Dip Buys" value="37.4%" />
-            <Row label="S&P 500, same window" value="21.4%" />
+            {books.every((b) => !b) ? (
+              <p className="text-[#8888A0]">
+                Figures are temporarily unavailable. They are published on the{" "}
+                <Link href="/portfolio" className="text-[#3B82F6] hover:underline">
+                  portfolio page
+                </Link>{" "}
+                and are not being withheld.
+              </p>
+            ) : (
+              STRATEGY_KEYS.map((key, i) => {
+                const b = books[i];
+                if (!b) return null;
+                return (
+                  <Row
+                    key={key}
+                    label={b.strategy_label}
+                    value={`${pct(b.blended_cagr)}  ·  S&P 500 ${pct(b.spy_cagr)}`}
+                  />
+                );
+              })
+            )}
           </div>
           <p>
             Every strategy we run is published, including periods where one
@@ -147,7 +211,7 @@ export default function PerformancePage() {
         </section>
 
         <p className="border-t border-[#2A2A3A] pt-6 text-xs text-[#55556A]">
-          Last updated 20 August 2026.
+          Figures update automatically. Last reviewed 23 August 2026.
         </p>
       </div>
     </div>

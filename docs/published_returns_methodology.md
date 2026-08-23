@@ -15,19 +15,28 @@ number *meant*. Every move traced to a definitional gap, not a market event.
 **Blended CAGR, always shown against SPY over the identical window, with the
 excess as the emphasised figure.**
 
-| | blended CAGR | SPY | **excess** | max DD | avg deployed |
-|---|---|---|---|---|---|
-| A-List Buys (`quality_notrend`) | 64.3% | 19.1% | **+45.2** | 13.1% / 22.6% | 62% |
-| Insider Breakout (`quality_momentum`) | 63.9% | 21.2% | **+42.7** | **43.8%** | 63% |
-| Insider Dip Buys (`reversal_dip`) | 38.1% | 21.7% | **+16.4** | 11.3% | 25% |
+| | blended CAGR | SPY | **excess** | max DD, trade-row | **max DD, daily** | avg deployed |
+|---|---|---|---|---|---|---|
+| A-List Buys (`quality_notrend`) | 64.3% | 19.1% | **+45.2** | 13.1% | **23.6%** | 62% |
+| Insider Breakout (`quality_momentum`) | 63.9% | 21.2% | **+42.7** | 20.2% | **43.8%** | 63% |
+| Insider Dip Buys (`reversal_dip`) | 38.1% | 21.7% | **+16.4** | 11.3% | **21.5%** | 25% |
 
-Measured 2026-08-22 after the tranche correction (below). **Two drawdown
-figures, and the larger one is the honest one.** The published `max_drawdown`
-walks `equity_after` on CLOSED TRADE ROWS, so it samples the book only at
-exits and cannot see a drawdown that opens and closes between them. The second
-figure walks the blended equity curve daily, marking open positions to market.
-For Insider Breakout the difference is 31.5% against 49.9% — a subscriber
-experiences the second.
+Both drawdown columns are now shown for every book, because publishing one of
+each was how Insider Dip Buys came to advertise 11.3% when a holder
+experienced 21.5%. **The right-hand column is the one to quote.**
+
+CAGRs measured 2026-08-22 after the tranche correction (below) and confirmed
+against the live API on 2026-08-23. **Two drawdown figures, and the larger one
+is the honest one.** The published `max_drawdown` walks `equity_after` on
+CLOSED TRADE ROWS, so it samples the book only at exits and cannot see a
+drawdown that opens and closes between them. The daily figure walks the blended
+equity curve, marking open positions to market — that is what a subscriber
+experiences, and on Insider Breakout it is more than double the other one.
+
+**The API still returns only the trade-row figure** in
+`summary.max_drawdown`, so any surface reading that field understates the
+drawdown. Fixing that means changing a published API field and is a decision,
+not a cleanup — it is called out here so it is not mistaken for an oversight.
 
 **Insider Breakout carries the drawdown, and it is the price of the A+/A/B
 gate.** A+/A gives ~31% CAGR at 21% drawdown but leaves the book 85% in cash;
@@ -150,6 +159,52 @@ experiences is SPY, and its Sharpe of 0.70 is the weakest of the three.
 
 ---
 
+## The per-trade audit, 2026-08-23
+
+Every one of the 172 simulated positions across the three books was walked
+individually and each stored value re-derived from source — 2,040 checks in
+two independent passes. **Zero exceptions, zero PIT violations.**
+
+| check | n | what it re-derived |
+|---|---|---|
+| entry session | 172 | `filed_at` replayed through `framework.decision.entry_timing.entry_fill` |
+| no look-ahead | 172 | before 16:00 ET → that close, after → next open. 129 (75%) were after-bell |
+| entry price | 172 | matched to the cent against `prices.daily_prices` |
+| exit price | 164 | that session's actual close |
+| hold length | 164 | SPY session calendar vs. `hold_days` in the yaml |
+| stop discipline | 164 | level rebuilt from yaml; every close walked entry→exit |
+| career grade | 172 | re-scored at filing date, filing-grouped returns only |
+| consecutive sells | 172 | recounted as filings, not lots |
+| eligibility replay | 172 | every yaml filter through the shared `evaluate_filters` |
+| SMA50 / SMA200 | 172 / 169 | recomputed from prior closes only |
+| dip_3mo | 172 | point-to-point 90-calendar-day change |
+| input as-of dates | 172 | every dated input ≤ its own `filing_date` |
+
+All 19 stop exits landed on the **first** close at or below the level, and no
+time exit concealed a breach. Entry timing and eligibility were replayed
+through the same two functions `cw_runner` calls, so a divergence between the
+published book and the live alerts would have surfaced here as a failure.
+
+**Three defects were found and all three were in the audit, not the
+pipeline** — worth recording, because it is the reason to trust the result:
+the consecutive-sells recount assumed the audited trade was the last event in
+its filing (false for SST, where one accession holds both a buy and a sell);
+`dip_3mo` was recomputed as decline-from-peak rather than point-to-point; and
+a column alias dropped `consecutive_sells_before`, flagging all 40 Dip Buys
+positions ineligible. Every time the stored value was right.
+
+Two things the audit surfaced that are not defects but change what should be
+said: the A-List backstop clears by 2.5 points rather than a wide margin, and
+Insider Breakout's best position survived its stop by 0.7. Both are recorded
+above.
+
+This audit verifies that every position is what the pipeline claims it is. It
+does not touch the two caveats that sit above it and are not defects: these
+configurations were selected on the same data they are measured over, and the
+books have only ever run in a bull market.
+
+---
+
 ## Why the numbers moved four times, and why they should stop
 
 | date | change | cause |
@@ -161,6 +216,8 @@ experiences is SPY, and its Sharpe of 0.70 is the weakest of the three.
 | 2026-08-20 | per-strategy position caps | one shared `10 x 10%` left two books ~85% in SPY |
 | 2026-08-20 | stop moved −30% → −50% | the −30% was a simulator-only override the live runner never applied |
 | 2026-08-22 | tranche correction | the scorer counted execution lots as separate trades; 21% of grades moved, A-List resized to `3 x 33%`, Breakout's gate widened to A+/A/B |
+| 2026-08-23 | Breakout stop −50% → −20% | a working stop: daily drawdown 49.9% → 43.8% with CAGR up. 19 of its 85 positions now exit on it |
+| 2026-08-23 | **no change** — per-trade audit | all 172 positions re-derived from source, 2,040 checks, zero exceptions. The figures survived verification rather than moving |
 
 Every move before 2026-08-20 was a definitional or data defect, none a market
 event, and each now has a regression test: `test_entry_timing_eastern`,
@@ -173,7 +230,7 @@ purpose — not a discovery.
 
 ---
 
-## The stop, and why it is −50%
+## The stops — −50% on two books, −20% on Insider Breakout
 
 `simulate_strategy_portfolio.py` carried `STOP_LOSS_PCT = -0.30` as a module
 constant from 2026-05-12. All three yamls said `stop_loss_pct: null`, and
@@ -192,11 +249,25 @@ No variant was ever better with the stop. Max drawdown was unchanged in-sample
 (23.5% either way on A-List) and the stop bought 1.2 points out-of-sample while
 costing 1.6 of CAGR.
 
-**−50% and no-stop produced identical results on all three books.** Nothing any
-of them held has ever closed below −50% in 3.6 years, so the backstop is inert
-in every published figure while still capping a genuine blowup. That is why the
-answer is −50% rather than removing the stop: it costs nothing measurable and
-the sample contains no bankruptcy, only a bull market.
+**−50% and no-stop produced identical results on all three books** at the time
+that was measured. Nothing any of them held has closed below −50% in 3.6 years,
+so on A-List Buys and Insider Dip Buys the backstop is still inert in every
+published figure while capping a genuine blowup. That is why the answer there
+is −50% rather than no stop: it costs nothing measurable and the sample
+contains no bankruptcy, only a bull market.
+
+**Inert is not the same as far away.** The per-trade audit on 2026-08-23 found
+A-List's worst holding closed at **−47.5%** (LRHC) and its second worst at
+−47.1% (COE). The backstop has never fired, but it cleared by 2.5 points, not
+by a comfortable margin. Insider Dip Buys is genuinely far off it at −24.8%.
+
+**Insider Breakout is different and its stop is not a backstop.** On
+2026-08-23 it moved to **−20%**, which is a working stop: it has closed **19 of
+that book's 85 positions**, averaging −22.2% on exit. It was taken because
+tightening cut the daily drawdown from 49.9% to 43.8% *and raised* CAGR — the
+one lever that improved both. Anything written about "the stop" that does not
+name a book is now wrong; the value lives in each strategy yaml and the two
+surfaces read it from there.
 
 The parameter now lives in the yaml, which both the simulator and the live
 runner read. `tests/unit/test_stop_is_config_driven.py` fails the build if a
@@ -204,8 +275,25 @@ module-level constant reappears or if the two surfaces resolve different values
 from the same config.
 
 **What this does not do.** The stop is still evaluated on the CLOSE, not the
-intraday low. Modelling it against the low was measured on 2026-08-20 and would
-have converted four of 255 positions into −30% losses, two of which actually
-finished positive (CATX +8.2%, ENVX +0.4%). All four touched the level intraday
-and recovered — the close-only check is acting as a whipsaw filter and is worth
-keeping.
+intraday low, and re-measured against the current configurations on 2026-08-23
+that choice is worth far more than it used to be. Four positions — all in
+Insider Breakout, all against its new −20% level — traded through the stop
+during the day and closed back above it:
+
+| | entry | worst intraday | actual result |
+|---|---|---|---|
+| PDYN | 2024-11-05 | −20.7% | **+286.9%** |
+| ENVX | 2023-04-25 | −30.7% | +0.4% |
+| FOUR | 2024-06-07 | −20.2% | −1.8% |
+| DNTH | 2023-09-29 | −25.6% | −14.0% |
+
+A low-based rule would have cut all four at −20%, costing roughly **351 points
+of P&L** between them. The close-only check is doing real work as a whipsaw
+filter.
+
+**It also means Insider Breakout's headline rests on 0.7 of a percentage
+point.** PDYN is the single best position in that book and it survived because
+it closed above a level it had already traded through. That is not an argument
+for changing the rule — it is an argument for knowing how much of the figure
+sits on one position, which the concentration caveat above quantifies at 88%
+for the top ten.

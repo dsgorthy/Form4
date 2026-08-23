@@ -361,7 +361,7 @@ export default async function ScoringPage() {
       <GatedSection visible={isPro} label="Portfolio strategies are Pro-only" isAuthed={isAuthed}>
         <section className="mb-14">
           <h2 className="text-xl font-bold text-[#E8E8ED] mb-1">Portfolio Strategies</h2>
-          <p className="text-sm text-[#55556A] font-mono mb-4">4 validated strategies</p>
+          <p className="text-sm text-[#55556A] font-mono mb-4">3 validated strategies</p>
           <p className="text-sm text-[#8888A0] mb-6 leading-relaxed">
             Form4 runs three independent portfolio strategies, each built from
             signals that passed rigorous out-of-sample validation on 196K+ trades.
@@ -370,9 +370,9 @@ export default async function ScoringPage() {
 
           <div className="space-y-4 mb-8">
             {[
-              { name: "A-List Buys", hold: "42 days", thesis: "An A+/A-graded insider buys, and that is the whole test — no condition on the chart at all. The trend filter the other book applies turns out to cost more in trades foregone than it saves in bad ones." },
-              { name: "Insider Breakout", hold: "42 days", thesis: "The same graded insider, but the stock is already above its 50- and 200-day averages. Conviction and price pointing the same way, at the cost of a much smaller book." },
-              { name: "Insider Dip Buys", hold: "21 days", thesis: "An insider who has sold 10+ consecutive times finally buys, while the stock is down 25%+ over three months. A behavioural reversal with a margin of safety attached." },
+              { name: "A-List Buys", hold: "42 trading days", thesis: "An A+/A-graded insider buys, and that is the whole test — no condition on the chart at all. The trend filter the other book applies turns out to cost more in trades foregone than it saves in bad ones." },
+              { name: "Insider Breakout", hold: "42 trading days", thesis: "The same graded insider, but the stock is already above its 50- and 200-day averages. Conviction and price pointing the same way, at the cost of a much smaller book." },
+              { name: "Insider Dip Buys", hold: "21 trading days", thesis: "An insider who has sold 10+ consecutive times finally buys, while the stock is down 25%+ over three months. A behavioural reversal with a margin of safety attached." },
             ].map((s) => (
               <div key={s.name} className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/40 p-4">
                 <div className="flex items-center justify-between mb-2">
@@ -384,32 +384,68 @@ export default async function ScoringPage() {
             ))}
           </div>
 
-          <h3 className="text-sm font-semibold text-[#E8E8ED] mb-3">Why No Tight Stops?</h3>
+          <h3 className="text-sm font-semibold text-[#E8E8ED] mb-3">Stops, and why they differ by strategy</h3>
           <div className="space-y-3 text-sm text-[#8888A0] leading-relaxed">
             <p>
-              All three strategies exit on a fixed holding period, with one
-              backstop: a hard stop at &minus;30%. There is no trailing stop and
-              no tight stop. That is a deliberate, data-driven decision.
+              All three strategies exit on a fixed holding period. The stop is a
+              second exit underneath that, and it is{" "}
+              <strong className="text-[#E8E8ED]">not the same on every book</strong>,
+              because the same stop does different work depending on how
+              concentrated the positions are.
+            </p>
+            <div className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/40 p-4 font-mono text-xs">
+              <div className="flex justify-between py-1 border-b border-[#2A2A3A]/60">
+                <span className="text-[#8888A0]">A-List Buys</span>
+                <span className="text-[#E8E8ED]">&minus;50% &middot; backstop, never triggered</span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-[#2A2A3A]/60">
+                <span className="text-[#8888A0]">Insider Breakout</span>
+                <span className="text-[#E8E8ED]">&minus;20% &middot; working stop, 19 exits</span>
+              </div>
+              <div className="flex justify-between py-1">
+                <span className="text-[#8888A0]">Insider Dip Buys</span>
+                <span className="text-[#E8E8ED]">&minus;50% &middot; backstop, never triggered</span>
+              </div>
+            </div>
+            <p>
+              Insider Breakout holds five positions at 20% each and is the most
+              volatile of the three. A working stop at{" "}
+              <strong className="text-[#E8E8ED]">&minus;20%</strong> cut its worst
+              drawdown from 49.9% to 43.8%{" "}
+              <em>and raised</em> its return &mdash; the rare case where tightening
+              risk costs nothing. It has closed 19 of that book&rsquo;s 85 positions.
             </p>
             <p>
-              The stop is checked on the <strong className="text-[#E8E8ED]">closing
-              price</strong>, so a stock that gaps down through it fills below
-              &minus;30%. Two of the twelve stops we have taken came out at
-              &minus;43.6% and &minus;42.3% for exactly that reason. A stop is a
-              backstop, not a guarantee, and the published returns include those
-              overshoots rather than assuming a clean exit.
+              The other two books concentrate less and recover more reliably, so
+              their &minus;50% is a catastrophe backstop rather than a trading
+              rule. Neither has ever triggered it, though not by a wide margin
+              &mdash; the worst position A-List has held closed at{" "}
+              <strong className="text-[#E8E8ED]">&minus;47.5%</strong>.
             </p>
             <p>
-              Our grid search tested every combination of stop losses and trailing stops.{" "}
-              <strong className="text-[#E8E8ED]">Tight stops reduced risk-adjusted returns by 18&ndash;25%</strong>.
-              Quality insider picks recover from temporary dips, and stops trigger whipsaw exits.
-              The &minus;30% backstop sits far enough out to leave that recovery intact &mdash; it has
-              closed 12 of 262 positions.
+              The stop is checked on the{" "}
+              <strong className="text-[#E8E8ED]">closing price</strong>, so a stock
+              that gaps down through it fills below the level. Thirteen of the
+              nineteen stops closed past &minus;20% for exactly that reason, the
+              worst at &minus;29.3%. A stop is a backstop, not a guarantee, and the
+              published returns include those overshoots rather than assuming a
+              clean exit.
             </p>
             <p>
-              These strategies have a <strong className="text-[#E8E8ED]">positive skew profile</strong>:
-              win rates of 55&ndash;61% with winners averaging 2&ndash;3x the size of losers.
-              The short fixed holding periods (21&ndash;30 days) are the risk management.
+              Checking on the close rather than the intraday low is also
+              deliberate. Four positions traded through their stop level during the
+              day and closed back above it; cutting them at the low would have
+              turned a{" "}
+              <strong className="text-[#E8E8ED]">+286.9%</strong> position into a
+              &minus;20% loss. Tight and trailing stops were tested across the full
+              grid and reduced risk-adjusted returns on every book.
+            </p>
+            <p>
+              These strategies have a{" "}
+              <strong className="text-[#E8E8ED]">positive skew profile</strong>: win
+              rates of 56&ndash;68%, with winners averaging 1.8&ndash;2.4x the size
+              of losers. The fixed holding periods &mdash; 21 to 42 trading days
+              &mdash; are the primary risk management.
             </p>
           </div>
         </section>
