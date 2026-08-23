@@ -133,6 +133,8 @@ interface TradeDetail {
   is_cluster: boolean;
   cluster_size: number | null;
   execution_source: string;
+  /** Still sent by the API and still true of every simulated row; no longer
+   *  rendered per-trade — see the Execution section. */
   is_estimated: boolean;
   slippage_applied: number | null;
   entry_reasoning: EntryReasoning | null;
@@ -208,7 +210,7 @@ function ExitReasonBadge({ reason }: { reason: string }) {
   return <Badge variant="outline" className={`text-[10px] ${cfg.color} ${cfg.border}`}>{cfg.label}</Badge>;
 }
 
-function ExecutionBadge({ source, estimated }: { source: string; estimated: boolean }) {
+function ExecutionBadge({ source }: { source: string }) {
   if (source === "paper" || source === "live") {
     return <Badge variant="outline" className="text-[10px] border-[#22C55E]/30 text-[#22C55E]">LIVE</Badge>;
   }
@@ -277,7 +279,7 @@ export default async function TradeDetailPage({
                 best trades, and the obvious question was why we entered at
                 all. The answer — an A+ insider on a validated thesis — was in
                 entry_reasoning the whole time and is now what the page shows. */}
-            <ExecutionBadge source={trade.execution_source} estimated={trade.is_estimated} />
+            <ExecutionBadge source={trade.execution_source} />
             {isOpen && <Badge variant="outline" className="text-[10px] border-[#3B82F6]/30 text-[#3B82F6]">OPEN</Badge>}
           </div>
           <div className="text-sm text-[#8888A0] mt-1">
@@ -542,8 +544,16 @@ export default async function TradeDetailPage({
 
       {/* Execution details */}
       <Section title="Execution">
-        <Row label="Source" value={<ExecutionBadge source={trade.execution_source} estimated={trade.is_estimated} />} />
-        <Row label="Fills" value={trade.is_estimated ? "Estimated (daily open/close)" : "Real broker fills"} />
+        {/* The "Fills: Estimated (daily open/close)" row is gone. The
+            SIMULATED badge on the same line already says the trade was not
+            executed, so the row restated it in more technical language and
+            invited a question the badge had already answered.
+            
+            This removes a LABEL, not the disclosure. That every figure comes
+            from estimated fills is still stated where it does real work: under
+            the performance numbers on the homepage, under the equity curve on
+            /portfolio, and in full on /performance and /disclaimer. */}
+        <Row label="Source" value={<ExecutionBadge source={trade.execution_source} />} />
         {trade.actual_fill_price != null && (
           <Row label="Actual Fill Price" value={`$${trade.actual_fill_price.toFixed(2)}`} mono />
         )}

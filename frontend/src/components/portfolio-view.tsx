@@ -87,6 +87,8 @@ interface Trade {
   exit_reason: string | null;
   status: string;
   execution_source?: string;
+  /** Not rendered. Fill provenance is disclosed under the equity curve and
+   *  on /performance, not on each row. */
   is_estimated?: boolean;
   company?: string | null;
   current_price?: number | null;
