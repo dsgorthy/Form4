@@ -107,22 +107,70 @@ same data it is measured over. There is no untouched holdout.
 tuned, and not one number: 1.5 on A-List and Breakout, 3.0 on Dip Buys. The
 simulator and `cw_runner` also default apart on it, 1.5 against 5.0, which is
 harmless only because all three yamls declare a value
-(`tests/unit/test_conviction_gate_is_config_driven.py` keeps it that way) — and the 2026-08-20 perturbation study is now STALE** — it was run before the tranche correction
-changed both `career_grade` and `is_largest_ever`, which are two of the gate's
-inputs. Its finding was a ±5 band around a 50% sleeve from a ±0.25 perturbation,
-less than one of the ~12 half-point components. The *shape* is a property of
-the gate and should survive; the centre must be re-measured before anyone
-quotes a band. Do not reuse those numbers.
+(`tests/unit/test_conviction_gate_is_config_driven.py` keeps it that way).**
 
-**Year concentration and the annual table below are STALE** — measured
-2026-08-20, before the correction rebuilt every book. Re-run before quoting.
+**Perturbation study re-run 2026-08-23** — ±0.25 on conviction, 14 draws per
+book, against current configs. The wide-band shape survived. Which book sits at
+the top of its band did not:
+
+| | min | median | max | published | draws below published |
+|---|---|---|---|---|---|
+| A-List Buys | 53.4% | **67.6%** | 80.3% | 63.3% | **3 of 14** |
+| Insider Breakout | 33.7% | 49.2% | 67.4% | 64.3% | **13 of 14** |
+| Insider Dip Buys | 31.6% | 35.3% | 37.1% | 36.5% | 10 of 14 |
+
+**The "published figure sits near the top of a wide band" caveat has moved from
+A-List Buys to Insider Breakout.** In August it was A-List with 13 of 14 draws
+below its published figure; that is now Breakout, whose band spans 34 points
+(33.7–67.4). A-List has inverted — its published 63.3% is *below* the perturbed
+median of 67.6%, with only 3 of 14 draws under it.
+
+Two things follow. First, **Breakout should be read as the fragile book now**,
+which agrees with the annual table below: its CAGR is one year, and that year is
+close to one position. Second, **A-List's gate looks mis-set** — adding pure
+noise to conviction improves its median outcome by 4.3 points, which is not what
+a well-placed threshold does. That is the strongest evidence yet for the
+`min_conviction` tuning flagged since August, and it is an opportunity rather
+than a defect.
+
+Dip Buys is narrow (±3 points) and unremarkable, as expected for a book that is
+79% in SPY.
+
+Method: `compute_conviction` wrapped with a seeded uniform ±0.25 offset, 14
+seeds, everything else at the shipping configuration. Trade counts moved 44–46
+(A-List), 71–81 (Breakout), 34–39 (Dip Buys), so the mechanism is still which
+candidates clear the floor, not how many.
+
+**Annual returns, re-measured 2026-08-23** against the current configurations
+(blended, marked daily, each book from its own first trade):
 
 | year | A-List | Breakout | Dip Buys | SPY |
 |---|---|---|---|---|
-| 2023 | +63.9% | +44.9% | +48.4% | +24.8% |
-| 2024 | +26.3% | +47.5% | +38.4% | +24.0% |
-| 2025 | +86.5% | +34.8% | +43.8% | +16.6% |
-| 2026 | +40.8% | +41.6% | **+3.9%** | +12.6% |
+| 2023 | +65.4% | +34.2% | +52.1% | +24.8% |
+| 2024 | +41.1% | **+231.2%** | +46.2% | +24.0% |
+| 2025 | +69.2% | +18.6% | +26.6% | +16.6% |
+| 2026 | +43.2% | +21.8% | **+10.1%** | +12.1% |
+
+**Insider Breakout's CAGR is one year, and that year is close to one
+position.** Strip 2024 and the remaining three years are +34.2%, +18.6% and
++21.8% — respectable against SPY, and nothing like 64%. The blended book went
+131,801 → 436,579 across 2024, and the largest single driver is PDYN: bought at
+$2.08 on 2024-11-05, **up 489.9% by 31 December**, then given back to +296% by
+its 2025-01-07 exit. That is why 2024 reads +231% and 2025 only +18.6% — the
+same position, marked on either side of a year boundary.
+
+**PDYN is also the position that survived its stop by 0.7 of a point** (it
+traded to −20.7% intraday against a −20% stop and closed above it, see the
+audit below). So the chain is: one intraday tick → one position → one year →
+the headline CAGR. This is the concentration caveat made concrete, and it is a
+stronger statement than "top-10 trades are 88% of P&L".
+
+A-List is by far the healthiest of the three on this measure: four years of
++41% to +69%, no single year carrying the result.
+
+**Insider Dip Buys is still behind SPY in 2026** (+10.1% vs +12.1%) and remains
+ON WATCH — better than the +3.9% vs +12.6% measured before the correction, but
+still behind.
 
 **Insider Dip Buys is underperforming SPY in 2026** (+3.9% vs +12.6%) and its
 2026 trades average −3.40% with a 37.5% win rate. It is on watch: if it

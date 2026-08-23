@@ -219,7 +219,24 @@ def test_public_pages_carry_every_current_name(rel):
         STRATEGY_LABELS[k] for k in ACTIVE_STRATEGIES
         if STRATEGY_LABELS[k] not in body
     ]
-    assert not missing, f"{rel} does not mention {missing}"
+    if not missing:
+        return
+
+    # A page that FETCHES its labels satisfies the intent better than one that
+    # types them — it cannot go stale at all. /onboarding moved to that pattern
+    # on 2026-08-23 after its typed stats were found wrong on seven of nine
+    # numbers. Such a page must still enumerate every strategy KEY, because the
+    # failure this test exists to catch is a book silently disappearing from a
+    # page, and that is just as possible with keys as with names.
+    missing_keys = [k for k in ACTIVE_STRATEGIES if k not in body]
+    assert not missing_keys, (
+        f"{rel} does not mention {missing} by name, and is missing the keys "
+        f"{missing_keys} too — a strategy has been dropped from the page"
+    )
+    assert "strategy_label" in body, (
+        f"{rel} names no strategy and does not read strategy_label from the "
+        "API either, so it renders no identifiable book"
+    )
 
 
 def test_methodology_page_does_not_claim_we_run_without_stops():

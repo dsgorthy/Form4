@@ -1,203 +1,84 @@
-"use client";
+import OnboardingForm, { type StrategyChoice } from "./onboarding-form";
 
-import { useState } from "react";
-import { useUser, useAuth } from "@clerk/nextjs";
-import { useRouter } from "next/navigation";
-import { posthog } from "@/lib/posthog";
+/**
+ * Onboarding — the strategy picker.
+ *
+ * THE STATS ARE FETCHED, NEVER TYPED.
+ *
+ * They were typed until 2026-08-23 and were wrong on seven of nine numbers.
+ * The worst was trade frequency: A-List Buys advertised "~40 trades/yr" and
+ * delivers ~14, so the first thing a new subscriber saw set their expectation
+ * for alert volume at nearly three times reality. Insider Breakout claimed a
+ * 70% win rate against an actual 56%.
+ *
+ * This is the same defect as /performance and /research/methodology, found the
+ * same afternoon: prose about the books, with nothing between it and the books.
+ * The fix is the same — read the API that computes the figures.
+ */
 
-const STRATEGIES = [
-  {
-    value: "quality_notrend",
-    label: "A-List Buys",
-    brief: "A proven insider buys \u2014 the person is the whole signal",
-    stats: "+37 pts vs S&P \u00b7 67% WR \u00b7 ~40 trades/yr",
-  },
-  {
-    value: "quality_momentum",
-    label: "Insider Breakout",
-    brief: "A proven insider buys a stock already trending up",
-    stats: "+24 pts vs S&P \u00b7 70% WR \u00b7 ~15 trades/yr",
-  },
-  {
-    value: "reversal_dip",
-    label: "Insider Dip Buys",
-    brief: "A serial seller finally buys, into a 25% drawdown",
-    stats: "+16 pts vs S&P \u00b7 65% WR \u00b7 ~15 trades/yr",
-  },
+// Rendered per request. Prerendered at build the API is unreachable, so the
+// page would ship with no figures at all until the first revalidation — on the
+// screen where a subscriber chooses which book to follow.
+export const dynamic = "force-dynamic";
+
+const API = process.env.API_URL_INTERNAL || "http://localhost:8000/api/v1";
+
+// Keys and theses only. The public name and every figure come from the API;
+// api/public_fields.STRATEGIES is the single definition of the label.
+const CHOICES = [
+  { value: "quality_notrend", brief: "A proven insider buys — the person is the whole signal" },
+  { value: "quality_momentum", brief: "A proven insider buys a stock already trending up" },
+  { value: "reversal_dip", brief: "A serial seller finally buys, into a 25% drawdown" },
 ];
 
-const REFERRAL_SOURCES = [
-  { value: "search", label: "Search" },
-  { value: "social", label: "Social Media" },
-  { value: "referral", label: "Recommendation" },
-  { value: "press", label: "News / Blog" },
-  { value: "community", label: "Finance Community" },
-  { value: "other", label: "Other" },
-];
+type Summary = {
+  strategy_label: string;
+  excess_vs_spy: number | null;
+  win_rate: number | null;
+  total_trades: number | null;
+  first_trade: string | null;
+};
 
-export default function OnboardingPage() {
-  const { user } = useUser();
-  const { getToken } = useAuth();
-  const router = useRouter();
-
-  const existing = user?.unsafeMetadata as Record<string, string> | undefined;
-
-  const [selectedStrategy, setSelectedStrategy] = useState<string>(existing?.defaultStrategy || "quality_momentum");
-  const [referral, setReferral] = useState<string>(existing?.referralSource || "");
-  const [submitting, setSubmitting] = useState(false);
-
-  const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
-
-  async function submit(skipped: boolean) {
-    if (!user) return;
-    setSubmitting(true);
-
-    try {
-      const prev = (user.unsafeMetadata || {}) as Record<string, unknown>;
-      await user.update({
-        unsafeMetadata: {
-          ...prev,
-          onboardingComplete: true,
-          ...(skipped
-            ? { onboardingSkipped: !prev.defaultStrategy }
-            : {
-                onboardingSkipped: false,
-                defaultStrategy: selectedStrategy,
-                referralSource: referral || null,
-              }),
-        },
-      });
-
-      if (!skipped) {
-        const token = await getToken();
-        fetch(`${apiBase}/onboarding`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({
-            default_strategy: selectedStrategy,
-            referral_source: referral || null,
-          }),
-        }).catch(() => {});
-      }
-
-      try {
-        posthog.capture("onboarding_complete", {
-          skipped,
-          strategy: skipped ? null : selectedStrategy,
-          referral_source: skipped ? null : referral || null,
-        });
-      } catch {
-        // posthog uninitialized in dev — non-blocking
-      }
-
-      router.push(`/portfolio?strategy=${selectedStrategy}`);
-    } catch {
-      setSubmitting(false);
-    }
+async function getSummary(key: string): Promise<Summary | null> {
+  try {
+    const res = await fetch(`${API}/portfolio?strategy=${key}`, {
+      next: { revalidate: 3600 },
+    });
+    if (!res.ok) return null;
+    return (await res.json())?.summary ?? null;
+  } catch {
+    return null;
   }
+}
 
-  return (
-    <div className="min-h-screen bg-[#07070C] flex items-start justify-center pt-12 px-4 pb-16">
-      <div className="w-full max-w-lg">
-        <div className="text-center mb-6">
-          <h1 className="text-2xl font-bold text-[#E8E8ED] mb-2">
-            Welcome to Form<span className="text-[#3B82F6]">4</span>
-          </h1>
-          <p className="text-sm text-[#8888A0]">
-            We run three live insider-trading strategies. Pick the one you want to follow first.
-          </p>
-        </div>
+/** Trades per year over the book's actual life, not a remembered round number. */
+function perYear(s: Summary): string {
+  if (!s.total_trades || !s.first_trade) return "";
+  const years = (Date.now() - new Date(s.first_trade).getTime()) / 31_557_600_000;
+  if (years < 0.5) return "";
+  return ` · ~${Math.round(s.total_trades / years)} trades/yr`;
+}
 
-        {/* The trial, said out loud at the only moment the user is certain to
-            be reading.
-            
-            It was already granted automatically and already surfaced — a
-            banner on every page and a six-email ladder from day 0 — but
-            nowhere in the signup flow did anything say what had just been
-            given. A thin strip above the fold is easy to read as an upsell;
-            the sentence below is the one that lands, because it arrives while
-            the user is still deciding whether this was worth signing up for.
-            
-            No card was taken and none is required, so that is stated plainly:
-            it is the single most reassuring fact available here and leaving it
-            implied wastes it. */}
-        <div className="mb-8 rounded-lg border border-[#22C55E]/25 bg-[#22C55E]/5 px-5 py-4 text-center">
-          <p className="text-sm font-semibold text-[#22C55E]">
-            Your 7 days of Pro start now — free
-          </p>
-          <p className="mt-1.5 text-xs leading-relaxed text-[#8888A0]">
-            Every strategy, the full filing feed, insider ratings and real-time
-            alerts. No card required, and nothing to cancel.
-          </p>
-        </div>
+function statLine(s: Summary): string {
+  const parts: string[] = [];
+  if (typeof s.excess_vs_spy === "number") {
+    parts.push(`${s.excess_vs_spy > 0 ? "+" : ""}${s.excess_vs_spy.toFixed(0)} pts vs S&P`);
+  }
+  if (typeof s.win_rate === "number") parts.push(`${s.win_rate.toFixed(0)}% WR`);
+  return parts.join(" · ") + perYear(s);
+}
 
-        {/* Strategy selection */}
-        <div className="mb-8 space-y-3">
-          {STRATEGIES.map((s) => (
-            <button
-              key={s.value}
-              type="button"
-              onClick={() => setSelectedStrategy(s.value)}
-              className={`w-full text-left rounded-lg border p-4 transition-all ${
-                selectedStrategy === s.value
-                  ? "border-[#3B82F6] bg-[#3B82F6]/10 ring-1 ring-[#3B82F6]/50"
-                  : "border-[#2A2A3A] bg-[#12121A] hover:border-[#55556A] hover:bg-[#1A1A26]"
-              }`}
-            >
-              <div className="flex items-center gap-2 mb-1">
-                <span className={`text-sm font-semibold ${selectedStrategy === s.value ? "text-[#3B82F6]" : "text-[#E8E8ED]"}`}>
-                  {s.label}
-                </span>
-              </div>
-              <div className="text-xs text-[#8888A0] mb-1">{s.brief}</div>
-              <div className="text-[10px] text-[#55556A] font-mono">{s.stats}</div>
-            </button>
-          ))}
-        </div>
-
-        {/* Referral (optional, compact) */}
-        <div className="mb-8">
-          <h2 className="text-sm font-semibold text-[#E8E8ED] mb-2">
-            How did you find us? <span className="text-[#55556A] font-normal">Optional</span>
-          </h2>
-          <div className="flex flex-wrap gap-2">
-            {REFERRAL_SOURCES.map((opt) => (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => setReferral(referral === opt.value ? "" : opt.value)}
-                className={`rounded-full px-3 py-1.5 text-xs font-medium transition-all ${
-                  referral === opt.value
-                    ? "bg-[#3B82F6] text-white"
-                    : "border border-[#2A2A3A] text-[#8888A0] hover:border-[#55556A] hover:text-[#E8E8ED]"
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="space-y-3">
-          <button
-            onClick={() => submit(false)}
-            disabled={submitting}
-            className="w-full rounded-lg bg-[#3B82F6] px-4 py-3 text-sm font-semibold text-white hover:bg-[#2563EB] transition-colors disabled:opacity-40"
-          >
-            {submitting ? "Setting up..." : "Follow this strategy"}
-          </button>
-          <button
-            onClick={() => submit(true)}
-            disabled={submitting}
-            className="w-full text-center text-xs text-[#55556A] hover:text-[#8888A0] transition-colors py-1"
-          >
-            Skip for now
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+export default async function OnboardingPage() {
+  const summaries = await Promise.all(CHOICES.map((c) => getSummary(c.value)));
+  const strategies: StrategyChoice[] = CHOICES.map((c, i) => {
+    const s = summaries[i];
+    return {
+      value: c.value,
+      // Fall back to the key only if the API is unreachable; never a typed name.
+      label: s?.strategy_label ?? c.value,
+      brief: c.brief,
+      stats: s ? statLine(s) : "",
+    };
+  });
+  return <OnboardingForm strategies={strategies} />;
 }

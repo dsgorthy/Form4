@@ -284,9 +284,30 @@ export default async function LandingPage() {
             <Tile span="md:col-span-2 md:row-span-2" className="flex flex-col justify-center">
               <TileLabel>What you make in the month after the filing, above the S&amp;P</TileLabel>
               <div className="mt-6 space-y-6">
+                {/*
+                  Re-derived 2026-08-23. These had drifted (2.33 / 0.91 on
+                  8,721 / 91,859 buys) and no longer reproduced: the counts
+                  were ~5x low, and the grades underneath them were rebuilt by
+                  the tranche correction, which moved 21% of career grades.
+                  The claim got STRONGER — the gap is 4.2x, not 2.6x.
+
+                  Reproduce with:
+                    SELECT CASE WHEN t.career_grade IN ('A+','A')
+                                THEN 'top' ELSE 'rest' END,
+                           count(*),
+                           avg(tr.return_30d - tr.spy_return_30d) * 100
+                      FROM trades t
+                      JOIN trade_returns tr ON tr.trade_id = t.trade_id
+                     WHERE t.trade_type = 'buy'
+                       AND tr.return_30d IS NOT NULL
+                       AND tr.spy_return_30d IS NOT NULL
+                     GROUP BY 1;
+                  career_grade is PIT-stamped at filing_date, so this is the
+                  grade as it was knowable, not hindsight.
+                */}
                 {[
-                  { label: "Buying with our top-graded insiders", pct: 2.33, n: "8,721 buys", tone: "#22C55E", w: "100%" },
-                  { label: "Buying with every insider", pct: 0.91, n: "91,859 buys", tone: "#55556A", w: "39%" },
+                  { label: "Buying with our top-graded insiders", pct: 2.21, n: "15,193 buys", tone: "#22C55E", w: "100%" },
+                  { label: "Buying with every insider", pct: 0.53, n: "497,075 buys", tone: "#55556A", w: "24%" },
                 ].map((r) => (
                   <div key={r.label}>
                     <div className="flex items-baseline justify-between gap-4">
