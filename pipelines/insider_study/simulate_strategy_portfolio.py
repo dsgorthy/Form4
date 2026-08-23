@@ -96,9 +96,17 @@ STRATEGY_CONFIG = {
     # the PIT strategy class remain; re-add the entry here to resume.
 }
 
-#: Grade column the simulator gates on. "career_grade" is what ships;
-#: "career_grade_grouped" is the shadow column holding filing-grouped scores,
-#: written by the A/B backfill. Nothing user-facing reads the shadow.
+#: Grade column the simulator gates on.
+#:
+#: Exists so a scoring change can be measured against the shipped grades before
+#: it is adopted: write the candidate scores to a shadow column, point this at
+#: it, and run identical rules over both. That is how the 2026-08-22 tranche
+#: correction was evaluated — `career_grade_grouped` held the filing-grouped
+#: scores while every published surface still read `career_grade`.
+#:
+#: The shadow was dropped once the correction was adopted, because a second
+#: copy of a published grade is its own drift risk. Recreate one per experiment
+#: rather than leaving it lying around.
 GRADE_COLUMN = "career_grade"
 
 STARTING_CAPITAL = 100_000.0
