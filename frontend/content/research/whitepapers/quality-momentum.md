@@ -112,7 +112,11 @@ Each qualifying signal is sized at 10% of strategy capital, with a hard cap of 1
 
 ### Entry and exit logic
 
-Entry is at the closing price on the filing date for filings made during market hours, or at the next-day open for filings made after the regular session. Exit is at the closing price after 42 trading days from entry. There is no stop-loss. Grid-search testing across stop-loss levels from -5% through -25% showed that introducing a stop-loss systematically degrades Sharpe in this strategy. Quality-conditioned insider buys tend to recover from intraperiod drawdowns when the underlying thesis is intact; cutting the trade short throws away signal.
+Entry is at the closing price on the filing date for filings made during market hours, or at the next-day open for filings made after the regular session. Exit is at the closing price after 42 trading days from entry, or on a **-20% stop evaluated on the close**.
+
+The stop is a revision. This paper originally reported no stop-loss, on grid-search evidence that levels from -5% through -25% degraded Sharpe. That result was measured when the strategy held ten positions at 10% each; at the shipped five positions at 20%, a single -50% loss costs the book twice as much, and the conclusion reverses. Re-measured 2026-08-23, a -20% stop cut the worst daily drawdown from 49.9% to 43.8% *and raised* return. It has closed 19 of the strategy's 85 positions.
+
+The stop is checked against the closing price rather than the intraday low, which is deliberate: four positions have traded through the level during the session and closed back above it, and cutting them at the low would have converted a +286.9% position into a -20% loss. Thirteen of the nineteen stops closed below -20% because the price gapped through, the worst at -29.3%; the published returns carry those overshoots rather than assuming a clean exit.
 
 ### Capital efficiency
 

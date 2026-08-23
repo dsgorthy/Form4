@@ -129,7 +129,9 @@ Entry is at the closing price on the filing date for filings made during market 
 
 Exit is at the closing price after 21 trading days. This is shorter than the Quality + Momentum exit and reflects the empirical decay profile of the rare-reversal signal: most of the abnormal return materializes within the first three weeks. Sweeps from 10 to 60 trading days showed Sharpe peaks between days 18 and 24. We selected 21 as the operational mid-point.
 
-There is no stop-loss. Grid-search testing across stop-loss levels from -5% through -25% showed that introducing a stop-loss systematically degrades Sharpe by 15-20% in this strategy. Stocks in 25% drawdown are by construction volatile; tight stops produce whipsaw exits. The 21 trading day fixed hold is itself a soft stop — the strategy bounds downside via duration rather than price.
+There is no trading stop. Grid-search testing across stop-loss levels from -5% through -25% showed that introducing one systematically degrades Sharpe by 15-20% in this strategy. Stocks in 25% drawdown are by construction volatile; tight stops produce whipsaw exits. The 21 trading day fixed hold is itself a soft stop — the strategy bounds downside via duration rather than price.
+
+A **-50% catastrophic backstop** sits underneath that, evaluated on the close. It exists to cap a genuine collapse, not to manage trades, and it has never triggered: the worst position this strategy has held closed at -24.8%, so every figure in this paper is identical to a book with no stop at all.
 
 ### Capital efficiency
 
@@ -168,7 +170,7 @@ Five controls protect against the above risks:
 - The combined filter is rare enough that trade overlap with other strategies is structurally minimal — total cross-strategy capital exposure is bounded.
 - A portfolio-level drawdown circuit breaker halts new entries when cumulative drawdown exceeds 15% of strategy capital.
 - The 5-position concurrent cap limits idiosyncratic single-name exposure even at full deployment.
-- The 21 trading day fixed hold is itself a duration-bounded soft stop.
+- The 21 trading day fixed hold is itself a duration-bounded soft stop, with a -50% catastrophic backstop underneath it that has never triggered.
 - Daily reconciliation between strategy state and the executing brokerage account flags any implementation drift inside 24 hours.
 
 ---
@@ -177,7 +179,7 @@ Five controls protect against the above risks:
 
 ### Position-level exit
 
-Each position exits at the closing price on the 21st trading day after entry. There is no stop-loss and no trailing stop. The hold period is the only exit lever.
+Each position exits at the closing price on the 21st trading day after entry. There is no trading stop and no trailing stop; a -50% catastrophic backstop exists but has never triggered, so the hold period is the only exit lever that has ever fired.
 
 ### Strategy-level exit
 

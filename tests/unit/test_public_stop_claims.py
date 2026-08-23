@@ -28,6 +28,10 @@ REPO = Path(__file__).resolve().parents[2]
 CONFIGS = REPO / "strategies/cw_strategies/configs"
 METHODOLOGY_PAGE = REPO / "frontend/src/app/research/methodology/page.tsx"
 METHODOLOGY_DOC = REPO / "docs/published_returns_methodology.md"
+WHITEPAPERS = {
+    "quality_momentum": REPO / "frontend/content/research/whitepapers/quality-momentum.md",
+    "reversal_dip": REPO / "frontend/content/research/whitepapers/reversal-dip.md",
+}
 
 ACTIVE = ["quality_notrend", "quality_momentum", "reversal_dip"]
 
@@ -104,4 +108,37 @@ def test_methodology_doc_publishes_both_drawdown_figures():
     body = METHODOLOGY_DOC.read_text()
     assert "max DD, trade-row" in body and "max DD, daily" in body, (
         "the headline table no longer carries both drawdown columns"
+    )
+
+
+# ── the whitepapers describe the same books and drifted the same way ────────
+
+
+@pytest.mark.parametrize("key,path", sorted(WHITEPAPERS.items()))
+def test_whitepaper_does_not_deny_a_stop_its_yaml_declares(key, path):
+    """Both published whitepapers said "There is no stop-loss" — four times
+    between them — while every yaml declared one. For Insider Breakout that had
+    become badly wrong: a -20% working stop closes 19 of its 85 positions.
+
+    A paper may say there is no TRADING stop, which is a claim about how the
+    stop is used. It may not say there is no stop."""
+    assert path.exists(), f"{path.name} moved — update this map"
+    body = path.read_text()
+    assert _stop(key) < 0, f"{key} declares no stop; this test's premise is gone"
+    for denial in ("There is no stop-loss", "there is no stop-loss",
+                   "no stop-loss and no trailing stop"):
+        assert denial not in body, (
+            f"{path.name} says {denial!r} while {key}.yaml declares "
+            f"{_stop(key):.0%}. Describe how the stop is USED, not that it is absent."
+        )
+
+
+@pytest.mark.parametrize("key,path", sorted(WHITEPAPERS.items()))
+def test_whitepaper_names_its_own_stop_level(key, path):
+    """The level has to appear, so a change to the yaml forces a look here."""
+    body = path.read_text()
+    level = f"{abs(round(_stop(key) * 100))}%"
+    assert level in body, (
+        f"{path.name} never names its own stop level ({level}); it cannot be "
+        "checked against the yaml and will drift again"
     )
