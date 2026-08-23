@@ -169,8 +169,8 @@ to move.
 | Key | Public name | Status | CAGR | Key Metric |
 |-----|-------------|--------|------|------------|
 | quality_notrend | **A-List Buys** | LIVE alert-only | 64.3% blended (+45.2 vs SPY), 3x33% | A+/A insider buys, no chart condition. 141 closed sim trades. The strongest book: the trend filter QM applies costs more in trades foregone than it saves — QM fills 2.6 of 10 slots against notrend's 6.4. |
-| quality_momentum | **Insider Breakout** | LIVE alert-only | 61.8% blended (+40.6 vs SPY), 5x20%, A+/A/B, **~50% max DD** | Same insider grade, plus above SMA50 and SMA200. 55 closed sim trades. Kept as the A/B control. |
-| reversal_dip | **Insider Dip Buys** | LIVE alert-only | 38.1% blended (+16.4 vs SPY), 4x25%, ON WATCH + **UNVERIFIED** | 10+ consecutive sells then a buy, into a 25%+ 3-month drawdown. Genuinely lumpy — went dark Dec 2025–Feb 2026 and again Jun–Aug 2026, then fired 3 in a month. Sparse alerts are expected, not a fault. |
+| quality_momentum | **Insider Breakout** | LIVE alert-only | 63.9% blended (+42.7 vs SPY), 5x20%, A+/A/B, -20% stop, 44% max DD | Same insider grade, plus above SMA50 and SMA200. 55 closed sim trades. Kept as the A/B control. |
+| reversal_dip | **Insider Dip Buys** | LIVE alert-only | 38.1% blended (+16.4 vs SPY), 4x25%, ON WATCH (verified 2026-08-23) | 10+ consecutive sells then a buy, into a 25%+ 3-month drawdown. Genuinely lumpy — went dark Dec 2025–Feb 2026 and again Jun–Aug 2026, then fired 3 in a month. Sparse alerts are expected, not a fault. |
 
 CAGRs are as of 2026-08-22, after the TRANCHE CORRECTION: the scorer had been
 counting execution lots as separate trades, so a purchase filled in five

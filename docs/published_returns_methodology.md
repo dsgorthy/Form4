@@ -18,7 +18,7 @@ excess as the emphasised figure.**
 | | blended CAGR | SPY | **excess** | max DD | avg deployed |
 |---|---|---|---|---|---|
 | A-List Buys (`quality_notrend`) | 64.3% | 19.1% | **+45.2** | 13.1% / 22.6% | 62% |
-| Insider Breakout (`quality_momentum`) | 61.8% | 21.2% | **+40.6** | 31.5% / **49.9%** | 63% |
+| Insider Breakout (`quality_momentum`) | 63.9% | 21.2% | **+42.7** | **43.8%** | 63% |
 | Insider Dip Buys (`reversal_dip`) | 38.1% | 21.7% | **+16.4** | 11.3% | 25% |
 
 Measured 2026-08-22 after the tranche correction (below). **Two drawdown
@@ -29,16 +29,16 @@ figure walks the blended equity curve daily, marking open positions to market.
 For Insider Breakout the difference is 31.5% against 49.9% — a subscriber
 experiences the second.
 
-**Insider Breakout's drawdown roughly doubled and that was a choice.** It came
-from widening the grade gate to A+/A/B, not from sizing:
+**Insider Breakout carries the drawdown, and it is the price of the A+/A/B
+gate.** A+/A gives ~31% CAGR at 21% drawdown but leaves the book 85% in cash;
+A+/A/B gives ~64% at 44% and 63% deployed. Every sizing shows the same split,
+so widening buys the return and the drawdown together.
 
-| gate | trades | CAGR | max DD | deployed |
-|---|---|---|---|---|
-| A+/A | 22 | ~31% | 21% | 15% |
-| A+/A/B | 81 | ~62% | 50% | 63% |
-
-Every sizing tested shows the same split, so the gate buys the return and the
-drawdown together. A+/A leaves the book 85% in cash.
+A **-20% stop** (2026-08-23) took it from 49.9% to 43.8% while raising CAGR,
+which is as far as it goes: no configuration reaches 60%+ CAGR below ~43%
+drawdown. Dropping to 10x10% gets 34% drawdown for 45% CAGR. The stop is the
+only lever that works — a circuit breaker halts ENTRIES and the drawdown comes
+from positions already held, so it changes the figure by nothing.
 
 Position caps, current: **A-List `3 x 33%`, Breakout `5 x 20%`, Dip Buys
 `4 x 25%`.** A-List moved from `10 x 10%` on 2026-08-22 because the tranche
@@ -140,11 +140,13 @@ unfitted trade-level test after regrading showed trades keeping A+/A returning
 +17.8% median against +6.4% for those losing it. The corrected grade ranks
 better even where the book it feeds does worse. Re-run the CIs before quoting.
 
-**Insider Dip Buys was NOT part of the A/B that chose these configurations,**
-and its primary filter — `consecutive_sells_before` — changed materially in the
-same correction: a third of its qualifying signals were tranche-inflated. Its
-38.1% should be treated as unverified until it has been tested the way the
-other two were.
+**Insider Dip Buys is now verified** (2026-08-23). Its primary filter lost a
+third of its qualifying signals to the tranche correction, so the threshold was
+re-tested: `min_consecutive_sells` is flat from 10 down to 6 (36.5 / 36.4 /
+36.6% CAGR) and worse below, and 10 has the best Sharpe. Sizing was swept from
+`6 x 17%` to `2 x 50%`; the shipped `4 x 25%` is best on Sharpe. No change
+warranted — but note it is only 19% deployed, so four-fifths of what a holder
+experiences is SPY, and its Sharpe of 0.70 is the weakest of the three.
 
 ---
 
