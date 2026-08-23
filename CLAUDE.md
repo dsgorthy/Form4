@@ -269,10 +269,15 @@ noise improves its median by 4.3 points.
 
 | year | A-List | Breakout | Dip Buys | SPY |
 |---|---|---|---|---|
-| 2023 | +65.4% | +34.2% | +52.1% | +24.8% |
-| 2024 | +41.1% | **+231.2%** | +46.2% | +24.0% |
-| 2025 | +69.2% | +18.6% | +26.6% | +16.6% |
-| 2026 | +43.2% | +21.8% | **+10.1%** | +12.1% |
+| 2023 | +53.2%* | +34.2% | +49.1%* | +24.8% |
+| 2024 | +42.2% | **+231.2%** | +46.7% | +24.0% |
+| 2025 | +72.1% | +18.6% | +26.8% | +16.6% |
+| 2026 | +44.4% | +21.8% | **+10.1%** | +12.1% |
+
+\* partial first year. These are what the API serves. **OPEN ITEM:** a fresh
+re-simulation matches Breakout exactly but disagrees with the API on A-List and
+Dip Buys — persisted `strategy_portfolio` rows vs re-simulating the yaml. Two
+surfaces, one question, different answers. Run it down.
 
 That year is close to one position: PDYN was **+489.9% at the 2024 mark**
 before giving back to +296% at its January exit — the same position that

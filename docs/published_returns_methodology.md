@@ -144,12 +144,27 @@ candidates clear the floor, not how many.
 **Annual returns, re-measured 2026-08-23** against the current configurations
 (blended, marked daily, each book from its own first trade):
 
-| year | A-List | Breakout | Dip Buys | SPY |
+| year | A-List | Breakout | Dip Buys | SPY (calendar) |
 |---|---|---|---|---|
-| 2023 | +65.4% | +34.2% | +52.1% | +24.8% |
-| 2024 | +41.1% | **+231.2%** | +46.2% | +24.0% |
-| 2025 | +69.2% | +18.6% | +26.6% | +16.6% |
-| 2026 | +43.2% | +21.8% | **+10.1%** | +12.1% |
+| 2023 | +53.2%* | +34.2% | +49.1%* | +24.8% |
+| 2024 | +42.2% | **+231.2%** | +46.7% | +24.0% |
+| 2025 | +72.1% | +18.6% | +26.8% | +16.6% |
+| 2026 | +44.4% | +21.8% | **+10.1%** | +12.1% |
+
+\* partial — that book started mid-year. SPY is the full calendar year in every
+row, because the three books start on three different dates and a shared column
+cannot be one of their partial windows.
+
+**These are the figures the API serves and the site shows** (`/performance`).
+A fresh re-simulation from the yamls gives the same numbers for Breakout to the
+decimal but differs on A-List (+65.4 / +41.1 / +69.2 / +43.2) and Dip Buys
+(+52.1 / +46.2 / +26.6 / +10.1). The API reads persisted `strategy_portfolio`
+rows; the harness re-simulates. **That gap is unexplained and is an open item**
+— it is the same shape as every defect this document records, two surfaces
+answering one question differently, and it should be run down before either set
+is quoted anywhere new. The direction and the concentration finding are
+unaffected: both agree Breakout's 2024 is +231.2% and both agree A-List has no
+single dominant year.
 
 **Insider Breakout's CAGR is one year, and that year is close to one
 position.** Strip 2024 and the remaining three years are +34.2%, +18.6% and
