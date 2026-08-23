@@ -409,19 +409,36 @@ export default async function TradeDetailPage({
             ) : trade.insider_name
           } />
           <Row label="Title" value={trade.insider_title || "—"} />
+          {/* "PIT" is internal vocabulary — it appears nowhere a subscriber
+              could learn it, and the panel's title already says these are
+              as-of-entry figures. Both values are computed from filings that
+              predate this one; see the note in api/routers/portfolio.py. */}
           <Row
-            label="PIT Win Rate (7d)"
-            value={trade.insider_pit_wr != null ? `${trade.insider_pit_wr}%` : "—"}
+            label="Buys before this one"
+            value={trade.insider_pit_n != null ? String(trade.insider_pit_n) : "—"}
+            mono
+          />
+          {/* The denominator ships with the rate. This insider's 100% is five
+              of five, and a bare "100%" invites a reader to weigh it like a
+              hundred of a hundred. */}
+          <Row
+            label="How those worked out"
+            value={
+              trade.insider_pit_wr != null
+                ? `${trade.insider_pit_wr}% up after 7 days`
+                : trade.insider_pit_n
+                  ? "Not enough time has passed to score them"
+                  : "—"
+            }
             mono
             color={trade.insider_pit_wr != null && trade.insider_pit_wr >= 60 ? "text-[#22C55E]" : undefined}
           />
-          <Row label="PIT Trade Count" value={er?.insider?.pit_n_trades ?? trade.insider_pit_n ?? "—"} mono />
           {er?.insider?.pit_win_rate_30d != null && (
-            <Row label="PIT Win Rate (30d)" value={`${(er.insider.pit_win_rate_30d * 100).toFixed(0)}%`} mono />
+            <Row label="Win rate (30d)" value={`${(er.insider.pit_win_rate_30d * 100).toFixed(0)}%`} mono />
           )}
           {er?.insider?.pit_avg_abnormal_7d != null && (
             <Row
-              label="PIT Avg Abnormal (7d)"
+              label="Avg vs market (7d)"
               value={`${er.insider.pit_avg_abnormal_7d > 0 ? "+" : ""}${(er.insider.pit_avg_abnormal_7d * 100).toFixed(1)}%`}
               mono
               color={er.insider.pit_avg_abnormal_7d > 0 ? "text-[#22C55E]" : "text-[#EF4444]"}

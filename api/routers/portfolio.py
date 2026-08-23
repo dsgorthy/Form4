@@ -813,10 +813,13 @@ def get_trade_detail(
     # that had an insider attached.
     insider_id = None
     insider_slug = None
+    prior_buys = None
+    prior_win_rate = None
+    trade_value = row.get("trade_value")
     if row.get("trade_id"):
         with get_db() as conn2:
             insider_row = conn2.execute(
-                """SELECT t.insider_id, i.slug
+                """SELECT t.insider_id, i.slug, t.value, t.filing_date
                      FROM trades t
                      LEFT JOIN insiders i ON i.insider_id = t.insider_id
                     WHERE t.trade_id = ?""",
@@ -825,6 +828,59 @@ def get_trade_detail(
             if insider_row:
                 insider_id = insider_row["insider_id"]
                 insider_slug = insider_row["slug"]
+                # strategy_portfolio.trade_value is NULL on all 352 simulated
+                # rows; the figure is on the source filing the whole time.
+                trade_value = trade_value or insider_row["value"]
+
+            # The insider's record AS OF THIS FILING, computed here rather than
+            # read from a column.
+            #
+            # strategy_portfolio.insider_pit_n and .insider_pit_wr are NULL on
+            # every row ever written, and trades.pit_n_trades is NULL on all
+            # 4,375 recent buys, so the "Insider at Time of Entry" panel showed
+            # "—" for every trade on the site. Benjamin Wood was carrying an A+
+            # career grade beside "PIT Trade Count —", having filed five times
+            # before.
+            #
+            # PIT DISCIPLINE, because the panel's own title is a point-in-time
+            # claim:
+            #   * only filings strictly BEFORE this one are counted;
+            #   * a prior trade only enters the win rate once its 7d return was
+            #     OBSERVABLE — trade_date + 10 days on or before this filing
+            #     date. Without that lag the panel would grade an entry using
+            #     outcomes that had not happened yet, which is the exact
+            #     violation reference_signal_registry catalogues.
+            #
+            # Buys only. A sell "wins" by falling, and mixing the two into one
+            # percentage produces a number that means nothing in either
+            # direction.
+            if insider_id and insider_row and insider_row["filing_date"]:
+                stats = conn2.execute(
+                    """SELECT
+                           COUNT(*) AS n,
+                           COUNT(tr.return_7d) FILTER (
+                               WHERE p.trade_date::date + 10 <= ?::date
+                           ) AS scoreable,
+                           COUNT(*) FILTER (
+                               WHERE tr.return_7d > 0
+                                 AND p.trade_date::date + 10 <= ?::date
+                           ) AS wins
+                         FROM trades p
+                         LEFT JOIN trade_returns tr ON tr.trade_id = p.trade_id
+                        WHERE p.insider_id = ?
+                          AND p.filing_date < ?
+                          AND p.trans_code = 'P'
+                          AND p.superseded_by IS NULL
+                          AND (p.is_duplicate = 0 OR p.is_duplicate IS NULL)""",
+                    (insider_row["filing_date"], insider_row["filing_date"],
+                     insider_id, insider_row["filing_date"]),
+                ).fetchone()
+                if stats:
+                    prior_buys = stats["n"] or 0
+                    if (stats["scoreable"] or 0) > 0:
+                        prior_win_rate = round(
+                            stats["wins"] / stats["scoreable"] * 100, 1
+                        )
 
     # Scale factor — simulation now runs at display capital directly
     scale = 1.0
@@ -891,9 +947,11 @@ def get_trade_detail(
         # values like "GroupPresident IntlVehiclePmts" all reach us verbatim.
         # api/titles is the single definition — see reference_rating_taxonomy.
         "insider_title": clean_title(row.get("insider_title")),
-        "insider_pit_n": row.get("insider_pit_n"),
-        "insider_pit_wr": round(row["insider_pit_wr"] * 100, 1) if row.get("insider_pit_wr") else None,
-        "trade_value": row.get("trade_value"),
+        # Computed above from filings that predate this one — see the note
+        # there. The stored columns they replace were NULL on every row.
+        "insider_pit_n": prior_buys,
+        "insider_pit_wr": prior_win_rate,
+        "trade_value": trade_value,
 
         # The public name for the book this trade belongs to. Resolved here
         # because api/public_fields is the single place a label may be typed —
