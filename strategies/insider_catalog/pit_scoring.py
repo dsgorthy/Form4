@@ -378,8 +378,22 @@ def _bayesian_window_quality_v3(
 class BayesianScorerV3(InsiderScorer):
     """V3 scorer — career-track-record interpretation of insider grade.
 
-    Used in isolation for V3 backtest validation. Not yet wired into
-    production. See pit_scoring.py docstring above for design rationale.
+    THIS IS THE PRODUCTION SCORER. It produces every career_grade the product
+    publishes: the A+/A/B/C a reader sees on a filing, an insider profile and a
+    trade detail page, and the input the strategies' conviction gate reads.
+
+    The docstring said "not yet wired into production" until 2026-08-22, long
+    after compute_career_grades.py and backfill_live.py were both calling it.
+    Anyone reading it would have concluded that changing this class was safe.
+
+    Design rationale in the pit_scoring.py module docstring above. Two
+    properties worth knowing before touching it:
+
+      * ONE observation is enough to publish a grade (`sufficient = total_n
+        >= 1`). 31% of graded 2026 buys rest on a single prior filing.
+      * total_weight drives how hard the Beta prior shrinks a thin record, so
+        the observation COUNT matters as much as the outcomes. That is why
+        _get_returns groups by filing rather than by execution lot.
     """
 
     @property
@@ -491,8 +505,28 @@ def compute_insider_ticker_score(
         # filing_date <= as_of_date ensures we KNEW about the trade — without
         # it, late-filed trades (filing_date >> trade_date) leak into earlier
         # scores. ~5% of trades have filing_lag > 10 days.
+        # ONE OBSERVATION PER FILING, not per execution lot.
+        #
+        # A Form 4 reports a single decision as however many tranches it filled
+        # in, and every tranche carries its own trade_returns row. Ungrouped,
+        # the scorer counted the ladder: Benjamin Wood's one CDNL purchase in
+        # May 2026 arrived as five observations, and his August purchase as
+        # two.
+        #
+        # This is not cosmetic. total_weight is the term that decides how hard
+        # the Beta prior shrinks a thin record toward the mean, so five copies
+        # of one trade make one lucky outcome look like a track record. Wood
+        # scored 2.8163 -> A+ on a single purchase; grouped, the same purchase
+        # shrinks to roughly 1.30 -> B. Across 2026 graded buys, 57% were
+        # inflated this way and the scorer saw an average 60.7 observations
+        # where 37.2 filings existed.
+        #
+        # Lots of one filing share a ticker and a trade_date, so their abnormal
+        # returns are the same number; AVG collapses them without weighting
+        # games. Grouped on ticker too, so an accession covering two issuers
+        # stays two observations.
         query = f"""
-            SELECT t.trade_date, tr.{col}
+            SELECT MIN(t.trade_date) AS trade_date, AVG(tr.{col}) AS ret
             FROM trades t
             JOIN trade_returns tr ON t.trade_id = tr.trade_id
             WHERE t.insider_id = ? AND t.trade_type = 'buy'
@@ -504,6 +538,10 @@ def compute_insider_ticker_score(
         if ticker_val:
             query += " AND t.ticker = ?"
             params.append(ticker_val)
+        query += """
+            GROUP BY t.ticker,
+                     COALESCE(t.filing_key, t.accession, t.trade_date::text)
+        """
         return [(r[0], r[1]) for r in conn.execute(query, params).fetchall()]
 
     # Role lookup

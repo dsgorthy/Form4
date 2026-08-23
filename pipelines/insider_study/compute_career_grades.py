@@ -56,8 +56,23 @@ def main() -> int:
 
     conn = get_connection()
 
+    # BUYS AND SELLS BOTH GET A GRADE.
+    #
+    # The grade describes the PERSON, not the transaction —
+    # api/ratings.py defines the Insider Rating as 1-to-1 with
+    # (insider, ticker, as_of_date). It is still COMPUTED only from their buys,
+    # because that is the side the +3.46pp separation was validated on and a
+    # sell "wins" by falling; what changes here is which rows it gets stamped
+    # onto.
+    #
+    # Until now this wrote buys only, so a reader saw a rating on an insider's
+    # purchase and nothing on the same person's sale the following week. Worse,
+    # the corpus was already inconsistent: 395,168 legacy sells carry a grade
+    # from an earlier backfill, and sells filed after May 2026 carry none —
+    # 4,382 graded in April, 1,719 in May, 0 in June onward. So the product
+    # showed a rating on old sells and a blank on new ones.
     where_clauses = [
-        "trans_code = 'P'",
+        "trans_code IN ('P', 'S')",
         "filing_date >= ?",
     ]
     params = [args.since]

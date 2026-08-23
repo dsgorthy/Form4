@@ -27,7 +27,7 @@ sys.path.insert(0, str(_Path(__file__).resolve().parents[2]))
 import argparse
 import csv
 import time
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -288,37 +288,64 @@ def compute_purchase_size_metrics(conn) -> int:
     # So: load the FULL history for comparison, and restrict only which rows
     # get written.
     rows = conn.execute("""
-        SELECT trade_id, insider_id, ticker, trans_code, trade_date, value
+        SELECT trade_id, insider_id, ticker, trans_code, trade_date,
+               COALESCE(filing_key, accession) AS filing_key, value
         FROM trades
         WHERE value > 0
         ORDER BY insider_id, ticker, trans_code, trade_date, trade_id
     """).fetchall()
     print(f"  Loaded {len(rows):,} trades with value > 0 (full history for comparison)")
 
-    # Group by (insider_id, ticker, trans_code)
-    groups = defaultdict(list)
+    # COMPARE FILINGS, NOT LOTS.
+    #
+    # This compared individual execution rows, so "the largest purchase they
+    # have ever made" meant "a bigger tranche than any previous tranche".
+    # Benjamin Wood's August CDNL buy filled in two lots, $534,451 and
+    # $480,143; the larger one was flagged largest-ever and the page said so.
+    # His actual August purchase was $1,014,594 — and his May purchase, filled
+    # in five lots, was $1,025,900. August was NOT his largest, and we
+    # published that it was.
+    #
+    # 26.6% of flags flip once filings are compared. That is the same order as
+    # the 23.7% error the --since window bug produced in August, from a
+    # different cause.
+    #
+    # Every lot of a filing inherits the filing's verdict, so downstream
+    # readers that look at any single row still get the right answer.
+    filings = defaultdict(list)
     for row in rows:
-        trade_id, insider_id, ticker, trans_code, trade_date, value = row
-        groups[(insider_id, ticker, trans_code)].append((trade_id, trade_date, value))
+        trade_id, insider_id, ticker, trans_code, trade_date, filing_key, value = row
+        key = (insider_id, ticker, trans_code)
+        filings[key].append((filing_key or str(trade_date), trade_id, trade_date, value))
 
     updates = []
-    for key, trades in groups.items():
-        # trades already sorted by trade_date
+    for key, lots in filings.items():
+        # Collapse to one entry per filing, preserving first-seen order.
+        by_filing = OrderedDict()
+        for fk, trade_id, trade_date, value in lots:
+            if fk not in by_filing:
+                by_filing[fk] = {"date": trade_date, "value": 0.0, "ids": []}
+            by_filing[fk]["value"] += value
+            by_filing[fk]["ids"].append(trade_id)
+            by_filing[fk]["date"] = min(by_filing[fk]["date"], trade_date)
+
         prior_values = []
         prior_max = 0.0
-        for trade_id, trade_date, value in trades:
+        for fk, f in by_filing.items():
+            value, trade_date = f["value"], f["date"]
             if prior_values:
                 avg_prior = sum(prior_values) / len(prior_values)
                 ratio = value / avg_prior if avg_prior > 0 else None
                 largest = 1 if value > prior_max else 0
             else:
-                ratio = None  # first trade — no prior reference
+                ratio = None  # first filing — no prior reference
                 largest = 1   # genuinely their first, so genuinely the largest
             # Only write rows inside the requested window. The comparison above
             # always walks the whole history, so a short --since no longer
             # rewrites the past OR mistakes a window boundary for a career start.
             if trade_date >= MIN_DATE:
-                updates.append((ratio, largest, trade_id))
+                for trade_id in f["ids"]:
+                    updates.append((ratio, largest, trade_id))
             prior_values.append(value)
             prior_max = max(prior_max, value)
 
