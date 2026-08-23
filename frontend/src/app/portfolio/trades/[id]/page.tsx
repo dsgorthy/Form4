@@ -126,8 +126,8 @@ interface TradeDetail {
   signal_quality: number | null;   // internal only — never rendered
   strategy_label?: string | null;
   insider_slug?: string | null;
-  insider_prior_scoreable?: number | null;
-  insider_prior_wins?: number | null;
+  insider_first_buy?: string | null;
+  is_largest_ever?: boolean | null;
   signal_grade: string | null;
   is_csuite: boolean;
   holdings_pct_change: number | null;
@@ -232,24 +232,24 @@ function ExecutionBadge({ source }: { source: string }) {
   );
 }
 
-/** How the insider's earlier buys turned out, as a phrase rather than a ratio.
+/** The insider's filing history as of this trade — how established they are,
+ *  not how their last trade went.
  *
- *  One prior buy is the usual case on this page, and "1 of 1 rose within 7
- *  days" is not a sentence anyone says. A single trade gets a word; several
- *  get a count. Neither gets a percentage — it would hide a sample size of
- *  one, which is exactly the thing a reader needs to see.
+ *  The outcome of one prior buy at 7 days was the previous version of this
+ *  row. It was a single observation on a window unrelated to the 42-day hold,
+ *  sitting beside a career grade that answers the same question with a
+ *  validated model. Tenure and count say something the grade does not: whether
+ *  the grade rests on a long record or a short one.
  */
-function priorOutcome(
-  wins: number | null | undefined,
-  scoreable: number | null | undefined,
-  total: number | null | undefined,
-): string {
-  if (!scoreable) return total ? "Too recent to say" : "—";
-  const w = wins ?? 0;
-  if (scoreable === 1) return w === 1 ? "Higher" : "Lower";
-  if (w === scoreable) return `All ${scoreable} higher`;
-  if (w === 0) return `All ${scoreable} lower`;
-  return `${w} of ${scoreable} higher`;
+function buyHistory(count: number | null | undefined, firstBuy: string | null | undefined): string {
+  if (!count) return "No earlier buys on record";
+  const noun = count === 1 ? "buy" : "buys";
+  if (!firstBuy) return `${count} earlier ${noun}`;
+  const since = new Date(firstBuy).toLocaleDateString("en-US", {
+    month: "short",
+    year: "numeric",
+  });
+  return `${count} earlier ${noun}, first in ${since}`;
 }
 
 function gradeColor(grade: string | null): string {
@@ -435,40 +435,21 @@ export default async function TradeDetailPage({
               could learn it, and the panel's title already says these are
               as-of-entry figures. Both values are computed from filings that
               predate this one; see the note in api/routers/portfolio.py. */}
-          {/* Filings, not rows. One Form 4 reports a laddered purchase as
-              several lots, and counting rows counted the ladder — this insider
-              showed 5 for what was a single decision filled across five
-              prices. */}
-          <Row
-            label="Buys before this one"
-            value={trade.insider_pit_n != null ? String(trade.insider_pit_n) : "—"}
-            mono
-          />
-          {/* The denominator ships with the rate. This insider's 100% is five
-              of five, and a bare "100%" invites a reader to weigh it like a
-              hundred of a hundred. */}
-          {/* Phrasing, third attempt. "100% up after 7 days" read as though
-              the buys had DOUBLED; "1 of 1 rose within 7 days" fixed the
-              ambiguity and replaced it with arithmetic nobody says out loud.
+          {/* Facts about the person, not results from one trade.
               
-              A single prior buy is the common case here, so the one-trade
-              wording is the one that has to sound natural: "Higher", not
-              "1 of 1". Plurals fall back to a count, which is where a count
-              actually earns its place.
-              
-              Still no percentage. It hides the sample size, and the sample is
-              usually one. */}
+              Filings, not rows: one Form 4 reports a laddered purchase as
+              several lots, and counting rows counted the ladder. */}
           <Row
-            label="7 days later"
-            value={priorOutcome(trade.insider_prior_wins, trade.insider_prior_scoreable, trade.insider_pit_n)}
-            color={
-              trade.insider_prior_scoreable
-                ? (trade.insider_prior_wins ?? 0) / trade.insider_prior_scoreable >= 0.6
-                  ? "text-[#22C55E]"
-                  : "text-[#EF4444]"
-                : undefined
-            }
+            label="Buying history"
+            value={buyHistory(trade.insider_pit_n, trade.insider_first_buy)}
           />
+          {trade.is_largest_ever && (
+            <Row
+              label="This purchase"
+              value="The largest they have made"
+              color="text-[#22C55E]"
+            />
+          )}
           {er?.insider?.pit_win_rate_30d != null && (
             <Row label="Win rate (30d)" value={`${(er.insider.pit_win_rate_30d * 100).toFixed(0)}%`} mono />
           )}

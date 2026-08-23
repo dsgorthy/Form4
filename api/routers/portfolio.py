@@ -814,8 +814,8 @@ def get_trade_detail(
     insider_id = None
     insider_slug = None
     prior_buys = None
-    prior_scoreable = None
-    prior_wins = None
+    first_buy_date = None
+    is_largest_ever = None
     trade_value = row.get("trade_value")
     if row.get("trade_id"):
         with get_db() as conn2:
@@ -833,44 +833,36 @@ def get_trade_detail(
                 # rows; the figure is on the source filing the whole time.
                 trade_value = trade_value or insider_row["value"]
 
-            # The insider's record AS OF THIS FILING, computed here rather than
-            # read from a column.
+            # WHO THIS PERSON WAS when we entered — not how their last trade
+            # turned out.
             #
-            # strategy_portfolio.insider_pit_n and .insider_pit_wr are NULL on
-            # every row ever written, and trades.pit_n_trades is NULL on all
-            # 4,375 recent buys, so the "Insider at Time of Entry" panel showed
-            # "—" for every trade on the site.
+            # This row used to report the outcome of the insider's previous
+            # buys at 7 days. Three problems, none of them fixable by
+            # rewording: it is usually a SINGLE observation; the 7-day window
+            # is unrelated to the 42-day hold the strategy actually runs; and
+            # career_grade already answers "is this person worth following"
+            # with a validated 5-year model, so a raw n=1 outcome beside it
+            # either agrees (redundant) or disagrees (alarming for no reason).
+            #
+            # What replaces it is history rather than results: how long they
+            # have been filing, how many times they have bought before, and
+            # whether this purchase is the biggest they have made. All three
+            # are PIT-safe by construction — they use only filings that predate
+            # this one — and all three are well populated (350, 267 and 227 of
+            # 352 positions respectively).
             #
             # GROUPED BY FILING, NOT BY ROW. A Form 4 reports one decision as
-            # however many execution lots it filled in, and counting rows
-            # counts the ladder. Benjamin Wood's "5 prior buys" were five lots
-            # of a single accession on a single day, laddered $49.89 to $54.33
-            # — one decision. Across the simulated book the raw count is 3,212
-            # against 1,242 actual filings, so rows overstate by 2.6x. Same
-            # grouping key as /insiders/{id}/trades, so the two agree.
-            #
-            # PIT DISCIPLINE, because the panel's own title is a point-in-time
-            # claim:
-            #   * only filings strictly BEFORE this one are counted;
-            #   * a filing enters the win rate only once its 7d return was
-            #     OBSERVABLE — trade_date + 10 days on or before this filing
-            #     date. Without that lag the panel would grade an entry using
-            #     outcomes that had not happened yet, which is the exact
-            #     violation reference_signal_registry catalogues.
-            #
-            # Buys only. A sell "wins" by falling, and averaging the two gives
-            # a percentage that means nothing in either direction.
+            # however many execution lots it filled in. Benjamin Wood's "5
+            # prior buys" were five lots of one accession, laddered $49.89 to
+            # $54.33 — one decision. Across the book raw rows count 3,212
+            # against 1,242 filings, a 2.6x overstatement. Same grouping key as
+            # /insiders/{id}/trades, so the two surfaces agree.
             if insider_id and insider_row and insider_row["filing_date"]:
-                stats = conn2.execute(
-                    """SELECT COUNT(*) AS n,
-                              COUNT(*) FILTER (WHERE observable) AS scoreable,
-                              COUNT(*) FILTER (WHERE observable AND ret > 0) AS wins
+                hist = conn2.execute(
+                    """SELECT COUNT(*) AS n, MIN(first_filed) AS first_filed
                          FROM (
-                           SELECT MAX(tr.return_7d) AS ret,
-                                  BOOL_OR(p.trade_date::date + 10 <= ?::date
-                                          AND tr.return_7d IS NOT NULL) AS observable
+                           SELECT MIN(p.filing_date) AS first_filed
                              FROM trades p
-                             LEFT JOIN trade_returns tr ON tr.trade_id = p.trade_id
                             WHERE p.insider_id = ?
                               AND p.filing_date < ?
                               AND p.trans_code = 'P'
@@ -879,13 +871,18 @@ def get_trade_detail(
                             GROUP BY COALESCE(p.filing_key, p.accession,
                                               p.trade_date::text)
                          ) f""",
-                    (insider_row["filing_date"], insider_id,
-                     insider_row["filing_date"]),
+                    (insider_id, insider_row["filing_date"]),
                 ).fetchone()
-                if stats:
-                    prior_buys = stats["n"] or 0
-                    prior_scoreable = stats["scoreable"] or 0
-                    prior_wins = stats["wins"] or 0
+                if hist:
+                    prior_buys = hist["n"] or 0
+                    first_buy_date = hist["first_filed"]
+
+                largest = conn2.execute(
+                    "SELECT is_largest_ever FROM trades WHERE trade_id = ?",
+                    (row["trade_id"],),
+                ).fetchone()
+                if largest:
+                    is_largest_ever = bool(largest["is_largest_ever"])
 
     # Scale factor — simulation now runs at display capital directly
     scale = 1.0
@@ -955,11 +952,8 @@ def get_trade_detail(
         # Computed above from filings that predate this one — see the note
         # there. The stored columns they replace were NULL on every row.
         "insider_pit_n": prior_buys,
-        # The numerator and denominator, not a percentage. "100%" reads
-        # identically at five-of-five and a hundred-of-a-hundred, and on this
-        # page it also read as "the previous buys were up 100%".
-        "insider_prior_scoreable": prior_scoreable,
-        "insider_prior_wins": prior_wins,
+        "insider_first_buy": str(first_buy_date) if first_buy_date else None,
+        "is_largest_ever": is_largest_ever,
         "trade_value": trade_value,
 
         # The public name for the book this trade belongs to. Resolved here
