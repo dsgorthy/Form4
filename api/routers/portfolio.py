@@ -195,10 +195,30 @@ def _blended_inner(conn, strategy: str, starting: float, years: float):
         return None
     blended = ((equity / starting) ** (1 / years) - 1) * 100
     bench = ((spy[days[-1]] / spy[days[0]]) ** (1 / years) - 1) * 100
+    # SPY per year comes in TWO flavours and they are not interchangeable.
+    #
+    #   `spy`          — over this book's own window, so the first (partial)
+    #                    year is a like-for-like comparison.
+    #   `spy_calendar` — the full calendar year, independent of any book.
+    #
+    # A shared SPY column across three books that started on three different
+    # dates has to use the calendar figure, otherwise it silently shows one
+    # book's partial-year index return next to another book's full year. That
+    # shipped for about an hour on 2026-08-23: the table read +14.8% for 2023,
+    # which is SPY from A-List's 15 February start, not SPY for 2023.
+    cal: dict[str, list] = {}
+    for d in sorted(spy):
+        y = d[:4]
+        if y not in cal:
+            cal[y] = [spy[d], spy[d]]
+        cal[y][1] = spy[d]
     annual = [
         {"year": y,
          "strategy": round((v[1] / v[0] - 1) * 100, 1) if v[0] else None,
-         "spy": round((v[3] / v[2] - 1) * 100, 1) if v[2] else None}
+         "spy": round((v[3] / v[2] - 1) * 100, 1) if v[2] else None,
+         "spy_calendar": (round((cal[y][1] / cal[y][0] - 1) * 100, 1)
+                          if y in cal and cal[y][0] else None),
+         "partial": y == days[0][:4] and days[0][5:] > "01-05"}
         for y, v in sorted(yr.items())
     ]
     return {"cagr": blended, "spy": bench,

@@ -42,7 +42,17 @@ export const dynamic = "force-dynamic";
 // here — api/public_fields.STRATEGIES is the single definition of the label.
 const STRATEGY_KEYS = ["quality_notrend", "quality_momentum", "reversal_dip"];
 
-type AnnualRow = { year: string; strategy: number | null; spy: number | null };
+type AnnualRow = {
+  year: string;
+  strategy: number | null;
+  /** SPY over this book's own window — like-for-like in a partial first year. */
+  spy: number | null;
+  /** SPY over the full calendar year, independent of any book. The shared
+   *  column must use this, or it shows one book's partial-year index return
+   *  beside another book's full year. */
+  spy_calendar: number | null;
+  partial: boolean;
+};
 
 type Summary = {
   strategy_label: string;
@@ -209,17 +219,19 @@ export default async function PerformancePage() {
                   <tr key={y} className="border-b border-[#2A2A3A]/60 last:border-0">
                     <td className="px-4 py-2 text-[#8888A0]">{y}</td>
                     {books.map((b, i) => {
-                      const v = b?.annual_returns?.find((a) => a.year === y)?.strategy;
+                      const row = b?.annual_returns?.find((a) => a.year === y);
+                      const v = row?.strategy;
                       return (
                         <td key={STRATEGY_KEYS[i]} className="px-4 py-2 text-right text-[#E8E8ED]">
                           {typeof v === "number" ? `${v > 0 ? "+" : ""}${v.toFixed(1)}%` : "—"}
+                          {row?.partial && <span className="ml-1 text-[#55556A]">*</span>}
                         </td>
                       );
                     })}
                     <td className="px-4 py-2 text-right text-[#8888A0]">
                       {(() => {
                         const sv = books
-                          .map((b) => b?.annual_returns?.find((a) => a.year === y)?.spy)
+                          .map((b) => b?.annual_returns?.find((a) => a.year === y)?.spy_calendar)
                           .find((x) => typeof x === "number");
                         return typeof sv === "number" ? `${sv > 0 ? "+" : ""}${sv.toFixed(1)}%` : "—";
                       })()}
@@ -230,9 +242,10 @@ export default async function PerformancePage() {
             </table>
           </div>
           <p className="text-xs text-[#55556A]">
-            Each strategy&apos;s first year is partial — it runs from that
-            book&apos;s first trade, not from 1 January. Worst peak-to-trough
-            decline, marked daily:{" "}
+            * Partial year — the book started mid-year, so it is not a full
+            twelve months against the index. The S&amp;P column is the full
+            calendar year in every row. Worst peak-to-trough decline, marked
+            daily:{" "}
             {books
               .filter(Boolean)
               .map((b) => `${b!.strategy_label} ${b!.max_drawdown_daily?.toFixed(1) ?? "—"}%`)
