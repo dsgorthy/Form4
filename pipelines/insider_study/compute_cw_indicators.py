@@ -425,15 +425,26 @@ def compute_recurring_purchase(conn) -> int:
     # could not ever SET is_recurring and actively ERASED whatever a full run
     # had set. 42 flags survive across 66,711 trades filed this year.
     rows = conn.execute("""
-        SELECT trade_id, insider_id, ticker, trade_date
+        SELECT trade_id, insider_id, ticker, trade_date,
+               COALESCE(filing_key, accession, CAST(trade_date AS TEXT)) AS filing_key
         FROM trades
         WHERE trans_code = 'P'
         ORDER BY insider_id, ticker, trade_date
     """).fetchall()
 
+    # ONE ENTRY PER FILING. The ">= 3 purchases" gate below counted execution
+    # rows, so a single purchase filled in three tranches cleared it — 3,108
+    # insider/ticker pairs qualified on lots alone. The gap-pattern test that
+    # follows is meaningless between two lots of one filing anyway: they share
+    # a trade_date, so the interval is zero.
     groups = defaultdict(list)
-    for trade_id, insider_id, ticker, trade_date in rows:
-        groups[(insider_id, ticker)].append((trade_id, trade_date))
+    seen = defaultdict(set)
+    for trade_id, insider_id, ticker, trade_date, filing_key in rows:
+        key = (insider_id, ticker)
+        if filing_key in seen[key]:
+            continue
+        seen[key].add(filing_key)
+        groups[key].append((trade_id, trade_date))
 
     # Check interval patterns
     PATTERNS = {
@@ -520,32 +531,53 @@ def compute_consecutive_sells(conn) -> int:
 
     # Load ALL trades for accurate counting. UPDATE filter happens below.
     rows = conn.execute("""
-        SELECT trade_id, insider_id, ticker, trade_type, trade_date
+        SELECT trade_id, insider_id, ticker, trade_type, trade_date,
+               COALESCE(filing_key, accession, CAST(trade_date AS TEXT)) AS filing_key
         FROM trades
         ORDER BY insider_id, ticker, trade_date, trade_id
     """).fetchall()
     print(f"  Loaded {len(rows):,} trades (full history)")
 
     groups = defaultdict(list)
-    for trade_id, insider_id, ticker, trade_type, trade_date in rows:
-        groups[(insider_id, ticker)].append((trade_id, trade_type, trade_date))
+    for trade_id, insider_id, ticker, trade_type, trade_date, filing_key in rows:
+        groups[(insider_id, ticker)].append(
+            (trade_id, trade_type, trade_date, filing_key))
 
+    # COUNT SELL DECISIONS, NOT EXECUTION LOTS.
+    #
+    # A sale filled in five tranches is five rows and one decision, so counting
+    # rows made "10 consecutive sells" reachable by two or three actual sales.
+    # That gate is reversal_dip's primary filter. Collapsing lots changes 19.2%
+    # of stored values and takes the >=10 population from 5,643 to 3,799 — a
+    # third of the signals that book fires on were inflated.
+    #
+    # Consecutive lots of ONE filing collapse into a single event; two separate
+    # filings on the same day stay two, which is why the key is the filing
+    # rather than the date.
     updates = []
     for key, trades in groups.items():
-        for idx, (trade_id, trade_type, trade_date) in enumerate(trades):
+        events = []
+        for trade_id, trade_type, trade_date, filing_key in trades:
+            if events and events[-1][0] == filing_key and events[-1][1] == trade_type:
+                events[-1][2].append((trade_id, trade_date))
+            else:
+                events.append([filing_key, trade_type, [(trade_id, trade_date)]])
+
+        for idx, (filing_key, trade_type, members) in enumerate(events):
             if trade_type != "buy":
-                continue
-            # Only update recent trades — the count uses the full prior list
-            # but writes only roll forward.
-            if trade_date < MIN_DATE:
                 continue
             count = 0
             for j in range(idx - 1, -1, -1):
-                if trades[j][1] == "sell":
+                if events[j][1] == "sell":
                     count += 1
                 else:
                     break
-            updates.append((count, trade_id))
+            # Only update recent trades — the count uses the full prior list
+            # but writes only roll forward.
+            for trade_id, trade_date in members:
+                if trade_date < MIN_DATE:
+                    continue
+                updates.append((count, trade_id))
 
         if len(updates) >= BATCH_SIZE:
             flush_updates(conn, "trades", ["consecutive_sells_before"], updates)
