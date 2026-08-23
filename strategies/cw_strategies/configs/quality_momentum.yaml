@@ -56,7 +56,17 @@ filters:
   # Career Grade (V3 scorer) — career-cumulative track record, stable over
   # long gaps. Replaces pit_grade (Recent Form) here per backtest validation
   # 2026-05-07: V3 +0.93pp annual return, +0.02 Sharpe vs V2.
-  career_grade: ["A+", "A"]
+  # WIDENED to A+/A/B on 2026-08-22, with the grading fix.
+  #
+  # The A+/A bar was calibrated against grades inflated by tranche-counting, so
+  # holding it fixed while the scale beneath it corrected was a tightening, not
+  # a constant. At A+/A the corrected book fell to 14 trades and 11% deployed.
+  #
+  # A+/A/B at the shipped 5x20% gives 75 trades, 63.8% CAGR, +42.5 vs SPY, 61%
+  # deployed — better than the 48.0% / +26.7 this book published on the old
+  # grades. It survives the correction because above_sma50/above_sma200 do
+  # independent work; A-List, which gates on the grade alone, does not.
+  career_grade: ["A+", "A", "B"]
   above_sma50: 1
   above_sma200: 1
   exclude_recurring: true

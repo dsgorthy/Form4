@@ -8,8 +8,24 @@ alert_prefix: "[QNT]"
 # account each" rule in CLAUDE.md is about order-submitting strategies.
 alpaca_env_prefix: null
 starting_capital: 100000
-position_size_pct: 0.10
-max_concurrent: 10
+# RESIZED 2026-08-22, when the grading bug below was fixed.
+#
+# pit_scoring counted execution tranches as independent observations, so a
+# purchase filled in five lots scored as five successful trades. Grouping by
+# filing removed 58% of this book's A+/A candidates and average concurrent
+# positions fell 6.8 -> 3.6, leaving 10x10% only 20% deployed.
+#
+# Swept 10x10, 8x12.5, 6x16.7, 5x20, 4x25, 3x33 on the corrected grades:
+# 3x33% was best at 46.5% CAGR / +25.3 vs SPY / 48% deployed.
+#
+# THIS BOOK IS WORSE UNDER CORRECTED GRADES AND NO SIZING RECOVERS IT.
+# 62.6% / +41.3 became 46.5% / +25.3 — the old figure was computed on grades
+# derived from a miscount. A-List gates on career_grade and NOTHING else, so
+# it absorbs the full error; Insider Breakout has SMA filters and survived.
+# That dependence is the real finding and this book should be treated as
+# unvalidated until it has a second, independent filter.
+position_size_pct: 0.33
+max_concurrent: 3
 filing_lookback_days: 2
 
 execution_mode: alert_only
