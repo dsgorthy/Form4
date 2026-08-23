@@ -232,6 +232,26 @@ function ExecutionBadge({ source }: { source: string }) {
   );
 }
 
+/** How the insider's earlier buys turned out, as a phrase rather than a ratio.
+ *
+ *  One prior buy is the usual case on this page, and "1 of 1 rose within 7
+ *  days" is not a sentence anyone says. A single trade gets a word; several
+ *  get a count. Neither gets a percentage — it would hide a sample size of
+ *  one, which is exactly the thing a reader needs to see.
+ */
+function priorOutcome(
+  wins: number | null | undefined,
+  scoreable: number | null | undefined,
+  total: number | null | undefined,
+): string {
+  if (!scoreable) return total ? "Too recent to say" : "—";
+  const w = wins ?? 0;
+  if (scoreable === 1) return w === 1 ? "Higher" : "Lower";
+  if (w === scoreable) return `All ${scoreable} higher`;
+  if (w === 0) return `All ${scoreable} lower`;
+  return `${w} of ${scoreable} higher`;
+}
+
 function gradeColor(grade: string | null): string {
   if (!grade) return "text-[#55556A]";
   if (grade === "A") return "text-[#22C55E]";
@@ -427,24 +447,25 @@ export default async function TradeDetailPage({
           {/* The denominator ships with the rate. This insider's 100% is five
               of five, and a bare "100%" invites a reader to weigh it like a
               hundred of a hundred. */}
-          {/* A fraction, not a percentage. "100% up after 7 days" read as
-              "the previous buys were up 100%" — the number attached itself to
-              the return instead of to the hit rate. "1 of 1 rose" cannot be
-              misread, and it shows the sample size in the same breath, which
-              a percentage actively hides. */}
+          {/* Phrasing, third attempt. "100% up after 7 days" read as though
+              the buys had DOUBLED; "1 of 1 rose within 7 days" fixed the
+              ambiguity and replaced it with arithmetic nobody says out loud.
+              
+              A single prior buy is the common case here, so the one-trade
+              wording is the one that has to sound natural: "Higher", not
+              "1 of 1". Plurals fall back to a count, which is where a count
+              actually earns its place.
+              
+              Still no percentage. It hides the sample size, and the sample is
+              usually one. */}
           <Row
-            label="How those worked out"
-            value={
-              trade.insider_prior_scoreable
-                ? `${trade.insider_prior_wins ?? 0} of ${trade.insider_prior_scoreable} rose within 7 days`
-                : trade.insider_pit_n
-                  ? "Too recent to score yet"
-                  : "—"
-            }
+            label="7 days later"
+            value={priorOutcome(trade.insider_prior_wins, trade.insider_prior_scoreable, trade.insider_pit_n)}
             color={
-              trade.insider_prior_scoreable &&
-              (trade.insider_prior_wins ?? 0) / trade.insider_prior_scoreable >= 0.6
-                ? "text-[#22C55E]"
+              trade.insider_prior_scoreable
+                ? (trade.insider_prior_wins ?? 0) / trade.insider_prior_scoreable >= 0.6
+                  ? "text-[#22C55E]"
+                  : "text-[#EF4444]"
                 : undefined
             }
           />
