@@ -15,22 +15,37 @@ number *meant*. Every move traced to a definitional gap, not a market event.
 **Blended CAGR, always shown against SPY over the identical window, with the
 excess as the emphasised figure.**
 
-| | blended CAGR | SPY | **excess** | avg deployed |
+| | blended CAGR | SPY | **excess** | max DD | avg deployed |
+|---|---|---|---|---|---|
+| A-List Buys (`quality_notrend`) | 64.3% | 19.1% | **+45.2** | 13.1% / 22.6% | 62% |
+| Insider Breakout (`quality_momentum`) | 61.8% | 21.2% | **+40.6** | 31.5% / **49.9%** | 63% |
+| Insider Dip Buys (`reversal_dip`) | 38.1% | 21.7% | **+16.4** | 11.3% | 25% |
+
+Measured 2026-08-22 after the tranche correction (below). **Two drawdown
+figures, and the larger one is the honest one.** The published `max_drawdown`
+walks `equity_after` on CLOSED TRADE ROWS, so it samples the book only at
+exits and cannot see a drawdown that opens and closes between them. The second
+figure walks the blended equity curve daily, marking open positions to market.
+For Insider Breakout the difference is 31.5% against 49.9% — a subscriber
+experiences the second.
+
+**Insider Breakout's drawdown roughly doubled and that was a choice.** It came
+from widening the grade gate to A+/A/B, not from sizing:
+
+| gate | trades | CAGR | max DD | deployed |
 |---|---|---|---|---|
-| A-List Buys (`quality_notrend`) | 62.8% | 21.2% | **+41.7** | 60% |
-| Insider Breakout (`quality_momentum`) | 48.0% | 21.2% | **+26.8** | 42% |
-| Insider Dip Buys (`reversal_dip`) | 35.9% | 21.2% | **+14.7** | 25% |
+| A+/A | 22 | ~31% | 21% | 15% |
+| A+/A/B | 81 | ~62% | 50% | 63% |
 
-Measured 2026-08-20 after the stop correction below. The SPY figure drifts by a
-tenth or two as the window end moves; it is recomputed from the same day range
-on every measurement rather than carried forward.
+Every sizing tested shows the same split, so the gate buys the return and the
+drawdown together. A+/A leaves the book 85% in cash.
 
-Position caps were set per strategy on 2026-08-20 rather than sharing one
-`10 x 10%`. Breakout and Dip Buys had `max_concurrent: 10` against books that
-hold 2.4 and 1.6 positions, so the slot count was decoration and only the 10%
-size was live — leaving 81% and 86% of their capital in SPY. Breakout is now
-`5 x 20%`, Dip Buys `4 x 25%`; A-List keeps `10 x 10%` because its slot count
-genuinely binds. All three cap at 100% gross, so none can lever.
+Position caps, current: **A-List `3 x 33%`, Breakout `5 x 20%`, Dip Buys
+`4 x 25%`.** A-List moved from `10 x 10%` on 2026-08-22 because the tranche
+correction cut its candidate pool and average concurrent positions fell 6.8 to
+3.6, leaving the old sizing 20% deployed. Both were re-swept against the final
+data — every sizing from `10 x 10%` to `3 x 33%` — and both shipping
+configurations were the best of six. All cap at 100% gross, so none can lever.
 
 Window: 2023-01-03 → present (3.61y). $100,000 start.
 
@@ -48,11 +63,11 @@ low-deployment books most of it *is* SPY.
 
 ### Why excess is the headline
 
-Even after the resize, Insider Dip Buys is only 28% deployed — roughly
-seven-tenths of what a holder experiences is the index. Quoting 37.4% without
-the benchmark implies a stock-picking result that is mostly beta. **+16.0 over
-SPY** is the actual claim, and unlike the raw CAGR it survives the
-sleeve-vs-blended question untouched.
+Insider Dip Buys is only 25% deployed — three-quarters of what a holder
+experiences is the index. Quoting 38.1% without the benchmark implies a
+stock-picking result that is mostly beta. **+16.4 over SPY** is the actual
+claim, and unlike the raw CAGR it survives the sleeve-vs-blended question
+untouched.
 
 ---
 
@@ -79,15 +94,16 @@ outright: *"Eleven variants were tested and this is the winner, so the figures
 above are an upper bound, not an expectation."* The strategy was chosen on the
 same data it is measured over. There is no untouched holdout.
 
-**The result is fragile to the conviction gate.** `min_conviction` is 1.5 and
-the score is ~12 half-point components, so a ±0.25 perturbation — less than one
-component — gives A-List Buys a CAGR range of **46.2%–55.7%, median 49.7%**,
-with the unperturbed 55.4% above 13 of 14 draws. Tie-breaking contributes
-nothing (+0..0.004 noise moves the book $0); it is the gate admitting a
-different *set* of trades. Read the sleeve figure as ~50% ± 5.
+**The result is fragile to the conviction gate — `min_conviction`, still 1.5
+and still never tuned — and the 2026-08-20 perturbation study is now STALE** — it was run before the tranche correction
+changed both `career_grade` and `is_largest_ever`, which are two of the gate's
+inputs. Its finding was a ±5 band around a 50% sleeve from a ±0.25 perturbation,
+less than one of the ~12 half-point components. The *shape* is a property of
+the gate and should survive; the centre must be re-measured before anyone
+quotes a band. Do not reuse those numbers.
 
-**One year carries A-List Buys.** 2025 is 47% of total P&L. 2024 averaged
-+2.72% per trade.
+**Year concentration and the annual table below are STALE** — measured
+2026-08-20, before the correction rebuilt every book. Re-run before quoting.
 
 | year | A-List | Breakout | Dip Buys | SPY |
 |---|---|---|---|---|
@@ -118,10 +134,17 @@ therefore exits at its last quote. That was always true, but with the stop at
 −50% instead of −30% there is less between a collapsing position and its time
 exit, so the optimism in that fallback carries more weight than it used to.
 
-**What is solid.** Bootstrap CI on the mean trade excludes zero for all three:
-A-List +12.73% [+8.22, +17.54], Breakout +12.76% [+5.63, +21.02], Dip Buys
-+6.03% [+1.94, +10.14]. There is a real edge at the trade level. The dispute is
-only over its size — and for Dip Buys the interval now nearly touches zero.
+**What is solid.** The bootstrap CIs quoted here on 2026-08-20 predate the
+correction and are stale in level, but the direction held under it: the
+unfitted trade-level test after regrading showed trades keeping A+/A returning
++17.8% median against +6.4% for those losing it. The corrected grade ranks
+better even where the book it feeds does worse. Re-run the CIs before quoting.
+
+**Insider Dip Buys was NOT part of the A/B that chose these configurations,**
+and its primary filter — `consecutive_sells_before` — changed materially in the
+same correction: a third of its qualifying signals were tranche-inflated. Its
+38.1% should be treated as unverified until it has been tested the way the
+other two were.
 
 ---
 
@@ -135,6 +158,7 @@ only over its size — and for Dip Buys the interval now nearly touches zero.
 | 2026-08-20 | definition settled | sleeve vs blended, and the period bug |
 | 2026-08-20 | per-strategy position caps | one shared `10 x 10%` left two books ~85% in SPY |
 | 2026-08-20 | stop moved −30% → −50% | the −30% was a simulator-only override the live runner never applied |
+| 2026-08-22 | tranche correction | the scorer counted execution lots as separate trades; 21% of grades moved, A-List resized to `3 x 33%`, Breakout's gate widened to A+/A/B |
 
 Every move before 2026-08-20 was a definitional or data defect, none a market
 event, and each now has a regression test: `test_entry_timing_eastern`,

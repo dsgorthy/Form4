@@ -62,11 +62,29 @@ def test_methodology_records_the_selection_bias():
 
 
 def test_methodology_records_the_conviction_fragility():
+    """The gate's sensitivity must stay documented — but the BAND is a
+    measurement, and a measurement can go stale.
+
+    This used to assert the literal 46.2 / 55.7 endpoints. They were measured
+    2026-08-20 and invalidated on 2026-08-22, when the tranche correction moved
+    two of the gate's own inputs (career_grade and is_largest_ever). Pinning
+    the numbers would have forced a stale band to stay quoted in the document
+    that defines what we publish.
+
+    So: the fragility must be recorded, and any band present must be marked
+    stale until re-measured.
+    """
     body = DOC.read_text()
-    assert "min_conviction" in body
-    assert "46.2" in body and "55.7" in body, (
-        "the perturbation band is no longer stated"
+    assert "min_conviction" in body, (
+        "the conviction gate's sensitivity is no longer documented — it is the "
+        "single most load-bearing parameter in these books"
     )
+    if "46.2" in body or "55.7" in body:
+        assert "STALE" in body or "stale" in body, (
+            "the 2026-08-20 perturbation band is quoted without being marked "
+            "stale. It predates the tranche correction, which changed two of "
+            "the gate's inputs."
+        )
 
 
 def test_methodology_shows_annual_returns_not_just_a_cagr():

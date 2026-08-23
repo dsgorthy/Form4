@@ -168,11 +168,26 @@ to move.
 
 | Key | Public name | Status | CAGR | Key Metric |
 |-----|-------------|--------|------|------------|
-| quality_notrend | **A-List Buys** | LIVE alert-only | 62.8% blended (+41.7 vs SPY), 10x10% | A+/A insider buys, no chart condition. 141 closed sim trades. The strongest book: the trend filter QM applies costs more in trades foregone than it saves — QM fills 2.6 of 10 slots against notrend's 6.4. |
-| quality_momentum | **Insider Breakout** | LIVE alert-only | 48.0% blended (+26.8 vs SPY), 5x20% | Same insider grade, plus above SMA50 and SMA200. 55 closed sim trades. Kept as the A/B control. |
-| reversal_dip | **Insider Dip Buys** | LIVE alert-only | 35.9% blended (+14.7 vs SPY), 4x25%, ON WATCH | 10+ consecutive sells then a buy, into a 25%+ 3-month drawdown. Genuinely lumpy — went dark Dec 2025–Feb 2026 and again Jun–Aug 2026, then fired 3 in a month. Sparse alerts are expected, not a fault. |
+| quality_notrend | **A-List Buys** | LIVE alert-only | 64.3% blended (+45.2 vs SPY), 3x33% | A+/A insider buys, no chart condition. 141 closed sim trades. The strongest book: the trend filter QM applies costs more in trades foregone than it saves — QM fills 2.6 of 10 slots against notrend's 6.4. |
+| quality_momentum | **Insider Breakout** | LIVE alert-only | 61.8% blended (+40.6 vs SPY), 5x20%, A+/A/B, **~50% max DD** | Same insider grade, plus above SMA50 and SMA200. 55 closed sim trades. Kept as the A/B control. |
+| reversal_dip | **Insider Dip Buys** | LIVE alert-only | 38.1% blended (+16.4 vs SPY), 4x25%, ON WATCH + **UNVERIFIED** | 10+ consecutive sells then a buy, into a 25%+ 3-month drawdown. Genuinely lumpy — went dark Dec 2025–Feb 2026 and again Jun–Aug 2026, then fired 3 in a month. Sparse alerts are expected, not a fault. |
 
-CAGRs are as of 2026-08-20, after the stop correction below. Two earlier
+CAGRs are as of 2026-08-22, after the TRANCHE CORRECTION: the scorer had been
+counting execution lots as separate trades, so a purchase filled in five
+tranches scored as five successful trades. Fixing it moved 21% of career
+grades, almost all downward, and forced both sizing/gate changes above. See
+`docs/published_returns_methodology.md` and the memory
+`feedback_filing_not_lot_grouping`.
+
+**Two things to carry from that.** Insider Breakout's max drawdown roughly
+doubled — the published `max_drawdown` says 31.5% but it samples equity only at
+trade exits; a daily blended curve says **49.9%**, and that is what a holder
+experiences. It comes from widening the gate to A+/A/B, not from sizing: A+/A
+gives ~31% CAGR at 21% DD but leaves the book 85% in cash. And **Insider Dip
+Buys was not in the A/B** while its primary filter (`consecutive_sells_before`)
+changed materially, so treat its figure as unverified.
+
+An earlier correction landed 2026-08-20 (the stop). Two earlier
 corrections landed 2026-08-19, and they
 pull in opposite directions:
 
