@@ -42,11 +42,15 @@ export const dynamic = "force-dynamic";
 // here — api/public_fields.STRATEGIES is the single definition of the label.
 const STRATEGY_KEYS = ["quality_notrend", "quality_momentum", "reversal_dip"];
 
+type AnnualRow = { year: string; strategy: number | null; spy: number | null };
+
 type Summary = {
   strategy_label: string;
   blended_cagr: number | null;
   spy_cagr: number | null;
   excess_vs_spy: number | null;
+  max_drawdown_daily: number | null;
+  annual_returns: AnnualRow[];
 };
 
 async function getSummary(key: string): Promise<Summary | null> {
@@ -76,6 +80,9 @@ function Row({ label, value }: { label: string; value: string }) {
 
 export default async function PerformancePage() {
   const books = await Promise.all(STRATEGY_KEYS.map(getSummary));
+  const years = Array.from(
+    new Set(books.flatMap((b) => b?.annual_returns?.map((a) => a.year) ?? [])),
+  ).sort();
   // Every book is measured against SPY over its own window, so the index
   // figure is per-strategy rather than one shared number.
 
@@ -174,6 +181,63 @@ export default async function PerformancePage() {
             Every strategy we run is published, including periods where one
             trails the index. Figures are recalculated as new filings arrive and
             may be restated if we identify an error in how they were computed.
+          </p>
+        </section>
+
+        <section className="space-y-3">
+          <h2 className="text-lg font-medium text-[#E8E8ED]">Year by year</h2>
+          <p>
+            A single annualised figure hides how it was earned. One of these
+            strategies made most of its return in a single year; the table
+            below is the only place that is visible, which is why it is here.
+          </p>
+          <div className="overflow-x-auto rounded-lg border border-[#2A2A3A] bg-[#12121A]">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[#2A2A3A] text-xs uppercase tracking-wider text-[#55556A]">
+                  <th className="px-4 py-3 text-left font-medium">Year</th>
+                  {books.map((b, i) => (
+                    <th key={STRATEGY_KEYS[i]} className="px-4 py-3 text-right font-medium">
+                      {b?.strategy_label ?? "—"}
+                    </th>
+                  ))}
+                  <th className="px-4 py-3 text-right font-medium">S&amp;P 500</th>
+                </tr>
+              </thead>
+              <tbody className="font-mono tabular-nums">
+                {years.map((y) => (
+                  <tr key={y} className="border-b border-[#2A2A3A]/60 last:border-0">
+                    <td className="px-4 py-2 text-[#8888A0]">{y}</td>
+                    {books.map((b, i) => {
+                      const v = b?.annual_returns?.find((a) => a.year === y)?.strategy;
+                      return (
+                        <td key={STRATEGY_KEYS[i]} className="px-4 py-2 text-right text-[#E8E8ED]">
+                          {typeof v === "number" ? `${v > 0 ? "+" : ""}${v.toFixed(1)}%` : "—"}
+                        </td>
+                      );
+                    })}
+                    <td className="px-4 py-2 text-right text-[#8888A0]">
+                      {(() => {
+                        const sv = books
+                          .map((b) => b?.annual_returns?.find((a) => a.year === y)?.spy)
+                          .find((x) => typeof x === "number");
+                        return typeof sv === "number" ? `${sv > 0 ? "+" : ""}${sv.toFixed(1)}%` : "—";
+                      })()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-[#55556A]">
+            Each strategy&apos;s first year is partial — it runs from that
+            book&apos;s first trade, not from 1 January. Worst peak-to-trough
+            decline, marked daily:{" "}
+            {books
+              .filter(Boolean)
+              .map((b) => `${b!.strategy_label} ${b!.max_drawdown_daily?.toFixed(1) ?? "—"}%`)
+              .join(" · ")}
+            .
           </p>
         </section>
 

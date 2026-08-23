@@ -313,8 +313,15 @@ Practical consequences:
   needs re-measuring.
 - Any change to any conviction input will move the book by tens of percent.
   That is not a bug being reintroduced; it is this design.
-- The gate threshold is doing more work than any individual signal. Worth
-  revisiting `min_conviction` as a tuned parameter in its own right.
+- The gate threshold is doing more work than any individual signal.
+  **`min_conviction` was swept 2026-08-23 and deliberately NOT changed:** the
+  in-sample optimum fails out of sample on all three books (A-List best-in 1.5
+  / best-out 2.0; Breakout 0.0 / 2.0; Dip Buys 0.0 / 1.5). It is not tunable on
+  this data. But **2.0 wins out-of-sample on both A-List and Breakout** and
+  beats shipped on A-List over the full period too (71.2% vs 63.3%), which
+  agrees with the perturbation result that noise improves A-List's median.
+  Two independent signals say A-List's 1.5 is too low. Needs a proper
+  walk-forward, and it moves live alerts, so it is Derek's call.
 
 Still unvalidated out of sample at this level, and the 6.8% drawdown is
 flattered by the book sitting ~41% in cash. Idle cash held in SPY; 1x leverage — the 2x book was built,

@@ -105,8 +105,8 @@ def _blended_and_benchmark(strategy: str, starting: float, years: float):
     max drawdown — all over the same window.
 
     Walks the day series once: idle cash compounds at SPY, positions mark to
-    their own close. Returns (blended_cagr, spy_cagr, daily_max_dd) or
-    (None, None, None) when the price data is not there — a missing benchmark
+    their own close. Returns a dict with `cagr`, `spy`, `max_dd_daily` and
+    `annual`, or None when the price data is not there — a missing benchmark
     must not fabricate a number.
 
     THE DRAWDOWN IS THE POINT OF THE THIRD RETURN VALUE. `summary.max_drawdown`
@@ -138,12 +138,12 @@ def _blended_inner(conn, strategy: str, starting: float, years: float):
         "FROM strategy_portfolio WHERE strategy = ? AND execution_source = 'simulated'",
         (strategy,))]
     if not spy or not rows:
-        return None, None, None
+        return None
 
     first = min(r["entry_date"] for r in rows if r["entry_date"])
     days = sorted(d for d in spy if d >= first)
     if len(days) < 30:
-        return None, None, None
+        return None
 
     tickers = {r["ticker"] for r in rows}
     px = defaultdict(dict)
@@ -159,6 +159,9 @@ def _blended_inner(conn, strategy: str, starting: float, years: float):
     equity = idle = starting
     held, prev = [], None
     peak, daily_dd = starting, 0.0
+    # Year -> [first equity seen, last equity seen] and the same for SPY, so
+    # annual returns come out of the same single pass.
+    yr: dict[str, list] = {}
     for d in days:
         if prev and spy.get(prev):
             idle *= 1 + (spy[d] - spy[prev]) / spy[prev]
@@ -182,12 +185,24 @@ def _blended_inner(conn, strategy: str, starting: float, years: float):
             peak = equity
         if peak > 0:
             daily_dd = max(daily_dd, (peak - equity) / peak)
+        y = d[:4]
+        if y not in yr:
+            yr[y] = [equity, equity, spy[d], spy[d]]
+        yr[y][1] = equity
+        yr[y][3] = spy[d]
 
     if equity <= 0 or years <= 0:
-        return None, None, None
+        return None
     blended = ((equity / starting) ** (1 / years) - 1) * 100
     bench = ((spy[days[-1]] / spy[days[0]]) ** (1 / years) - 1) * 100
-    return blended, bench, round(daily_dd * 100, 1)
+    annual = [
+        {"year": y,
+         "strategy": round((v[1] / v[0] - 1) * 100, 1) if v[0] else None,
+         "spy": round((v[3] / v[2] - 1) * 100, 1) if v[2] else None}
+        for y, v in sorted(yr.items())
+    ]
+    return {"cagr": blended, "spy": bench,
+            "max_dd_daily": round(daily_dd * 100, 1), "annual": annual}
 
 
 @router.get("")
@@ -547,7 +562,11 @@ def get_portfolio(
     # stock-picking result that is mostly beta.
     #
     # See docs/published_returns_methodology.md.
-    blended_cagr, spy_cagr, daily_dd = _blended_and_benchmark(strategy, starting, years)
+    _bl = _blended_and_benchmark(strategy, starting, years)
+    blended_cagr = _bl["cagr"] if _bl else None
+    spy_cagr = _bl["spy"] if _bl else None
+    daily_dd = _bl["max_dd_daily"] if _bl else None
+    annual_returns = _bl["annual"] if _bl else []
 
     # Gating: free users see last FREE_VISIBLE trades ungated, rest blurred
     FREE_VISIBLE = 10
@@ -598,6 +617,12 @@ def get_portfolio(
             # What a holder actually experienced: every session, open positions
             # marked to market. This is the honest figure and the one to show.
             "max_drawdown_daily": daily_dd,
+            # Published BECAUSE a single compounded figure hides everything
+            # that matters. Insider Breakout's 64% CAGR is one year (+231% in
+            # 2024) against +34/+19/+22 in the other three; you cannot see
+            # that from the CAGR, and a subscriber deciding what to follow
+            # should. docs/published_returns_methodology.md, rule 4.
+            "annual_returns": annual_returns,
             "max_drawdown_note": "Excl. COVID crash (Mar 2020)" if max_dd_post2020 > 0 and max_dd_post2020 < max_dd else None,
             "avg_return": round((summary["avg_return"] or 0) * 100, 2),
             "first_trade": summary["first_trade"],

@@ -194,11 +194,52 @@ therefore exits at its last quote. That was always true, but with the stop at
 −50% instead of −30% there is less between a collapsing position and its time
 exit, so the optimism in that fallback carries more weight than it used to.
 
-**What is solid.** The bootstrap CIs quoted here on 2026-08-20 predate the
-correction and are stale in level, but the direction held under it: the
-unfitted trade-level test after regrading showed trades keeping A+/A returning
-+17.8% median against +6.4% for those losing it. The corrected grade ranks
-better even where the book it feeds does worse. Re-run the CIs before quoting.
+**What is solid — bootstrap CIs re-run 2026-08-23**, 10,000 resamples of the
+mean trade return:
+
+| | n | mean trade | 95% CI | |
+|---|---|---|---|---|
+| A-List Buys | 44 | +13.68% | +6.17% to +21.15% | excludes zero |
+| Insider Breakout | 80 | +13.55% | +4.06% to +25.14% | excludes zero |
+| Insider Dip Buys | 40 | +8.00% | +2.99% to +13.04% | excludes zero |
+
+All three exclude zero, so the edge is real on all three. **Note Insider
+Breakout's median trade is +1.43% against a mean of +13.55%** — half its trades
+do essentially nothing and the mean is carried by a tail. A-List is +15.66%
+median against +13.68% mean, which is the opposite shape and a much healthier
+one.
+
+## min_conviction: measured, and deliberately NOT changed
+
+Swept 0.0–5.0 on all three books, split in-sample / out-of-sample at 2025-06-01
+(the same split used for the stop):
+
+| | shipped | best in-sample | best out-of-sample | holds? |
+|---|---|---|---|---|
+| A-List Buys | 1.5 | **1.5** (54.9%) | 2.0 (119.1%) | no |
+| Insider Breakout | 1.5 | 0.0 (78.5%) | 2.0 (58.5%) | no |
+| Insider Dip Buys | 3.0 | 0.0 (36.3%) | 1.5 (45.6%) | no |
+
+**The in-sample optimum fails out of sample on every single book.** That is the
+answer to "is min_conviction tunable on this data", and the answer is no —
+fitting it would be fitting noise, which is precisely the selection bias this
+document already carries as its largest caveat. **No config was changed.**
+
+Two things are worth keeping from the sweep. First, **2.0 wins out-of-sample on
+both A-List and Breakout**, and on A-List it also beats the shipped value over
+the full period (71.2% against 63.3%). Second, that agrees with the perturbation
+study above, where adding pure noise to A-List's conviction improved its median
+by 4.3 points. Two independent measurements both say **A-List's gate at 1.5 is
+too low.**
+
+That is a genuine lead and not a config edit. It needs a real walk-forward —
+rolling refit, several splits, out-of-sample only — before anything moves, and
+the parameter changes live alerts, so it is a decision rather than a cleanup.
+Recorded here so the next session starts from the evidence rather than
+re-deriving it.
+
+The earlier trade-level result still holds directionally: after regrading,
+trades keeping A+/A returned +17.8% median against +6.4% for those losing it.
 
 **Insider Dip Buys is now verified** (2026-08-23). Its primary filter lost a
 third of its qualifying signals to the tranche correction, so the threshold was
