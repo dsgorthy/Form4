@@ -96,6 +96,11 @@ STRATEGY_CONFIG = {
     # the PIT strategy class remain; re-add the entry here to resume.
 }
 
+#: Grade column the simulator gates on. "career_grade" is what ships;
+#: "career_grade_grouped" is the shadow column holding filing-grouped scores,
+#: written by the A/B backfill. Nothing user-facing reads the shadow.
+GRADE_COLUMN = "career_grade"
+
 STARTING_CAPITAL = 100_000.0
 def resolve_stop_pct(config: dict) -> Optional[float]:
     """The stop comes from the strategy yaml, the same place cw_runner reads it.
@@ -308,7 +313,7 @@ def simulate_one_strategy(
     # Load every P-trade in the window with all features needed for filter+conviction
     t0 = time.monotonic()
     rows = conn.execute(
-        """SELECT t.trade_id, t.insider_id, t.ticker,
+        ("""SELECT t.trade_id, t.insider_id, t.ticker,
                   t.filing_date::text, t.trade_date::text,
                   t.title, COALESCE(i.display_name, i.name) AS insider_name,
                   t.company, t.is_csuite,
@@ -317,7 +322,12 @@ def simulate_one_strategy(
                   t.dip_1mo, t.dip_3mo,
                   t.above_sma50, t.above_sma200, t.is_largest_ever,
                   t.is_10b5_1, t.is_recurring, t.is_tax_sale, t.cohen_routine,
-                  t.pit_grade, t.career_grade,
+                  t.pit_grade,
+                  -- Which grade column the run reads. Set by GRADE_COLUMN so
+                  -- an A/B can score the identical rules against the current
+                  -- grades and the filing-grouped ones without a second copy
+                  -- of the simulator.
+                  t.{grade_col} AS career_grade,
                   t.net_buyer_flow_90d, t.industry_buy_pct_90d,
                   -- Raw acceptance timestamp. The SQL used to decide
                   -- tradeability itself, converting UTC->ET inline, and that
@@ -333,7 +343,7 @@ def simulate_one_strategy(
            JOIN insiders i ON t.insider_id = i.insider_id
            WHERE t.trans_code = 'P'
              AND t.filing_date >= ? AND t.filing_date <= ?
-           ORDER BY t.filing_date, t.trade_id""",
+           ORDER BY t.filing_date, t.trade_id""").format(grade_col=GRADE_COLUMN),
         (start_date, end_date),
     ).fetchall()
     logger.info("[%s] %d P-trades loaded in %.1fs",
