@@ -37,6 +37,10 @@ from typing import Optional
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
+from framework.observability.schedules import (  # noqa: E402
+    JOB_SCHEDULES, is_overdue, last_expected_fire,
+)
+
 try:
     from dotenv import load_dotenv
     load_dotenv(REPO / ".env")
@@ -162,8 +166,19 @@ def check_refresh_features_chain() -> CheckResult:
                 missing.append(f"{table}.{column}: unparseable last_computed_at={last_at!r}")
                 continue
             age_h = (datetime.now(timezone.utc) - ts).total_seconds() / 3600
-            if age_h > 8:
-                missing.append(f"{table}.{column}: {age_h:.1f}h stale (populated_by={populated_by!r})")
+            # NOT a flat hour budget. These columns are written by
+            # form4_pipeline, which is `30 17 * * 1-5`. This check runs at
+            # 07:30, so even on a normal Tuesday the newest write is 14h old
+            # and on a Monday it is 62h — an 8-hour threshold failed on EVERY
+            # run, which is why nobody read this report and why the A-List
+            # runner being dead for five trading days went unnoticed in it.
+            #
+            # Ask whether the writer has run since it was last due instead.
+            if is_overdue("form4_pipeline", ts):
+                due = last_expected_fire(JOB_SCHEDULES["form4_pipeline"])
+                missing.append(
+                    f"{table}.{column}: {age_h:.1f}h stale, nothing since the "
+                    f"{due:%a %H:%M}Z run was due (populated_by={populated_by!r})")
             else:
                 fresh.append(f"{table}.{column}={age_h:.1f}h ago")
     finally:
@@ -176,7 +191,7 @@ def check_refresh_features_chain() -> CheckResult:
         )
     return CheckResult(
         name="refresh_features_chain", ok=True, severity="info",
-        detail=f"all {len(REFRESH_COLUMNS)} contracted columns fresh today (PT {today_pt})",
+        detail=f"all {len(REFRESH_COLUMNS)} contracted columns written since their writer was last due (PT {today_pt})",
         extra={"fresh": fresh},
     )
 

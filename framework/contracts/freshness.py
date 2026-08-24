@@ -121,17 +121,20 @@ def business_age_hours(last_observed: datetime, now: Optional[datetime] = None) 
     """Hours elapsed since `last_observed`, treating non-trading days
     (US weekends + NYSE holidays) as contributing zero hours.
 
-    Used by the admin freshness panel to avoid showing weekend-only gaps
-    as stale. A 50h gap that started Fri afternoon and ends Sun afternoon
-    has ~10h of business time elapsed — well within a 26h SLA.
+    Used by the admin freshness panel AND, since 2026-08-24, by the runner
+    halt path — see assert_fresh. A 50h gap that started Fri afternoon and ends
+    Sun afternoon has ~10h of business time elapsed, well within a 26h SLA.
+
+    The safety property survives: only NON-TRADING days are discounted, so a
+    pipeline that misses a weekday run still accumulates hours and still trips
+    its contract.
     """
     if now is None:
         now = datetime.now(timezone.utc)
     if last_observed >= now:
         return 0.0
 
-    # Import lazily — calendar module is heavy and only needed for the
-    # admin diagnostic endpoint, not for the runner halt path.
+    # Import lazily — the calendar module is heavy.
     from framework.data.calendar import MarketCalendar
     cal = MarketCalendar()
 
@@ -252,12 +255,31 @@ def assert_fresh(
             column=column,
             strategy=strategy,
         )
-    if age_hours > contract.max_staleness_hours:
+    # WEEKENDS ARE NOT STALENESS.
+    #
+    # This compared RAW elapsed hours while every contract carried
+    # `business_hours_only=True` by default — a flag the enforcement path
+    # ignored, so it only ever affected the admin display. The columns below
+    # are written by form4_pipeline, which runs weekdays at 17:30, so on a
+    # Monday morning they are ~60h old against contracts of 26h and 48h.
+    #
+    # The result: on 2026-08-24 all three strategies halted preflight and
+    # scanned ZERO candidates, and the same had happened every Monday. One
+    # trading day in five, lost silently, because a duration cannot describe a
+    # weekday-only schedule.
+    #
+    # Only NON-TRADING days are discounted, so the fail-closed property is
+    # intact: a pipeline that misses a WEEKDAY run still accrues hours and
+    # still trips its contract.
+    effective_age = age_hours
+    if contract.business_hours_only:
+        effective_age = business_age_hours(ts)
+    if effective_age > contract.max_staleness_hours:
         raise StaleSignalError(
             table=table,
             column=column,
             max_staleness_hours=contract.max_staleness_hours,
-            observed_age_hours=age_hours,
+            observed_age_hours=effective_age,
             strategy=strategy,
         )
 
