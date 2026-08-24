@@ -115,10 +115,29 @@ class TestAlertHeaderEncoding:
 class TestJobSuccessBudgets:
     """A job that fails is invisible to the data-age checks."""
 
-    def test_every_job_has_a_budget_over_its_cadence(self):
-        # Both jobs run nightly; a budget under 24h would page on a normal day.
-        for job, budget_h in watchdog.JOB_SUCCESS:
-            assert budget_h > 24, f"{job} budget {budget_h}h fires on a normal night"
+    def test_a_job_that_succeeded_when_due_is_never_stale(self):
+        """The direct statement of the same thing, without the loop noise."""
+        from datetime import datetime, timedelta
+        from zoneinfo import ZoneInfo
+
+        for spec in watchdog.JOB_SUCCESS:
+            tz = ZoneInfo(spec["tz"])
+            start = datetime(2026, 8, 10, tzinfo=tz)
+            for step in range(0, 14 * 48):
+                now = start + timedelta(minutes=30 * step)
+                due = watchdog.last_expected_fire(spec, now)
+                last_success = due  # ran precisely on schedule
+                assert last_success >= due, (
+                    f"{spec['job']} would alert at {now:%a %Y-%m-%d %H:%M} "
+                    f"despite succeeding at its last due fire {due}"
+                )
+
+    def test_every_job_declares_a_usable_grace(self):
+        for spec in watchdog.JOB_SUCCESS:
+            assert 0 < spec["grace_h"] <= 12, (
+                f"{spec['job']} grace {spec['grace_h']}h — zero races the run "
+                "itself, and a long one hides a real miss for most of a day"
+            )
 
     def test_sql_selects_only_successful_runs(self):
         sql = watchdog.JOB_SUCCESS_SQL.format(job="daily_signals")

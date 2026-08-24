@@ -35,7 +35,7 @@ import re
 import subprocess
 import sys
 import urllib.request
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from pathlib import Path
 
@@ -103,17 +103,82 @@ EDGAR_OPEN_ET = (6, 22)
 # rather than observation recency precisely because of that lag — a signal can
 # be a day behind by design and still be perfectly healthy.
 #
-# Budgets are one cadence plus room for a slow run and a retry, so a single
-# late night is quiet and two consecutive failures are not.
+# A FLAT HOUR BUDGET CANNOT DESCRIBE A WEEKDAY-ONLY JOB.
+#
+# This was "hours since last success <= 30" for both jobs. form4_pipeline runs
+# Mon-Fri at 17:30 PT, so from midnight on Monday the gap back to Friday's run
+# is 30.5 hours and climbing, against a 30-hour budget — it failed every
+# Monday from 00:00 until the 17:30 run cleared it. The watchdog fires every
+# 30 minutes and does not deduplicate, so that is ~35 push notifications a
+# week for a pipeline that was doing exactly what it was told. Logged 18 on
+# Monday 2026-08-17 and 19 on Monday 2026-08-24, and on no other day.
+#
+# The `weekday() < 5` guard below suppresses the check on Saturday and Sunday,
+# which is why this looked handled. It is not: Monday is precisely when the
+# gap is at its maximum.
+#
+# So ask the question we actually mean. Not "how long since it last ran?" but
+# "has it run since the last time it was SUPPOSED to?" — which needs the
+# schedule, not a duration.
+#
+#   days   : weekday numbers it fires on, Monday=0 (as date.weekday()).
+#   hour/minute + tz : when, in the schedule's own timezone.
+#   grace_h: how long after a scheduled fire before a missing success counts.
+#            One slow run plus a retry. form4_pipeline takes ~6 minutes.
+#
+# Keep in step with dataplane/dagster_project/definitions.py —
+# tests/unit/test_watchdog_schedules.py fails the build if these drift.
+WEEKDAYS = (0, 1, 2, 3, 4)
+EVERY_DAY = (0, 1, 2, 3, 4, 5, 6)
+
 JOB_SUCCESS = [
-    ("daily_signals",   30),   # nightly 21:30 PT
-    ("form4_pipeline",  30),   # nightly 17:30 PT weekdays
+    # build_schedule_from_partitioned_job(hour_of_day=4, minute_of_hour=30) UTC
+    {"job": "daily_signals", "days": EVERY_DAY, "hour": 4, "minute": 30,
+     "tz": "UTC", "grace_h": 6},
+    # cron_schedule="30 17 * * 1-5", execution_timezone America/Los_Angeles
+    {"job": "form4_pipeline", "days": WEEKDAYS, "hour": 17, "minute": 30,
+     "tz": "America/Los_Angeles", "grace_h": 6},
 ]
 
+# Return the last success as an ABSOLUTE instant, not an age.
+#
+# Asking for an age and subtracting it from a locally-captured `now` mixes two
+# clocks: `now` is read before the SSH round-trip and the age is measured from
+# Postgres's clock after it, so the reconstructed timestamp lands ~1s early.
+# Both jobs then failed a boundary comparison by under a second, because a
+# Dagster run created at 17:30:00.34 was being judged against a 17:30:00 due
+# time and losing.
+#
+# `create_timestamp` is `timestamp without time zone` holding LOCAL Pacific —
+# a run scheduled 17:30 America/Los_Angeles stores 17:30. AT TIME ZONE reads it
+# back as the instant it actually was. Same assumption as _DB_TZ below.
 JOB_SUCCESS_SQL = (
-    "SELECT EXTRACT(epoch FROM (NOW() - max(create_timestamp)))/3600 "
+    "SELECT max(create_timestamp) AT TIME ZONE 'America/Los_Angeles' "
     "FROM runs WHERE pipeline_name = '{job}' AND status = 'SUCCESS'"
 )
+
+
+def last_expected_fire(spec: dict, now: "datetime | None" = None) -> datetime:
+    """The most recent scheduled fire that has had its grace period elapse.
+
+    Walks back day by day in the schedule's own timezone, so DST is handled by
+    zoneinfo rather than by arithmetic, and a weekday-only job simply skips the
+    weekend instead of accumulating hours across it.
+    """
+    tz = ZoneInfo(spec["tz"])
+    now = (now or datetime.now(timezone.utc)).astimezone(tz)
+    # 10 days back covers a Friday job seen the following Monday with room to
+    # spare; nothing here fires less often than weekly.
+    for back in range(0, 11):
+        day = (now - timedelta(days=back)).date()
+        if day.weekday() not in spec["days"]:
+            continue
+        fire = datetime(day.year, day.month, day.day,
+                        spec["hour"], spec["minute"], tzinfo=tz)
+        if fire + timedelta(hours=spec["grace_h"]) <= now:
+            return fire.astimezone(timezone.utc)
+    # No scheduled fire in the window has come due yet.
+    return (now - timedelta(days=11)).astimezone(timezone.utc)
 
 
 def _header_safe(text: str) -> str:
@@ -278,29 +343,38 @@ def main() -> int:
                 f"(budget {budget_h}h, latest {ts_utc:%Y-%m-%d %H:%M}Z)"
             )
 
-    # Did the nightly jobs actually SUCCEED? Weekends are exempt: both jobs
-    # are weekday-only or have nothing to do, so Saturday and Sunday silence
-    # is correct.
-    if date.today().weekday() < 5:
-        for job, budget_h in JOB_SUCCESS:
-            val = ssh_psql("dagster_runs", JOB_SUCCESS_SQL.format(job=job))
-            if not val:
-                problems.append(f"{job}: no successful run on record")
-                print(f"  FAIL {job}: never succeeded")
-                continue
-            try:
-                age_h = float(val)
-            except ValueError:
-                print(f"  FAIL {job}: unparseable age {val!r}")
-                problems.append(f"{job}: unparseable last-success age {val!r}")
-                continue
-            ok = age_h <= budget_h
-            print(f"  {'OK  ' if ok else 'FAIL'} {job} last success: "
-                  f"{age_h:.1f}h ago (budget {budget_h}h)")
-            if not ok:
-                problems.append(
-                    f"{job} has not succeeded in {age_h:.1f}h (budget {budget_h}h)"
-                )
+    # Did the nightly jobs actually SUCCEED since they were last due?
+    #
+    # No weekday guard here any more. It was doing the wrong job: it silenced
+    # Saturday and Sunday, when a weekday-only pipeline is correctly idle, and
+    # left Monday — when the gap back to Friday is at its widest — fully
+    # armed against a flat 30-hour budget. Each job now carries its own
+    # schedule, so a weekend is skipped by construction on every day of the
+    # week, and a genuinely missed Saturday run of a 7-day job is still caught.
+    now = datetime.now(timezone.utc)
+    for spec in JOB_SUCCESS:
+        job = spec["job"]
+        due = last_expected_fire(spec, now)
+        val = ssh_psql("dagster_runs", JOB_SUCCESS_SQL.format(job=job))
+        if not val:
+            problems.append(f"{job}: no successful run on record")
+            print(f"  FAIL {job}: never succeeded")
+            continue
+        last_success = _parse_ts(val)
+        if last_success is None:
+            print(f"  FAIL {job}: unparseable last success {val!r}")
+            problems.append(f"{job}: unparseable last-success time {val!r}")
+            continue
+        age_h = (now - last_success).total_seconds() / 3600.0
+        ok = last_success >= due
+        print(f"  {'OK  ' if ok else 'FAIL'} {job} last success: "
+              f"{age_h:.1f}h ago; last due {due:%Y-%m-%d %H:%M}Z "
+              f"(+{spec['grace_h']}h grace)")
+        if not ok:
+            problems.append(
+                f"{job} has not succeeded since it was last due "
+                f"({due:%a %Y-%m-%d %H:%M}Z); last success {age_h:.1f}h ago"
+            )
 
     _finish(problems, topic, args.dry_run)
     return 1 if problems else 0
