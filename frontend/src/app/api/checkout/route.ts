@@ -2,6 +2,8 @@ import { auth, currentUser } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 
+import { resolveStripeCustomer } from "@/lib/stripe-customer";
+
 function getStripe() {
   return new Stripe(process.env.STRIPE_SECRET_KEY!, {
     apiVersion: "2026-02-25.clover",
@@ -30,9 +32,16 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // Reuse existing Stripe customer if one exists
+    // Reuse the existing Stripe customer if one exists.
+    //
+    // This used to read the Clerk cache only, so whenever that cache was empty
+    // — including every time the webhook failed — checkout created a SECOND
+    // Stripe customer for the same person. That is how one account ends up
+    // with duplicate customers and a subscription the portal cannot find.
     const user = await currentUser();
-    const existingCustomerId = user?.publicMetadata?.stripe_customer_id as string | undefined;
+    const { customerId: existingCustomerId } = await resolveStripeCustomer(
+      stripe, userId, user,
+    );
 
     const sessionParams: Stripe.Checkout.SessionCreateParams = {
       mode: "subscription",
@@ -59,6 +68,15 @@ export async function POST(request: NextRequest) {
 
     if (existingCustomerId) {
       sessionParams.customer = existingCustomerId;
+    } else {
+      // Pin the customer to the Clerk email so it stays findable by email if
+      // the webhook is ever missed again. Without this Stripe records whatever
+      // address is typed at checkout, and the recovery path above cannot match
+      // it back to the account.
+      const email = user?.emailAddresses?.find(
+        (e) => e.id === user?.primaryEmailAddressId,
+      )?.emailAddress;
+      if (email) sessionParams.customer_email = email;
     }
 
     const session = await stripe.checkout.sessions.create(sessionParams);

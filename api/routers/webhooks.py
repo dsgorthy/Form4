@@ -200,10 +200,18 @@ async def _get_clerk_metadata(user_id: str) -> dict:
 
 
 async def _find_clerk_user_by_customer(customer_id: str) -> str | None:
-    """Look up Clerk user ID by Stripe customer ID stored in public_metadata.
+    """Clerk user for a Stripe customer, with a fallback that does not depend
+    on us having written the link.
 
-    Paginates through all Clerk users (100 per page) to handle user bases
-    larger than a single page.
+    The metadata scan below only finds users whose
+    `public_metadata.stripe_customer_id` we successfully wrote — which is
+    written by exactly one webhook. When that webhook was broken, every later
+    event for the affected customer landed here, found nothing, and was
+    dropped: the failure compounded itself.
+
+    So if the scan misses, ask STRIPE for the customer's email and look the
+    account up by email instead. That path works even if we have never written
+    anything, and it repairs the cache on the way through.
     """
     if not customer_id:
         return None
@@ -231,4 +239,42 @@ async def _find_clerk_user_by_customer(customer_id: str) -> str | None:
                 offset += limit
     except Exception as e:
         logger.error("Error finding Clerk user: %s", e)
+
+    return await _find_clerk_user_by_customer_email(customer_id)
+
+
+async def _find_clerk_user_by_customer_email(customer_id: str) -> str | None:
+    """Stripe customer -> email -> Clerk account, repairing the cache."""
+    try:
+        cust = stripe.Customer.retrieve(customer_id)
+        email = getattr(cust, "email", None)
+        if not email:
+            return None
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                "https://api.clerk.com/v1/users",
+                headers={"Authorization": f"Bearer {CLERK_SECRET_KEY}"},
+                params={"email_address": email, "limit": 2},
+            )
+            if resp.status_code != 200:
+                return None
+            body = resp.json()
+            users = body if isinstance(body, list) else body.get("data", [])
+            if len(users) != 1:
+                # Zero means no account; more than one is ambiguous and
+                # guessing would attach a stranger's subscription to someone.
+                logger.warning(
+                    "customer %s email matched %d Clerk accounts — not guessing",
+                    customer_id, len(users),
+                )
+                return None
+            user_id = users[0]["id"]
+            logger.warning(
+                "recovered %s for customer %s by email — the metadata link was "
+                "missing, repairing it", user_id, customer_id,
+            )
+            await _update_clerk_metadata(user_id, {"stripe_customer_id": customer_id})
+            return user_id
+    except Exception as e:
+        logger.error("email fallback failed for %s: %s", customer_id, e)
     return None
