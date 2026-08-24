@@ -39,6 +39,16 @@ export function Footer() {
           >
             Disclaimer
           </Link>
+          {/* The European Accessibility Act requires the statement to be
+              publicly available; a footer link on every page is how that is
+              normally satisfied. See app/accessibility/page.tsx. */}
+          <Link
+            href="/accessibility"
+            prefetch={false}
+            className="text-xs text-[#55556A] transition-colors hover:text-[#8888A0]"
+          >
+            Accessibility
+          </Link>
         </nav>
       </div>
     </footer>

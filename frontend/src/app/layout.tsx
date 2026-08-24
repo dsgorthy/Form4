@@ -164,9 +164,19 @@ export default function RootLayout({
           <AnalyticsProvider>
             <TooltipProvider>
               <OnboardingGuard />
+              {/* WCAG 2.4.1 Bypass Blocks (Level A). Keyboard and screen-reader
+                  users otherwise tab through the entire nav on every page.
+                  Visually hidden until focused, which is the point — it is for
+                  people who cannot see it. */}
+              <a
+                href="#main"
+                className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-[#3B82F6] focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-white"
+              >
+                Skip to main content
+              </a>
               <Nav />
               <TrialBanner />
-              <main className="mx-auto max-w-7xl px-4 py-4 md:px-6 md:py-6">{children}</main>
+              <main id="main" className="mx-auto max-w-7xl px-4 py-4 md:px-6 md:py-6">{children}</main>
               <Footer />
             </TooltipProvider>
           </AnalyticsProvider>
