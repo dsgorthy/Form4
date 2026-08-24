@@ -83,6 +83,7 @@ def _cleanup(conn, marker: str) -> None:
     conn.execute("DELETE FROM notifications.notifications WHERE user_id = ?", (CANARY_USER,))
     conn.execute("DELETE FROM strategy_portfolio WHERE ticker = ? AND entry_reasoning = ?",
                  (CANARY_TICKER, marker))
+    conn.execute("DELETE FROM notifications.watchlist WHERE user_id = ?", (CANARY_USER,))
     conn.commit()
 
 
@@ -183,6 +184,52 @@ def run(verbose: bool = True) -> dict:
         step("subscriber was notified", row is not None,
              (row["title"][:70] if row else
               "NO NOTIFICATION — the chain is broken between the runner and the user"))
+
+        # ── leg 2: a per-INSIDER subscription ────────────────────────────
+        #
+        # watchlist has carried insider_id since it was built and the scanner
+        # only ever read w.ticker, so following an insider delivered nothing.
+        # Nothing detected it because no check walked that path.
+        real = conn.execute(
+            """SELECT t.insider_id, t.ticker FROM trades t
+                WHERE t.ingested_at > NOW() - INTERVAL '2 days'
+                  AND t.signal_class IN ('discretionary_buy','discretionary_sell')
+                  AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
+                ORDER BY t.ingested_at DESC LIMIT 1""").fetchone()
+        if real is None:
+            step("insider subscription matched", True,
+                 "skipped — no discretionary filing in the last 2 days")
+        else:
+            conn.execute(
+                "INSERT INTO notifications.watchlist (user_id, insider_id) "
+                "VALUES (?, ?) ON CONFLICT DO NOTHING",
+                (CANARY_USER, real["insider_id"]))
+            conn.execute(
+                """INSERT INTO notifications.scan_watermarks
+                       (event_type, last_processed_date, last_processed_at)
+                   VALUES ('watchlist_activity', ?, NOW() - INTERVAL '2 days')
+                   ON CONFLICT (event_type) DO UPDATE
+                     SET last_processed_at = NOW() - INTERVAL '2 days'""",
+                ((datetime.now(timezone.utc) - timedelta(days=2)).strftime("%Y-%m-%d"),))
+            conn.commit()
+
+            iconn2 = ns._open_insiders_db()
+            nconn2 = ns._open_notifications_db()
+            try:
+                ns._reset_cycle_counts()
+                ns.scan_watchlist_activity(iconn2, nconn2, latest)
+            finally:
+                iconn2.close()
+                nconn2.close()
+
+            hit = conn.execute(
+                """SELECT title FROM notifications.notifications
+                    WHERE user_id = ? AND event_type = 'watchlist_activity'
+                    ORDER BY created_at DESC LIMIT 1""",
+                (CANARY_USER,)).fetchone()
+            step("insider subscription matched", hit is not None,
+                 hit["title"][:70] if hit else
+                 f"followed insider {real['insider_id']} and was NOT notified")
 
         ok = all(s["ok"] for s in steps)
         elapsed = round((time.monotonic() - t0) * 1000)

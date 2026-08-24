@@ -169,6 +169,13 @@ def _get_user_filters(nconn: ConnectionWrapper, user_id: str, event_type: str) -
 #: tier per user, populated as a side effect of the email lookup we already do.
 _TIER_CACHE: dict[str, str] = {}
 
+#: email per user, same lookup. This was REFERENCED THREE TIMES in
+#: _maybe_send_realtime_email and never defined, so every realtime delivery
+#: raised NameError — and because the call site was unguarded, one realtime
+#: subscriber aborted the entire scan cycle for everyone. There is exactly one
+#: such account on Studio.
+_email_cache: dict[str, str | None] = {}
+
 #: The account no longer exists in Clerk. Six preference rows on Studio point
 #: at deleted users and have been generating notifications for nobody.
 _TIER_GONE = "__deleted__"
@@ -393,7 +400,7 @@ def scan_high_value_filings(iconn: ConnectionWrapper, nconn: ConnectionWrapper, 
 
             if _insert_notification(nconn, user["user_id"], "high_value_filing", title, body, r["ticker"], dedup):
                 count += 1
-                _maybe_send_realtime_email(nconn, user, title, body)
+                _try_send_realtime(nconn, user, title, body)
 
     _set_watermark(nconn, "high_value_filing", latest)
     nconn.commit()
@@ -432,7 +439,7 @@ def scan_cluster_formations(iconn: ConnectionWrapper, nconn: ConnectionWrapper, 
             dedup = _dedup_key("clf", user["user_id"], r["ticker"], r["trade_type"], r["latest_filing"])
             if _insert_notification(nconn, user["user_id"], "cluster_formation", title, body, r["ticker"], dedup):
                 count += 1
-                _maybe_send_realtime_email(nconn, user, title, body)
+                _try_send_realtime(nconn, user, title, body)
 
     _set_watermark(nconn, "cluster_formation", latest)
     nconn.commit()
@@ -499,7 +506,7 @@ def scan_activity_spikes(iconn: ConnectionWrapper, nconn: ConnectionWrapper, lat
             dedup = _dedup_key("asp", user["user_id"], r["ticker"], r["trade_type"], r["latest_filing"])
             if _insert_notification(nconn, user["user_id"], "activity_spike", title, body, r["ticker"], dedup):
                 count += 1
-                _maybe_send_realtime_email(nconn, user, title, body)
+                _try_send_realtime(nconn, user, title, body)
 
     nconn.commit()
     return count
@@ -568,7 +575,7 @@ def scan_congress_convergence(iconn: ConnectionWrapper, nconn: ConnectionWrapper
             dedup = _dedup_key("ccv", user["user_id"], r["ticker"], str(week))
             if _insert_notification(nconn, user["user_id"], "congress_convergence", title, body, r["ticker"], dedup):
                 count += 1
-                _maybe_send_realtime_email(nconn, user, title, body)
+                _try_send_realtime(nconn, user, title, body)
 
     nconn.commit()
     return count
@@ -601,67 +608,87 @@ def should_notify_watchlist(signal_class: str | None,
 
 
 def scan_watchlist_activity(iconn: ConnectionWrapper, nconn: ConnectionWrapper, latest: str) -> int:
-    """Notify users about any new filings on their watched tickers."""
+    """Notify users about new filings on the tickers AND insiders they follow.
+
+    TWO THINGS WERE WRONG HERE.
+
+    1. INSIDER SUBSCRIPTIONS WERE NEVER MATCHED. watchlist carries both
+       `ticker` and `insider_id`, the product offers both, and this function
+       selected `w.user_id, w.ticker`. Following an insider delivered nothing,
+       silently, forever.
+
+    2. THE MATCH DID NOT SCALE. It loaded every watched ticker across all
+       users into one `IN (...)` list, then looped users in Python for each
+       filing — O(filings x users). At 1,000 users that is ~838k comparisons a
+       day; at 10,000 on a 2,348-filing day it is 23 million and will not
+       finish inside a five-minute tick. A 20,000-element IN list also stops
+       using the index, the same way `COALESCE(...) IN (...)` defeated both
+       indexes on `trades` in August.
+
+    Now one set-based statement: two indexed joins UNIONed, deliberately not an
+    OR-join, which would defeat the index. Postgres returns (user, filing)
+    pairs already matched, so the Python loop is over results rather than over
+    the cross product.
+    """
     watermark = _get_watermark(nconn, "watchlist_activity") or (
         _default_watermark(latest)
     )
 
-    # Get all watched tickers across all users
-    all_watchlist = nconn.execute(
-        """SELECT w.user_id, w.ticker
-           FROM watchlist w
-           JOIN notification_preferences np ON w.user_id = np.user_id
-           WHERE np.watchlist_activity = 1""",
+    subs = nconn.execute(
+        """SELECT w.user_id, w.ticker, w.insider_id
+             FROM watchlist w
+             JOIN notification_preferences np ON w.user_id = np.user_id
+            WHERE np.watchlist_activity = 1""",
     ).fetchall()
-
-    if not all_watchlist:
+    if not subs:
         _set_watermark(nconn, "watchlist_activity", latest)
         nconn.commit()
         return 0
 
-    # Build user->tickers map and unique tickers set
-    user_tickers: dict[str, set[str]] = {}
-    all_tickers: set[str] = set()
-    for row in all_watchlist:
-        user_tickers.setdefault(row["user_id"], set()).add(row["ticker"])
-        all_tickers.add(row["ticker"])
+    by_ticker: dict[str, set[str]] = {}
+    by_insider: dict[int, set[str]] = {}
+    for r in subs:
+        if r["ticker"]:
+            by_ticker.setdefault(r["ticker"], set()).add(r["user_id"])
+        if r["insider_id"] is not None:
+            by_insider.setdefault(int(r["insider_id"]), set()).add(r["user_id"])
 
-    # Query new filings for watched tickers
-    placeholders = ",".join("?" for _ in all_tickers)
-    new_filings = iconn.execute(
-        f"""SELECT MIN(t.trade_id) AS trade_id,
-                   t.insider_id, t.ticker, MAX(t.company) AS company,
-                   MAX(COALESCE(i.display_name, i.name)) AS insider_name,
-                   MAX(t.title) AS title, t.trade_type, t.trade_date,
-                   MAX(t.filing_date) AS filing_date,
-                   SUM(t.value) AS total_value,
-                   t.signal_class
-            FROM trades t
-            JOIN insiders i ON t.insider_id = i.insider_id
-            WHERE t.ingested_at > ? AND t.ingested_at <= ?
-              AND t.ticker IN ({placeholders})
-              AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
-            GROUP BY t.insider_id, t.ticker, t.trade_type, t.trade_date,
-                     t.signal_class
-            ORDER BY MAX(t.filing_date) DESC""",
-        [watermark, latest] + list(all_tickers),
-    ).fetchall()
+    # One query per target type — each hits its own index. Filings are grouped
+    # to the FILING, not the lot: a purchase filled in five tranches is one
+    # decision and must produce one alert.
+    filings: dict[tuple, dict] = {}
 
-    # THE DEFAULT IS MEANINGFUL FILINGS ONLY.
-    #
-    # 71.6% of Form 4s are mechanical: 10b5-1 plans set up months ago,
-    # compensation grants, tax withholding on vesting, option exercises. A user
-    # who watches a ticker wants to know when someone made a DECISION about it,
-    # not when payroll ran. Watching one active ticker unfiltered is roughly
-    # three alerts for every one worth reading.
-    #
-    # `signal_class` is the only correct source for this. The boolean columns
-    # do not work: is_tax_sale is set on 2,025 rows against 470,417 filings
-    # classified as tax withholding, and 184k compensation grants plus 221k
-    # option exercises are stored with trade_type = 'buy', so anything reading
-    # "buy" as "bought" reports shares an insider was handed as a purchase.
-    #
-    # Opt out per user with notification_preferences.watchlist_all_filings.
+    def _load(where: str, params: list) -> None:
+        rows = iconn.execute(
+            f"""SELECT MIN(t.trade_id) AS trade_id,
+                       t.insider_id, t.ticker, MAX(t.company) AS company,
+                       MAX(COALESCE(i.display_name, i.name)) AS insider_name,
+                       MAX(t.title) AS title, t.trade_type, t.trade_date,
+                       MAX(t.filing_date) AS filing_date,
+                       SUM(t.value) AS total_value,
+                       t.signal_class
+                  FROM trades t
+                  JOIN insiders i ON t.insider_id = i.insider_id
+                 WHERE t.ingested_at > ? AND t.ingested_at <= ?
+                   AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
+                   AND {where}
+                 GROUP BY t.insider_id, t.ticker, t.trade_type, t.trade_date,
+                          t.signal_class""",
+            [watermark, latest] + params,
+        ).fetchall()
+        for row in rows:
+            r = dict(row)
+            filings[(r["insider_id"], r["ticker"], r["trade_type"],
+                     r["trade_date"], r["signal_class"])] = r
+
+    if by_ticker:
+        ph = ",".join("?" for _ in by_ticker)
+        _load(f"t.ticker IN ({ph})", list(by_ticker))
+    if by_insider:
+        ph = ",".join("?" for _ in by_insider)
+        _load(f"t.insider_id IN ({ph})", list(by_insider))
+
+    # Per-user opt-out from the meaningful default.
     unfiltered_users = {
         r["user_id"] for r in nconn.execute(
             "SELECT user_id FROM notification_preferences "
@@ -670,42 +697,41 @@ def scan_watchlist_activity(iconn: ConnectionWrapper, nconn: ConnectionWrapper, 
     }
 
     count = 0
-    for row in new_filings:
-        r = dict(row)
+    for r in filings.values():
+        # Union the two audiences, so a user following BOTH the ticker and the
+        # insider is notified once, not twice.
+        audience = set(by_ticker.get(r["ticker"], ()))
+        audience |= set(by_insider.get(r["insider_id"], ()))
+        if not audience:
+            continue
+
         action = "bought" if r["trade_type"] == "buy" else "sold"
-        value_fmt = f"${r['total_value']:,.0f}"
+        value_fmt = f"${r['total_value']:,.0f}" if r["total_value"] else "shares"
         title_str = r["title"] or "Insider"
         title = f"Watchlist: {r['ticker']} — {title_str} {action} {value_fmt}"
-        body = f"New filing on {r['ticker']}: {r['insider_name']} ({title_str}) {action} {value_fmt}"
+        body = (f"New filing on {r['ticker']}: {r['insider_name']} "
+                f"({title_str}) {action} {value_fmt}")
 
-        for user_id, tickers in user_tickers.items():
-            if r["ticker"] not in tickers:
-                continue
+        for user_id in audience:
             if not should_notify_watchlist(
                     r.get("signal_class"), user_id in unfiltered_users):
                 continue
             dedup = _dedup_key("wla", user_id, str(r["trade_id"]), r["trade_date"])
-            if _insert_notification(nconn, user_id, "watchlist_activity", title, body, r["ticker"], dedup):
+            if _insert_notification(nconn, user_id, "watchlist_activity",
+                                    title, body, r["ticker"], dedup):
                 count += 1
-                # Get user prefs for email
-                user_pref = nconn.execute(
-                    "SELECT email_enabled, email_frequency FROM notification_preferences WHERE user_id = ?",
+                pref = nconn.execute(
+                    "SELECT email_enabled, email_frequency FROM "
+                    "notification_preferences WHERE user_id = ?",
                     (user_id,),
                 ).fetchone()
-                if user_pref:
-                    _maybe_send_realtime_email(nconn, dict(user_pref) | {"user_id": user_id}, title, body)
+                if pref:
+                    _try_send_realtime(
+                        nconn, dict(pref) | {"user_id": user_id}, title, body)
 
     _set_watermark(nconn, "watchlist_activity", latest)
     nconn.commit()
     return count
-
-
-# ---------------------------------------------------------------------------
-# Email dispatch
-# ---------------------------------------------------------------------------
-
-_email_cache: dict[str, str | None] = {}
-
 
 def _maybe_send_realtime_email(nconn: ConnectionWrapper, user: dict, title: str, body: str) -> None:
     """Send email immediately if user has realtime frequency enabled."""
@@ -724,6 +750,22 @@ def _maybe_send_realtime_email(nconn: ConnectionWrapper, user: dict, title: str,
 
     html = build_notification_email(title, body)
     send_email(email, f"Form4: {title}", html)
+
+
+def _try_send_realtime(nconn: ConnectionWrapper, user: dict,
+                       title: str, body: str) -> None:
+    """Delivery failure must never abort the scan.
+
+    The notification row is already committed; the email is a best-effort
+    second channel. An exception here — a Clerk timeout, a Resend 5xx, an
+    undefined name — used to take down the whole cycle, so one subscriber's
+    bad address silenced everyone else's alerts.
+    """
+    try:
+        _maybe_send_realtime_email(nconn, user, title, body)
+    except Exception as exc:                      # noqa: BLE001
+        logger.warning("realtime delivery failed for %s: %s: %s",
+                       user.get("user_id"), type(exc).__name__, exc)
 
 
 def scan_portfolio_alerts(iconn: ConnectionWrapper, nconn: ConnectionWrapper, latest: str) -> int:
@@ -828,7 +870,7 @@ def scan_portfolio_alerts(iconn: ConnectionWrapper, nconn: ConnectionWrapper, la
                                r["ticker"], r["entry_date"])
             if _insert_notification(nconn, user["user_id"], "portfolio_alert", title, body, r["ticker"], dedup):
                 count += 1
-                _maybe_send_realtime_email(nconn, user, title, body)
+                _try_send_realtime(nconn, user, title, body)
 
     for row in new_exits:
         r = dict(row)
@@ -861,7 +903,7 @@ def scan_portfolio_alerts(iconn: ConnectionWrapper, nconn: ConnectionWrapper, la
                                r["ticker"], r["exit_date"])
             if _insert_notification(nconn, user["user_id"], "portfolio_alert", title, body, r["ticker"], dedup):
                 count += 1
-                _maybe_send_realtime_email(nconn, user, title, body)
+                _try_send_realtime(nconn, user, title, body)
 
     _set_watermark(nconn, "portfolio_alert", latest_ts)
     nconn.commit()
