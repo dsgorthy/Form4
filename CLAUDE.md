@@ -438,6 +438,18 @@ Historical options EOD pricing for insider event backtesting. **Check `pipeline_
 
 **"Board review"** — Requires: strategy name and path to backtest JSON. Command: `python3 pipelines/run_board.py --strategy NAME --backtest-file reports/NAME/backtest_latest.json`. 5 personas evaluate independently. Approval rules in Strategy Lifecycle section above.
 
+**"Anything about which filings are worth showing"** — `signal_class` is the
+only correct input. A filing is MEANINGFUL when it is
+`discretionary_buy`/`discretionary_sell` (28.4% of filings); everything else is
+a 10b5-1 plan, a comp grant, tax withholding or an option exercise. The set is
+DERIVED from `KIND_META` in `api/classification.py` and re-exported as
+`api.filters.MEANINGFUL_CLASSES` — never type it out.
+`tests/unit/test_meaningful_is_one_definition.py` fails the build on drift.
+**Do NOT use the boolean columns:** `is_tax_sale` is set on 2,025 rows against
+470,417 tax withholdings, and 184k comp grants + 221k option exercises carry
+`trade_type='buy'`. Read `reference_meaningful_filings.md` in Claude memory
+first.
+
 **"Anything with a score, grade, star or badge"** — `api/ratings.py` is the single definition of every rating this product publishes: Insider Rating (A+/A/B/C/Unrated, from `career_grade`) and Trade Rating (Exceptional/Strong/Notable/Routine/Weak, from the 0-100 trade score). Tags are 1-to-many and never rate. Never add a new scale, never retype a band name or threshold, never render `pit_grade` or `conviction` as a user-facing rating. `frontend/src/lib/ratings.ts` mirrors it; `tests/unit/test_ratings_parity.py` fails the build on drift. Read `reference_rating_taxonomy.md` in Claude memory first.
 
 **"PIT audit / scoring change"** — MANDATORY: read `reference_signal_registry.md` from Claude memory first. Then follow the full PIT Validation Checklist above. Never skip this even if the change seems safe.
