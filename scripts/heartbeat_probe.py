@@ -129,10 +129,31 @@ def check_strategies() -> dict:
                                 "hb_status": None, "mode": mode, "strategy": s}
                 continue
             age = _heartbeat_age_minutes(hb)
-            ok = age is not None and age <= threshold
+            fresh = age is not None and age <= threshold
+            # LIVENESS IS NOT HEALTH.
+            #
+            # A runner whose daily cycle throws keeps looping and keeps writing
+            # status="active", so a freshness-only probe reports it green. That
+            # is how A-List Buys stayed "healthy" while its cycle failed 367
+            # times between 2026-08-18 and 08-24, never scanning and never
+            # writing a decision row. The heartbeat now carries the outcome of
+            # the last cycle; a fresh beat reporting a FAILED cycle is worse
+            # than a stale one, because nothing else will catch it.
+            cycle_ok = hb.get("last_cycle_ok")
+            cycle_failed = cycle_ok is False
+            ok = fresh and not cycle_failed
+            if not fresh:
+                status = "stale"
+            elif cycle_failed:
+                status = "cycle_failed"
+            else:
+                status = "fresh"
             out[key] = {"ok": ok, "age_min": age, "threshold": threshold,
-                        "status": "fresh" if ok else "stale",
+                        "status": status,
                         "hb_status": hb.get("status"),
+                        "cycle_ok": cycle_ok,
+                        "cycle_date": hb.get("last_cycle_date"),
+                        "cycle_error": hb.get("last_cycle_error"),
                         "mode": mode, "strategy": s}
     return out
 
@@ -180,7 +201,19 @@ def main():
         cur = "ok" if r["ok"] else r["status"]
         if cur != prev:
             label = f"{r['strategy']}({r['mode']})"
-            if not r["ok"]:
+            if r["status"] == "cycle_failed":
+                # Alive but broken. Say so in those words — "stale heartbeat"
+                # would be actively misleading here, because the heartbeat is
+                # perfectly fresh and that is the whole problem.
+                alert.critical(
+                    f"heartbeat_probe.{key}",
+                    f"{label} is RUNNING but its daily cycle FAILED on "
+                    f"{r.get('cycle_date')}: {r.get('cycle_error')}",
+                    strategy=r["strategy"], mode=r["mode"],
+                    age_minutes=r["age_min"], cycle_date=r.get("cycle_date"),
+                    cycle_error=r.get("cycle_error"),
+                )
+            elif not r["ok"]:
                 age_str = f"{r['age_min']:.0f}m" if r["age_min"] is not None else "missing"
                 alert.critical(
                     f"heartbeat_probe.{key}",

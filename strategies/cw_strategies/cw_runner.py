@@ -52,6 +52,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Outcome of the most recent daily cycle, surfaced in every heartbeat so a
+# runner that is alive but broken is distinguishable from a healthy one.
+_last_cycle: dict = {"date": None, "ok": None, "error": None}
+
 # Default data dir for state/heartbeat files
 DATA_DIR = Path(__file__).resolve().parent / "data"
 
@@ -164,9 +168,41 @@ def get_alpaca(config: dict) -> PaperBackend:
     instantiation-time WARNING log surfaces. Anyone tempted to construct a
     live backend somewhere else in the codebase has to opt in.
 
-    Never uses ALPACA_DATA_API_KEY — those are read-only data credentials.
+    ALERT-ONLY strategies use the SHARED READ-ONLY DATA credentials.
+
+    They place no orders — every submit_order path is gated on execution_mode
+    — so they need Alpaca purely to read prices and bars, and demanding a
+    dedicated TRADING account for that is both unnecessary and a trap. It was
+    exactly that: quality_notrend (A-List Buys) is alert-only and correctly has
+    no Alpaca account, so its yaml says `alpaca_env_prefix: null`, and this
+    function raised on every daily cycle from 2026-08-18. The daemon stayed up
+    and heartbeated fine while its cycle died 367 times, and the strategy never
+    wrote a single row to trade_decision_audit. The other two books only
+    survived because they still carry prefixes left over from when they had
+    paper accounts.
+
+    The no-commingling rule is about ORDERS, and it is preserved exactly: a
+    trading prefix is still mandatory for paper and live modes. Read-only data
+    credentials cannot place a trade, so sharing them across strategies risks
+    nothing.
     """
     prefix = config.get("alpaca_env_prefix")
+    execution_mode = config.get("execution_mode",
+                                "live" if config.get("live_money") else "paper")
+
+    if execution_mode == "alert_only" and not prefix:
+        api_key = os.getenv("ALPACA_DATA_API_KEY", "")
+        api_secret = os.getenv("ALPACA_DATA_API_SECRET", "")
+        if not api_key or not api_secret:
+            raise RuntimeError(
+                "ALPACA_DATA_API_KEY / ALPACA_DATA_API_SECRET not set in .env — "
+                f"alert-only strategy '{config.get('strategy_name')}' needs them "
+                "to read prices."
+            )
+        logger.info("[%s] alert_only — using shared read-only data credentials",
+                    config.get("strategy_name"))
+        return PaperBackend(api_key, api_secret)
+
     if not prefix:
         raise RuntimeError(
             f"Strategy '{config.get('strategy_name')}' config is missing required "
@@ -1309,8 +1345,19 @@ def execute_entries(
                                 WHERE id = ?
                             ''', (close_price, pnl_pct, pnl_dollar, oldest_id))
                             conn.commit()
-                            alpaca.submit_order(oldest_ticker,
-                                abs(int(old_row["dollar_amount"] / op)), "sell")
+                            # Gated 2026-08-24. This eviction path submitted
+                            # unconditionally — the same defect the comment
+                            # above check_scheduled_exits describes ("without
+                            # this, an alert_only strategy still liquidated
+                            # real Alpaca positions"), just in a branch that
+                            # had never fired in production. An alert-only book
+                            # now holds read-only credentials, so this would
+                            # have become an auth error rather than a trade,
+                            # but the ledger row is closed either way and the
+                            # order must not be attempted.
+                            if config.get("execution_mode") != "alert_only":
+                                alpaca.submit_order(oldest_ticker,
+                                    abs(int(old_row["dollar_amount"] / op)), "sell")
                             held_tickers.discard(oldest_ticker)
                             logger.info("REPLACED oldest %s → %s (conv=%.1f)",
                                         oldest_ticker, ticker, conv)
@@ -1345,8 +1392,9 @@ def execute_entries(
                                 WHERE id = ?
                             ''', (close_price, pnl_pct, pnl_dollar, weakest_id))
                             conn.commit()
-                            alpaca.submit_order(weakest_ticker,
-                                abs(int(weak_row["dollar_amount"] / wp)), "sell")
+                            if config.get("execution_mode") != "alert_only":
+                                alpaca.submit_order(weakest_ticker,
+                                    abs(int(weak_row["dollar_amount"] / wp)), "sell")
                             held_tickers.discard(weakest_ticker)
                             logger.info("REPLACED %s (conv=%.1f) with %s (conv=%.1f)",
                                         weakest_ticker, weakest_conv, ticker, conv)
@@ -2388,6 +2436,11 @@ def _write_heartbeat(config: dict, status: str = "ok", detail: str = "", **extra
         "timestamp": _now_et().isoformat(),
         "pid": os.getpid(),
         "detail": detail,
+        # The last daily cycle's OUTCOME. `status` above only says the loop is
+        # turning; these say whether the work inside it succeeded.
+        "last_cycle_date": _last_cycle["date"],
+        "last_cycle_ok": _last_cycle["ok"],
+        "last_cycle_error": _last_cycle["error"],
     }
     beat.update(extra)
     try:
@@ -2585,9 +2638,20 @@ def run_daemon(config: dict) -> None:
                 result = run_daily(config)
                 logger.info("Daily cycle complete: %s", result)
                 ran_daily = True
+                # Record the OUTCOME, not just liveness. A runner whose cycle
+                # throws keeps ticking and keeps writing status="active", so
+                # every heartbeat check passed while A-List Buys' cycle died
+                # 367 times between 2026-08-18 and 08-24. The probe now has
+                # something to look at.
+                _last_cycle["date"] = _now_et().strftime("%Y-%m-%d")
+                _last_cycle["ok"] = True
+                _last_cycle["error"] = None
             except Exception as exc:
                 logger.error("Daily cycle failed: %s", exc)
                 send_alert(f"Daily cycle error: {exc}", prefix)
+                _last_cycle["date"] = _now_et().strftime("%Y-%m-%d")
+                _last_cycle["ok"] = False
+                _last_cycle["error"] = f"{type(exc).__name__}: {exc}"[:300]
             # Close any overdue positions immediately at open
             try:
                 alpaca = get_alpaca(config)
