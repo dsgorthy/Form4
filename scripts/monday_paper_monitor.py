@@ -60,6 +60,19 @@ STRATEGIES = ["quality_notrend", "quality_momentum", "reversal_dip"]
 HEARTBEAT_MAX_AGE_MIN = 30   # cw_runner writes heartbeat every cycle
 ALERT_LOG = REPO / "logs" / "alerts.ndjson"
 DEPLOY_COMMIT_UTC = "2026-05-17T07:00:00+00:00"   # Phase 2 deploy reference
+
+# A CHECK THAT CAN NEVER GO GREEN IS A CHECK NOBODY READS.
+#
+# This counted every critical since the May deploy reference, forever. By
+# 2026-08-24 it stood at 257 — mostly a long tail from tenb51_surprise, retired
+# 2026-08-18 — and had reported FAIL on every run since. So the week this
+# report was the ONLY thing that noticed A-List Buys' runner had been dead for
+# five trading days, nobody read it.
+#
+# Count over a rolling window instead, so fixing the cause actually clears the
+# alarm, and drop components belonging to retired strategies.
+CRITICAL_WINDOW_DAYS = 7
+RETIRED_STRATEGY_COMPONENTS = {"cw_runner.tenb51_surprise"}
 # Components whose critical alerts during the deploy window are expected
 # (transient docker restart blips, etc.) and shouldn't be flagged.
 DEPLOY_NOISE_COMPONENTS = {"uptime_monitor"}
@@ -236,7 +249,7 @@ def check_unexpected_critical_alerts() -> CheckResult:
             name="unexpected_criticals", ok=True, severity="info",
             detail="alerts.ndjson empty/missing",
         )
-    cutoff = datetime.fromisoformat(DEPLOY_COMMIT_UTC)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=CRITICAL_WINDOW_DAYS)
     unexpected: list[dict] = []
     own_criticals: list[dict] = []
     with open(ALERT_LOG) as f:
@@ -262,6 +275,8 @@ def check_unexpected_critical_alerts() -> CheckResult:
                 continue
             if component in DEPLOY_NOISE_COMPONENTS:
                 continue
+            if component in RETIRED_STRATEGY_COMPONENTS:
+                continue
             unexpected.append(e)
     if unexpected:
         # Surface the first few as detail; remaining counts only.
@@ -271,7 +286,8 @@ def check_unexpected_critical_alerts() -> CheckResult:
         )
         return CheckResult(
             name="unexpected_criticals", ok=False, severity="warn",
-            detail=f"{len(unexpected)} critical alert(s) since deploy {DEPLOY_COMMIT_UTC} — {head}",
+            detail=(f"{len(unexpected)} critical alert(s) in the last "
+                    f"{CRITICAL_WINDOW_DAYS}d — {head}"),
             extra={"unexpected_components": sorted({e.get("component", "") for e in unexpected})},
         )
     return CheckResult(
