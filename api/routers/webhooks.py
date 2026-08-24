@@ -19,6 +19,8 @@ from api.rate_limit import limiter
 
 logger = logging.getLogger(__name__)
 
+from api.comp import comp_lapsed
+
 router = APIRouter(prefix="/api/v1/webhooks", tags=["webhooks"])
 
 stripe.api_key = STRIPE_SECRET_KEY
@@ -76,8 +78,29 @@ async def stripe_webhook(
     except stripe.error.SignatureVerificationError:
         raise HTTPException(status_code=400, detail="Invalid signature")
 
+    # PLAIN DICTS FROM HERE DOWN.
+    #
+    # stripe-python 15.x stopped making StripeObject a dict subclass, so every
+    # `.get()` in this handler began raising:
+    #
+    #   AttributeError: 'get' is a dict method, but a Subscription is not a
+    #   dict. Use .to_dict() to convert it.
+    #
+    # Every branch used .get(), so the ENTIRE webhook returned 500 from the
+    # moment the library was upgraded. Stripe retried, got 500, gave up. The
+    # visible symptom was a paying customer whose Clerk account never received
+    # stripe_customer_id, so the billing portal told him "No subscription
+    # found" while Stripe kept charging him, and he could not self-cancel.
+    #
+    # to_dict_recursive() because nested objects (line items, subscription
+    # items) are StripeObjects too and a shallow conversion just moves the
+    # crash one level down.
     event_type = event["type"]
     data_obj = event["data"]["object"]
+    if hasattr(data_obj, "to_dict_recursive"):
+        data_obj = data_obj.to_dict_recursive()
+    elif hasattr(data_obj, "to_dict"):
+        data_obj = data_obj.to_dict()
 
     if event_type == "checkout.session.completed":
         user_id = data_obj.get("client_reference_id")
@@ -89,7 +112,9 @@ async def stripe_webhook(
         session = stripe.checkout.Session.retrieve(
             data_obj["id"], expand=["line_items"]
         )
-        items = session.get("line_items", {}).get("data", [])
+        if hasattr(session, "to_dict_recursive"):
+            session = session.to_dict_recursive()
+        items = (session.get("line_items") or {}).get("data", [])
         tier, api_access = _determine_tier_from_items(items)
 
         # If this checkout only added API access (no Pro price), preserve existing tier
@@ -122,15 +147,56 @@ async def stripe_webhook(
                 metadata["api_access"] = False
             await _update_clerk_metadata(user_id, metadata)
         elif status in ("canceled", "unpaid", "past_due"):
-            await _update_clerk_metadata(user_id, {"tier": "free", "api_access": False})
+            await _downgrade_unless_comped(user_id)
 
     elif event_type == "customer.subscription.deleted":
         customer_id = data_obj.get("customer")
         user_id = await _find_clerk_user_by_customer(customer_id)
         if user_id:
-            await _update_clerk_metadata(user_id, {"tier": "free", "api_access": False})
+            await _downgrade_unless_comped(user_id)
 
     return {"status": "ok"}
+
+
+async def _downgrade_unless_comped(user_id: str) -> None:
+    """Drop to free — unless the account carries an unexpired hand-granted comp.
+
+    A comp is given precisely to people who do NOT have a subscription: a
+    refunded customer, a goodwill grant, an early supporter. Letting
+    subscription.deleted set tier=free would revoke the comp the moment it was
+    granted, which is the opposite of what comping means.
+
+    Clerk merges public_metadata on PATCH, so `pro_until` survives a tier
+    write — the flag stays but the access it was meant to grant disappears.
+    That is a silent revocation, and the user was told in writing they had it.
+
+    comp_lapsed() is the same predicate the API and trial_emails use; do not
+    reimplement the date handling here.
+    """
+    meta = await _get_clerk_metadata(user_id)
+    if meta.get("pro_until") and not comp_lapsed(meta):
+        logger.info(
+            "%s: subscription ended but comped until %s — leaving tier alone",
+            user_id, meta.get("pro_until"),
+        )
+        return
+    await _update_clerk_metadata(user_id, {"tier": "free", "api_access": False})
+
+
+async def _get_clerk_metadata(user_id: str) -> dict:
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"https://api.clerk.com/v1/users/{user_id}",
+                headers={"Authorization": f"Bearer {CLERK_SECRET_KEY}"},
+            )
+            if resp.status_code == 200:
+                return resp.json().get("public_metadata") or {}
+    except Exception as exc:
+        logger.error("could not read Clerk metadata for %s: %s", user_id, exc)
+    # Unknown -> do not downgrade. Wrongly keeping Pro for a cycle is
+    # recoverable; wrongly revoking a paid or comped account is not.
+    return {"pro_until": "9999-12-31"}
 
 
 async def _find_clerk_user_by_customer(customer_id: str) -> str | None:
