@@ -26,6 +26,7 @@ from api.email import build_digest_email, build_notification_email, send_email
 # Python, which has no fastapi, so importing api.gating here would
 # take the whole job down.
 from api.public_fields import ACTIVE_STRATEGIES, PRO_ALERT_EVENTS, strategy_label
+from api.filters import MEANINGFUL_CLASSES
 from api.notifications_db import get_connection as get_notif_connection
 from api.notifications_db import init_db
 
@@ -571,6 +572,32 @@ def scan_congress_convergence(iconn: ConnectionWrapper, nconn: ConnectionWrapper
     return count
 
 
+def should_notify_watchlist(signal_class: str | None,
+                           user_wants_all: bool) -> bool:
+    """Does this filing clear the watchlist default for this user?
+
+    THE DEFAULT IS MEANINGFUL FILINGS ONLY. 71.6% of Form 4s are mechanical:
+    10b5-1 plans set up months ago, compensation grants, tax withheld on
+    vesting, option exercises. Someone watching a ticker wants to know when an
+    insider made a DECISION about it, not when payroll ran — unfiltered, an
+    active ticker produces roughly three mechanical filings per real one.
+
+    `signal_class` is the only correct input. The boolean columns do not work:
+    `is_tax_sale` is set on 2,025 rows against 470,417 filings classified as
+    tax withholding, and 184,121 compensation grants plus 220,692 option
+    exercises carry `trade_type = 'buy'`, so anything reading "buy" as
+    "bought" reports shares an insider was handed as a purchase.
+
+    Unclassifiable filings are DELIVERED. Failing open costs one extra alert;
+    failing closed silently drops a filing a user explicitly asked to see.
+    """
+    if user_wants_all:
+        return True
+    if signal_class is None or str(signal_class).strip() == "":
+        return True          # fail open — see docstring
+    return signal_class in MEANINGFUL_CLASSES
+
+
 def scan_watchlist_activity(iconn: ConnectionWrapper, nconn: ConnectionWrapper, latest: str) -> int:
     """Notify users about any new filings on their watched tickers."""
     watermark = _get_watermark(nconn, "watchlist_activity") or (
@@ -605,16 +632,40 @@ def scan_watchlist_activity(iconn: ConnectionWrapper, nconn: ConnectionWrapper, 
                    MAX(COALESCE(i.display_name, i.name)) AS insider_name,
                    MAX(t.title) AS title, t.trade_type, t.trade_date,
                    MAX(t.filing_date) AS filing_date,
-                   SUM(t.value) AS total_value
+                   SUM(t.value) AS total_value,
+                   t.signal_class
             FROM trades t
             JOIN insiders i ON t.insider_id = i.insider_id
             WHERE t.ingested_at > ? AND t.ingested_at <= ?
               AND t.ticker IN ({placeholders})
               AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
-            GROUP BY t.insider_id, t.ticker, t.trade_type, t.trade_date
+            GROUP BY t.insider_id, t.ticker, t.trade_type, t.trade_date,
+                     t.signal_class
             ORDER BY MAX(t.filing_date) DESC""",
         [watermark, latest] + list(all_tickers),
     ).fetchall()
+
+    # THE DEFAULT IS MEANINGFUL FILINGS ONLY.
+    #
+    # 71.6% of Form 4s are mechanical: 10b5-1 plans set up months ago,
+    # compensation grants, tax withholding on vesting, option exercises. A user
+    # who watches a ticker wants to know when someone made a DECISION about it,
+    # not when payroll ran. Watching one active ticker unfiltered is roughly
+    # three alerts for every one worth reading.
+    #
+    # `signal_class` is the only correct source for this. The boolean columns
+    # do not work: is_tax_sale is set on 2,025 rows against 470,417 filings
+    # classified as tax withholding, and 184k compensation grants plus 221k
+    # option exercises are stored with trade_type = 'buy', so anything reading
+    # "buy" as "bought" reports shares an insider was handed as a purchase.
+    #
+    # Opt out per user with notification_preferences.watchlist_all_filings.
+    unfiltered_users = {
+        r["user_id"] for r in nconn.execute(
+            "SELECT user_id FROM notification_preferences "
+            "WHERE watchlist_all_filings = 1"
+        ).fetchall()
+    }
 
     count = 0
     for row in new_filings:
@@ -627,6 +678,9 @@ def scan_watchlist_activity(iconn: ConnectionWrapper, nconn: ConnectionWrapper, 
 
         for user_id, tickers in user_tickers.items():
             if r["ticker"] not in tickers:
+                continue
+            if not should_notify_watchlist(
+                    r.get("signal_class"), user_id in unfiltered_users):
                 continue
             dedup = _dedup_key("wla", user_id, str(r["trade_id"]), r["trade_date"])
             if _insert_notification(nconn, user_id, "watchlist_activity", title, body, r["ticker"], dedup):

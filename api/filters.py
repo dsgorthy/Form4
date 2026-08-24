@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Sequence
 
+from api.classification import KIND_META, _KIND_OF
+
 
 def deduplicate_filers(
     rows: list[dict],
@@ -67,7 +69,17 @@ def filing_group_by(alias: str = "t") -> str:
 
 #: Classes that carry directional information. Measured 2016-2026, 30d
 #: SPY-adjusted: discretionary_buy +1.06%, discretionary_sell -0.39%.
-MEANINGFUL_CLASSES = ("discretionary_buy", "discretionary_sell")
+#:
+#: DERIVED, NOT TYPED. This was a hand-written tuple identical to
+#: classification.DISCRETIONARY_CLASSES, with nothing keeping the two in step —
+#: the same "one concept, two definitions" shape behind every defect found in
+#: August 2026. It now comes from KIND_META, where each kind already declares
+#: whether it is a signal, so a change to the vocabulary propagates here by
+#: construction instead of by memory.
+MEANINGFUL_CLASSES = tuple(
+    cls for cls, kind in _KIND_OF.items()
+    if kind is not None and KIND_META[kind]["signal"]
+)
 
 #: Everything retained but excluded from the meaningful default. planned_sell
 #: is here rather than merged into the sell signal because at +0.86% over 30

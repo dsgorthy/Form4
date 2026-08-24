@@ -99,11 +99,6 @@ _KIND_OF: dict[str, Optional[str]] = {
     "inconsistent": None,
 }
 
-#: The classes that represent an actual decision to buy or sell on the open
-#: market. This is the set every "is this a real signal?" filter should use —
-#: strategy entry, the Stocktwits generator, the notable-trade gate.
-DISCRETIONARY_CLASSES = ("discretionary_buy", "discretionary_sell")
-
 KIND_META: dict[str, dict[str, Any]] = {
     "Discretionary": {
         "blurb": "An open-market decision to buy or sell.",
@@ -126,6 +121,21 @@ KIND_META: dict[str, dict[str, Any]] = {
         "signal": False,
     },
 }
+
+
+#: The classes that represent an actual decision to buy or sell on the open
+#: market. This is the set every "is this a real signal?" filter must use —
+#: strategy entry, the notification default, the browse feed, the Stocktwits
+#: generator, the notable-trade gate.
+#:
+#: DERIVED FROM KIND_META, not typed. It used to be a literal tuple, and
+#: api/filters.MEANINGFUL_CLASSES was a second literal tuple of the same two
+#: values, with nothing keeping them equal. KIND_META already records whether
+#: each kind is a signal, so that flag is the only place the answer lives.
+DISCRETIONARY_CLASSES = tuple(
+    cls for cls, kind in _KIND_OF.items()
+    if kind is not None and KIND_META[kind]["signal"]
+)
 
 
 def filing_kind(signal_class: Optional[str]) -> Optional[str]:
