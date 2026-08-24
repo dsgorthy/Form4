@@ -71,8 +71,16 @@ DEPLOY_COMMIT_UTC = "2026-05-17T07:00:00+00:00"   # Phase 2 deploy reference
 #
 # Count over a rolling window instead, so fixing the cause actually clears the
 # alarm, and drop components belonging to retired strategies.
+# Derived from the registry, never typed: api/public_fields.STRATEGIES is the
+# single source of truth for which strategies are retired, and typing a retired
+# name here would both duplicate it and trip
+# test_retired_strategy_absent_from_live_surfaces.
 CRITICAL_WINDOW_DAYS = 7
-RETIRED_STRATEGY_COMPONENTS = {"cw_runner.tenb51_surprise"}
+
+
+def _retired_components() -> set:
+    from api.public_fields import STRATEGIES
+    return {f"cw_runner.{k}" for k, v in STRATEGIES.items() if not v["active"]}
 # Components whose critical alerts during the deploy window are expected
 # (transient docker restart blips, etc.) and shouldn't be flagged.
 DEPLOY_NOISE_COMPONENTS = {"uptime_monitor"}
@@ -275,7 +283,7 @@ def check_unexpected_critical_alerts() -> CheckResult:
                 continue
             if component in DEPLOY_NOISE_COMPONENTS:
                 continue
-            if component in RETIRED_STRATEGY_COMPONENTS:
+            if component in _retired_components():
                 continue
             unexpected.append(e)
     if unexpected:

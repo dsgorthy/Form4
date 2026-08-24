@@ -101,7 +101,9 @@ def test_unexpected_criticals_returns_pass_when_none(alert_log):
 def test_unexpected_criticals_filters_deploy_noise(alert_log):
     """uptime_monitor criticals during deploy-window are expected noise."""
     from scripts.monday_paper_monitor import check_unexpected_critical_alerts
-    post_deploy_ts = "2026-05-18T15:00:00Z"   # after deploy reference
+    from datetime import datetime, timedelta, timezone
+    post_deploy_ts = (datetime.now(timezone.utc)
+                      - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")   # after deploy reference
     _append_alert(alert_log, "critical", "uptime_monitor",
                   "form4.app DOWN — 3 consecutive failures", post_deploy_ts)
     r = check_unexpected_critical_alerts()
@@ -110,7 +112,9 @@ def test_unexpected_criticals_filters_deploy_noise(alert_log):
 
 def test_unexpected_criticals_flags_unrelated_failures(alert_log):
     from scripts.monday_paper_monitor import check_unexpected_critical_alerts
-    post_deploy_ts = "2026-05-18T15:00:00Z"
+    from datetime import datetime, timedelta, timezone
+    post_deploy_ts = (datetime.now(timezone.utc)
+                      - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
     _append_alert(alert_log, "critical", "cw_runner.quality_momentum",
                   "HALT — freshness contract breached", post_deploy_ts)
     r = check_unexpected_critical_alerts()
@@ -119,10 +123,15 @@ def test_unexpected_criticals_flags_unrelated_failures(alert_log):
     assert "cw_runner.quality_momentum" in r.detail
 
 
-def test_unexpected_criticals_ignores_predeploy_alerts(alert_log):
-    """Anything before DEPLOY_COMMIT_UTC is ignored — it's prior-state noise."""
+def test_unexpected_criticals_ignores_alerts_older_than_the_window(alert_log):
+    """Was "before DEPLOY_COMMIT_UTC". The cutoff is now a rolling window,
+    because counting since a fixed date meant the check could never go green —
+    it sat at 257 and was ignored for months, including the week it was the
+    only thing reporting that A-List Buys' runner was dead."""
+    from datetime import datetime, timedelta, timezone
     from scripts.monday_paper_monitor import check_unexpected_critical_alerts
-    pre_deploy_ts = "2026-05-15T15:00:00Z"   # 2 days before deploy
+    pre_deploy_ts = (datetime.now(timezone.utc)
+                     - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
     _append_alert(alert_log, "critical", "cw_runner.reversal_dip",
                   "HALT — input freshness", pre_deploy_ts)
     r = check_unexpected_critical_alerts()
@@ -133,7 +142,9 @@ def test_unexpected_criticals_skips_own_alerts(alert_log):
     """The monitor's own critical alerts must NOT count as unexpected
     (it would otherwise self-page on every failed check)."""
     from scripts.monday_paper_monitor import check_unexpected_critical_alerts
-    post_deploy_ts = "2026-05-18T15:00:00Z"
+    from datetime import datetime, timedelta, timezone
+    post_deploy_ts = (datetime.now(timezone.utc)
+                      - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
     _append_alert(alert_log, "critical", "monday_paper_monitor",
                   "FAIL refresh_features_chain: ...", post_deploy_ts)
     r = check_unexpected_critical_alerts()
