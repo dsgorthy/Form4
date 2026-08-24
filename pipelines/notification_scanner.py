@@ -779,7 +779,21 @@ def scan_portfolio_alerts(iconn: ConnectionWrapper, nconn: ConnectionWrapper, la
             FROM strategy_portfolio
             WHERE strategy IN ({placeholders})
               AND execution_source IN ({source_ph})
-              AND entry_date > ? AND entry_date <= ?
+              -- >= NOT >. The watermark is reduced to a DATE here because
+              -- entry_date is a text date, and the scanner runs every 5
+              -- minutes: after its first run of the day the watermark IS
+              -- today, so `entry_date > watermark AND entry_date <= latest`
+              -- is an empty range and a position entered today can never
+              -- fire. The strategies write their entries at 09:31 ET, hours
+              -- after the watermark has already advanced past them. That is
+              -- why portfolio_alert has fired twelve times in its life, all
+              -- of them on 2026-03-31.
+              --
+              -- Safe because the dedup key is (strategy, ticker, entry_date),
+              -- which is stable across the nightly rebuild by design — this
+              -- scanner is at-least-once and the dedup is what makes it
+              -- exactly-once per subscriber.
+              AND entry_date >= ? AND entry_date <= ?
             ORDER BY entry_date DESC""",
         (*ACTIVE_STRATEGIES, *live_sources, watermark, latest),
     ).fetchall()
@@ -792,7 +806,7 @@ def scan_portfolio_alerts(iconn: ConnectionWrapper, nconn: ConnectionWrapper, la
             WHERE strategy IN ({placeholders})
               AND execution_source IN ({source_ph})
               AND status = 'closed'
-              AND exit_date > ? AND exit_date <= ?
+              AND exit_date >= ? AND exit_date <= ?   -- see the entry note above
             ORDER BY exit_date DESC""",
         (*ACTIVE_STRATEGIES, *live_sources, watermark, latest),
     ).fetchall()

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.openclaw.alert-canary</string>
+
+    <!-- 07:00 PT, before the 09:31 ET strategy cycle, so a broken chain is
+         known before the day's alerts would have been sent. -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key><integer>7</integer>
+        <key>Minute</key><integer>0</integer>
+    </dict>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/python3</string>
+        <string>/Users/derekg/trading-framework/scripts/alert_canary.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/derekg/trading-framework</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/derekg/trading-framework/logs/alert-canary.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/derekg/trading-framework/logs/alert-canary.log</string>
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>
