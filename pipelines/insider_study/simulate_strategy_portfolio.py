@@ -640,8 +640,18 @@ def simulate_one_strategy(
 # ── Persistence ─────────────────────────────────────────────────────────
 
 def wipe_strategy(conn, strategy_name: str) -> int:
+    """Wipe the SIMULATED book. Never the live alert history.
+
+    This deleted every row for the strategy regardless of source. Harmless
+    while `strategy_portfolio` held nothing but simulated rows — but
+    cw_runner records live alert-only entries with
+    execution_source = 'alert', and a rebuild would have erased the record
+    of every alert ever sent to a subscriber. The extend path was already
+    scoped correctly; this one was not.
+    """
     n = conn.execute(
-        "DELETE FROM strategy_portfolio WHERE strategy = ?",
+        "DELETE FROM strategy_portfolio "
+        "WHERE strategy = ? AND execution_source = 'simulated'",
         (strategy_name,),
     ).rowcount
     conn.commit()

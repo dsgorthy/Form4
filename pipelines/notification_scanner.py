@@ -38,6 +38,8 @@ from pipelines.alert_filters import any_filter_matches  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
+REPO = Path(__file__).resolve().parents[1]
+
 # ---------------------------------------------------------------------------
 # Clerk user email lookup (for email dispatch)
 # ---------------------------------------------------------------------------
@@ -748,7 +750,15 @@ def scan_portfolio_alerts(iconn: ConnectionWrapper, nconn: ConnectionWrapper, la
     if not ACTIVE_STRATEGIES:
         return 0
     placeholders = ",".join("?" for _ in ACTIVE_STRATEGIES)
-    live_sources = ("simulated", "paper", "live")
+    # 'alert' IS THE SOURCE THE LIVE RUNNER WRITES.
+    #
+    # All three published strategies are execution_mode: alert_only, and
+    # cw_runner records their entries with execution_source = 'alert'. This
+    # list omitted it, so the one value a live strategy ever writes was the one
+    # value the notifier did not read. A perfectly healthy runner notified
+    # nobody, which is part of why portfolio_alert has fired twelve times in
+    # its life — all of them on 2026-03-31, from a simulator rebuild.
+    live_sources = ("alert", "simulated", "paper", "live")
     source_ph = ",".join("?" for _ in live_sources)
     # Text date columns on this side, and the underlying events are daily,
     # so compare on the date part. latest_ts is kept so the watermark
@@ -907,7 +917,20 @@ def main() -> None:
             nconn.close()
         return
 
-    # Normal scan
+    # Normal scan.
+    #
+    # Wrapped in pipeline_run so it appears on /admin/pipelines like every
+    # other job. It had no telemetry at all — the component that delivers the
+    # product was the one component with no run record, so a silent failure
+    # here was invisible to every dashboard and every watchdog.
+    from framework.observability import pipeline_run
+
+    with pipeline_run("notification_scanner",
+                      log_path=str(REPO / "logs/insideredge-notifications.log")) as _run:
+        _scan(_run)
+
+
+def _scan(_run=None) -> None:
     iconn = _open_insiders_db()
     nconn = _open_notifications_db()
 
@@ -935,6 +958,9 @@ def main() -> None:
         results["activity_spike"] = scan_activity_spikes(iconn, nconn, latest)
 
         total = sum(results.values())
+        if _run is not None:
+            _run.rows_written = total
+            _run.metadata = dict(results)
         logger.info("Scan complete: %d new notifications", total)
         for event_type, count in results.items():
             if count > 0:

@@ -15,8 +15,13 @@
     <key>WorkingDirectory</key>
     <string>/Users/derekg/trading-framework</string>
 
+    <!-- Matches the ingest cadence. insider_fetch runs every 300s, so
+         scanning more often than that finds nothing new; scanning less often
+         adds pure latency to the product's core promise. At 900s a filing
+         could sit up to 15 minutes after ingest before anyone was told, on
+         top of the ~4 minute ingest. The scan itself takes 1.9 seconds. -->
     <key>StartInterval</key>
-    <integer>900</integer>
+    <integer>300</integer>
 
     <key>StandardOutPath</key>
     <string>/Users/derekg/trading-framework/logs/notification_scanner.log</string>
