@@ -482,6 +482,19 @@ first.
 
 **"Anything with a score, grade, star or badge"** — `api/ratings.py` is the single definition of every rating this product publishes: Insider Rating (A+/A/B/C/Unrated, from `career_grade`) and Trade Rating (Exceptional/Strong/Notable/**Modest**/Weak, from the 0-100 trade score — the 50-59 band was renamed from "Routine" on 2026-08-21 and must never be called that again, because `is_routine` / `cohen_routine` / the "SELL · Routine" chip already mean something different and the two disagreed on the same filing). Tags are 1-to-many and never rate. Never add a new scale, never retype a band name or threshold, never render `pit_grade` or `conviction` as a user-facing rating. `frontend/src/lib/ratings.ts` mirrors it; `tests/unit/test_ratings_parity.py` fails the build on drift. Read `reference_rating_taxonomy.md` in Claude memory first.
 
+**"Anything that sends a notification or an email"** — read
+`docs/notification_architecture.md` FIRST. The in-app feed and the inbox are
+deliberately different products: the feed is pulled and generous, email is
+pushed and scarce. `api/notification_policy.py` is the single definition of
+which event types may email at all (`TIERS`), and the caps. Read rate is
+inversely proportional to volume — `activity_spike` is 92% of everything ever
+created and 12.8% of what gets opened, so it is FEED_ONLY and never emails.
+New event types default to FEED_ONLY; they have to earn the inbox. Four gates
+apply at delivery: not-already-sent, tier, **not already read in the app**,
+and a per-user daily cap. The queue expires after `EMAIL_TTL_DAYS`, which is
+what makes it safe to leave email broken. `tests/unit/test_notification_policy.py`
+and `test_email_queue_policy.py` fail the build on drift.
+
 **"PIT audit / scoring change"** — MANDATORY: read `reference_signal_registry.md` from Claude memory first. Then follow the full PIT Validation Checklist above. Never skip this even if the change seems safe.
 
 **"Insider pipeline work"** — Clarify which step: fetch (`fetch_latest.py`), compute returns (`compute_returns.py`), score (`pit_scoring.py`), or options pull (`options_pull.py --from-db`). Always specify date range. DB source is PostgreSQL `form4` — never CSV or SQLite.
