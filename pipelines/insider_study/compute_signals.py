@@ -357,7 +357,21 @@ def top_trade(conn: object, since: str | None = None) -> list[tuple]:
 
 @register_signal
 def post_vest_dump(conn: object, since: str | None = None) -> list[tuple]:
-    """S-code sell within 30 days of A-code grant, same insider+ticker."""
+    """S-code sell within 30 days of an A-code grant, same insider + ticker.
+
+    BROKEN FROM THE POSTGRES MIGRATION UNTIL 2026-08-24. The window was written
+    `date(a.trade_date, '+30 days')`, which is SQLite. Postgres has no
+    two-argument date(), and the compat layer only rewrites the `date(?, ...)`
+    form with a literal placeholder — this passes a column, so it went through
+    untranslated and the query raised on every run. main() catches per-detector
+    exceptions and logs them, so the job kept exiting 0 and the tag simply
+    stopped being written. The ~9.9k rows carrying it are pre-migration.
+
+    What that cost: on 2026-08-24 twelve Procter & Gamble executives were
+    granted shares on 08-19 and sold them on 08-20. Not one carried this tag.
+    They carried `opportunistic_trade`, which is close to the opposite of the
+    truth, and they reached a public Stocktwits post as discretionary selling.
+    """
     where_since = f"AND s.trade_date >= '{since}'" if since else ""
     rows = conn.execute(f"""
         SELECT DISTINCT s.trade_id, s.ticker, s.value,
@@ -369,7 +383,8 @@ def post_vest_dump(conn: object, since: str | None = None) -> list[tuple]:
         WHERE s.trans_code = 'S'
           AND s.is_derivative = 0
           AND a.trans_code = 'A'
-          AND s.trade_date BETWEEN a.trade_date AND date(a.trade_date, '+30 days')
+          AND s.trade_date::date BETWEEN a.trade_date::date
+                                     AND (a.trade_date::date + INTERVAL '30 days')
           AND s.trade_id != a.trade_id
           {where_since}
     """).fetchall()
@@ -407,7 +422,9 @@ def exercise_and_sell(conn: object, since: str | None = None) -> list[tuple]:
         WHERE s.trans_code = 'S'
           AND s.is_derivative = 0
           AND m.trans_code = 'M'
-          AND s.trade_date BETWEEN m.trade_date AND date(m.trade_date, '+3 days')
+          -- Same SQLite-ism as post_vest_dump above, same consequence.
+          AND s.trade_date::date BETWEEN m.trade_date::date
+                                     AND (m.trade_date::date + INTERVAL '3 days')
           AND s.trade_id != m.trade_id
           {where_since}
     """).fetchall()

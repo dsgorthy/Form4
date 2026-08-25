@@ -107,12 +107,54 @@ SELECT
     -- known. On 2026-08-17 six Cardinal Infrastructure insiders bought $8.2M
     -- between them; the PIT counts were 0, 1, 2, 3, 4, 5 and the post led with
     -- one man's $1.0M.
+    -- JOINT FILERS ARE ONE SELLER, NOT SEVERAL.
+    --
+    -- 2026-08-24, AVAH: J.H. Whitney Equity Partners VII sold, and its two
+    -- managing members each filed their own Form 4 reporting the same
+    -- underlying transactions as indirect beneficial owners. Three accessions,
+    -- three insider_ids, one economic event — and the post said "6 insiders
+    -- disclosed $558.5M of selling" when the real figure was about a third of
+    -- that by one seller.
+    --
+    -- Accession does not dedupe them; each related person files separately.
+    -- The signature is (trade_date, value), which is what
+    -- api.filters.deduplicate_filers has always used for the same reason.
+    -- THE CLUSTER SUBQUERIES CARRY THE SAME EXCLUSIONS AS THE MAIN WHERE.
+    --
+    -- They did not, so the headline counted activity that could never itself
+    -- be a post. RBLX on 2026-08-24: 12 discretionary sells, 6 of them
+    -- cohen_routine, and the post said "6 insiders disclosed $4.3M" using all
+    -- twelve. A cluster is only a story if the things in it are stories.
+    --
+    -- DISTINCT PEOPLE, after collapsing joint filers.
+    --
+    -- Counting rows over-reports (three filers, one sale). Counting distinct
+    -- (trade_date, value) events over-reports differently — AVAH's three
+    -- related filers made nine separate sales between them, and "9 insiders"
+    -- is as wrong as "6". So: reduce to one row per economic event, then count
+    -- the distinct people left. That is the number of sellers.
+    (SELECT COUNT(DISTINCT ev.insider_id) FROM (
+        SELECT DISTINCT ON (c.trade_date, c.value) c.insider_id
+          FROM trades c
+         WHERE c.ticker = t.ticker AND c.filing_date = t.filing_date
+           AND c.signal_class = t.signal_class
+           AND NOT COALESCE(c.value_suspect, FALSE)
+           AND (c.is_duplicate = 0 OR c.is_duplicate IS NULL)
+           AND c.superseded_by IS NULL
+           AND COALESCE(c.is_routine, 0) = 0
+           AND COALESCE(c.cohen_routine, 0) = 0
+           AND COALESCE(c.is_tax_sale, 0) = 0
+         ORDER BY c.trade_date, c.value, c.insider_id) ev)  AS day_cluster_events,
     (SELECT COUNT(DISTINCT c.insider_id) FROM trades c
       WHERE c.ticker = t.ticker AND c.filing_date = t.filing_date
         AND c.signal_class = t.signal_class
         AND NOT COALESCE(c.value_suspect, FALSE)
         AND (c.is_duplicate = 0 OR c.is_duplicate IS NULL)
-        AND c.superseded_by IS NULL)          AS day_cluster_n,
+        AND c.superseded_by IS NULL
+        AND COALESCE(c.is_routine, 0) = 0
+        AND COALESCE(c.cohen_routine, 0) = 0
+        AND COALESCE(c.is_tax_sale, 0) = 0
+        )          AS day_cluster_n,
     -- How many insiders in this cluster filed MORE THAN ONE trade.
     --
     -- This is what separates a decision from a window opening. When a trading
@@ -128,13 +170,23 @@ SELECT
            AND NOT COALESCE(c.value_suspect, FALSE)
            AND (c.is_duplicate = 0 OR c.is_duplicate IS NULL)
            AND c.superseded_by IS NULL
+           AND COALESCE(c.is_routine, 0) = 0
+           AND COALESCE(c.cohen_routine, 0) = 0
+           AND COALESCE(c.is_tax_sale, 0) = 0
          GROUP BY c.insider_id HAVING COUNT(*) > 1) m)  AS cluster_multi_filers,
-    (SELECT SUM(c.value) FROM trades c
-      WHERE c.ticker = t.ticker AND c.filing_date = t.filing_date
-        AND c.signal_class = t.signal_class
-        AND NOT COALESCE(c.value_suspect, FALSE)
-        AND (c.is_duplicate = 0 OR c.is_duplicate IS NULL)
-        AND c.superseded_by IS NULL)          AS day_cluster_value,
+    -- Summed over DISTINCT (trade_date, value) for the same reason: adding
+    -- every filer's row triples a transaction three people reported.
+    (SELECT COALESCE(SUM(e.value), 0) FROM (
+        SELECT DISTINCT c.trade_date, c.value FROM trades c
+         WHERE c.ticker = t.ticker AND c.filing_date = t.filing_date
+           AND c.signal_class = t.signal_class
+           AND NOT COALESCE(c.value_suspect, FALSE)
+           AND (c.is_duplicate = 0 OR c.is_duplicate IS NULL)
+           AND c.superseded_by IS NULL
+           AND COALESCE(c.is_routine, 0) = 0
+           AND COALESCE(c.cohen_routine, 0) = 0
+           AND COALESCE(c.is_tax_sale, 0) = 0
+           ) e)     AS day_cluster_value,
     MAX(t.career_grade)          AS career_grade,
     MAX(t.title)                 AS insider_title,
     MAX(COALESCE(i.is_entity, 0)) AS is_entity,
@@ -173,6 +225,26 @@ SELECT
    AND COALESCE(t.is_routine, 0) = 0
    AND COALESCE(t.cohen_routine, 0) = 0
    AND COALESCE(t.is_tax_sale, 0) = 0
+   -- SELLING SHARES YOU WERE HANDED LAST WEEK IS NOT A DECISION.
+   --
+   -- Reads the `post_vest_dump` TAG rather than re-deriving the window here.
+   -- The tag is the product's one definition of this behaviour
+   -- (pipelines/insider_study/compute_signals.py) and it is rendered on the
+   -- filing, so a post and a page cannot disagree about the same trade.
+   --
+   -- 2026-08-24: twelve Procter & Gamble executives filed sales on 08-20, all
+   -- granted shares on 08-19. signal_class called every one of them
+   -- `discretionary_sell`, because the classifier reads a row in isolation and
+   -- cannot see the grant that landed the day before. It is not a PG quirk —
+   -- 23.1% of discretionary sells in 180 days follow an A or M within 5 days.
+   --
+   -- The tag itself had been erroring since the Postgres migration (a SQLite
+   -- `date(col, '+30 days')` the compat layer does not rewrite), which is why
+   -- this could not simply have read it before.
+   AND NOT EXISTS (
+         SELECT 1 FROM trade_signals v
+          WHERE v.trade_id = t.trade_id
+            AND v.signal_type IN ('post_vest_dump', 'exercise_and_sell'))
    -- SUBSCRIBER GUARD. Never post a filing a live strategy traded around.
    --
    -- The case for posting freely is that the product is the SELECTION, not the
@@ -211,7 +283,7 @@ def is_cluster_story(t: dict) -> bool:
     two of its participants filed more than one trade, which is the signature
     of people acting rather than people being unblocked.
     """
-    if (t.get("day_cluster_n") or 1) - 1 < 2:
+    if (t.get("day_cluster_events") or t.get("day_cluster_n") or 1) - 1 < 2:
         return False
     if t["signal_class"] == "discretionary_buy":
         return True
@@ -283,7 +355,8 @@ def score(t: dict) -> float:
     # so on its own it makes the within-ticker pick arbitrary: EAT chose the
     # $442K director over the $3.8M one. `own` breaks that tie, and is scaled
     # small enough that it never reorders the tickers themselves.
-    others = max((t.get("day_cluster_n") or 1) - 1, 0)
+    # Deduped EVENTS, not filer rows — joint filers are one seller.
+    others = max((t.get("day_cluster_events") or t.get("day_cluster_n") or 1) - 1, 0)
     story_value = (t.get("day_cluster_value") or 0) if others >= 2 else 0
     story_value = max(story_value, t.get("value") or 1)
     size = min(math.log10(max(story_value, 1)) * 6, 45)
@@ -331,11 +404,14 @@ def render(t: dict) -> str:
     # story from any one of them acting alone, and it is the one worth
     # leading with. The individual becomes the supporting detail rather than
     # the headline.
-    others = max((t.get("day_cluster_n") or 1) - 1, 0)
+    others = max((t.get("day_cluster_events") or t.get("day_cluster_n") or 1) - 1, 0)
     noun = "buying" if verb == "bought" else "selling"
     lines: list[str] = []
     if is_cluster_story(t):
-        n = t["day_cluster_n"]
+        # The published count is the number of distinct transactions, not the
+        # number of Form 4s. Three related persons reporting one sale is one
+        # sale, and saying "3 insiders" about it is simply false.
+        n = t.get("day_cluster_events") or t["day_cluster_n"]
         # "the same day" meant the same FILING day — day_cluster_n and
         # day_cluster_value both group on filing_date — but a reader takes it
         # as the same trading day, and the two are routinely different. IRDM's
