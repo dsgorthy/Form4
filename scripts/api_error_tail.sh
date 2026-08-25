@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stream API container logs, filter for 500s and exceptions, alert via Telegram.
+# Stream API container logs, filter for 500s and exceptions, and PUSH.
 # Buffers + dedupes — same error within 5 minutes only sends one alert.
 # Designed to run as a long-lived launchd KeepAlive process.
 
@@ -27,6 +27,27 @@ emit_alert() {
     mkdir -p "$(dirname "$ALERT_LOG")"
     printf '{"ts":"%s","severity":"%s","component":"api_error_tail","message":%s}\n' \
         "$utc" "$severity" "$esc_msg" >> "$ALERT_LOG"
+
+    # PUSH, do not only log.
+    #
+    # This wrote to alerts.ndjson and nothing else, and the header claimed
+    # Telegram it had not used in months. On 2026-08-24 the Stripe webhook
+    # returned 500 to every event for weeks — the exact thing this filter
+    # catches — and a paying customer had to email support about it. A monitor
+    # whose output nobody reads is indistinguishable from no monitor. Dedupe
+    # above caps this at one push per distinct error per 5 minutes.
+    if [ "$severity" = "error" ] || [ "$severity" = "critical" ]; then
+        ( \
+          /opt/homebrew/bin/python3 -c '
+import sys
+sys.path.insert(0, "/Users/derekg/trading-framework")
+try:
+    from dotenv import load_dotenv; load_dotenv("/Users/derekg/trading-framework/.env")
+except Exception: pass
+from framework.alerts.ntfy import send_ntfy
+send_ntfy(sys.argv[1], title="form4 API error", priority=4, tags=["rotating_light"])
+' "$message" >/dev/null 2>&1 ) &
+    fi
 }
 
 # Returns 0 if we should alert (not seen recently), 1 if deduped
