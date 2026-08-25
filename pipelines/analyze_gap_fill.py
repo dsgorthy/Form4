@@ -28,7 +28,10 @@ import argparse
 import logging
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:                      # import cost stays deferred
+    from framework.data.storage import DataStorage
 
 import pandas as pd
 
@@ -49,7 +52,7 @@ SMALL_MAX = 0.15  # % — small gap bucket ceiling
 
 
 def _build_storage(data_dir: Optional[Path]) -> "DataStorage":
-    from framework.data.storage import DataStorage
+    from framework.data.storage import DataStorage  # noqa: F811
 
     # Auto-detect multi-source dirs (spy-0dte + trading-framework)
     all_raw = [

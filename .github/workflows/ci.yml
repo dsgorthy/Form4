@@ -6,6 +6,15 @@ on:
   pull_request:
     branches: [main, staging]
 
+# One run per branch. Pushing three times in a minute previously started
+# three overlapping runs, each of which ends in a self-hosted deploy doing
+# `git pull` in the same working copy -- they race over the same checkout.
+# In-progress runs are NOT cancelled: cancelling mid-deploy is worse than
+# queueing, so a superseded run finishes its deploy before the next starts.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   backend:
     name: Backend (lint + test)
@@ -23,8 +32,16 @@ jobs:
           pip install -r requirements.txt -r api/requirements.txt
           pip install ruff pytest
 
+      # Whole repo, not just api/. These four families are genuine bugs --
+      # syntax errors, undefined names, invalid comparisons, f-strings
+      # missing placeholders -- not style. Widening the scope on 2026-08-24
+      # immediately found three F821s in code the api/-only check had never
+      # looked at. archive/ is excluded: it is retained-but-dead by design.
       - name: Lint (ruff — critical errors only, tighten over time)
-        run: ruff check api/ --select E9,F63,F7,F82
+        run: |
+          ruff check api/ pipelines/ framework/ scripts/ config/ \
+                     strategies/ tests/ dataplane/ \
+                     --select E9,F63,F7,F82 --exclude '**/archive/**'
 
       # No -x. With it, a single missing package at collection time masks
       # the entire suite: 60 consecutive red runs reported one bs4 ImportError

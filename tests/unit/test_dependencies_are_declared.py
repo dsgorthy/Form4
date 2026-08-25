@@ -180,3 +180,41 @@ def test_ci_does_not_stop_at_the_first_failure():
         assert " -x" not in line, (
             "CI runs pytest with -x, so one collection error hides the rest "
             "of the suite")
+
+
+# ── the CI contract itself ──────────────────────────────────────────────────
+
+def test_lint_covers_more_than_the_api_directory():
+    """api/ alone missed three F821s.
+
+    E9/F63/F7/F82 are bugs, not style: syntax errors, undefined names,
+    invalid comparisons, f-strings with no placeholders. Restricting them to
+    api/ meant `import notify` against a module deleted months earlier, and
+    two dangling forward references, all sat unflagged.
+    """
+    ci = (REPO / ".github/workflows/ci.yml").read_text()
+    lint = [l for l in ci.splitlines() if "ruff check" in l]
+    assert lint, "no ruff invocation in ci.yml"
+    scope = " ".join(ci[ci.index("ruff check"):ci.index("- name: Test")].split())
+    for d in ("pipelines/", "framework/", "scripts/"):
+        assert d in scope, f"ruff does not lint {d}: {scope[:160]}"
+
+
+def test_pushes_do_not_race_the_deploy():
+    """Every push to main ends in a self-hosted `git pull` + deploy in one
+    shared working copy. Overlapping runs fight over the same checkout."""
+    import yaml
+    ci = yaml.safe_load((REPO / ".github/workflows/ci.yml").read_text())
+    conc = ci.get("concurrency")
+    assert conc, "ci.yml has no concurrency group, so pushes race the deploy"
+    assert conc.get("cancel-in-progress") is False, (
+        "cancel-in-progress would kill a deploy midway, which is worse than "
+        "queueing behind it")
+
+
+def test_the_production_deploy_is_gated_on_tests():
+    import yaml
+    ci = yaml.safe_load((REPO / ".github/workflows/ci.yml").read_text())
+    needs = ci["jobs"]["deploy-prod"].get("needs") or []
+    assert "backend" in needs and "frontend" in needs, (
+        "the production deploy must depend on both test jobs")

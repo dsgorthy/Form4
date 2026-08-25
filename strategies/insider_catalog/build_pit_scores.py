@@ -27,10 +27,19 @@ import sys
 import time
 from collections import defaultdict
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from backfill import migrate_schema
 from pit_scoring import upsert_score
+
+if TYPE_CHECKING:
+    # compute_score_v2 annotates -> "ScoringResult" but only imported
+    # BayesianScorerV2 and ScoringContext inside the function body, so the
+    # name resolved nowhere. Harmless at runtime -- string annotations are
+    # not evaluated -- but it is a dangling reference and F821 is right to
+    # flag it.
+    from pit_scoring import ScoringResult
 
 logging.basicConfig(
     level=logging.INFO,
