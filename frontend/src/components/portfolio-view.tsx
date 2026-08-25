@@ -857,7 +857,7 @@ export function PortfolioView() {
                          grade was missing, so one column showed two scales. An
                          absent career grade now shows nothing. */
                       ) : (
-                        <span className="text-[#81819A]">\u2014</span>
+                        <span className="text-[#81819A]">—</span>
                       )}
                     </td>
                     <td className={`px-3 py-2 ${gated ? "text-[#E8E8ED]/40 blur-[3px]" : "text-[#E8E8ED]"}`}>{t.entry_date}</td>

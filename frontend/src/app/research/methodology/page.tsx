@@ -292,7 +292,7 @@ export default async function ScoringPage() {
         <h2 className="text-xl font-bold text-[#E8E8ED] mb-1">Trade Grade</h2>
         <p className="text-sm text-[#81819A] font-mono mb-4">1 to 5 stars</p>
         <p className="text-sm text-[#8888A0] mb-6 leading-relaxed">
-          Every filing is scored on twelve factors \u2014 including the insider's own rating \u2014 and lands in one of five bands. Figures below are measured from the first close after the filing was public, not from the transaction date.
+          Every filing is scored on twelve factors — including the insider's own rating — and lands in one of five bands. Figures below are measured from the first close after the filing was public, not from the transaction date.
         </p>
 
         <div className="overflow-x-auto rounded-lg border border-[#2A2A3A] mb-6">

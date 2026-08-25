@@ -47,6 +47,46 @@ REPO = Path(__file__).resolve().parents[1]
 CLERK_SECRET_KEY = os.getenv("CLERK_SECRET_KEY", "")
 
 
+def assert_production_credentials() -> None:
+    """Refuse to run against Clerk's TEST instance.
+
+    THE BUG THIS EXISTS FOR. `api/config.py` loads `api/.env` FIRST and the
+    repo-root `.env` second with override=False, so whatever `api/.env` says
+    wins. On Studio that file is a leftover dev config from March holding a
+    full set of `sk_test_` Clerk and Stripe keys -- every one of which also
+    exists in the root `.env` with the live value.
+
+    This module imports `api.email`, which imports `api.config`, so the
+    scanner has been resolving production user IDs against Clerk's test
+    instance. Every lookup 404s. `_get_user_email` returns None, the send is
+    skipped, and the notification is left unemailed with nothing logged above
+    INFO. 6,887 notifications accumulated and not one was ever delivered.
+
+    A 404 from Clerk is indistinguishable from a deleted account, which is
+    why it read as normal for months -- the scanner even caches the user as
+    _TIER_GONE, so live subscribers were being treated as departed.
+
+    Fail closed. A job that cannot identify its users must not report success.
+    Set FORM4_ALLOW_TEST_CREDENTIALS=1 to run against test keys deliberately.
+    """
+    if os.getenv("FORM4_ALLOW_TEST_CREDENTIALS") == "1":
+        return
+    if CLERK_SECRET_KEY.startswith("sk_test_"):
+        import api.config as _c
+        raise SystemExit(
+            "REFUSING TO RUN: CLERK_SECRET_KEY is a TEST key (sk_test_...).\n"
+            "Every production user lookup will 404 and no email will send.\n"
+            f"Loaded via api/config.py, which prefers {_c.__file__.rsplit('/', 1)[0]}"
+            "/.env over the repo-root .env.\n"
+            "Remove or rename that file, or set FORM4_ALLOW_TEST_CREDENTIALS=1."
+        )
+    if not CLERK_SECRET_KEY:
+        raise SystemExit(
+            "REFUSING TO RUN: CLERK_SECRET_KEY is unset, so no user can be "
+            "resolved and no email can be sent."
+        )
+
+
 def _get_user_email(user_id: str) -> str | None:
     """Fetch primary email from Clerk API."""
     if not CLERK_SECRET_KEY:
@@ -1000,6 +1040,7 @@ def main() -> None:
     parser.add_argument("--digest", action="store_true", help="Send daily digest emails")
     args = parser.parse_args()
 
+    assert_production_credentials()
     init_db()
 
     if args.digest:

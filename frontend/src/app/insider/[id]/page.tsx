@@ -417,7 +417,7 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                   )}
                 </div>
                 <p className="text-[11px] text-[#5A5A70] mt-3 leading-relaxed">
-                  Counted per filing, not per execution lot \u2014 a purchase
+                  Counted per filing, not per execution lot — a purchase
                   filled in several tranches is one decision.
                 </p>
               </div>
