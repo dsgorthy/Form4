@@ -109,3 +109,24 @@ def test_every_number_moved_has_a_regression_test():
                  "test_published_returns"):
         assert name in DOC.read_text(), f"{name} not cited in the methodology"
         assert (REPO / f"tests/unit/{name}.py").exists(), f"{name}.py is missing"
+
+
+def test_no_cited_test_is_imaginary():
+    """Every test the doc names must exist.
+
+    The list above is hardcoded and so only ever covers what someone
+    remembered to add. This catches the rest -- a methodology that cites a
+    guard which was renamed or never written is worse than one that cites
+    nothing, because it reads as though the number is protected.
+    """
+    import re
+    known = set()
+    for f in (REPO / "tests").rglob("test_*.py"):
+        known.add(f.stem)
+        known.update(re.findall(r"^def (test_[a-z0-9_]+)", f.read_text(),
+                                re.M))
+    cited = set(re.findall(r"\btest_[a-z0-9_]+\b", DOC.read_text()))
+    missing = sorted(cited - known)
+    assert not missing, (
+        "methodology cites tests that do not exist as either a file or a "
+        "test function: " + ", ".join(missing))

@@ -17,9 +17,24 @@ excess as the emphasised figure.**
 
 | | blended CAGR | SPY | **excess** | max DD, trade-row | **max DD, daily** | avg deployed |
 |---|---|---|---|---|---|---|
-| A-List Buys (`quality_notrend`) | 64.3% | 19.1% | **+45.2** | 13.1% | **23.6%** | 62% |
-| Insider Breakout (`quality_momentum`) | 63.9% | 21.2% | **+42.7** | 20.2% | **43.8%** | 63% |
-| Insider Dip Buys (`reversal_dip`) | 38.1% | 21.7% | **+16.4** | 11.3% | **21.5%** | 25% |
+| A-List Buys (`quality_notrend`) | 69.8% | 19.0% | **+50.9** | 11.4% | **23.7%** | 68% |
+| Insider Breakout (`quality_momentum`) | 64.1% | 21.0% | **+43.0** | 20.2% | **43.8%** | 68% |
+| Insider Dip Buys (`reversal_dip`) | 37.9% | 21.6% | **+16.4** | 11.3% | **21.5%** | 23% |
+
+Read off the live API on 2026-08-24, after 10b5-1 planned purchases were
+excluded from the books (see below). Only A-List moved: it was the one book
+that had ever admitted one. SPY shifts of a tenth are the window ending a day
+later, not a methodology change.
+
+`avg deployed` is **mean concurrent open positions x nominal position size**,
+averaged over SPY's trading calendar from each book's start -- the same
+`total_deployed_days / total_days` convention the grid-search scripts use. It
+is re-measured here and is 5-6 points higher than the figure carried before
+2026-08-24 for A-List and Breakout; the earlier number's derivation was not
+recorded, so this is a restatement rather than a correction of a known method.
+Both readings say the same thing about the book: roughly a third of it sits in
+cash.
+
 
 Both drawdown columns are now shown for every book, because publishing one of
 each was how Insider Dip Buys came to advertise 11.3% when a holder
@@ -334,7 +349,53 @@ books have only ever run in a bull market.
 
 ---
 
-## Why the numbers moved four times, and why they should stop
+## 10b5-1 planned purchases are not admitted, from 2026-08-24
+
+The books have always refused `planned_sell` — the sell side only ever admitted
+discretionary classes. The buy side did not apply the same test, so
+`planned_buy` was admitted. That was an asymmetry rather than a decision, and
+nobody had measured it.
+
+Measured over the full history (2019–2026), abnormal return against SPY:
+
+| class | n | abnormal 30d | beat SPY |
+|---|---|---|---|
+| `discretionary_buy` | 112,831 | **+1.71%** | 47.3% |
+| `planned_buy` | 1,020 | **−2.22%** | 43.0% |
+
+Negative, not merely weaker, and the gap is 3.93 points. A purchase scheduled
+months in advance says nothing about what the insider thinks on the day it
+executes — that is what "planned" means.
+
+**Exactly one `planned_buy` ever reached a published book**: COE in A-List on
+2026-05-19, which closed **−43.2%**, one of that book's two worst positions.
+Removing it:
+
+| | before | after |
+|---|---|---|
+| A-List blended CAGR | 64.6% | **69.8%** |
+| A-List max DD, trade-row | 13.1% | **11.4%** |
+| A-List P&L | $453,213 | **$512,433** |
+| A-List closed trades | 44 | 44 |
+
+Insider Breakout and Insider Dip Buys are byte-identical before and after —
+neither ever held one.
+
+Two things worth stating plainly. **The +5.2 points are a consequence of the
+rule, not the reason for it**; the rule would be right if the number had gone
+the other way, and it is applied on the strength of the 112,831-vs-1,020
+comparison rather than on one position. And **the trade count did not move**:
+the freed slot admitted a replacement. That is the same non-monotonic
+admission behaviour documented under the conviction gate — what changes the
+book is *which* trades are admitted, not how many.
+
+Enforced in both surfaces — `simulate_strategy_portfolio.py` and
+`cw_runner.py` — as `(t.signal_class IS NULL OR t.signal_class <> 'planned_buy')`.
+The NULL arm is deliberate: unclassified rows still trade, and
+`tests/unit/test_planned_buys_are_excluded.py` fails the build if either
+surface drops the exclusion or the NULL guard.
+
+## Every time the numbers moved, and why they should stop
 
 | date | change | cause |
 |---|---|---|
@@ -347,15 +408,22 @@ books have only ever run in a bull market.
 | 2026-08-22 | tranche correction | the scorer counted execution lots as separate trades; 21% of grades moved, A-List resized to `3 x 33%`, Breakout's gate widened to A+/A/B |
 | 2026-08-23 | Breakout stop −50% → −20% | a working stop: daily drawdown 49.9% → 43.8% with CAGR up. 19 of its 85 positions now exit on it |
 | 2026-08-23 | **no change** — per-trade audit | all 172 positions re-derived from source, 2,040 checks, zero exceptions. The figures survived verification rather than moving |
+| 2026-08-24 | A-List 64.6% → 69.8% | `planned_buy` admitted on the buy side while `planned_sell` was refused on the sell side. One position ever, COE, −43.2% |
 
 Every move before 2026-08-20 was a definitional or data defect, none a market
 event, and each now has a regression test: `test_entry_timing_eastern`,
 `test_cumulative_signal_windows`, `test_published_returns`.
 
-The last two rows are deliberate parameter decisions, taken before the figures
-are marketed rather than after. The rows above them were defects. Anything that
-moves these numbers from here should be a new trade or a decision made on
-purpose — not a discovery.
+The 08-23 stop change is a deliberate parameter decision, taken before the
+figures are marketed rather than after. Everything above it was a defect, and
+so is the 08-24 row — an asymmetry between how the two sides of the book
+treated 10b5-1, which is a defect even though correcting it happened to help.
+
+Anything that moves these numbers from here should be a new trade or a
+decision made on purpose — not a discovery. That has now been said twice and
+been wrong twice, so the honest version is: the defects found so far were all
+found by looking, and nobody has yet done a pass that came back empty on the
+first try.
 
 ---
 

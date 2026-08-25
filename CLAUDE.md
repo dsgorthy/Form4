@@ -168,11 +168,23 @@ to move.
 
 | Key | Public name | Status | CAGR | Key Metric |
 |-----|-------------|--------|------|------------|
-| quality_notrend | **A-List Buys** | LIVE alert-only | 64.3% blended (+45.2 vs SPY), 3x33% | A+/A insider buys, no chart condition. 141 closed sim trades. The strongest book: the trend filter QM applies costs more in trades foregone than it saves — QM fills 2.6 of 10 slots against notrend's 6.4. |
-| quality_momentum | **Insider Breakout** | LIVE alert-only | 63.9% blended (+42.7 vs SPY), 5x20%, A+/A/B, -20% stop, 44% max DD | Same insider grade, plus above SMA50 and SMA200. 55 closed sim trades. Kept as the A/B control. |
-| reversal_dip | **Insider Dip Buys** | LIVE alert-only | 38.1% blended (+16.4 vs SPY), 4x25%, ON WATCH (verified 2026-08-23) | 10+ consecutive sells then a buy, into a 25%+ 3-month drawdown. Genuinely lumpy — went dark Dec 2025–Feb 2026 and again Jun–Aug 2026, then fired 3 in a month. Sparse alerts are expected, not a fault. |
+| quality_notrend | **A-List Buys** | LIVE alert-only | 69.8% blended (+50.9 vs SPY), 3x33% | A+/A insider buys, no chart condition. 44 closed sim trades. The strongest book: the trend filter QM applies costs more in trades foregone than it saves — but measured as slot occupancy the two are close, QM filling 3.40 of its 5 slots against notrend's 2.06 of 3 (68% deployed either way). |
+| quality_momentum | **Insider Breakout** | LIVE alert-only | 64.1% blended (+43.0 vs SPY), 5x20%, A+/A/B, -20% stop, 43.8% max DD daily | Same insider grade, plus above SMA50 and SMA200. 80 closed sim trades. Kept as the A/B control. |
+| reversal_dip | **Insider Dip Buys** | LIVE alert-only | 37.9% blended (+16.4 vs SPY), 4x25%, ON WATCH (verified 2026-08-23) | 10+ consecutive sells then a buy, into a 25%+ 3-month drawdown. Genuinely lumpy — went dark Dec 2025–Feb 2026 and again Jun–Aug 2026, then fired 3 in a month. Sparse alerts are expected, not a fault. |
 
-CAGRs are as of 2026-08-22, after the TRANCHE CORRECTION: the scorer had been
+**A-List rebuilt 2026-08-24: 10b5-1 PLANNED PURCHASES ARE NO LONGER ADMITTED.**
+The books already refused `planned_sell`; admitting `planned_buy` was an
+asymmetry nobody had measured. Over the full history `planned_buy` (n=1,020)
+returns **−2.22%** abnormal at 30d against `discretionary_buy` (n=112,831) at
+**+1.71%** — negative, not merely weaker. Exactly one ever reached a published
+book: COE in A-List on 2026-05-19, closed −43.2%. Removing it took A-List from
+64.6% to **69.8%** blended and its trade-row drawdown from 13.1% to 11.4%.
+Insider Breakout and Insider Dip Buys are byte-identical — the rule is
+buy-side and neither book held one. The trade COUNT did not move (44 → 44):
+the freed slot admitted a replacement, which is the same non-monotonic
+admission behaviour described under the conviction gate below.
+
+CAGRs are otherwise as of 2026-08-22, after the TRANCHE CORRECTION: the scorer had been
 counting execution lots as separate trades, so a purchase filled in five
 tranches scored as five successful trades. Fixing it moved 21% of career
 grades, almost all downward, and forced both sizing/gate changes above. See
