@@ -465,7 +465,7 @@ def trend_reversal(conn: object, since: str | None = None) -> list[tuple]:
               SELECT 1 FROM trades t2
               WHERE t2.insider_id = t.insider_id AND t2.ticker = t.ticker
                 AND t2.trade_type = 'sell'
-                AND t2.trade_date BETWEEN (t.trade_date::date - INTERVAL '12 months') AND (t.trade_date::date - INTERVAL '1 day')
+                AND t2.trade_date::date BETWEEN (t.trade_date::date - INTERVAL '12 months') AND (t.trade_date::date - INTERVAL '1 day')
               GROUP BY t2.insider_id
               HAVING COUNT(*) >= 2
           )
@@ -473,7 +473,7 @@ def trend_reversal(conn: object, since: str | None = None) -> list[tuple]:
               SELECT 1 FROM trades t3
               WHERE t3.insider_id = t.insider_id AND t3.ticker = t.ticker
                 AND t3.trade_type = 'buy'
-                AND t3.trade_date BETWEEN (t.trade_date::date - INTERVAL '12 months') AND (t.trade_date::date - INTERVAL '1 day')
+                AND t3.trade_date::date BETWEEN (t.trade_date::date - INTERVAL '12 months') AND (t.trade_date::date - INTERVAL '1 day')
           )
     """).fetchall()
 
@@ -501,7 +501,7 @@ def trend_reversal(conn: object, since: str | None = None) -> list[tuple]:
               SELECT 1 FROM trades t2
               WHERE t2.insider_id = t.insider_id AND t2.ticker = t.ticker
                 AND t2.trade_type = 'buy'
-                AND t2.trade_date BETWEEN (t.trade_date::date - INTERVAL '12 months') AND (t.trade_date::date - INTERVAL '1 day')
+                AND t2.trade_date::date BETWEEN (t.trade_date::date - INTERVAL '12 months') AND (t.trade_date::date - INTERVAL '1 day')
               GROUP BY t2.insider_id
               HAVING COUNT(*) >= 2
           )
@@ -509,7 +509,7 @@ def trend_reversal(conn: object, since: str | None = None) -> list[tuple]:
               SELECT 1 FROM trades t3
               WHERE t3.insider_id = t.insider_id AND t3.ticker = t.ticker
                 AND t3.trade_type = 'sell'
-                AND t3.trade_date BETWEEN (t.trade_date::date - INTERVAL '12 months') AND (t.trade_date::date - INTERVAL '1 day')
+                AND t3.trade_date::date BETWEEN (t.trade_date::date - INTERVAL '12 months') AND (t.trade_date::date - INTERVAL '1 day')
           )
     """).fetchall()
 
@@ -1358,13 +1358,17 @@ def main():
         detectors = SIGNAL_REGISTRY
 
     total = 0
+    failed: list[str] = []
     for name, fn in detectors.items():
         logger.info("Running detector: %s", name)
         try:
             n = run_detector(conn, name, fn, args.since)
             total += n
         except Exception:
+            # Keep going -- one broken detector must not stop the other
+            # thirty. But REMEMBER it, and see the exit below.
             logger.exception("Detector %s failed", name)
+            failed.append(name)
 
     # Summary
     summary = conn.execute("""
@@ -1402,6 +1406,24 @@ def main():
         logger.warning("write_freshness for trade_signals.* failed: %s", exc)
 
     conn.close()
+
+    # Exit non-zero if ANY detector failed.
+    #
+    # This is the fix for the actual defect. `post_vest_dump` and
+    # `exercise_and_sell` raised on every run for months after the Postgres
+    # migration, and nothing noticed, because the loop above logs the
+    # exception and main() then returns normally -- so launchd saw exit 0, the
+    # watchdog saw a job that ran, and the tag simply stopped being written.
+    # Twelve P&G executives reached a public Stocktwits post as discretionary
+    # sellers as a direct result.
+    #
+    # Detectors still all run before this fires: a partial refresh is better
+    # than none, and the freshness rows above are still written for whatever
+    # did succeed. What changes is that the failure is now LOUD.
+    if failed:
+        logger.error("%d detector(s) failed: %s", len(failed),
+                     ", ".join(sorted(failed)))
+        sys.exit(1)
 
 
 if __name__ == "__main__":

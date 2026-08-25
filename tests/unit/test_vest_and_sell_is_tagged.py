@@ -67,6 +67,32 @@ def test_the_tag_is_in_the_published_vocabulary():
     assert TAG_KINDS.get("exercise_and_sell") == "pattern"
 
 
+def _all_detectors() -> list[str]:
+    """Every name in SIGNAL_REGISTRY.
+
+    The two tests below were parametrized over a hardcoded
+    ["post_vest_dump", "exercise_and_sell"] -- the two that had already
+    broken. `trend_reversal` was carrying a different flavour of the same
+    Postgres defect (`text >= timestamp`, from comparing a TEXT trade_date
+    against `date - INTERVAL`) and no test looked at it, so it kept raising
+    on every run for exactly the same reason and just as invisibly. Enumerate
+    instead of listing.
+    """
+    import ast
+    tree = ast.parse(DETECTORS.read_text())
+    # SIGNAL_REGISTRY is populated by the @register_signal decorator, not
+    # declared as a literal, so read the decorators.
+    names = [n.name for n in ast.walk(tree)
+             if isinstance(n, ast.FunctionDef)
+             and any(getattr(d, "id", None) == "register_signal"
+                     for d in n.decorator_list)]
+    assert len(names) > 20, f"only found {len(names)} detectors -- parse broke"
+    return names
+
+
+ALL_DETECTORS = _all_detectors()
+
+
 def _detector_sql(name: str) -> str:
     """The SQL a detector actually executes — docstring and comments removed.
 
@@ -93,7 +119,7 @@ def _detector_sql(name: str) -> str:
     return text
 
 
-@pytest.mark.parametrize("detector", ["post_vest_dump", "exercise_and_sell"])
+@pytest.mark.parametrize("detector", ALL_DETECTORS)
 def test_no_detector_uses_sqlite_date_arithmetic(detector):
     """`date(column, '+N days')` reaches Postgres untranslated and raises.
     The compat layer only rewrites the `date(?, ...)` placeholder form."""
@@ -196,3 +222,60 @@ def test_the_scanner_does_not_join_trade_signals_into_the_main_query():
     assert "trade_signals" not in main, (
         "trade_signals joined into the grouped query would fan out and "
         "inflate total_value")
+
+
+# ---------------------------------------------------------------------------
+# The OTHER Postgres defect, and the reason both went unnoticed for months.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("detector", ALL_DETECTORS)
+def test_no_detector_compares_a_text_date_against_an_interval(detector):
+    """`trades.trade_date` is TEXT. `some_date - INTERVAL '12 months'` is a
+    timestamp. Comparing them raises:
+
+        operator does not exist: text >= timestamp without time zone
+
+    This is a different defect from the SQLite `date()` one above and the
+    hardcoded parametrize missed it, so `trend_reversal` raised on every run
+    from the Postgres migration until 2026-08-24 while its 7,002 stale rows
+    made it look alive in the summary output.
+    """
+    sql = _detector_sql(detector)
+    bad = [m.group(0)[:110] for m in re.finditer(
+        r"\b\w+\.trade_date\s+(?:BETWEEN|>=|<=|>|<)[^\n]*INTERVAL", sql, re.I)]
+    assert not bad, (
+        f"{detector} compares an uncast TEXT trade_date against an INTERVAL "
+        f"expression; add ::date to the left side: {bad}")
+
+
+def test_a_failing_detector_fails_the_job():
+    """The reason a broken detector could hide for months.
+
+    main() catches each detector's exception, logs it, and carries on -- which
+    is right, one bad detector should not stop the other thirty. But it then
+    returned normally, so launchd recorded exit 0 and every monitoring surface
+    saw a job that ran fine while a tag silently stopped being written.
+    """
+    import ast
+    tree = ast.parse(DETECTORS.read_text())
+    main = next(n for n in ast.walk(tree)
+                if isinstance(n, ast.FunctionDef) and n.name == "main")
+    src = ast.unparse(main)
+
+    assert "failed.append" in src, (
+        "main() does not record which detectors failed")
+    exits = [ast.unparse(n) for n in ast.walk(main)
+             if isinstance(n, ast.Call)
+             and ast.unparse(n.func) == "sys.exit"
+             and ast.unparse(n) != "sys.exit(1)" or
+             (isinstance(n, ast.Call) and ast.unparse(n) == "sys.exit(1)")]
+    assert "sys.exit(1)" in exits, (
+        "main() never exits non-zero, so a detector that raises every run is "
+        "invisible to launchd and to the watchdog")
+
+    # And the exit must be guarded by the failure list, not unconditional.
+    guarded = any(
+        isinstance(n, ast.If) and "failed" in ast.unparse(n.test)
+        and "sys.exit(1)" in ast.unparse(n)
+        for n in ast.walk(main))
+    assert guarded, "the non-zero exit is not conditional on `failed`"
