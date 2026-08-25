@@ -187,32 +187,59 @@ docker image prune -f 2>&1 | tee -a "$LOG_FILE"
 
 # Health check
 log "Health check..."
+# Health checks, retried. A single probe five seconds after a container
+# restart is as likely to catch a cold start as a real fault, so retry before
+# believing it -- but once it is believed, ACT on it.
+#
+# This used to log "WARNING", set HEALTHY=false, and then carry on and exit 0.
+# A deploy that left the API returning 500 reported success, which is the same
+# green-while-broken pattern that let CI stay red for sixty builds and let the
+# alert pipeline send nothing for five months. A health check that cannot fail
+# the deploy is not a health check.
+probe() {  # probe <name> <url>
+    local name="$1" url="$2" code=""
+    for attempt in 1 2 3 4 5 6; do
+        # `|| echo 000` would APPEND to curl's own -w output, which already
+        # writes 000 on a connection failure -- the old code logged
+        # "HTTP 000000". `|| true` keeps set -e happy without doubling it.
+        code=$(curl -sf -o /dev/null -w "%{http_code}" "$url" 2>/dev/null || true)
+        code=${code:-000}
+        [ "$code" = "200" ] && { log "  $name: HTTP 200 (attempt $attempt)"; return 0; }
+        sleep 5
+    done
+    log "  $name: HTTP $code after 6 attempts over 30s"
+    return 1
+}
+
 sleep 5
 
 HEALTHY=true
-api_code=$(curl -sf -o /dev/null -w "%{http_code}" "https://${DOMAIN}/api/v1/health" 2>/dev/null || echo "000")
-if [ "$api_code" != "200" ]; then
-    log "WARNING: API health check failed (HTTP $api_code)"
-    HEALTHY=false
-fi
-
-fe_code=$(curl -sf -o /dev/null -w "%{http_code}" "https://${DOMAIN}/" 2>/dev/null || echo "000")
-if [ "$fe_code" != "200" ]; then
-    log "WARNING: Frontend health check failed (HTTP $fe_code)"
-    HEALTHY=false
-fi
+probe "API (/api/v1/health)" "https://${DOMAIN}/api/v1/health" || HEALTHY=false
+probe "Frontend (/)"          "https://${DOMAIN}/"              || HEALTHY=false
 
 if $HEALTHY; then
     log "=== Deploy successful ==="
 else
-    log "=== Deploy completed with warnings ==="
-    docker compose $COMPOSE_FILES logs --tail=10 2>&1 | tee -a "$LOG_FILE"
+    log "=== DEPLOY FAILED: health checks did not pass ==="
+    docker compose $COMPOSE_FILES logs --tail=40 2>&1 | tee -a "$LOG_FILE"
+    exit 1
 fi
 
 # Smoke test — exercise critical endpoints to catch regressions before users do
 SMOKE_BASE="https://${DOMAIN}"
 SMOKE_SCRIPT="$REPO_DIR/scripts/smoke_test.sh"
-if [ -x "$SMOKE_SCRIPT" ]; then
+# A missing or non-executable smoke script must be an ERROR, not a skip.
+# `if [ -x ... ]` turns the whole gate into a no-op the moment the file loses
+# its executable bit or gets renamed, and the deploy still reports success.
+if [ ! -f "$SMOKE_SCRIPT" ]; then
+    log "DEPLOY FAILED: smoke test script missing at $SMOKE_SCRIPT"
+    exit 1
+fi
+if [ ! -x "$SMOKE_SCRIPT" ]; then
+    log "DEPLOY FAILED: $SMOKE_SCRIPT is not executable, so the smoke gate would be skipped"
+    exit 1
+fi
+if true; then
     log "Running smoke test against $SMOKE_BASE..."
     if "$SMOKE_SCRIPT" "$SMOKE_BASE" 2>&1 | tee -a "$LOG_FILE"; then
         log "Smoke test: PASS"

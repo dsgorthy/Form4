@@ -218,3 +218,49 @@ def test_the_production_deploy_is_gated_on_tests():
     needs = ci["jobs"]["deploy-prod"].get("needs") or []
     assert "backend" in needs and "frontend" in needs, (
         "the production deploy must depend on both test jobs")
+
+
+# ── the deploy gate ─────────────────────────────────────────────────────────
+
+DEPLOY = REPO / "deploy/deploy.sh"
+
+
+def test_a_failed_health_check_fails_the_deploy():
+    """It used to log "WARNING", set HEALTHY=false, and exit 0.
+
+    A deploy that left the API returning 500 reported success. That is the
+    same green-while-broken pattern that kept CI red for sixty builds and let
+    the alert pipeline send nothing for five months.
+    """
+    src = DEPLOY.read_text()
+    i = src.index("if $HEALTHY; then")
+    block = src[i:i + 500]
+    assert "exit 1" in block, (
+        "an unhealthy deploy does not fail:\n" + block[:300])
+
+
+def test_the_smoke_gate_cannot_be_silently_skipped():
+    """`if [ -x "$SMOKE_SCRIPT" ]` turns the whole gate into a no-op the
+    moment the file loses its executable bit."""
+    src = DEPLOY.read_text()
+    assert 'if [ -x "$SMOKE_SCRIPT" ]; then' not in src, (
+        "the smoke test is gated on an -x check that silently skips it")
+    assert "smoke test script missing" in src, (
+        "a missing smoke script must fail the deploy, not skip the gate")
+
+
+def test_the_smoke_script_is_executable():
+    """Belt and braces: the deploy now refuses to run without it, so a lost
+    executable bit would break every deploy rather than every gate."""
+    smoke = REPO / "scripts/smoke_test.sh"
+    assert smoke.exists(), "scripts/smoke_test.sh is missing"
+    import os
+    assert os.access(smoke, os.X_OK), (
+        "scripts/smoke_test.sh is not executable; deploys will now fail")
+
+
+def test_health_checks_retry_before_believing_a_failure():
+    """One probe five seconds after a container restart catches cold starts,
+    not faults. Retry, then act."""
+    src = DEPLOY.read_text()
+    assert "for attempt in" in src, "health probes do not retry"
