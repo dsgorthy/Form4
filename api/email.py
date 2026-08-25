@@ -24,6 +24,7 @@ def send_email(
     *,
     reply_to: Optional[str] = None,
     from_address: Optional[str] = None,
+    unsubscribe_url: Optional[str] = None,
 ) -> bool:
     """Send a transactional email via Resend. Returns True on success.
 
@@ -43,6 +44,17 @@ def send_email(
     }
     if reply_to:
         payload["reply_to"] = reply_to
+
+    if unsubscribe_url:
+        # RFC 8058 one-click. Gmail and Yahoo have required this of bulk
+        # senders since February 2024; without it, mail is throttled or
+        # spam-foldered regardless of content. List-Unsubscribe-Post is what
+        # makes the mail client's own "Unsubscribe" button work, and it
+        # obliges the endpoint to act on a POST with no confirmation step.
+        payload["headers"] = {
+            "List-Unsubscribe": f"<{unsubscribe_url}>",
+            "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+        }
 
     try:
         resp = httpx.post(

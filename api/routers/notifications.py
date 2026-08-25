@@ -335,9 +335,23 @@ def remove_from_watchlist(ticker: str, user: UserContext = Depends(require_auth)
 # ---------------------------------------------------------------------------
 
 
-@router.get("/unsubscribe")
+@router.api_route("/unsubscribe", methods=["GET", "POST"])
 def unsubscribe(user_id: str = Query(...), token: str = Query(...)) -> dict:
-    """One-click email unsubscribe via signed token URL."""
+    """One-click email unsubscribe via signed token URL.
+
+    POST as well as GET, because RFC 8058 requires it. The
+    `List-Unsubscribe-Post: List-Unsubscribe=One-Click` header we send tells
+    Gmail and Yahoo they may POST here and that the user has already
+    expressed intent -- so this must act immediately, with no confirmation
+    page. Advertising the header against a GET-only endpoint is worse than
+    not advertising it: the mail client shows an Unsubscribe button that
+    silently fails.
+
+    GET stays for the visible link in the email body.
+
+    Idempotent by construction: it sets email_enabled = 0, so a scanner
+    prefetching the link or a client retrying cannot do harm.
+    """
     if not verify_unsubscribe_token(user_id, token):
         raise HTTPException(status_code=403, detail="Invalid unsubscribe link")
     with get_notifications_db() as conn:

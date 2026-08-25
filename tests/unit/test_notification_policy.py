@@ -164,3 +164,32 @@ def test_noisy_scanners_run_last():
         f"activity_spike must run last or it eats the shared daily budget "
         f"before anything anyone reads gets a chance: {ran}")
     assert ran.index("high_value_filing") < ran.index("activity_spike")
+
+
+# ── deliverability and the law ──────────────────────────────────────────────
+
+def test_the_digest_carries_an_unsubscribe_link():
+    """Commercial email must have a working unsubscribe (CAN-SPAM). The
+    token machinery existed for months; nothing ever passed it a URL."""
+    body = _fn("send_daily_digests")
+    assert "unsubscribe_url" in body, "the digest is sent with no unsubscribe"
+
+
+def test_one_click_unsubscribe_headers_are_sent():
+    """Gmail and Yahoo have required RFC 8058 of bulk senders since Feb 2024.
+    Without it mail is throttled or spam-foldered whatever the content."""
+    email_src = (REPO / "api/email.py").read_text()
+    assert "List-Unsubscribe" in email_src
+    assert "List-Unsubscribe-Post" in email_src
+    assert "One-Click" in email_src
+
+
+def test_the_unsubscribe_endpoint_accepts_post():
+    """The header promises a POST target that acts without confirmation.
+    Advertising it against a GET-only route gives the user an Unsubscribe
+    button that silently does nothing."""
+    src = (REPO / "api/routers/notifications.py").read_text()
+    i = src.index("def unsubscribe(")
+    decorator = src[max(0, i - 300):i]
+    assert "POST" in decorator, (
+        "unsubscribe is not reachable by POST, but the mail claims it is")

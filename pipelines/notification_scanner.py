@@ -27,6 +27,9 @@ from api.email import build_digest_email, build_notification_email, send_email
 # take the whole job down.
 from api.public_fields import ACTIVE_STRATEGIES, PRO_ALERT_EVENTS, strategy_label
 from api.filters import MEANINGFUL_CLASSES
+
+#: Public origin for links in outbound mail.
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "https://form4.app")
 from api.notification_policy import (
     MAX_EMAILS_PER_USER_PER_DAY,
     emailable_types,
@@ -1235,10 +1238,15 @@ def send_daily_digests(nconn: ConnectionWrapper) -> int:
         shown = [dict(n) for n in pending[:DIGEST_MAX_ITEMS]]
         overflow = len(pending) - len(shown)
 
-        html = build_digest_email(shown, overflow=overflow)
+        # A commercial email with no working unsubscribe is a CAN-SPAM
+        # violation, and the digest was being built without one -- the
+        # machinery existed and nothing passed it a URL.
+        unsub = _unsubscribe_url(user_id)
+        html = build_digest_email(shown, overflow=overflow,
+                                  unsubscribe_url=unsub)
         subject = _digest_subject(len(pending))
 
-        if not send_email(email, subject, html):
+        if not send_email(email, subject, html, unsubscribe_url=unsub):
             logger.warning("digest send failed for %s — left pending", user_id)
             continue
 
@@ -1259,6 +1267,13 @@ def send_daily_digests(nconn: ConnectionWrapper) -> int:
         logger.info("digest to %s: %d shown, %d more", user_id, len(shown), overflow)
 
     return sent
+
+
+def _unsubscribe_url(user_id: str) -> str:
+    from api.email import generate_unsubscribe_token
+    token = generate_unsubscribe_token(user_id)
+    return (f"{PUBLIC_BASE_URL}/api/v1/notifications/unsubscribe"
+            f"?user_id={user_id}&token={token}")
 
 
 def _digest_subject(total: int) -> str:
