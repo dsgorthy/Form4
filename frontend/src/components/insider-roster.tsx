@@ -85,15 +85,15 @@ export function InsiderRoster({ insiders, gated = false }: InsiderRosterProps) {
               </span>
             </div>
             <div className="flex items-center justify-between mt-1.5">
-              <div className="text-xs text-[#55556A] truncate">
+              <div className="text-xs text-[#81819A] truncate">
                 {titleSummary(ins.normalized_title || ins.title) || "\u2014"}
               </div>
-              <span className="text-xs text-[#55556A] shrink-0 ml-2">
+              <span className="text-xs text-[#81819A] shrink-0 ml-2">
                 {ins.trade_count} trades
               </span>
             </div>
             {ins.is_entity === 1 && ins.controlled_by && (
-              <div className="text-[10px] text-[#55556A] mt-1">
+              <div className="text-[10px] text-[#81819A] mt-1">
                 via {ins.controlled_by.name}
               </div>
             )}
@@ -106,15 +106,15 @@ export function InsiderRoster({ insiders, gated = false }: InsiderRosterProps) {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-[#2A2A3A] bg-[#1A1A26]/50">
-              <th className="px-4 py-3 text-left text-[#55556A] font-medium">Name</th>
-              <th className="px-4 py-3 text-left text-[#55556A] font-medium">Title</th>
-              <th className="px-4 py-3 text-center text-[#55556A] font-medium">Tier</th>
+              <th className="px-4 py-3 text-left text-[#81819A] font-medium">Name</th>
+              <th className="px-4 py-3 text-left text-[#81819A] font-medium">Title</th>
+              <th className="px-4 py-3 text-center text-[#81819A] font-medium">Tier</th>
               {!hideScore && (
-                <th className="px-4 py-3 text-right text-[#55556A] font-medium">Score</th>
+                <th className="px-4 py-3 text-right text-[#81819A] font-medium">Score</th>
               )}
-              <th className="px-4 py-3 text-right text-[#55556A] font-medium">Trades</th>
-              <th className="px-4 py-3 text-right text-[#55556A] font-medium">Value</th>
-              <th className="px-4 py-3 text-right text-[#55556A] font-medium">Last Trade</th>
+              <th className="px-4 py-3 text-right text-[#81819A] font-medium">Trades</th>
+              <th className="px-4 py-3 text-right text-[#81819A] font-medium">Value</th>
+              <th className="px-4 py-3 text-right text-[#81819A] font-medium">Last Trade</th>
             </tr>
           </thead>
           <tbody>
@@ -131,7 +131,7 @@ export function InsiderRoster({ insiders, gated = false }: InsiderRosterProps) {
                     {ins.name}
                   </Link>
                   {ins.is_entity === 1 && ins.controlled_by && (
-                    <div className="text-[10px] text-[#55556A] mt-0.5">
+                    <div className="text-[10px] text-[#81819A] mt-0.5">
                       via{" "}
                       <Link
                         href={`/insider/${ins.controlled_by.insider_id}`}
@@ -160,7 +160,7 @@ export function InsiderRoster({ insiders, gated = false }: InsiderRosterProps) {
                         ))}
                       </div>
                     ) : (
-                      <span className="text-[#55556A]">{"\u2014"}</span>
+                      <span className="text-[#81819A]">{"\u2014"}</span>
                     );
                   })()}
                 </td>
@@ -168,7 +168,7 @@ export function InsiderRoster({ insiders, gated = false }: InsiderRosterProps) {
                   {ins.career_grade ? (
                     <Grade ins={ins} i={i} />
                   ) : (
-                    <span className="text-[#55556A]">{"\u2014"}</span>
+                    <span className="text-[#81819A]">{"\u2014"}</span>
                   )}
                 </td>
                 {/* Dropped rather than blurred when gated. The API nulls score

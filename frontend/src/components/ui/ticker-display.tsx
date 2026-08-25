@@ -25,7 +25,7 @@ export function TickerDisplay({ ticker, company, href, className = "" }: TickerD
     const slug = company ? companyToSlug(company) : null;
     const content = (
       <span className={`flex items-center gap-1.5 min-w-0 ${className}`}>
-        <span className="rounded px-1 py-0.5 text-[10px] font-medium border border-[#55556A]/30 bg-[#55556A]/10 text-[#8888A0] shrink-0">
+        <span className="rounded px-1 py-0.5 text-[10px] font-medium border border-[#81819A]/30 bg-[#81819A]/10 text-[#8888A0] shrink-0">
           Private
         </span>
         <span className="text-[#8888A0] text-xs truncate hover:text-blue-300 transition-colors">{company || "Unlisted"}</span>

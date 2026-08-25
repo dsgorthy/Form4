@@ -131,7 +131,7 @@ export function NotificationBell() {
     <div className="relative" ref={dropdownRef}>
       <button
         onClick={() => setOpen(!open)}
-        className="relative rounded-md p-1.5 text-[#55556A] hover:text-[#E8E8ED] hover:bg-[#1A1A26]/50 transition-colors"
+        className="relative rounded-md p-1.5 text-[#81819A] hover:text-[#E8E8ED] hover:bg-[#1A1A26]/50 transition-colors"
         title="Notifications"
       >
         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -162,9 +162,9 @@ export function NotificationBell() {
           {/* Body */}
           <div className="max-h-96 overflow-y-auto">
             {loading && notifications.length === 0 ? (
-              <div className="px-4 py-8 text-center text-sm text-[#55556A]">Loading...</div>
+              <div className="px-4 py-8 text-center text-sm text-[#81819A]">Loading...</div>
             ) : notifications.length === 0 ? (
-              <div className="px-4 py-8 text-center text-sm text-[#55556A]">No notifications yet</div>
+              <div className="px-4 py-8 text-center text-sm text-[#81819A]">No notifications yet</div>
             ) : (
               notifications.map((n) => (
                 <button
@@ -189,7 +189,7 @@ export function NotificationBell() {
                         <span className={`text-[10px] font-semibold uppercase ${EVENT_COLORS[n.event_type] || "text-[#8888A0]"}`}>
                           {EVENT_LABELS[n.event_type] || n.event_type}
                         </span>
-                        <span className="text-[10px] text-[#55556A]">{timeAgo(n.created_at)}</span>
+                        <span className="text-[10px] text-[#81819A]">{timeAgo(n.created_at)}</span>
                       </div>
                       <div className="text-sm text-[#E8E8ED] mt-0.5 truncate">{n.title}</div>
                       <div className="text-xs text-[#8888A0] mt-0.5 line-clamp-2">{n.body}</div>
@@ -204,7 +204,7 @@ export function NotificationBell() {
           <div className="border-t border-[#2A2A3A] px-4 py-2">
             <Link
               href="/settings"
-              className="text-xs text-[#55556A] hover:text-[#8888A0] transition-colors"
+              className="text-xs text-[#81819A] hover:text-[#8888A0] transition-colors"
               onClick={() => setOpen(false)}
             >
               Notification settings

@@ -48,6 +48,10 @@ interface Summary {
   wins: number;
   win_rate: number;
   stops_hit: number;
+  /** @deprecated Samples equity only at trade exits, so it cannot see a
+   *  drawdown that opens and closes between two of them. Understates by ~2x on
+   *  Insider Breakout. Kept only because the API still returns it. Do not
+   *  render it. */
   max_drawdown: number;
   max_drawdown_all_time?: number;
   max_drawdown_note?: string | null;
@@ -126,9 +130,9 @@ interface AnnualReturn {
 function StatCard({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) {
   return (
     <div className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/50 p-4">
-      <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A] mb-1">{label}</div>
+      <div className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A] mb-1">{label}</div>
       <div className={`text-xl font-mono font-bold ${color || "text-[#E8E8ED]"}`}>{value}</div>
-      {sub && <div className="text-xs text-[#55556A] mt-0.5">{sub}</div>}
+      {sub && <div className="text-xs text-[#81819A] mt-0.5">{sub}</div>}
     </div>
   );
 }
@@ -268,7 +272,7 @@ function LiveStatusPanel({ strategy, userIsPro }: { strategy: string; userIsPro:
     return (
       <div className="space-y-3">
         <div className="flex items-center gap-2">
-          <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A]">Live Paper Account · Alpaca</div>
+          <div className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A]">Live Paper Account · Alpaca</div>
           <span className="inline-block w-2 h-2 rounded-full bg-[#EF4444]" />
         </div>
         <div className="rounded-lg border border-[#EF4444]/30 bg-[#EF4444]/5 px-4 py-3 text-xs text-[#EF4444]">
@@ -288,7 +292,7 @@ function LiveStatusPanel({ strategy, userIsPro }: { strategy: string; userIsPro:
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
-        <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A]">Live Paper Account · Alpaca</div>
+        <div className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A]">Live Paper Account · Alpaca</div>
         <span className="inline-block w-2 h-2 rounded-full bg-[#22C55E] animate-pulse" />
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -313,11 +317,11 @@ function LiveStatusPanel({ strategy, userIsPro }: { strategy: string; userIsPro:
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-[#2A2A3A] bg-[#1A1A26]/50">
-                <th className="px-3 py-2 text-left text-[#55556A] font-medium">Symbol</th>
-                <th className="px-3 py-2 text-right text-[#55556A] font-medium">Shares</th>
-                <th className="px-3 py-2 text-right text-[#55556A] font-medium">Entry</th>
-                <th className="px-3 py-2 text-right text-[#55556A] font-medium">Current</th>
-                <th className="px-3 py-2 text-right text-[#55556A] font-medium">Unrealized</th>
+                <th className="px-3 py-2 text-left text-[#81819A] font-medium">Symbol</th>
+                <th className="px-3 py-2 text-right text-[#81819A] font-medium">Shares</th>
+                <th className="px-3 py-2 text-right text-[#81819A] font-medium">Entry</th>
+                <th className="px-3 py-2 text-right text-[#81819A] font-medium">Current</th>
+                <th className="px-3 py-2 text-right text-[#81819A] font-medium">Unrealized</th>
               </tr>
             </thead>
             <tbody>
@@ -360,7 +364,7 @@ function StrategySelector({ value, onChange }: { value: string; onChange: (v: st
         ))}
       </select>
       <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2">
-        <svg className="h-4 w-4 text-[#55556A]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg className="h-4 w-4 text-[#81819A]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
       </div>
@@ -390,7 +394,7 @@ function RunnerStatus({ strategy }: { strategy: string }) {
   if (!status) return null;
 
   const isLive = status.healthy === true;
-  const dot = isLive ? "bg-[#22C55E]" : "bg-[#55556A]";
+  const dot = isLive ? "bg-[#22C55E]" : "bg-[#81819A]";
   const label = isLive ? "Live" : status.status === "weekend" ? "Weekend" : "Offline";
   const ts = status.timestamp ? new Date(status.timestamp).toLocaleString() : "";
 
@@ -398,7 +402,7 @@ function RunnerStatus({ strategy }: { strategy: string }) {
     <div className="flex items-center gap-1.5 text-[10px] text-[#8888A0]">
       <span className={`inline-block w-2 h-2 rounded-full ${dot} ${isLive ? "animate-pulse" : ""}`} />
       <span>{label}</span>
-      {ts && <span className="text-[#55556A]">{ts}</span>}
+      {ts && <span className="text-[#81819A]">{ts}</span>}
     </div>
   );
 }
@@ -489,7 +493,7 @@ export function PortfolioView() {
     </div>;
   }
 
-  if (!summary) return <div className="text-[#55556A]">Failed to load portfolio data</div>;
+  if (!summary) return <div className="text-[#81819A]">Failed to load portfolio data</div>;
 
   const s = summary;
   const isPositive = s.total_pnl >= 0;
@@ -552,10 +556,14 @@ export function PortfolioView() {
               }
               return maxDd;
             })()
-          // Unfiltered: the daily-marked figure. The trade-row number it
-          // replaces could not see a drawdown that opened and closed between
-          // two exits, which is most of them.
-          : (s.max_drawdown_daily ?? s.max_drawdown);
+          // Unfiltered: the daily-marked figure, and NO FALLBACK.
+          //
+          // This read `?? s.max_drawdown`, which silently substitutes the
+          // trade-row number whenever the daily one is unavailable — and the
+          // trade-row number is the understated one (Dip Buys 11.3% against a
+          // lived 21.5%). A missing value must render as "—", not as a
+          // plausible wrong figure nobody can tell apart from a right one.
+          : s.max_drawdown_daily;
 
         const rangeLabel = isFiltered
           ? `${dateRange.from?.slice(0,4) || ""} – ${dateRange.to?.slice(0,4) || ""}`
@@ -592,7 +600,7 @@ export function PortfolioView() {
         <StatCard label="Avg Return" value={`${fAvgRet > 0 ? "+" : ""}${fAvgRet.toFixed(2)}%`} sub="Per trade" color={fAvgRet >= 0 ? "text-[#22C55E]" : "text-[#EF4444]"} />
         <StatCard
           label="Max Drawdown"
-          value={`${mdd.toFixed(1)}%`}
+          value={typeof mdd === "number" ? `${mdd.toFixed(1)}%` : "—"}
           sub={
             isFiltered
               ? `${fStops} stops hit`
@@ -605,7 +613,7 @@ export function PortfolioView() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Return Distribution — scatter strip by exit type — 2/3 width */}
         <div className="lg:col-span-2 rounded-lg border border-[#2A2A3A] bg-[#12121A] p-5">
-          <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A] mb-4">
+          <div className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A] mb-4">
             Trade Returns {isFiltered ? "(filtered)" : ""} — {tradeCount} Trades
           </div>
           {(() => {
@@ -679,7 +687,7 @@ export function PortfolioView() {
                       const label = ps[0]?.axisValue || "";
                       const w = Math.abs(ps.find((p: any) => p.seriesName === "Winning")?.value || 0);
                       const l = Math.abs(ps.find((p: any) => p.seriesName === "Losing")?.value || 0);
-                      return `<div style="color:#55556A">${label}</div>
+                      return `<div style="color:#81819A">${label}</div>
                         <div style="color:#22C55E;font-family:monospace">${w} winners</div>
                         <div style="color:#EF4444;font-family:monospace">${l} losers</div>
                         <div style="color:#8888A0;font-family:monospace">${w + l} total</div>`;
@@ -696,7 +704,7 @@ export function PortfolioView() {
 
         {/* Exit Breakdown + Annual Returns — 1/3 width */}
         <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] p-5">
-          <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A] mb-4">
+          <div className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A] mb-4">
             Exit Breakdown
           </div>
           <div className="space-y-3">
@@ -715,7 +723,7 @@ export function PortfolioView() {
                   <div key={eb.exit_reason}>
                     <div className="flex items-center justify-between text-xs mb-1">
                       <span style={{ color: cfg.color }} className="font-medium">{cfg.label}</span>
-                      <span className="text-[#55556A]">{eb.count} ({(pct * 100).toFixed(0)}%) · {Math.round(eb.avg_hold)}d avg</span>
+                      <span className="text-[#81819A]">{eb.count} ({(pct * 100).toFixed(0)}%) · {Math.round(eb.avg_hold)}d avg</span>
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="flex-1 h-2 bg-[#1A1A26] rounded-full overflow-hidden">
@@ -733,7 +741,7 @@ export function PortfolioView() {
 
           {/* Annual Returns */}
           <div className="mt-6">
-            <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A] mb-2">
+            <div className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A] mb-2">
               Annual P&L
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-1 text-[10px]">
@@ -761,7 +769,7 @@ export function PortfolioView() {
                 </svg>
                 <span className="text-sm font-semibold text-[#E8E8ED]">Get Portfolio Trade Alerts</span>
               </div>
-              <p className="text-xs text-[#55556A]">
+              <p className="text-xs text-[#81819A]">
                 Pro members receive real-time notifications when this portfolio enters or exits positions.
                 {/* Blended (idle cash in SPY), shown against SPY. The sleeve
                     figure leaves uninvested capital at 0% and is not what
@@ -785,7 +793,7 @@ export function PortfolioView() {
       {/* Trade Log */}
       <div id="trade-log">
         <div className="flex items-center justify-between mb-3">
-          <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A]">
+          <div className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A]">
             Trade Log ({paginationInfo?.total ?? trades.length} trades)
           </div>
         </div>
@@ -793,18 +801,18 @@ export function PortfolioView() {
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-[#2A2A3A] bg-[#1A1A26]/50">
-                <th className="px-3 py-2.5 text-left text-[#55556A] font-medium">Ticker</th>
-                <th className="px-3 py-2.5 text-left text-[#55556A] font-medium">Insider</th>
-                <th className="hidden md:table-cell px-3 py-2.5 text-center text-[#55556A] font-medium">Career</th>
-                <th className="px-3 py-2.5 text-left text-[#55556A] font-medium">Entry</th>
-                <th className="px-3 py-2.5 text-right text-[#55556A] font-medium">Entry $</th>
-                <th className="px-3 py-2.5 text-left text-[#55556A] font-medium">Exit</th>
-                <th className="px-3 py-2.5 text-right text-[#55556A] font-medium">Exit $</th>
-                <th className="px-3 py-2.5 text-right text-[#55556A] font-medium">Hold</th>
-                <th className="px-3 py-2.5 text-right text-[#55556A] font-medium">Return</th>
-                <th className="px-3 py-2.5 text-right text-[#55556A] font-medium">P&L</th>
-                <th className="px-3 py-2.5 text-center text-[#55556A] font-medium">Exit</th>
-                <th className="hidden lg:table-cell px-3 py-2.5 text-center text-[#55556A] font-medium">Signal</th>
+                <th className="px-3 py-2.5 text-left text-[#81819A] font-medium">Ticker</th>
+                <th className="px-3 py-2.5 text-left text-[#81819A] font-medium">Insider</th>
+                <th className="hidden md:table-cell px-3 py-2.5 text-center text-[#81819A] font-medium">Career</th>
+                <th className="px-3 py-2.5 text-left text-[#81819A] font-medium">Entry</th>
+                <th className="px-3 py-2.5 text-right text-[#81819A] font-medium">Entry $</th>
+                <th className="px-3 py-2.5 text-left text-[#81819A] font-medium">Exit</th>
+                <th className="px-3 py-2.5 text-right text-[#81819A] font-medium">Exit $</th>
+                <th className="px-3 py-2.5 text-right text-[#81819A] font-medium">Hold</th>
+                <th className="px-3 py-2.5 text-right text-[#81819A] font-medium">Return</th>
+                <th className="px-3 py-2.5 text-right text-[#81819A] font-medium">P&L</th>
+                <th className="px-3 py-2.5 text-center text-[#81819A] font-medium">Exit</th>
+                <th className="hidden lg:table-cell px-3 py-2.5 text-center text-[#81819A] font-medium">Signal</th>
               </tr>
             </thead>
             <tbody>
@@ -849,7 +857,7 @@ export function PortfolioView() {
                          grade was missing, so one column showed two scales. An
                          absent career grade now shows nothing. */
                       ) : (
-                        <span className="text-[#55556A]">\u2014</span>
+                        <span className="text-[#81819A]">\u2014</span>
                       )}
                     </td>
                     <td className={`px-3 py-2 ${gated ? "text-[#E8E8ED]/40 blur-[3px]" : "text-[#E8E8ED]"}`}>{t.entry_date}</td>
@@ -860,14 +868,14 @@ export function PortfolioView() {
                     <td className={`px-3 py-2 text-right font-mono ${gated ? "text-[#E8E8ED]/40 blur-[3px]" : "text-[#E8E8ED]"}`}>
                       {t.exit_price != null ? `$${t.exit_price.toFixed(2)}` : "\u2014"}
                     </td>
-                    <td className={`px-3 py-2 text-right font-mono ${gated ? "text-[#55556A]/40 blur-[3px]" : "text-[#55556A]"}`} title={t.hold_days != null ? `${t.hold_days} calendar days` : ""}>
+                    <td className={`px-3 py-2 text-right font-mono ${gated ? "text-[#81819A]/40 blur-[3px]" : "text-[#81819A]"}`} title={t.hold_days != null ? `${t.hold_days} calendar days` : ""}>
                       {t.hold_days != null ? `${Math.round(t.hold_days * 5/7)}td` : "\u2014"}
                     </td>
-                    <td className={`px-3 py-2 text-right font-mono ${gated ? "text-[#E8E8ED]/40 blur-[3px]" : retPct != null ? (retUp ? "text-[#22C55E]" : "text-[#EF4444]") : "text-[#55556A]"}`}
+                    <td className={`px-3 py-2 text-right font-mono ${gated ? "text-[#E8E8ED]/40 blur-[3px]" : retPct != null ? (retUp ? "text-[#22C55E]" : "text-[#EF4444]") : "text-[#81819A]"}`}
                         title={isUnrealized ? "Unrealized \u2014 marked to last close" : ""}>
                       {retPct != null ? `${retPct > 0 ? "+" : ""}${retPct.toFixed(1)}%${isUnrealized ? "*" : ""}` : "\u2014"}
                     </td>
-                    <td className={`px-3 py-2 text-right font-mono ${gated ? "text-[#E8E8ED]/40 blur-[3px]" : retDollar != null ? (retDollar >= 0 ? "text-[#22C55E]" : "text-[#EF4444]") : "text-[#55556A]"}`}
+                    <td className={`px-3 py-2 text-right font-mono ${gated ? "text-[#E8E8ED]/40 blur-[3px]" : retDollar != null ? (retDollar >= 0 ? "text-[#22C55E]" : "text-[#EF4444]") : "text-[#81819A]"}`}
                         title={isUnrealized ? "Unrealized \u2014 marked to last close" : ""}>
                       {retDollar != null ? `${retDollar >= 0 ? "+" : ""}$${Math.abs(retDollar).toFixed(0)}${isUnrealized ? "*" : ""}` : "\u2014"}
                     </td>
@@ -877,7 +885,7 @@ export function PortfolioView() {
                       ) : t.exit_reason === "trailing_stop" ? (
                         <Badge variant="outline" className="text-[9px] border-[#F59E0B]/30 text-[#F59E0B]">TRAIL</Badge>
                       ) : t.exit_reason === "time_exit" || t.exit_reason === "eod_time_exit" ? (
-                        <span className="text-[#55556A]">T+{t.target_hold}</span>
+                        <span className="text-[#81819A]">T+{t.target_hold}</span>
                       ) : t.status === "open" ? (
                         <Badge variant="outline" className="text-[9px] border-[#3B82F6]/30 text-[#3B82F6]" title={plannedExit ? `Sells ~${plannedExit} (time-exit)` : ""}>
                           {daysToExit != null ? (daysToExit > 0 ? `OPEN · ${daysToExit}d` : "OPEN · due") : "OPEN"}
@@ -888,7 +896,7 @@ export function PortfolioView() {
                       {!gated && (t as any).trade_grade_stars != null ? (
                         <StarsPill stars={(t as any).trade_grade_stars} />
                       ) : gated ? (
-                        <span className="text-[#55556A]/40 blur-[3px]">—</span>
+                        <span className="text-[#81819A]/40 blur-[3px]">—</span>
                       ) : null}
                     </td>
                   </tr>
@@ -900,7 +908,7 @@ export function PortfolioView() {
 
         {/* Unrealized P&L legend — only when open rows are marked to market */}
         {trades.some((t) => t.pnl_pct == null && t.unrealized_pnl_pct != null) && (
-          <div className="mt-2 text-[10px] text-[#55556A]">
+          <div className="mt-2 text-[10px] text-[#81819A]">
             * unrealized — open positions marked to the latest close
           </div>
         )}
@@ -918,7 +926,7 @@ export function PortfolioView() {
         {/* Upgrade CTA in trade log for free users seeing blurred rows */}
         {!userIsPro && paginationInfo && paginationInfo.total > 10 && (
           <div className="mt-3 rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/50 p-3 flex items-center justify-between">
-            <span className="text-xs text-[#55556A]">
+            <span className="text-xs text-[#81819A]">
               Showing 10 of {paginationInfo.total} trades. Upgrade to see the full trade log + get real-time entry/exit alerts.
             </span>
             <Link
@@ -933,7 +941,7 @@ export function PortfolioView() {
 
       {/* Rules for the SELECTED strategy. One shared block described none of
           the three correctly. */}
-      <div className="rounded-lg border border-[#2A2A3A]/50 bg-[#1A1A26]/30 p-4 text-xs text-[#55556A] space-y-1">
+      <div className="rounded-lg border border-[#2A2A3A]/50 bg-[#1A1A26]/30 p-4 text-xs text-[#81819A] space-y-1">
         <div className="text-[10px] font-semibold uppercase tracking-widest mb-2">Rules</div>
         {(STRATEGIES.find((s) => s.value === strategy)?.rules ?? []).map((rule) => (
           <p key={rule}>{rule}</p>

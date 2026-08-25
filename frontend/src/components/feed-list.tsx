@@ -230,7 +230,7 @@ export function FeedList({ initialTicker = "" }: FeedListProps) {
                       f.trade_type === "buy"
                         ? "border-[#22C55E]/30 text-[#22C55E]"
                         : isRoutineSell
-                          ? "border-[#55556A]/30 text-[#55556A]"
+                          ? "border-[#81819A]/30 text-[#81819A]"
                           : "border-[#EF4444]/30 text-[#EF4444]"
                     }`}
                   >
@@ -265,8 +265,8 @@ export function FeedList({ initialTicker = "" }: FeedListProps) {
                 <div
                   className={`text-xs truncate mt-0.5 ${
                     gated
-                      ? "text-[#55556A]/40 blur-[3px]"
-                      : "text-[#55556A]"
+                      ? "text-[#81819A]/40 blur-[3px]"
+                      : "text-[#81819A]"
                   }`}
                 >
                   {formatTitle(f.normalized_title || f.title)} at{" "}
@@ -319,8 +319,8 @@ export function FeedList({ initialTicker = "" }: FeedListProps) {
                 <div
                   className={`text-[10px] ${
                     gated
-                      ? "text-[#55556A]/40 blur-[3px]"
-                      : "text-[#55556A]"
+                      ? "text-[#81819A]/40 blur-[3px]"
+                      : "text-[#81819A]"
                   }`}
                 >
                   {f.qty?.toLocaleString()} shares
@@ -343,12 +343,12 @@ export function FeedList({ initialTicker = "" }: FeedListProps) {
                             ? good
                               ? "text-[#22C55E]"
                               : "text-[#EF4444]"
-                            : "text-[#55556A]"
+                            : "text-[#81819A]"
                         }`}
                       >
                         {unavailable ? "N/A" : formatPercent(val)}
                       </div>
-                      <div className="text-[10px] text-[#55556A]">{label}</div>
+                      <div className="text-[10px] text-[#81819A]">{label}</div>
                     </div>
                   );
                 })}
@@ -368,8 +368,8 @@ export function FeedList({ initialTicker = "" }: FeedListProps) {
                 <div
                   className={`text-[10px] ${
                     gated
-                      ? "text-[#55556A]/40 blur-[3px]"
-                      : "text-[#55556A]"
+                      ? "text-[#81819A]/40 blur-[3px]"
+                      : "text-[#81819A]"
                   }`}
                 >
                   traded {f.trade_date}
@@ -382,7 +382,7 @@ export function FeedList({ initialTicker = "" }: FeedListProps) {
 
       {/* Empty state */}
       {!loading && items.length === 0 && (
-        <div className="flex h-40 items-center justify-center text-[#55556A] rounded-lg border border-[#2A2A3A]">
+        <div className="flex h-40 items-center justify-center text-[#81819A] rounded-lg border border-[#2A2A3A]">
           No filings match your filters
         </div>
       )}

@@ -318,7 +318,7 @@ export default function AdminStrategyDetailPage() {
     return (
       <div className="py-10">
         <p className="text-[#EF4444]">{error}</p>
-        <p className="text-[#55556A] mt-2">
+        <p className="text-[#81819A] mt-2">
           <Link href="/admin/strategies" className="text-[#3B82F6] hover:underline">← back to all strategies</Link>
         </p>
       </div>
@@ -339,12 +339,12 @@ export default function AdminStrategyDetailPage() {
     <div className="text-[#E8E8ED] py-6 space-y-8">
       {/* Header */}
       <div>
-        <p className="text-xs text-[#55556A]">
+        <p className="text-xs text-[#81819A]">
           <Link href="/admin/strategies" className="text-[#3B82F6] hover:underline">admin</Link> / strategies / <code>{data.strategy.name}</code>
         </p>
         <h1 className="text-2xl font-bold mt-1">{data.strategy.label}</h1>
         <p className="text-sm text-[#8888A0] mt-1">{data.strategy.thesis}</p>
-        <div className="mt-2 text-[10px] text-[#55556A]">
+        <div className="mt-2 text-[10px] text-[#81819A]">
           execution mode: <code className="text-[#8888A0]">{executionMode}</code>
         </div>
       </div>
@@ -402,13 +402,13 @@ export default function AdminStrategyDetailPage() {
 function FreshnessSection({ rows }: { rows: FreshnessRow[] }) {
   return (
     <Section title="Data freshness">
-      <p className="text-[10px] text-[#55556A] mb-3">
+      <p className="text-[10px] text-[#81819A] mb-3">
         Status uses business-hours-adjusted age (excludes weekends + US market holidays).
         Raw clock age shown alongside for context.
       </p>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="text-left text-[#55556A] text-[10px] uppercase tracking-wider">
+          <thead className="text-left text-[#81819A] text-[10px] uppercase tracking-wider">
             <tr>
               <th className="py-2 pr-3">Column</th>
               <th className="pr-3">SLA</th>
@@ -434,11 +434,11 @@ function FreshnessSection({ rows }: { rows: FreshnessRow[] }) {
                   {f.last_observed_at ? f.last_observed_at.slice(0, 19).replace("T", " ") : "—"}
                 </td>
                 <td className="pr-3"><FreshnessStatus label={f.status_label} /></td>
-                <td className="text-[10px] text-[#55556A]">{f.populated_by}</td>
+                <td className="text-[10px] text-[#81819A]">{f.populated_by}</td>
               </tr>
             ))}
             {rows.length === 0 && (
-              <tr><td colSpan={7} className="py-4 text-center text-[#55556A] text-xs">No contracts for this strategy.</td></tr>
+              <tr><td colSpan={7} className="py-4 text-center text-[#81819A] text-xs">No contracts for this strategy.</td></tr>
             )}
           </tbody>
         </table>
@@ -450,14 +450,14 @@ function FreshnessSection({ rows }: { rows: FreshnessRow[] }) {
 function SizeCell({
   dollarAmount, shares, pct,
 }: { dollarAmount: number | null; shares: number; pct: number | null }) {
-  if (dollarAmount == null) return <span className="text-[#55556A]">—</span>;
+  if (dollarAmount == null) return <span className="text-[#81819A]">—</span>;
   const k = dollarAmount >= 1000
     ? `$${(dollarAmount / 1000).toFixed(1)}k`
     : `$${dollarAmount.toFixed(0)}`;
   return (
     <span>
       <span className="text-[#E8E8ED]">{k}</span>
-      <span className="ml-1 text-[#55556A]">({shares} sh)</span>
+      <span className="ml-1 text-[#81819A]">({shares} sh)</span>
       {pct != null && (
         <span className="ml-1 text-[#8888A0]">· {(pct * 100).toFixed(1)}%</span>
       )}
@@ -477,10 +477,10 @@ function ExecSourceBadge({ source }: { source: string | null }) {
     alert:     "bg-[#22C55E22] text-[#22C55E] border-[#22C55E55]",
     paper:     "bg-[#3B82F622] text-[#3B82F6] border-[#3B82F655]",
     live:      "bg-[#A855F722] text-[#A855F7] border-[#A855F755]",
-    simulated: "bg-[#55556A33] text-[#8888A0] border-[#55556A55]",
-    backtest:  "bg-[#55556A33] text-[#55556A] border-[#55556A55]",
+    simulated: "bg-[#81819A33] text-[#8888A0] border-[#81819A55]",
+    backtest:  "bg-[#81819A33] text-[#81819A] border-[#81819A55]",
   };
-  const cls = palette[s] || "bg-[#55556A33] text-[#55556A] border-[#55556A55]";
+  const cls = palette[s] || "bg-[#81819A33] text-[#81819A] border-[#81819A55]";
   const label = s === "simulated" ? "SIM"
     : s === "backtest" ? "BT"
     : s.toUpperCase() || "?";
@@ -497,7 +497,7 @@ function FreshnessStatus({ label }: { label: FreshnessRow["status_label"] }) {
     fresh:      "bg-[#22C55E22] text-[#22C55E] border-[#22C55E55]",
     weekend_ok: "bg-[#3B82F622] text-[#3B82F6] border-[#3B82F655]",
     stale:      "bg-[#EF444422] text-[#EF4444] border-[#EF444455]",
-    unknown:    "bg-[#55556A22] text-[#8888A0] border-[#55556A55]",
+    unknown:    "bg-[#81819A22] text-[#8888A0] border-[#81819A55]",
   };
   const text: Record<typeof label, string> = {
     fresh: "FRESH",
@@ -528,7 +528,7 @@ function PositionsSection({
   if (!positions) {
     return (
       <Section title="Positions">
-        <div className="text-[#55556A] text-sm">Loading positions…</div>
+        <div className="text-[#81819A] text-sm">Loading positions…</div>
       </Section>
     );
   }
@@ -541,7 +541,7 @@ function PositionsSection({
   return (
     <Section title="Positions">
       {/* Strategy rules header */}
-      <div className="text-[10px] text-[#55556A] mb-4">
+      <div className="text-[10px] text-[#81819A] mb-4">
         {r?.exit_strategy && <>exit <code className="text-[#8888A0]">{r.exit_strategy}</code></>}
         {r?.hold_days != null && <> · hold <code className="text-[#8888A0]">{r.hold_days} td</code></>}
         <> · stop <code className="text-[#8888A0]">
@@ -557,7 +557,7 @@ function PositionsSection({
         {positions.open.count > 0 && (
           <div className="text-xs text-[#8888A0]">
             Cost <span className="font-mono">${totalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-            <span className="mx-2 text-[#55556A]">·</span>
+            <span className="mx-2 text-[#81819A]">·</span>
             Unrealized <span className={`font-mono ${totalPnL >= 0 ? "text-[#22C55E]" : "text-[#EF4444]"}`}>
               {formatDollarSigned(totalPnL)}
             </span>
@@ -571,7 +571,7 @@ function PositionsSection({
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="text-left text-[#55556A] text-[10px] uppercase tracking-wider">
+          <thead className="text-left text-[#81819A] text-[10px] uppercase tracking-wider">
             <tr>
               <th className="py-2 pr-3">Ticker</th>
               <th className="pr-3">Src</th>
@@ -614,13 +614,13 @@ function PositionsSection({
                 <td className="pr-3 text-xs text-[#8888A0]">{p.planned_exit_date ?? "—"}</td>
                 <td className="text-xs text-[#8888A0] truncate max-w-[200px]">
                   {p.insider_name ?? "—"}
-                  {p.insider_title && <span className="text-[#55556A]"> ({p.insider_title})</span>}
+                  {p.insider_title && <span className="text-[#81819A]"> ({p.insider_title})</span>}
                 </td>
               </tr>
             ))}
             {positions.open.rows.length === 0 && (
               <tr>
-                <td colSpan={11} className="py-4 text-center text-[#55556A] text-xs">No open positions.</td>
+                <td colSpan={11} className="py-4 text-center text-[#81819A] text-xs">No open positions.</td>
               </tr>
             )}
           </tbody>
@@ -632,7 +632,7 @@ function PositionsSection({
         <h3 className="text-sm font-semibold text-[#E8E8ED]">
           Closed ({positions.closed.total})
         </h3>
-        <div className="text-xs text-[#55556A] flex items-center gap-2">
+        <div className="text-xs text-[#81819A] flex items-center gap-2">
           <span>per page:</span>
           <select
             value={closedPerPage}
@@ -648,7 +648,7 @@ function PositionsSection({
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="text-left text-[#55556A] text-[10px] uppercase tracking-wider">
+          <thead className="text-left text-[#81819A] text-[10px] uppercase tracking-wider">
             <tr>
               <th className="py-2 pr-3">Ticker</th>
               <th className="pr-3">Src</th>
@@ -691,7 +691,7 @@ function PositionsSection({
             ))}
             {positions.closed.rows.length === 0 && (
               <tr>
-                <td colSpan={11} className="py-4 text-center text-[#55556A] text-xs">No closed positions yet.</td>
+                <td colSpan={11} className="py-4 text-center text-[#81819A] text-xs">No closed positions yet.</td>
               </tr>
             )}
           </tbody>
@@ -724,12 +724,12 @@ function FilingsSection({
 }) {
   return (
     <Section title="Filings evaluated">
-      <p className="text-[10px] text-[#55556A] mb-3">
+      <p className="text-[10px] text-[#81819A] mb-3">
         One row per SEC filing (multi-lot Form 4s collapsed to the highest-conviction lot).
         Click a row to see per-stage decisions.
       </p>
       <div className="flex flex-wrap items-center gap-2 mb-3 text-sm">
-        <span className="text-[#55556A] mr-2">Show:</span>
+        <span className="text-[#81819A] mr-2">Show:</span>
         <FilterBtn active={filterMode === "all"} onClick={() => { setFilterMode("all"); setStageFilter(null); }}>
           All ({allRows.length})
         </FilterBtn>
@@ -741,7 +741,7 @@ function FilingsSection({
         </FilterBtn>
         {filterMode === "rejected" && (
           <>
-            <span className="text-[#55556A] mx-2">because of:</span>
+            <span className="text-[#81819A] mx-2">because of:</span>
             {(["dedup", "filter", "pit_lookup", "min_10b5_1", "conviction", "capacity"] as const).map((s) => {
               const count = allRows.filter((r) => r.rejected_at === s).length;
               if (count === 0) return null;
@@ -756,7 +756,7 @@ function FilingsSection({
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="text-left text-[#55556A] text-[10px] uppercase tracking-wider">
+          <thead className="text-left text-[#81819A] text-[10px] uppercase tracking-wider">
             <tr>
               <th className="py-2 pr-3">Filed</th>
               <th className="pr-3">Ticker</th>
@@ -780,7 +780,7 @@ function FilingsSection({
                     <td className="pr-3 text-xs text-[#8888A0] truncate max-w-[200px]">
                       {r.insider_name ?? "—"}
                       {r.lots_in_filing > 1 && (
-                        <span className="ml-1 text-[10px] text-[#55556A]">·{r.lots_in_filing} lots</span>
+                        <span className="ml-1 text-[10px] text-[#81819A]">·{r.lots_in_filing} lots</span>
                       )}
                     </td>
                     <td className="pr-3 text-right font-mono text-xs">
@@ -788,7 +788,7 @@ function FilingsSection({
                     </td>
                     <td className="pr-3 text-xs">{r.pit_grade ?? "—"}</td>
                     <td className="pr-3"><OutcomeCell outcome={r.outcome} /></td>
-                    <td className="text-[#55556A] text-xs">{isOpen ? "▼" : "▶"}</td>
+                    <td className="text-[#81819A] text-xs">{isOpen ? "▼" : "▶"}</td>
                   </tr>
                   {isOpen && (
                     <tr className="border-t border-[#2A2A3A] bg-[#0A0A0F]">
@@ -815,7 +815,7 @@ function FilingsSection({
             })}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={7} className="py-4 text-center text-[#55556A] text-xs">No filings match the current filter.</td>
+                <td colSpan={7} className="py-4 text-center text-[#81819A] text-xs">No filings match the current filter.</td>
               </tr>
             )}
           </tbody>
@@ -832,7 +832,7 @@ function OutcomeCell({ outcome }: { outcome: EvalOutcome }) {
         <span className="text-[#EF4444]">✗</span>{" "}
         <span className="text-[#8888A0]">{outcome.rejected_at ? humanizeStage(outcome.rejected_at) : "rejected"}</span>
         {outcome.reason && (
-          <span className="text-[#55556A] ml-1">— {outcome.reason}</span>
+          <span className="text-[#81819A] ml-1">— {outcome.reason}</span>
         )}
       </span>
     );
@@ -841,7 +841,7 @@ function OutcomeCell({ outcome }: { outcome: EvalOutcome }) {
     const pct = outcome.pnl_pct;
     const dol = outcome.pnl_dollar;
     if (pct == null || dol == null) {
-      return <span className="text-xs text-[#22C55E]">✓ entered <span className="text-[#55556A]">(no quote)</span></span>;
+      return <span className="text-xs text-[#22C55E]">✓ entered <span className="text-[#81819A]">(no quote)</span></span>;
     }
     const color = pct >= 0 ? "text-[#22C55E]" : "text-[#EF4444]";
     return (
@@ -860,7 +860,7 @@ function OutcomeCell({ outcome }: { outcome: EvalOutcome }) {
         <span className="text-[#8888A0]">closed</span>{" "}
         <span className={`font-mono ${color}`}>{pct != null ? formatPctSigned(pct) : "—"}</span>{" "}
         {outcome.exit_reason && (
-          <span className="text-[#55556A]">· {outcome.exit_reason}</span>
+          <span className="text-[#81819A]">· {outcome.exit_reason}</span>
         )}
       </span>
     );
@@ -874,26 +874,26 @@ function ReconciliationSection({ block }: { block: ReconciliationBlock }) {
   return (
     <Section title="Strategy ↔ Alpaca">
       {block.latest_capture_at ? (
-        <p className="text-[10px] text-[#55556A] mb-3">
+        <p className="text-[10px] text-[#81819A] mb-3">
           Latest snapshot {block.latest_capture_at.slice(0, 19).replace("T", " ")} ·{" "}
           <span className="text-[#8888A0]">strategy_portfolio is canonical; Alpaca is side-channel.</span>
         </p>
       ) : (
-        <p className="text-[10px] text-[#55556A] mb-3">
+        <p className="text-[10px] text-[#81819A] mb-3">
           No Alpaca snapshot yet — run <code>scripts/alpaca_reconcile.py</code>.
         </p>
       )}
 
       <div className="grid gap-4 md:grid-cols-2">
         <div>
-          <div className="text-[10px] uppercase tracking-wider text-[#55556A] mb-2">
+          <div className="text-[10px] uppercase tracking-wider text-[#81819A] mb-2">
             Active divergences ({block.divergences.length})
           </div>
           {block.divergences.length === 0 ? (
             <p className="text-sm text-[#22C55E]">No drift. Strategy ↔ Alpaca aligned.</p>
           ) : (
             <table className="w-full text-xs">
-              <thead className="text-left text-[#55556A] text-[10px] uppercase">
+              <thead className="text-left text-[#81819A] text-[10px] uppercase">
                 <tr>
                   <th className="py-1 pr-2">Ticker</th>
                   <th className="pr-2">Issue</th>
@@ -912,7 +912,7 @@ function ReconciliationSection({ block }: { block: ReconciliationBlock }) {
                       <span className={
                         d.severity === "critical" ? "text-[#EF4444]"
                           : d.severity === "warn" ? "text-[#F59E0B]"
-                            : "text-[#55556A]"}>
+                            : "text-[#81819A]"}>
                         {d.severity}
                       </span>
                     </td>
@@ -937,14 +937,14 @@ function ReconciliationSection({ block }: { block: ReconciliationBlock }) {
         </div>
 
         <div>
-          <div className="text-[10px] uppercase tracking-wider text-[#55556A] mb-2">
+          <div className="text-[10px] uppercase tracking-wider text-[#81819A] mb-2">
             Alpaca holdings ({block.alpaca_positions.length})
           </div>
           {block.alpaca_positions.length === 0 ? (
-            <p className="text-sm text-[#55556A]">No positions in Alpaca.</p>
+            <p className="text-sm text-[#81819A]">No positions in Alpaca.</p>
           ) : (
             <table className="w-full text-xs">
-              <thead className="text-left text-[#55556A] text-[10px] uppercase">
+              <thead className="text-left text-[#81819A] text-[10px] uppercase">
                 <tr>
                   <th className="py-1 pr-2">Ticker</th>
                   <th className="pr-2">Qty</th>
@@ -981,17 +981,17 @@ function AlertsSection({ alerts }: { alerts: AlertRow[] }) {
   return (
     <Section title="Recent alerts">
       {recent.length === 0 ? (
-        <p className="text-[#55556A] text-sm">No alerts from this strategy.</p>
+        <p className="text-[#81819A] text-sm">No alerts from this strategy.</p>
       ) : (
         <table className="w-full text-sm">
-          <thead className="text-left text-[#55556A] text-[10px] uppercase tracking-wider">
+          <thead className="text-left text-[#81819A] text-[10px] uppercase tracking-wider">
             <tr><th className="py-2 pr-3">Time</th><th className="pr-3">Sev</th><th className="pr-3">Component</th><th>Message</th></tr>
           </thead>
           <tbody>
             {recent.map((a, i) => (
               <tr key={i} className="border-t border-[#2A2A3A]/50">
                 <td className="py-1 pr-3 text-[10px] text-[#8888A0]">{a.ts}</td>
-                <td className={`pr-3 text-xs ${a.severity === "critical" ? "text-[#EF4444]" : a.severity === "error" ? "text-[#F59E0B]" : a.severity === "warn" ? "text-[#FBBF24]" : "text-[#55556A]"}`}>{a.severity}</td>
+                <td className={`pr-3 text-xs ${a.severity === "critical" ? "text-[#EF4444]" : a.severity === "error" ? "text-[#F59E0B]" : a.severity === "warn" ? "text-[#FBBF24]" : "text-[#81819A]"}`}>{a.severity}</td>
                 <td className="pr-3 text-xs"><code>{a.component}</code></td>
                 <td className="text-xs whitespace-pre-wrap">{a.message}</td>
               </tr>
@@ -1009,9 +1009,9 @@ function Stat({ label, value, hint, tone }: { label: string; value: string | num
   const valueColor = tone === "warn" ? "text-[#F59E0B]" : tone === "ok" ? "text-[#22C55E]" : "text-[#E8E8ED]";
   return (
     <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] p-4">
-      <div className="text-[10px] uppercase tracking-wider text-[#55556A]">{label}</div>
+      <div className="text-[10px] uppercase tracking-wider text-[#81819A]">{label}</div>
       <div className={`text-xl font-semibold mt-1 ${valueColor}`}>{value}</div>
-      {hint && <div className="text-[10px] text-[#55556A] mt-1">{hint}</div>}
+      {hint && <div className="text-[10px] text-[#81819A] mt-1">{hint}</div>}
     </div>
   );
 }
@@ -1046,8 +1046,8 @@ function Reason({ label, passed, reason }: { label: string; passed: boolean | nu
   if (passed == null) {
     return (
       <div className="flex items-baseline gap-3">
-        <span className="text-[#55556A] w-24">{label}</span>
-        <span className="text-[#55556A]">— not reached —</span>
+        <span className="text-[#81819A] w-24">{label}</span>
+        <span className="text-[#81819A]">— not reached —</span>
       </div>
     );
   }

@@ -148,7 +148,7 @@ interface TradeDetail {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] p-5">
-      <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A] mb-4">{title}</div>
+      <div className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A] mb-4">{title}</div>
       {children}
     </div>
   );
@@ -163,10 +163,10 @@ function Row({ label, value, color, mono = false, sub }: {
 }) {
   return (
     <div className="flex items-baseline justify-between py-1.5 border-b border-[#2A2A3A]/30 last:border-0">
-      <span className="text-xs text-[#55556A]">{label}</span>
+      <span className="text-xs text-[#81819A]">{label}</span>
       <div className="text-right">
         <span className={`text-sm ${mono ? "font-mono" : ""} ${color || "text-[#E8E8ED]"}`}>{value}</span>
-        {sub && <div className="text-[10px] text-[#55556A]">{sub}</div>}
+        {sub && <div className="text-[10px] text-[#81819A]">{sub}</div>}
       </div>
     </div>
   );
@@ -178,7 +178,7 @@ function ScoreBar({ label, value, maxVal = 3 }: { label: string; value: number; 
   const isNeg = value < 0;
   return (
     <div className="flex items-center gap-3 py-1">
-      <span className="text-xs text-[#55556A] w-28 shrink-0">{label}</span>
+      <span className="text-xs text-[#81819A] w-28 shrink-0">{label}</span>
       <div className="flex-1 h-2.5 bg-[#1A1A26] rounded-full overflow-hidden relative">
         <div className="absolute left-1/2 top-0 bottom-0 w-px bg-[#2A2A3A]" />
         {isPositive && (
@@ -194,7 +194,7 @@ function ScoreBar({ label, value, maxVal = 3 }: { label: string; value: number; 
           />
         )}
       </div>
-      <span className={`text-xs font-mono w-10 text-right ${isPositive ? "text-[#22C55E]" : isNeg ? "text-[#EF4444]" : "text-[#55556A]"}`}>
+      <span className={`text-xs font-mono w-10 text-right ${isPositive ? "text-[#22C55E]" : isNeg ? "text-[#EF4444]" : "text-[#81819A]"}`}>
         {value > 0 ? "+" : ""}{value.toFixed(1)}
       </span>
     </div>
@@ -226,7 +226,7 @@ function ExecutionBadge({ source }: { source: string }) {
   // Paired against LIVE above, so the distinction a reader needs — did money
   // move — is still carried by the two labels.
   return (
-    <Badge variant="outline" className="text-[10px] border-[#55556A]/30 text-[#55556A]">
+    <Badge variant="outline" className="text-[10px] border-[#81819A]/30 text-[#81819A]">
       ESTIMATED FILL
     </Badge>
   );
@@ -253,7 +253,7 @@ function buyHistory(count: number | null | undefined, firstBuy: string | null | 
 }
 
 function gradeColor(grade: string | null): string {
-  if (!grade) return "text-[#55556A]";
+  if (!grade) return "text-[#81819A]";
   if (grade === "A") return "text-[#22C55E]";
   if (grade === "B") return "text-[#3B82F6]";
   if (grade === "C") return "text-[#F59E0B]";
@@ -284,7 +284,7 @@ export default async function TradeDetailPage({
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       {/* Back link */}
-      <Link href="/portfolio" className="text-xs text-[#55556A] hover:text-[#8888A0] transition-colors">
+      <Link href="/portfolio" className="text-xs text-[#81819A] hover:text-[#8888A0] transition-colors">
         ← Back to Portfolio
       </Link>
 
@@ -302,7 +302,7 @@ export default async function TradeDetailPage({
                 The letter is the insider's career grade. Both get a word. */}
             {trade.signal_grade && (
               <span className="inline-flex items-baseline gap-1.5 rounded-md bg-[#1A1A26] px-2.5 py-1">
-                <span className="text-[10px] uppercase tracking-wider text-[#55556A]">Career grade</span>
+                <span className="text-[10px] uppercase tracking-wider text-[#81819A]">Career grade</span>
                 <span className={`text-sm font-semibold ${gradeColor(trade.signal_grade)}`}>{trade.signal_grade}</span>
               </span>
             )}
@@ -322,14 +322,14 @@ export default async function TradeDetailPage({
               {trade.company || trade.ticker}
             </Link>
             {trade.insider_name && (
-              <span className="text-[#55556A]">
+              <span className="text-[#81819A]">
                 {" — "}
                 {trade.insider_id ? (
                   <Link href={insiderPath(trade.insider_name, trade.insider_id)} className="hover:text-[#8888A0]">{trade.insider_name}</Link>
                 ) : trade.insider_name}
               </span>
             )}
-            {trade.insider_title && <span className="text-[#55556A]">, {trade.insider_title}</span>}
+            {trade.insider_title && <span className="text-[#81819A]">, {trade.insider_title}</span>}
           </div>
         </div>
 
@@ -390,7 +390,7 @@ export default async function TradeDetailPage({
                 <Row label="Strategy" value={trade.strategy_label || er.thesis} />
               )}
               {!er?.career_grade && !er?.thesis && (
-                <div className="text-sm text-[#55556A]">
+                <div className="text-sm text-[#81819A]">
                   No entry reasoning was recorded for this trade.
                 </div>
               )}

@@ -27,7 +27,7 @@ export function SignalsTable({ filings }: SignalsTableProps) {
 
   if (filings.length === 0) {
     return (
-      <div className="flex h-40 items-center justify-center text-[#55556A]">
+      <div className="flex h-40 items-center justify-center text-[#81819A]">
         No recent signals
       </div>
     );
@@ -38,14 +38,14 @@ export function SignalsTable({ filings }: SignalsTableProps) {
       <Table>
         <TableHeader>
           <TableRow className="border-[#2A2A3A] hover:bg-transparent">
-            <TableHead className="text-[#55556A]">Ticker</TableHead>
-            <TableHead className="text-[#55556A]">Insider</TableHead>
-            <TableHead className="text-[#55556A]">Type</TableHead>
-            <TableHead className="hidden md:table-cell text-[#55556A]">Grade</TableHead>
-            <TableHead className="hidden md:table-cell text-[#55556A]">Trade Grade</TableHead>
-            <TableHead className="text-[#55556A] text-right">Value</TableHead>
-            <TableHead className="hidden md:table-cell text-[#55556A] text-right">7d Stock</TableHead>
-            <TableHead className="hidden md:table-cell text-[#55556A] text-right">Filed</TableHead>
+            <TableHead className="text-[#81819A]">Ticker</TableHead>
+            <TableHead className="text-[#81819A]">Insider</TableHead>
+            <TableHead className="text-[#81819A]">Type</TableHead>
+            <TableHead className="hidden md:table-cell text-[#81819A]">Grade</TableHead>
+            <TableHead className="hidden md:table-cell text-[#81819A]">Trade Grade</TableHead>
+            <TableHead className="text-[#81819A] text-right">Value</TableHead>
+            <TableHead className="hidden md:table-cell text-[#81819A] text-right">7d Stock</TableHead>
+            <TableHead className="hidden md:table-cell text-[#81819A] text-right">Filed</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -60,7 +60,7 @@ export function SignalsTable({ filings }: SignalsTableProps) {
               </TableCell>
               <TableCell>
                 <div className="text-[#E8E8ED] text-sm">{f.insider_name}</div>
-                <div className="text-[#55556A] text-xs">{f.title}</div>
+                <div className="text-[#81819A] text-xs">{f.title}</div>
               </TableCell>
               <TableCell>
                 <Badge
@@ -78,7 +78,7 @@ export function SignalsTable({ filings }: SignalsTableProps) {
                 <InsiderGradeBadge rating={(f as any).insider_rating} grade={(f as any).career_grade} compact />
               </TableCell>
               <TableCell className="hidden md:table-cell">
-                {(f as any).trade_grade ? <TradeGradeBadge grade={(f as any).trade_grade} /> : <span className="text-[#55556A]">—</span>}
+                {(f as any).trade_grade ? <TradeGradeBadge grade={(f as any).trade_grade} /> : <span className="text-[#81819A]">—</span>}
               </TableCell>
               <TableCell className="text-right font-mono text-[#E8E8ED]">
                 {formatCurrency(f.value)}
@@ -89,7 +89,7 @@ export function SignalsTable({ filings }: SignalsTableProps) {
                     ? (f.trade_type === "buy" ? f.return_7d >= 0 : f.return_7d <= 0)
                       ? "text-green-500"
                       : "text-red-500"
-                    : "text-[#55556A]"
+                    : "text-[#81819A]"
                 }`}
               >
                 {formatPercent(f.return_7d)}

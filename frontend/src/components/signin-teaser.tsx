@@ -60,7 +60,7 @@ export function SignInTeaser({
               Sign In
             </Link>
           </div>
-          <p className="mt-3 text-[10px] text-[#55556A]">
+          <p className="mt-3 text-[10px] text-[#81819A]">
             7 days of full access — no credit card required
           </p>
         </div>

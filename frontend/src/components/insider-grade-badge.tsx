@@ -76,13 +76,13 @@ export function InsiderGradeBadge({
   return (
     <span className="inline-flex items-center gap-1">
       {labelText && (
-        <span className="text-[9px] text-[#55556A] uppercase tracking-wide font-medium">
+        <span className="text-[9px] text-[#81819A] uppercase tracking-wide font-medium">
           {labelText}
         </span>
       )}
       {badge}
       {!compact && bestTicker && (
-        <span className="hidden md:inline text-[9px] text-[#55556A] font-mono">
+        <span className="hidden md:inline text-[9px] text-[#81819A] font-mono">
           {bestTicker}
           {tickerCount != null && tickerCount > 1 && (
             <span className="text-[#3A3A4A]">{` +${tickerCount - 1}`}</span>

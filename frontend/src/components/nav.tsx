@@ -244,7 +244,7 @@ export function Nav() {
 
           {/* More section */}
           <div className="pt-2 mt-1 border-t border-[#2A2A3A]">
-            <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-widest text-[#55556A]">More</div>
+            <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-widest text-[#81819A]">More</div>
             {moreLinks.map((link) => {
               const isActive = pathname === link.href;
               return (

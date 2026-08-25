@@ -62,14 +62,14 @@ function statusColor(s: string): string {
   if (s === "healthy") return "text-[#22C55E]";
   if (s === "lagging") return "text-[#F59E0B]";
   if (s === "stale") return "text-[#EF4444]";
-  return "text-[#55556A]";
+  return "text-[#81819A]";
 }
 
 function statusDot(s: string): string {
   if (s === "healthy") return "bg-[#22C55E]";
   if (s === "lagging") return "bg-[#F59E0B]";
   if (s === "stale") return "bg-[#EF4444]";
-  return "bg-[#55556A]";
+  return "bg-[#81819A]";
 }
 
 export default function AdminJobsPage() {
@@ -113,7 +113,7 @@ export default function AdminJobsPage() {
   }, [isSignedIn, getToken]);
 
   if (!isSignedIn) return <div className="text-[#E8E8ED] py-10">Sign in to view.</div>;
-  if (loading) return <div className="text-[#55556A] py-10">Loading…</div>;
+  if (loading) return <div className="text-[#81819A] py-10">Loading…</div>;
   if (error) return <div className="text-[#EF4444] py-10">{error}</div>;
   if (!data) return null;
 
@@ -138,7 +138,7 @@ export default function AdminJobsPage() {
       <div className="flex items-baseline justify-between">
         <div>
           <h1 className="text-2xl font-bold">System Status</h1>
-          <p className="text-[#55556A] text-xs mt-1">
+          <p className="text-[#81819A] text-xs mt-1">
             Polling jobs, simulators, runners. Auto-refreshes every 30s · Last fetched {lastTick.toLocaleTimeString()}
           </p>
         </div>
@@ -160,7 +160,7 @@ export default function AdminJobsPage() {
         return (
           <div key={cat} className="rounded-lg border border-[#2A2A3A] bg-[#12121A]">
             <div className="px-4 py-2 border-b border-[#2A2A3A]">
-              <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A]">
+              <div className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A]">
                 {categoryLabels[cat] || cat}
               </div>
             </div>
@@ -177,7 +177,7 @@ export default function AdminJobsPage() {
                         <code className="text-sm text-[#E8E8ED] font-mono">{j.name}</code>
                         <span className="text-xs text-[#8888A0] truncate">{j.label}</span>
                       </div>
-                      <div className="text-[10px] text-[#55556A] mt-0.5">
+                      <div className="text-[10px] text-[#81819A] mt-0.5">
                         last activity: {j.last_run_at
                           ? new Date(j.last_run_at).toLocaleString()
                           : "never"}
@@ -189,7 +189,7 @@ export default function AdminJobsPage() {
                       <div className={`text-xs font-semibold ${statusColor(j.status)}`}>
                         {j.status.toUpperCase()}
                       </div>
-                      <div className="text-[10px] text-[#55556A]">
+                      <div className="text-[10px] text-[#81819A]">
                         {formatAge(j.age_seconds)} ago
                       </div>
                     </div>
@@ -198,7 +198,7 @@ export default function AdminJobsPage() {
                     <div className="px-4 pb-3 pt-1 bg-[#0A0A12] border-t border-[#2A2A3A]/40 space-y-2">
                       {j.heartbeat && (
                         <div>
-                          <div className="text-[10px] uppercase tracking-wider text-[#55556A] mb-1">
+                          <div className="text-[10px] uppercase tracking-wider text-[#81819A] mb-1">
                             Heartbeat (liveness source)
                           </div>
                           <div className="text-[11px] text-[#8888A0] font-mono">
@@ -212,14 +212,14 @@ export default function AdminJobsPage() {
                         </div>
                       )}
                       <div>
-                        <div className="text-[10px] uppercase tracking-wider text-[#55556A] mb-1">
+                        <div className="text-[10px] uppercase tracking-wider text-[#81819A] mb-1">
                           Last log lines
                         </div>
                         <pre className="text-[11px] text-[#8888A0] font-mono whitespace-pre-wrap leading-snug">
                           {j.tail.length > 0 ? j.tail.join("\n") : "(empty)"}
                         </pre>
                       </div>
-                      <div className="text-[10px] text-[#55556A]">
+                      <div className="text-[10px] text-[#81819A]">
                         Log file: <code className="text-[#8888A0]">{j.log_file}</code>
                         {j.liveness_source === "heartbeat" && j.liveness_file && (
                           <>
@@ -241,14 +241,14 @@ export default function AdminJobsPage() {
       {freshness && (
         <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A]">
           <div className="px-4 py-2 border-b border-[#2A2A3A]">
-            <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A]">
+            <div className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A]">
               Data Freshness Contracts ({freshness.n_contracts})
             </div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
-                <tr className="border-b border-[#2A2A3A]/40 text-[#55556A]">
+                <tr className="border-b border-[#2A2A3A]/40 text-[#81819A]">
                   <th className="px-4 py-2 text-left font-medium">Source.Table.Column</th>
                   <th className="px-4 py-2 text-right font-medium">Last Updated</th>
                   <th className="px-4 py-2 text-right font-medium">Age</th>
@@ -260,7 +260,7 @@ export default function AdminJobsPage() {
                 {freshness.contracts.map((c, i) => {
                   const ageS = c.age_seconds;
                   const ageColor =
-                    ageS === null ? "text-[#55556A]" :
+                    ageS === null ? "text-[#81819A]" :
                     ageS < 3600 ? "text-[#22C55E]" :
                     ageS < 86400 ? "text-[#F59E0B]" :
                     "text-[#EF4444]";
@@ -280,7 +280,7 @@ export default function AdminJobsPage() {
                       <td className="px-4 py-2 text-right text-[#8888A0] font-mono">
                         {c.last_n_rows_affected.toLocaleString()}
                       </td>
-                      <td className="px-4 py-2 text-[10px] text-[#55556A] font-mono truncate max-w-xs">
+                      <td className="px-4 py-2 text-[10px] text-[#81819A] font-mono truncate max-w-xs">
                         {c.populated_by || "—"}
                       </td>
                     </tr>
@@ -292,12 +292,12 @@ export default function AdminJobsPage() {
         </div>
       )}
 
-      <div className="text-[10px] text-[#55556A] text-center pt-4">
+      <div className="text-[10px] text-[#81819A] text-center pt-4">
         Status legend:&nbsp;
         <span className="text-[#22C55E]">healthy</span> (log mtime ≤ cadence) ·{" "}
         <span className="text-[#F59E0B]">lagging</span> (≤ 2× cadence) ·{" "}
         <span className="text-[#EF4444]">stale</span> (&gt; 2× cadence) ·{" "}
-        <span className="text-[#55556A]">missing</span> (log file not found)
+        <span className="text-[#81819A]">missing</span> (log file not found)
       </div>
     </div>
   );

@@ -42,7 +42,7 @@ export function ExportButton({ params }: ExportButtonProps) {
   return (
     <button
       onClick={handleExport}
-      className="rounded-md border border-[#2A2A3A] px-3 py-1.5 text-xs font-medium text-[#8888A0] hover:text-[#E8E8ED] hover:border-[#55556A] transition-colors"
+      className="rounded-md border border-[#2A2A3A] px-3 py-1.5 text-xs font-medium text-[#8888A0] hover:text-[#E8E8ED] hover:border-[#81819A] transition-colors"
     >
       Export CSV
     </button>

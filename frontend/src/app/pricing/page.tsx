@@ -169,9 +169,9 @@ export default function PricingPage() {
           <h2 className="text-lg font-bold text-[#E8E8ED] mb-1">Free</h2>
           <div className="text-3xl font-bold text-[#E8E8ED] mb-1">
             $0
-            <span className="text-sm font-normal text-[#55556A]">/mo</span>
+            <span className="text-sm font-normal text-[#81819A]">/mo</span>
           </div>
-          <p className="text-xs text-[#55556A] mb-6">No credit card required</p>
+          <p className="text-xs text-[#81819A] mb-6">No credit card required</p>
 
           <ul className="space-y-2 mb-8 flex-1">
             {FREE_FEATURES.map((f) => (
@@ -185,12 +185,12 @@ export default function PricingPage() {
           {!isSignedIn ? (
             <Link
               href="/sign-up"
-              className="block w-full text-center rounded-lg border border-[#2A2A3A] px-4 py-2.5 text-sm font-medium text-[#8888A0] hover:text-[#E8E8ED] hover:border-[#55556A] transition-colors"
+              className="block w-full text-center rounded-lg border border-[#2A2A3A] px-4 py-2.5 text-sm font-medium text-[#8888A0] hover:text-[#E8E8ED] hover:border-[#81819A] transition-colors"
             >
               Get Started
             </Link>
           ) : (
-            <div className="text-center text-sm text-[#55556A] py-2.5">
+            <div className="text-center text-sm text-[#81819A] py-2.5">
               {userIsPro ? "Included" : tier === "free" ? "Current Plan" : "Included"}
             </div>
           )}
@@ -204,9 +204,9 @@ export default function PricingPage() {
           <h2 className="text-lg font-bold text-[#E8E8ED] mb-1">Pro</h2>
           <div className="text-3xl font-bold text-[#E8E8ED] mb-1">
             {billing === "monthly" ? "$25" : "$21"}
-            <span className="text-sm font-normal text-[#55556A]">/mo</span>
+            <span className="text-sm font-normal text-[#81819A]">/mo</span>
           </div>
-          <p className="text-xs text-[#55556A] mb-6">
+          <p className="text-xs text-[#81819A] mb-6">
             {billing === "yearly" ? "$250/yr billed annually" : "Billed monthly"}
           </p>
 
@@ -224,7 +224,7 @@ export default function PricingPage() {
               Current Plan
             </div>
           ) : userIsProPlus ? (
-            <div className="text-center text-sm text-[#55556A] py-2.5">Included in Pro+</div>
+            <div className="text-center text-sm text-[#81819A] py-2.5">Included in Pro+</div>
           ) : !isSignedIn ? (
             <Link
               href="/sign-up"
@@ -260,9 +260,9 @@ export default function PricingPage() {
           <h2 className="text-lg font-bold text-[#E8E8ED] mb-1">Pro+</h2>
           <div className="text-3xl font-bold text-[#E8E8ED] mb-1">
             {billing === "monthly" ? "$75" : "$63"}
-            <span className="text-sm font-normal text-[#55556A]">/mo</span>
+            <span className="text-sm font-normal text-[#81819A]">/mo</span>
           </div>
-          <p className="text-xs text-[#55556A] mb-6">
+          <p className="text-xs text-[#81819A] mb-6">
             {billing === "yearly" ? "$750/yr billed annually" : "Billed monthly"}
           </p>
 
@@ -324,7 +324,7 @@ export default function PricingPage() {
         </p>
       </div>
 
-      <div className="mt-8 text-center text-sm text-[#55556A]">
+      <div className="mt-8 text-center text-sm text-[#81819A]">
         All plans include a 7-day free trial. Cancel anytime.
         <br />
         Questions? <a href="mailto:support@form4.app" className="text-[#3B82F6] hover:underline">support@form4.app</a>

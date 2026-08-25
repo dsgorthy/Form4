@@ -120,7 +120,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
     // they carried no structure at all: every SEO surface rendered exactly one
     // heading, the H1, with nothing beneath it. Tailwind's preflight zeroes
     // heading margins so this is visually identical.
-    <h2 className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A] mb-3">
+    <h2 className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A] mb-3">
       {children}
     </h2>
   );
@@ -167,7 +167,7 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
         )}
       />
       {/* Breadcrumb */}
-      <nav className="flex flex-wrap items-center gap-2 text-sm text-[#55556A] mb-6">
+      <nav className="flex flex-wrap items-center gap-2 text-sm text-[#81819A] mb-6">
         <Link href="/" className="hover:text-[#8888A0] transition-colors">
           Dashboard
         </Link>
@@ -230,7 +230,7 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
         <div className="mb-8 rounded-lg border border-blue-500/20 bg-blue-500/5 px-5 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <div>
             <div className="text-sm text-[#8888A0]">SEC EDGAR Filing</div>
-            <div className="text-xs font-mono text-[#55556A] mt-0.5 break-all">{filing.accession}</div>
+            <div className="text-xs font-mono text-[#81819A] mt-0.5 break-all">{filing.accession}</div>
           </div>
           <a
             href={secEdgarUrl(filing.accession)}
@@ -279,7 +279,7 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
           ? "text-[#3B82F6]"
           : isPending
           ? "text-[#3B82F6]/70"
-          : "text-[#55556A]";
+          : "text-[#81819A]";
         const tierLabel =
           tier === "high_signal"
             ? "Why this matters"
@@ -296,7 +296,7 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
                 {tierLabel}
               </div>
               {isHighSignal && (
-                <div className="text-[10px] text-[#55556A]">
+                <div className="text-[10px] text-[#81819A]">
                   {filing.narrative.model_name || "AI summary"}
                   {filing.narrative.generated_at
                     ? ` · ${filing.narrative.generated_at.slice(0, 10)}`
@@ -309,7 +309,7 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
 
               {filing.narrative.price_context && (
                 <div>
-                  <div className="text-[10px] font-semibold uppercase tracking-wider text-[#55556A] mb-1">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-[#81819A] mb-1">
                     Price context
                   </div>
                   <p>{filing.narrative.price_context}</p>
@@ -330,7 +330,7 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
                 if (bullets.length === 0) return null;
                 return (
                   <div key={heading}>
-                    <div className="text-[10px] font-semibold uppercase tracking-wider text-[#55556A] mb-1">
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-[#81819A] mb-1">
                       {heading}
                     </div>
                     {bullets.length === 1 ? (
@@ -350,7 +350,7 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
               })}
             </div>
             {isHighSignal && (
-              <div className="mt-3 pt-3 border-t border-[#3B82F6]/10 text-[10px] text-[#55556A] italic">
+              <div className="mt-3 pt-3 border-t border-[#3B82F6]/10 text-[10px] text-[#81819A] italic">
                 AI-generated context from public data. Not investment advice. Verify before trading.
               </div>
             )}
@@ -475,7 +475,7 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
             <ReturnRow label="30d vs SPY" value={filing.abnormal_30d} tradeType={filing.trade_type} />
             <ReturnRow label="90d vs SPY" value={filing.abnormal_90d} tradeType={filing.trade_type} />
             {(filing.return_30d == null && isReturnUnavailable(filing.trade_date, filing.return_30d, 30)) && (
-              <div className="text-xs text-[#55556A] mt-2 pt-2 border-t border-[#2A2A3A]/50">
+              <div className="text-xs text-[#81819A] mt-2 pt-2 border-t border-[#2A2A3A]/50">
                 {unavailableReason((filing as any).price_data_end)}
               </div>
             )}
@@ -484,7 +484,7 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
         {allReturnsUnavailable && (
           <div className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/50 p-5">
             <SectionLabel>Outcomes</SectionLabel>
-            <div className="text-xs text-[#55556A]">
+            <div className="text-xs text-[#81819A]">
               {unavailableReason((filing as any).price_data_end)}
             </div>
           </div>
@@ -501,7 +501,7 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
         <div className="mb-10">
           <h2 className="text-lg font-semibold text-[#E8E8ED] mb-4">
             Lot Breakdown
-            <span className="text-sm font-normal text-[#55556A] ml-2">
+            <span className="text-sm font-normal text-[#81819A] ml-2">
               {filing.lots.length} lots across {(() => {
                 const prices = new Set(filing.lots!.map(l => l.price));
                 return prices.size;
@@ -512,17 +512,17 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[#2A2A3A] bg-[#1A1A26]/50">
-                  <th className="px-4 py-3 text-left text-[#55556A] font-medium">#</th>
-                  <th className="px-4 py-3 text-right text-[#55556A] font-medium">Price</th>
-                  <th className="px-4 py-3 text-right text-[#55556A] font-medium">Shares</th>
-                  <th className="px-4 py-3 text-right text-[#55556A] font-medium">Value</th>
-                  <th className="px-4 py-3 text-right text-[#55556A] font-medium">% of Total</th>
+                  <th className="px-4 py-3 text-left text-[#81819A] font-medium">#</th>
+                  <th className="px-4 py-3 text-right text-[#81819A] font-medium">Price</th>
+                  <th className="px-4 py-3 text-right text-[#81819A] font-medium">Shares</th>
+                  <th className="px-4 py-3 text-right text-[#81819A] font-medium">Value</th>
+                  <th className="px-4 py-3 text-right text-[#81819A] font-medium">% of Total</th>
                 </tr>
               </thead>
               <tbody>
                 {filing.lots.map((lot, i) => (
                   <tr key={lot.trade_id} className="border-b border-[#2A2A3A]/50">
-                    <td className="px-4 py-2.5 text-[#55556A] font-mono text-xs">{i + 1}</td>
+                    <td className="px-4 py-2.5 text-[#81819A] font-mono text-xs">{i + 1}</td>
                     <td className="px-4 py-2.5 text-right font-mono text-[#E8E8ED]">
                       ${lot.price.toFixed(2)}
                     </td>
@@ -588,12 +588,12 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[#2A2A3A] bg-[#1A1A26]/50">
-                  <th className="px-4 py-3 text-left text-[#55556A] font-medium">Ticker</th>
-                  <th className="px-4 py-3 text-left text-[#55556A] font-medium">Type</th>
-                  <th className="px-4 py-3 text-left text-[#55556A] font-medium">Filed</th>
-                  <th className="px-4 py-3 text-right text-[#55556A] font-medium">Value</th>
-                  <th className="px-4 py-3 text-right text-[#55556A] font-medium">7d Stock</th>
-                  <th className="px-4 py-3 text-right text-[#55556A] font-medium sr-only">Filing</th>
+                  <th className="px-4 py-3 text-left text-[#81819A] font-medium">Ticker</th>
+                  <th className="px-4 py-3 text-left text-[#81819A] font-medium">Type</th>
+                  <th className="px-4 py-3 text-left text-[#81819A] font-medium">Filed</th>
+                  <th className="px-4 py-3 text-right text-[#81819A] font-medium">Value</th>
+                  <th className="px-4 py-3 text-right text-[#81819A] font-medium">7d Stock</th>
+                  <th className="px-4 py-3 text-right text-[#81819A] font-medium sr-only">Filing</th>
                 </tr>
               </thead>
               <tbody>
@@ -632,7 +632,7 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
                           ? (r.trade_type === "buy" ? r.return_7d >= 0 : r.return_7d <= 0)
                             ? "text-[#22C55E]"
                             : "text-[#EF4444]"
-                          : "text-[#55556A]"
+                          : "text-[#81819A]"
                       }`}
                     >
                       {formatPercent(r.return_7d)}

@@ -97,14 +97,14 @@ export function PortfolioOverlay({ strategy = "form4_insider", onDateRangeChange
 
       const baseColor = selectedBase === "QQQ" ? "#8B5CF6" : selectedBase === "IWM" ? "#F59E0B"
         : selectedBase === "TLT" ? "#06B6D4" : selectedBase === "GLD" ? "#EAB308"
-        : selectedBase === "CASH" ? "#55556A" : "#3B82F6";
+        : selectedBase === "CASH" ? "#81819A" : "#3B82F6";
 
       const isMobile = equityRef.current.clientWidth < 640;
 
       const chartOpts = {
         layout: {
           background: { type: lc.ColorType.Solid, color: "#12121A" },
-          textColor: "#55556A",
+          textColor: "#81819A",
           fontFamily: "ui-monospace, SFMono-Regular, monospace",
           fontSize: 11,
         },
@@ -169,7 +169,7 @@ export function PortfolioOverlay({ strategy = "form4_insider", onDateRangeChange
 
       // Insider-only line (dotted grey)
       const insiderSeries = equityChart.addSeries(lc.LineSeries, {
-        color: "#55556A",
+        color: "#81819A",
         lineWidth: 1,
         lineStyle: lc.LineStyle.Dotted,
         crosshairMarkerVisible: false,
@@ -184,7 +184,7 @@ export function PortfolioOverlay({ strategy = "form4_insider", onDateRangeChange
       // Starting capital line
       blendedSeries.createPriceLine({
         price: data.starting_capital,
-        color: "#55556A",
+        color: "#81819A",
         lineWidth: 1,
         lineStyle: lc.LineStyle.Dashed,
         axisLabelVisible: false,
@@ -302,7 +302,7 @@ export function PortfolioOverlay({ strategy = "form4_insider", onDateRangeChange
   const alpha = blendedCAGR - pureCAGR;
   const baseColor = selectedBase === "QQQ" ? "#8B5CF6" : selectedBase === "IWM" ? "#F59E0B"
     : selectedBase === "TLT" ? "#06B6D4" : selectedBase === "GLD" ? "#EAB308"
-    : selectedBase === "CASH" ? "#55556A" : "#3B82F6";
+    : selectedBase === "CASH" ? "#81819A" : "#3B82F6";
 
   return (
     <div className="space-y-2">
@@ -310,7 +310,7 @@ export function PortfolioOverlay({ strategy = "form4_insider", onDateRangeChange
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex items-center gap-3">
           <div>
-            <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A] mb-1">
+            <div className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A] mb-1">
               Idle Cash Vehicle
             </div>
             <select
@@ -331,7 +331,7 @@ export function PortfolioOverlay({ strategy = "form4_insider", onDateRangeChange
                 className={`px-2.5 py-1 text-[10px] font-semibold rounded transition-colors ${
                   activeRange === label
                     ? "bg-[#3B82F6]/20 text-[#3B82F6]"
-                    : "text-[#55556A] hover:text-[#8888A0]"
+                    : "text-[#81819A] hover:text-[#8888A0]"
                 }`}
               >
                 {label}
@@ -342,26 +342,26 @@ export function PortfolioOverlay({ strategy = "form4_insider", onDateRangeChange
 
         <div className="flex gap-5 text-xs">
           <div>
-            <div className="text-[10px] text-[#55556A] uppercase">Strategy Equity</div>
+            <div className="text-[10px] text-[#81819A] uppercase">Strategy Equity</div>
             <div className="text-xl font-mono font-bold text-[#E8E8ED]">{formatCurrency(blendedFinal)}</div>
-            <div className="text-[#55556A]">from {formatCurrency(starting)}</div>
+            <div className="text-[#81819A]">from {formatCurrency(starting)}</div>
           </div>
           <div className="text-center">
-            <div className="text-[10px] text-[#55556A] uppercase">CAGR</div>
+            <div className="text-[10px] text-[#81819A] uppercase">CAGR</div>
             <div className="text-lg font-mono font-bold text-[#22C55E]">{blendedCAGR.toFixed(1)}%</div>
-            <div className="text-[#55556A]">Insider + {selectedBase}</div>
+            <div className="text-[#81819A]">Insider + {selectedBase}</div>
           </div>
           <div className="text-center">
-            <div className="text-[10px] text-[#55556A] uppercase">{selectedBase} Only</div>
+            <div className="text-[10px] text-[#81819A] uppercase">{selectedBase} Only</div>
             <div className="text-lg font-mono font-bold" style={{ color: baseColor }}>{pureCAGR.toFixed(1)}%</div>
-            <div className="text-[#55556A]">{formatCurrency(pureFinal)}</div>
+            <div className="text-[#81819A]">{formatCurrency(pureFinal)}</div>
           </div>
           <div className="text-center">
-            <div className="text-[10px] text-[#55556A] uppercase">Alpha</div>
+            <div className="text-[10px] text-[#81819A] uppercase">Alpha</div>
             <div className={`text-lg font-mono font-bold ${alpha >= 0 ? "text-[#22C55E]" : "text-[#EF4444]"}`}>
               {alpha >= 0 ? "+" : ""}{alpha.toFixed(1)}%
             </div>
-            <div className="text-[#55556A]">annual</div>
+            <div className="text-[#81819A]">annual</div>
           </div>
         </div>
       </div>
@@ -375,7 +375,7 @@ export function PortfolioOverlay({ strategy = "form4_insider", onDateRangeChange
         const idlePctOfTotal = totalUSD > 0 ? (idleUSD / totalUSD * 100) : 0;
         return (
           <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] p-4">
-            <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A] mb-2">
+            <div className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A] mb-2">
               Current Allocation
             </div>
             <div className="flex items-center gap-1 mb-3 h-3 overflow-hidden rounded">
@@ -394,23 +394,23 @@ export function PortfolioOverlay({ strategy = "form4_insider", onDateRangeChange
               <div>
                 <div className="flex items-center gap-1.5">
                   <span className="inline-block w-2 h-2 rounded-sm" style={{ backgroundColor: "#22C55E" }} />
-                  <span className="text-[10px] uppercase tracking-wider text-[#55556A]">Insider positions</span>
+                  <span className="text-[10px] uppercase tracking-wider text-[#81819A]">Insider positions</span>
                 </div>
                 <div className="text-[#E8E8ED] font-mono mt-0.5">{formatCurrency(insiderUSD)}</div>
-                <div className="text-[#55556A] text-[10px]">{insiderPctOfTotal.toFixed(1)}% · {last.n_positions} open</div>
+                <div className="text-[#81819A] text-[10px]">{insiderPctOfTotal.toFixed(1)}% · {last.n_positions} open</div>
               </div>
               <div>
                 <div className="flex items-center gap-1.5">
                   <span className="inline-block w-2 h-2 rounded-sm" style={{ backgroundColor: baseColor }} />
-                  <span className="text-[10px] uppercase tracking-wider text-[#55556A]">Idle in {selectedBase}</span>
+                  <span className="text-[10px] uppercase tracking-wider text-[#81819A]">Idle in {selectedBase}</span>
                 </div>
                 <div className="text-[#E8E8ED] font-mono mt-0.5">{formatCurrency(idleUSD)}</div>
-                <div className="text-[#55556A] text-[10px]">{idlePctOfTotal.toFixed(1)}%</div>
+                <div className="text-[#81819A] text-[10px]">{idlePctOfTotal.toFixed(1)}%</div>
               </div>
               <div>
-                <div className="text-[10px] uppercase tracking-wider text-[#55556A]">Total equity</div>
+                <div className="text-[10px] uppercase tracking-wider text-[#81819A]">Total equity</div>
                 <div className="text-[#E8E8ED] font-mono font-bold mt-0.5">{formatCurrency(totalUSD)}</div>
-                <div className="text-[#55556A] text-[10px]">100%</div>
+                <div className="text-[#81819A] text-[10px]">100%</div>
               </div>
             </div>
           </div>
@@ -424,7 +424,7 @@ export function PortfolioOverlay({ strategy = "form4_insider", onDateRangeChange
 
       {/* Allocation chart */}
       <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] p-2">
-        <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A] mb-1 px-2">
+        <div className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A] mb-1 px-2">
           Insider Allocation %
         </div>
         <div ref={allocRef} />

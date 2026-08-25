@@ -116,7 +116,7 @@ function GroupHeader({
 }) {
   return (
     <div className="flex items-baseline justify-between px-3 py-1">
-      <span className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A]">
+      <span className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A]">
         {label}
       </span>
       {total > shown && (
@@ -126,7 +126,7 @@ function GroupHeader({
             e.preventDefault();
             onSeeAll();
           }}
-          className="text-[10px] text-[#55556A] transition-colors hover:text-[#8888A0]"
+          className="text-[10px] text-[#81819A] transition-colors hover:text-[#8888A0]"
         >
           {shown} of {total.toLocaleString()} &rarr;
         </button>
@@ -286,8 +286,8 @@ export function EntitySearch({
     results && (results.tickers.length > 0 || results.insiders.length > 0);
 
   const inputClass = isHero
-    ? "w-full rounded-lg border border-[#2A2A3A] bg-[#12121A] px-4 py-3 text-base text-[#E8E8ED] placeholder:text-[#55556A] focus:border-[#3B82F6]/60 focus:outline-none"
-    : "w-full md:w-56 rounded-md border border-[#2A2A3A] bg-[#1A1A26] px-3 py-1.5 pl-8 text-sm text-[#E8E8ED] placeholder:text-[#55556A] focus:border-[#3B82F6] focus:outline-none transition-colors";
+    ? "w-full rounded-lg border border-[#2A2A3A] bg-[#12121A] px-4 py-3 text-base text-[#E8E8ED] placeholder:text-[#81819A] focus:border-[#3B82F6]/60 focus:outline-none"
+    : "w-full md:w-56 rounded-md border border-[#2A2A3A] bg-[#1A1A26] px-3 py-1.5 pl-8 text-sm text-[#E8E8ED] placeholder:text-[#81819A] focus:border-[#3B82F6] focus:outline-none transition-colors";
 
   return (
     <div ref={boxRef} className={isHero ? "relative w-full max-w-2xl" : "relative"}>
@@ -308,7 +308,7 @@ export function EntitySearch({
         />
         {!isHero && (
           <svg
-            className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#55556A]"
+            className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#81819A]"
             fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
           >
             <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z" />
@@ -342,7 +342,7 @@ export function EntitySearch({
                             <Highlight text={t.company || ""} q={term} />
                           </span>
                           {t.trade_count != null && (
-                            <span className="shrink-0 text-[10px] text-[#55556A]">
+                            <span className="shrink-0 text-[10px] text-[#81819A]">
                               {t.trade_count} trades
                             </span>
                           )}
@@ -373,7 +373,7 @@ export function EntitySearch({
                               )}
                             </div>
                             {ins.primary_title && (
-                              <div className="truncate text-[10px] text-[#55556A]">
+                              <div className="truncate text-[10px] text-[#81819A]">
                                 {ins.primary_title}
                                 {ins.primary_ticker && ` at ${ins.primary_ticker}`}
                               </div>
@@ -393,7 +393,7 @@ export function EntitySearch({
           <button
             type="button"
             onClick={seeAll}
-            className="flex w-full items-center justify-between border-t border-[#2A2A3A] px-3 py-1.5 text-left text-[10px] text-[#55556A] transition-colors hover:bg-[#1A1A26]/60 hover:text-[#8888A0]"
+            className="flex w-full items-center justify-between border-t border-[#2A2A3A] px-3 py-1.5 text-left text-[10px] text-[#81819A] transition-colors hover:bg-[#1A1A26]/60 hover:text-[#8888A0]"
           >
             <span>&uarr;&darr; navigate &middot; &crarr; open</span>
             <span>All results for &ldquo;{term}&rdquo; &rarr;</span>

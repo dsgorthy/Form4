@@ -55,7 +55,7 @@
   --ie-border: #2A2A3A;
   --ie-text-primary: #E8E8ED;
   --ie-text-secondary: #8888A0;
-  --ie-text-muted: #55556A;
+  --ie-text-muted: #81819A;
   --ie-buy: #22C55E;
   --ie-sell: #EF4444;
   --ie-info: #3B82F6;
@@ -314,7 +314,7 @@
 }
 
 .research-prose li::marker {
-  color: #55556A;
+  color: #81819A;
 }
 
 .research-prose blockquote {

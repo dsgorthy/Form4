@@ -56,7 +56,7 @@ export function SyncStatus() {
 
   if (error) {
     return (
-      <div className="flex items-center gap-1.5 text-[11px] text-[#55556A]">
+      <div className="flex items-center gap-1.5 text-[11px] text-[#81819A]">
         <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-500" />
         Sync unavailable
       </div>
@@ -65,8 +65,8 @@ export function SyncStatus() {
 
   if (!data) {
     return (
-      <div className="flex items-center gap-1.5 text-[11px] text-[#55556A]">
-        <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#55556A] animate-pulse" />
+      <div className="flex items-center gap-1.5 text-[11px] text-[#81819A]">
+        <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#81819A] animate-pulse" />
         Loading...
       </div>
     );
@@ -76,7 +76,7 @@ export function SyncStatus() {
   const syncAge = syncTs ? formatSyncAge(syncTs) : null;
 
   // Green if synced within 10 min, yellow within 30 min, red otherwise
-  let dotColor = "bg-[#55556A]";
+  let dotColor = "bg-[#81819A]";
   if (syncTs) {
     const diffMs = Date.now() - new Date(syncTs.replace(" ", "T") + "Z").getTime();
     const diffMin = diffMs / 60000;
@@ -92,7 +92,7 @@ export function SyncStatus() {
         <>
           Synced {syncAge}
           {data.filings_today > 0 && (
-            <span className="text-[#55556A]">
+            <span className="text-[#81819A]">
               &middot; {data.filings_today.toLocaleString()} filed today
             </span>
           )}

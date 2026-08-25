@@ -89,7 +89,7 @@ export function CongressAnalytics({ summary, heatmap, topTickers, topPoliticians
 
       {/* Heatmap — full width */}
       <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] p-4">
-        <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A] mb-3">
+        <div className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A] mb-3">
           Trading Activity (1 year)
         </div>
         <CalendarHeatmap data={heatmap} days={365} />
@@ -98,7 +98,7 @@ export function CongressAnalytics({ summary, heatmap, topTickers, topPoliticians
       {/* Top Tickers */}
       <div className={`grid grid-cols-1 ${topPoliticians.length > 0 ? "lg:grid-cols-2" : ""} gap-4`}>
         <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] p-4">
-          <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A] mb-3">
+          <div className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A] mb-3">
             Most Traded Tickers
           </div>
           <div className="space-y-2">
@@ -126,7 +126,7 @@ export function CongressAnalytics({ summary, heatmap, topTickers, topPoliticians
         {/* Top Politicians */}
         {topPoliticians.length > 0 && (
           <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] p-4">
-            <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A] mb-3">
+            <div className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A] mb-3">
               Most Active Politicians
             </div>
             <div className="space-y-2">
@@ -138,7 +138,7 @@ export function CongressAnalytics({ summary, heatmap, topTickers, topPoliticians
                   <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${PARTY_DOT[p.party] ?? PARTY_DOT.I}`} />
                   <div className="min-w-0 flex-1">
                     <div className="text-xs text-[#E8E8ED] font-medium truncate">{p.name}</div>
-                    <div className="text-[10px] text-[#55556A]">
+                    <div className="text-[10px] text-[#81819A]">
                       {p.trade_count} trades · {formatCurrency(p.total_value)}
                     </div>
                   </div>
@@ -155,7 +155,7 @@ export function CongressAnalytics({ summary, heatmap, topTickers, topPoliticians
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] px-4 py-3">
-      <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A]">{label}</div>
+      <div className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A]">{label}</div>
       <div className="text-lg font-mono font-bold text-[#E8E8ED] mt-1">{value}</div>
     </div>
   );

@@ -127,7 +127,7 @@ function Tile({
 
 function TileLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#55556A]">
+    <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#81819A]">
       {children}
     </div>
   );
@@ -189,7 +189,7 @@ export default async function LandingPage() {
       {/* ═══ 1. Hero — the record, full bleed ═══════════════════════════ */}
       <section className="px-4 pt-14 pb-14 max-w-5xl mx-auto">
         <div className="max-w-2xl">
-          <div className="font-mono text-[11px] uppercase tracking-[0.16em] text-[#55556A]">
+          <div className="font-mono text-[11px] uppercase tracking-[0.16em] text-[#81819A]">
             Live since January 2023
           </div>
           <h1 className="mt-3 text-4xl sm:text-[3.25rem] font-bold tracking-[-0.03em] text-[#E8E8ED] leading-[1.03] text-balance">
@@ -240,9 +240,9 @@ export default async function LandingPage() {
                 ["Open today", `${hero.positions}`, "positions"],
               ].map(([k, v, sub]) => (
                 <div key={k} className="bg-[#12121A] px-5 py-4">
-                  <dt className="text-[10px] uppercase tracking-wider text-[#55556A]">{k}</dt>
+                  <dt className="text-[10px] uppercase tracking-wider text-[#81819A]">{k}</dt>
                   <dd className="font-mono text-xl text-[#E8E8ED] tabular-nums mt-1">{v}</dd>
-                  <dd className="text-[11px] text-[#55556A] mt-0.5">{sub}</dd>
+                  <dd className="text-[11px] text-[#81819A] mt-0.5">{sub}</dd>
                 </div>
               ))}
             </dl>
@@ -264,7 +264,7 @@ export default async function LandingPage() {
             See every trade we&apos;ve made →
           </Link>
         </div>
-        <p className="mt-4 text-sm text-[#55556A]">
+        <p className="mt-4 text-sm text-[#81819A]">
           Follow any company free, forever. Seven days of Pro included, no card.
         </p>
       </section>
@@ -307,7 +307,7 @@ export default async function LandingPage() {
                 */}
                 {[
                   { label: "Buying with our top-graded insiders", pct: 2.21, n: "15,193 buys", tone: "#22C55E", w: "100%" },
-                  { label: "Buying with every insider", pct: 0.53, n: "497,075 buys", tone: "#55556A", w: "24%" },
+                  { label: "Buying with every insider", pct: 0.53, n: "497,075 buys", tone: "#81819A", w: "24%" },
                 ].map((r) => (
                   <div key={r.label}>
                     <div className="flex items-baseline justify-between gap-4">
@@ -319,11 +319,11 @@ export default async function LandingPage() {
                     <div className="mt-2 h-2.5 rounded-full bg-[#1A1A26] overflow-hidden">
                       <div className="h-full rounded-full" style={{ width: r.w, background: r.tone }} />
                     </div>
-                    <div className="mt-1.5 text-[11px] text-[#55556A]">{r.n}</div>
+                    <div className="mt-1.5 text-[11px] text-[#81819A]">{r.n}</div>
                   </div>
                 ))}
               </div>
-              <div className="mt-6 pt-4 border-t border-[#2A2A3A] text-[11px] text-[#55556A]">
+              <div className="mt-6 pt-4 border-t border-[#2A2A3A] text-[11px] text-[#81819A]">
                 Open-market purchases, 2016&ndash;2026, measured against SPY.{" "}
                 <Link href="/research/methodology" className="text-[#22C55E] hover:underline">
                   How we grade →
@@ -383,7 +383,7 @@ export default async function LandingPage() {
                   <span className="font-mono text-2xl font-bold tabular-nums" style={{ color: good ? "#22C55E" : "#8888A0" }}>
                     {sum.cagr > 0 ? "+" : ""}{sum.cagr}%
                   </span>
-                  <span className="text-[10px] uppercase tracking-wider text-[#55556A]">
+                  <span className="text-[10px] uppercase tracking-wider text-[#81819A]">
                     a year · {sum.total_trades} trades
                   </span>
                 </span>
@@ -541,7 +541,7 @@ export default async function LandingPage() {
             ))}
           </div>
 
-          <p className="mt-10 text-center text-xs text-[#55556A] max-w-2xl mx-auto">
+          <p className="mt-10 text-center text-xs text-[#81819A] max-w-2xl mx-auto">
             Strategy results are simulated, using estimated fill prices; actual
             fills will differ. Idle cash is modelled as held in SPY, so the
             S&amp;P is shown alongside. For educational purposes only, not

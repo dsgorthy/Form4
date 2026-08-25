@@ -4,7 +4,7 @@ const COLORS = {
   bg: "transparent",
   cardBg: "#12121A",
   border: "#2A2A3A",
-  muted: "#55556A",
+  muted: "#81819A",
   text: "#8888A0",
   bright: "#E8E8ED",
   blue: "#3B82F6",

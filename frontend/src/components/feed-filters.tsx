@@ -191,7 +191,7 @@ export function FeedFilters({ filters, onChange, resultCount, userIsPro = false 
                 key={p.key}
                 href="/pricing"
                 title="Filtering by insider grade is a Pro feature"
-                className="inline-flex items-center gap-1 rounded-md border border-transparent px-3 py-1.5 text-xs font-medium text-[#55556A] hover:text-[#8888A0] hover:bg-[#1A1A26] transition-colors"
+                className="inline-flex items-center gap-1 rounded-md border border-transparent px-3 py-1.5 text-xs font-medium text-[#81819A] hover:text-[#8888A0] hover:bg-[#1A1A26] transition-colors"
               >
                 <LockIcon />
                 {p.label}
@@ -219,7 +219,7 @@ export function FeedFilters({ filters, onChange, resultCount, userIsPro = false 
         {/* Active filter chips */}
         {activeFilters.map((f) => {
           const match = f.options.find((o) => o.value === filters[f.key]);
-          const chipColor = match?.color || "border-[#55556A]/50 bg-[#1A1A26] text-[#E8E8ED]";
+          const chipColor = match?.color || "border-[#81819A]/50 bg-[#1A1A26] text-[#E8E8ED]";
           return (
             <span
               key={f.key}
@@ -238,7 +238,7 @@ export function FeedFilters({ filters, onChange, resultCount, userIsPro = false 
 
         {/* Ticker chip */}
         {filters.ticker && (
-          <span className="inline-flex items-center gap-1.5 rounded-md border border-[#55556A]/50 bg-[#1A1A26] px-2.5 py-1 text-xs font-mono font-medium text-[#E8E8ED]">
+          <span className="inline-flex items-center gap-1.5 rounded-md border border-[#81819A]/50 bg-[#1A1A26] px-2.5 py-1 text-xs font-mono font-medium text-[#E8E8ED]">
             {filters.ticker}
             <button
               onClick={() => removeFilter("ticker")}
@@ -254,7 +254,7 @@ export function FeedFilters({ filters, onChange, resultCount, userIsPro = false 
           <div className="relative">
             <button
               onClick={() => setShowAddFilter(!showAddFilter)}
-              className="rounded-md border border-dashed border-[#2A2A3A] px-2.5 py-1 text-xs text-[#55556A] hover:text-[#8888A0] hover:border-[#55556A] transition-colors"
+              className="rounded-md border border-dashed border-[#2A2A3A] px-2.5 py-1 text-xs text-[#81819A] hover:text-[#8888A0] hover:border-[#81819A] transition-colors"
             >
               + Filter
             </button>
@@ -264,7 +264,7 @@ export function FeedFilters({ filters, onChange, resultCount, userIsPro = false 
               <div className="absolute left-0 top-full mt-1 z-50 w-56 rounded-lg border border-[#2A2A3A] bg-[#12121A] p-2 shadow-xl">
                 {inactiveFilters.map((f) => (
                   <div key={f.key} className="mb-2 last:mb-0">
-                    <div className="flex items-center gap-1 text-[10px] text-[#55556A] uppercase tracking-wider px-2 py-1">
+                    <div className="flex items-center gap-1 text-[10px] text-[#81819A] uppercase tracking-wider px-2 py-1">
                       {f.label}
                       {f.pro && !userIsPro && <span className="text-[#F59E0B]">Pro</span>}
                     </div>
@@ -275,7 +275,7 @@ export function FeedFilters({ filters, onChange, resultCount, userIsPro = false 
                             key={opt.value}
                             href="/pricing"
                             onClick={() => setShowAddFilter(false)}
-                            className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-[#55556A] hover:text-[#8888A0] hover:bg-[#1A1A26] transition-colors"
+                            className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-[#81819A] hover:text-[#8888A0] hover:bg-[#1A1A26] transition-colors"
                           >
                             <LockIcon />
                             {opt.label}
@@ -305,7 +305,7 @@ export function FeedFilters({ filters, onChange, resultCount, userIsPro = false 
         {hasFilters && (
           <button
             onClick={clearAll}
-            className="text-[10px] text-[#55556A] hover:text-[#8888A0] ml-1"
+            className="text-[10px] text-[#81819A] hover:text-[#8888A0] ml-1"
           >
             Clear all
           </button>
@@ -313,7 +313,7 @@ export function FeedFilters({ filters, onChange, resultCount, userIsPro = false 
 
         {/* Result count */}
         {resultCount != null && (
-          <span className="text-[10px] text-[#55556A] ml-auto">
+          <span className="text-[10px] text-[#81819A] ml-auto">
             {resultCount.toLocaleString()} results
           </span>
         )}

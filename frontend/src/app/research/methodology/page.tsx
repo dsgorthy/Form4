@@ -115,7 +115,7 @@ export default async function ScoringPage() {
   return (
     <div className="max-w-3xl">
       {/* Breadcrumb */}
-      <nav className="flex items-center gap-2 text-sm text-[#55556A] mb-6">
+      <nav className="flex items-center gap-2 text-sm text-[#81819A] mb-6">
         <Link href="/research" className="hover:text-[#8888A0] transition-colors">Research</Link>
         <span>/</span>
         <span className="text-[#8888A0]">Methodology</span>
@@ -151,7 +151,7 @@ export default async function ScoringPage() {
       {/* ─── CAREER GRADE ─── PUBLIC (thresholds gated to authed) */}
       <section className="mb-14">
         <h2 className="text-xl font-bold text-[#E8E8ED] mb-1">Career Grade</h2>
-        <p className="text-sm text-[#55556A] font-mono mb-4">A+ / A / B / C / D / New</p>
+        <p className="text-sm text-[#81819A] font-mono mb-4">A+ / A / B / C / D / New</p>
         <p className="text-sm text-[#8888A0] mb-6 leading-relaxed">
           Every insider with observable buy trades receives a point-in-time (PIT)
           career score. It uses the full history of trades whose forward returns
@@ -165,11 +165,11 @@ export default async function ScoringPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[#2A2A3A] bg-[#1A1A26]/50">
-                <th className="px-4 py-3 text-left text-[#55556A] font-medium w-24">Rating</th>
-                <th className="px-4 py-3 text-right text-[#55556A] font-medium w-24">Share</th>
-                <th className="px-4 py-3 text-right text-[#55556A] font-medium w-28">Avg 30d vs S&amp;P</th>
-                <th className="px-4 py-3 text-right text-[#55556A] font-medium w-24">Win rate</th>
-                <th className="px-4 py-3 text-left text-[#55556A] font-medium">What it means</th>
+                <th className="px-4 py-3 text-left text-[#81819A] font-medium w-24">Rating</th>
+                <th className="px-4 py-3 text-right text-[#81819A] font-medium w-24">Share</th>
+                <th className="px-4 py-3 text-right text-[#81819A] font-medium w-28">Avg 30d vs S&amp;P</th>
+                <th className="px-4 py-3 text-right text-[#81819A] font-medium w-24">Win rate</th>
+                <th className="px-4 py-3 text-left text-[#81819A] font-medium">What it means</th>
               </tr>
             </thead>
             <tbody>
@@ -178,7 +178,7 @@ export default async function ScoringPage() {
                   <td className="px-4 py-3 align-top">
                     <InsiderGradeBadge rating={g.grade} />
                   </td>
-                  <td className="px-4 py-3 text-right font-mono tabular-nums text-[#55556A] align-top">{g.share}</td>
+                  <td className="px-4 py-3 text-right font-mono tabular-nums text-[#81819A] align-top">{g.share}</td>
                   <td className="px-4 py-3 text-right font-mono tabular-nums text-[#E8E8ED] align-top">{g.abnormal}</td>
                   <td className="px-4 py-3 text-right font-mono tabular-nums text-[#8888A0] align-top">{g.winRate}</td>
                   <td className="px-4 py-3 text-[#8888A0] leading-relaxed">{g.description}</td>
@@ -241,7 +241,7 @@ export default async function ScoringPage() {
             >
               Start Free Trial
             </Link>
-            <p className="text-[10px] text-[#55556A] mt-2">7 days of full Pro access — no credit card required</p>
+            <p className="text-[10px] text-[#81819A] mt-2">7 days of full Pro access — no credit card required</p>
           </div>
         )}
       </section>
@@ -249,7 +249,7 @@ export default async function ScoringPage() {
       {/* ─── RECENT FORM ─── PUBLIC */}
       <section className="mb-14">
         <h2 className="text-xl font-bold text-[#E8E8ED] mb-1">Recent Form</h2>
-        <p className="text-sm text-[#55556A] font-mono mb-4">A+ / A / B / C / D / New</p>
+        <p className="text-sm text-[#81819A] font-mono mb-4">A+ / A / B / C / D / New</p>
         <div className="space-y-3 text-sm text-[#8888A0] leading-relaxed">
           <p>
             Same Bayesian framework as Career Grade, but with a <strong className="text-[#E8E8ED]">1.5-year half-life</strong>.
@@ -290,7 +290,7 @@ export default async function ScoringPage() {
       {/* ─── TRADE GRADE ─── PUBLIC (alpha numbers gated to authed) */}
       <section className="mb-14">
         <h2 className="text-xl font-bold text-[#E8E8ED] mb-1">Trade Grade</h2>
-        <p className="text-sm text-[#55556A] font-mono mb-4">1 to 5 stars</p>
+        <p className="text-sm text-[#81819A] font-mono mb-4">1 to 5 stars</p>
         <p className="text-sm text-[#8888A0] mb-6 leading-relaxed">
           Every filing is scored on twelve factors \u2014 including the insider's own rating \u2014 and lands in one of five bands. Figures below are measured from the first close after the filing was public, not from the transaction date.
         </p>
@@ -299,11 +299,11 @@ export default async function ScoringPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[#2A2A3A] bg-[#1A1A26]/50">
-                <th className="px-4 py-3 text-left text-[#55556A] font-medium w-32">Rating</th>
-                <th className="px-4 py-3 text-right text-[#55556A] font-medium w-24">Share</th>
-                <th className="px-4 py-3 text-right text-[#55556A] font-medium w-28">Avg 30d vs S&amp;P</th>
-                <th className="px-4 py-3 text-right text-[#55556A] font-medium w-24">Win rate</th>
-                <th className="px-4 py-3 text-left text-[#55556A] font-medium">What it means</th>
+                <th className="px-4 py-3 text-left text-[#81819A] font-medium w-32">Rating</th>
+                <th className="px-4 py-3 text-right text-[#81819A] font-medium w-24">Share</th>
+                <th className="px-4 py-3 text-right text-[#81819A] font-medium w-28">Avg 30d vs S&amp;P</th>
+                <th className="px-4 py-3 text-right text-[#81819A] font-medium w-24">Win rate</th>
+                <th className="px-4 py-3 text-left text-[#81819A] font-medium">What it means</th>
               </tr>
             </thead>
             <tbody>
@@ -321,7 +321,7 @@ export default async function ScoringPage() {
                       </span>
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-right font-mono tabular-nums text-[#55556A] align-top">{s.share}</td>
+                  <td className="px-4 py-3 text-right font-mono tabular-nums text-[#81819A] align-top">{s.share}</td>
                   <td className="px-4 py-3 text-right font-mono tabular-nums text-[#E8E8ED] align-top">{s.abnormal}</td>
                   <td className="px-4 py-3 text-right font-mono tabular-nums text-[#8888A0] align-top">{s.winRate}</td>
                   <td className="px-4 py-3 text-[#8888A0] leading-relaxed">{s.description}</td>
@@ -346,15 +346,15 @@ export default async function ScoringPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[#2A2A3A] bg-[#1A1A26]/50">
-                <th className="px-4 py-3 text-left text-[#55556A] font-medium w-10">#</th>
-                <th className="px-4 py-3 text-left text-[#55556A] font-medium">Factor</th>
-                <th className="px-4 py-3 text-left text-[#55556A] font-medium">What It Measures</th>
+                <th className="px-4 py-3 text-left text-[#81819A] font-medium w-10">#</th>
+                <th className="px-4 py-3 text-left text-[#81819A] font-medium">Factor</th>
+                <th className="px-4 py-3 text-left text-[#81819A] font-medium">What It Measures</th>
               </tr>
             </thead>
             <tbody>
               {tradeFactors.map((f, i) => (
                 <tr key={f.name} className={i < tradeFactors.length - 1 ? "border-b border-[#2A2A3A]/50" : ""}>
-                  <td className="px-4 py-3 font-mono text-[#55556A] align-top">{i + 1}</td>
+                  <td className="px-4 py-3 font-mono text-[#81819A] align-top">{i + 1}</td>
                   <td className="px-4 py-3 align-top">
                     <span className={`font-medium ${f.name.includes("(negative)") ? "text-[#EF4444]" : "text-[#E8E8ED]"}`}>
                       {f.name}
@@ -390,7 +390,7 @@ export default async function ScoringPage() {
       <GatedSection visible={isPro} label="Portfolio strategies are Pro-only" isAuthed={isAuthed}>
         <section className="mb-14">
           <h2 className="text-xl font-bold text-[#E8E8ED] mb-1">Portfolio Strategies</h2>
-          <p className="text-sm text-[#55556A] font-mono mb-4">3 validated strategies</p>
+          <p className="text-sm text-[#81819A] font-mono mb-4">3 validated strategies</p>
           <p className="text-sm text-[#8888A0] mb-6 leading-relaxed">
             Form4 runs three independent portfolio strategies, each built from
             signals that passed rigorous out-of-sample validation on 196K+ trades.
@@ -406,7 +406,7 @@ export default async function ScoringPage() {
               <div key={s.name} className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/40 p-4">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm font-semibold text-[#E8E8ED]">{s.name}</span>
-                  <span className="text-xs font-mono text-[#55556A]">{s.hold}</span>
+                  <span className="text-xs font-mono text-[#81819A]">{s.hold}</span>
                 </div>
                 <p className="text-sm text-[#8888A0] leading-relaxed">{s.thesis}</p>
               </div>

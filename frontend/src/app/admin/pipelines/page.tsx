@@ -51,7 +51,7 @@ function statusColor(s: string | null): string {
   // Reaped: the process died without writing a terminal status (SIGKILL, OOM,
   // host restart). Not a failure of the job — a failure to record one.
   if (s === "abandoned") return "text-[#8888A0]";
-  return "text-[#55556A]";
+  return "text-[#81819A]";
 }
 
 function statusDot(s: string | null): string {
@@ -60,7 +60,7 @@ function statusDot(s: string | null): string {
   if (s === "failed") return "bg-[#EF4444]";
   if (s === "timeout" || s === "partial") return "bg-[#F59E0B]";
   if (s === "abandoned") return "bg-[#8888A0]";
-  return "bg-[#55556A]";
+  return "bg-[#81819A]";
 }
 
 function ageFromIso(iso: string | null): string {
@@ -140,7 +140,7 @@ export default function AdminPipelinesPage() {
       <div className="mb-6 flex items-baseline justify-between">
         <div>
           <h1 className="text-2xl font-bold">Pipelines</h1>
-          <p className="text-sm text-[#55556A] mt-1">
+          <p className="text-sm text-[#81819A] mt-1">
             Structured run history from <code className="text-[#8888A0]">pipeline_runs</code>.
             Services migrate here as they adopt{" "}
             <code className="text-[#8888A0]">framework.observability.pipeline_run()</code>.
@@ -151,7 +151,7 @@ export default function AdminPipelinesPage() {
             .
           </p>
         </div>
-        <div className="text-xs text-[#55556A]">
+        <div className="text-xs text-[#81819A]">
           Refreshed {ageFromIso(data?.checked_at ?? null)}
         </div>
       </div>
@@ -159,7 +159,7 @@ export default function AdminPipelinesPage() {
       {/* Service summary */}
       <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] mb-6 overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="border-b border-[#2A2A3A] text-[#55556A] text-xs uppercase">
+          <thead className="border-b border-[#2A2A3A] text-[#81819A] text-xs uppercase">
             <tr>
               <th className="text-left p-3">Service</th>
               <th className="text-left p-3">Status</th>
@@ -182,7 +182,7 @@ export default function AdminPipelinesPage() {
                 </td>
                 <td className="p-3 text-right font-mono text-[#8888A0]">{ageFromIso(s.last_run)}</td>
                 <td className="p-3 text-right font-mono text-[#8888A0]">{ageFromIso(s.last_success)}</td>
-                <td className={`p-3 text-right font-mono ${s.last_failure ? "text-[#EF4444]" : "text-[#55556A]"}`}>
+                <td className={`p-3 text-right font-mono ${s.last_failure ? "text-[#EF4444]" : "text-[#81819A]"}`}>
                   {ageFromIso(s.last_failure)}
                 </td>
                 <td className="p-3 text-right font-mono">{s.runs_24h}</td>
@@ -197,7 +197,7 @@ export default function AdminPipelinesPage() {
             ))}
             {data?.services.length === 0 && (
               <tr>
-                <td colSpan={9} className="p-6 text-center text-[#55556A]">
+                <td colSpan={9} className="p-6 text-center text-[#81819A]">
                   No services have reported yet. Wait for the next scheduled run, or instrument
                   more services with <code>framework.observability.pipeline_run()</code>.
                 </td>
@@ -211,7 +211,7 @@ export default function AdminPipelinesPage() {
       <h2 className="text-lg font-semibold mb-3">Recent runs</h2>
       <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="border-b border-[#2A2A3A] text-[#55556A] text-xs uppercase">
+          <thead className="border-b border-[#2A2A3A] text-[#81819A] text-xs uppercase">
             <tr>
               <th className="text-left p-3">Started</th>
               <th className="text-left p-3">Service</th>
@@ -242,7 +242,7 @@ export default function AdminPipelinesPage() {
                   <td className="p-3 text-right font-mono">
                     {r.rows_written?.toLocaleString() ?? "—"}
                   </td>
-                  <td className="p-3 text-xs text-[#55556A]">{r.host}</td>
+                  <td className="p-3 text-xs text-[#81819A]">{r.host}</td>
                   <td className="p-3 text-xs text-[#3B82F6]">
                     {expanded === r.id ? "▾" : "▸"}
                   </td>
@@ -252,7 +252,7 @@ export default function AdminPipelinesPage() {
                     <td colSpan={7} className="p-4 text-xs">
                       <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <div className="text-[#55556A] uppercase tracking-wider mb-1">
+                          <div className="text-[#81819A] uppercase tracking-wider mb-1">
                             Metadata
                           </div>
                           <pre className="bg-[#12121A] p-2 rounded text-[10px] text-[#8888A0] overflow-x-auto">
@@ -260,7 +260,7 @@ export default function AdminPipelinesPage() {
                           </pre>
                         </div>
                         <div>
-                          <div className="text-[#55556A] uppercase tracking-wider mb-1">
+                          <div className="text-[#81819A] uppercase tracking-wider mb-1">
                             {r.error_message ? "Error" : "Detail"}
                           </div>
                           {r.error_message && (
@@ -268,7 +268,7 @@ export default function AdminPipelinesPage() {
                               {r.error_message}
                             </pre>
                           )}
-                          <div className="mt-2 text-[10px] text-[#55556A]">
+                          <div className="mt-2 text-[10px] text-[#81819A]">
                             <div>run_uuid: <code className="text-[#8888A0]">{r.run_uuid}</code></div>
                             <div>log_path: <code className="text-[#8888A0]">{r.log_path ?? "—"}</code></div>
                             <div>exit_code: <code className="text-[#8888A0]">{r.exit_code ?? "—"}</code></div>
@@ -282,7 +282,7 @@ export default function AdminPipelinesPage() {
             ))}
             {data?.runs.length === 0 && (
               <tr>
-                <td colSpan={7} className="p-6 text-center text-[#55556A]">
+                <td colSpan={7} className="p-6 text-center text-[#81819A]">
                   No runs yet.
                 </td>
               </tr>

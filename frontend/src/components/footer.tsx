@@ -9,33 +9,33 @@ export function Footer() {
   return (
     <footer className="mt-12 border-t border-[#2A2A3A] bg-[#0A0A0F]">
       <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 px-4 py-6 sm:flex-row md:px-6">
-        <p className="text-xs text-[#55556A]">&copy; 2026 Form4</p>
+        <p className="text-xs text-[#81819A]">&copy; 2026 Form4</p>
         <nav className="flex items-center gap-6">
           <Link
             href="/privacy"
             prefetch={false}
-            className="text-xs text-[#55556A] transition-colors hover:text-[#8888A0]"
+            className="text-xs text-[#81819A] transition-colors hover:text-[#8888A0]"
           >
             Privacy Policy
           </Link>
           <Link
             href="/terms"
             prefetch={false}
-            className="text-xs text-[#55556A] transition-colors hover:text-[#8888A0]"
+            className="text-xs text-[#81819A] transition-colors hover:text-[#8888A0]"
           >
             Terms of Service
           </Link>
           <Link
             href="/performance"
             prefetch={false}
-            className="text-xs text-[#55556A] transition-colors hover:text-[#8888A0]"
+            className="text-xs text-[#81819A] transition-colors hover:text-[#8888A0]"
           >
             Performance
           </Link>
           <Link
             href="/disclaimer"
             prefetch={false}
-            className="text-xs text-[#55556A] transition-colors hover:text-[#8888A0]"
+            className="text-xs text-[#81819A] transition-colors hover:text-[#8888A0]"
           >
             Disclaimer
           </Link>
@@ -45,7 +45,7 @@ export function Footer() {
           <Link
             href="/accessibility"
             prefetch={false}
-            className="text-xs text-[#55556A] transition-colors hover:text-[#8888A0]"
+            className="text-xs text-[#81819A] transition-colors hover:text-[#8888A0]"
           >
             Accessibility
           </Link>

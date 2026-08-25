@@ -13,7 +13,7 @@ export default function PortfolioPage() {
             and plants it — the page's job is to show what the strategies did.
             Every trade being public is the one process fact that is also a
             result, so it stays. */}
-        <p className="text-sm text-[#55556A] mt-1">
+        <p className="text-sm text-[#81819A] mt-1">
           Three insider-trading strategies, running live. Every trade public.
         </p>
       </div>

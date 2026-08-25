@@ -44,7 +44,7 @@ export interface InsiderCompanyRow {
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-[#55556A]">
+    <div className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-[#81819A]">
       {children}
     </div>
   );
@@ -79,7 +79,7 @@ export function ExploreInsiderView({
               contradiction api/ratings.py exists to remove. pit_grade is also
               not monotonic, so "Form" could read worse than the truth. */}
         </div>
-        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-[#55556A] md:gap-4">
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-[#81819A] md:gap-4">
           {tr && <span>{tr.buy_count + tr.sell_count} trades</span>}
           {tr && <span>{tr.n_tickers} companies</span>}
           {companies.length > 0 && <span>Most recent: {companies[0].last_trade}</span>}
@@ -111,7 +111,7 @@ export function ExploreInsiderView({
           <div className="overflow-x-auto rounded-lg border border-[#2A2A3A]">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-[#2A2A3A] text-xs uppercase text-[#55556A]">
+                <tr className="border-b border-[#2A2A3A] text-xs uppercase text-[#81819A]">
                   <th className="px-4 py-2 text-left font-medium">Ticker</th>
                   <th className="px-4 py-2 text-left font-medium">Company</th>
                   <th className="px-4 py-2 text-right font-medium">Trades</th>
@@ -135,7 +135,7 @@ export function ExploreInsiderView({
                     <td className="px-4 py-2 text-right font-mono text-[#E8E8ED]">
                       {formatCurrency(c.total_value)}
                     </td>
-                    <td className="px-4 py-2 text-right font-mono text-[#55556A]">{c.last_trade}</td>
+                    <td className="px-4 py-2 text-right font-mono text-[#81819A]">{c.last_trade}</td>
                   </tr>
                 ))}
               </tbody>

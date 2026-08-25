@@ -8,7 +8,7 @@ export const GRADE_COLORS = {
   average: "#8888A0",  // Slate   — B insider, 3★ trade
   below: "#F59E0B",    // Amber   — C insider, 2★ trade
   weak: "#EF4444",     // Red     — D insider, 1★ trade
-  unknown: "#55556A",  // Dark    — no data / "New"
+  unknown: "#81819A",  // Dark    — no data / "New"
 } as const;
 
 export function insiderGradeColor(grade: string | null | undefined): string {

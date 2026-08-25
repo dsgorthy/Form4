@@ -40,7 +40,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
     // they carried no structure at all: every SEO surface rendered exactly one
     // heading, the H1, with nothing beneath it. Tailwind's preflight zeroes
     // heading margins so this is visually identical.
-    <h2 className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A] mb-3">
+    <h2 className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A] mb-3">
       {children}
     </h2>
   );
@@ -66,7 +66,7 @@ export default async function PrivateCompanyPage({ params }: { params: Promise<{
   return (
     <div>
       {/* Breadcrumb */}
-      <nav className="flex items-center gap-2 text-sm text-[#55556A] mb-6">
+      <nav className="flex items-center gap-2 text-sm text-[#81819A] mb-6">
         <Link href="/" className="hover:text-[#8888A0] transition-colors">
           Dashboard
         </Link>
@@ -80,11 +80,11 @@ export default async function PrivateCompanyPage({ params }: { params: Promise<{
       <div className="mb-8">
         <div className="flex items-center gap-3">
           <h1 className="text-2xl md:text-3xl font-bold text-[#E8E8ED]">{overview.company}</h1>
-          <span className="rounded px-2 py-1 text-xs font-medium border border-[#55556A]/30 bg-[#55556A]/10 text-[#8888A0] shrink-0">
+          <span className="rounded px-2 py-1 text-xs font-medium border border-[#81819A]/30 bg-[#81819A]/10 text-[#8888A0] shrink-0">
             Private / Unlisted
           </span>
         </div>
-        <div className="flex flex-wrap items-center gap-2 md:gap-4 mt-3 text-xs text-[#55556A]">
+        <div className="flex flex-wrap items-center gap-2 md:gap-4 mt-3 text-xs text-[#81819A]">
           <span>{overview.total_trades} total trades</span>
           <span>{formatCurrency(overview.total_value)} total value</span>
           <span>

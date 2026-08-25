@@ -42,7 +42,7 @@ export function TransCodeSelector({ selected, onChange }: TransCodeSelectorProps
             className={`rounded-md border px-2 py-1 text-xs font-mono transition-all ${
               active
                 ? color
-                : "border-[#2A2A3A] text-[#55556A] hover:text-[#8888A0] hover:border-[#3A3A4A]"
+                : "border-[#2A2A3A] text-[#81819A] hover:text-[#8888A0] hover:border-[#3A3A4A]"
             }`}
           >
             {code}

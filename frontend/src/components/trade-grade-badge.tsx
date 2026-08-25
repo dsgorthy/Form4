@@ -48,7 +48,7 @@ export function TradeGradeBadge({
   return (
     <span className="inline-flex items-center gap-1">
       {showLabel && (
-        <span className="text-[9px] text-[#55556A] uppercase tracking-wide font-medium">
+        <span className="text-[9px] text-[#81819A] uppercase tracking-wide font-medium">
           Trade
         </span>
       )}
@@ -97,7 +97,7 @@ export function TradeGradeDetail({ grade }: { grade?: TradeGrade | null }) {
         <span className="text-sm font-semibold" style={{ color }}>
           {rating}
         </span>
-        <span className="text-xs text-[#55556A]">{grade.score}/100</span>
+        <span className="text-xs text-[#81819A]">{grade.score}/100</span>
       </div>
       <p className="text-xs text-[#8888A0] mb-3">{TRADE_RATING_BLURB[rating]}</p>
 

@@ -54,7 +54,7 @@ export default function Error({
           Without it a user can only report "it broke", and the frontend logs
           identify the failure by digest alone. */}
       {error.digest && (
-        <p className="mt-8 font-mono text-[11px] text-[#55556A]">
+        <p className="mt-8 font-mono text-[11px] text-[#81819A]">
           Reference: {error.digest}
         </p>
       )}

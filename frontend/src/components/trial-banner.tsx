@@ -19,7 +19,7 @@ export function TrialBanner() {
             <span className="text-[#E8E8ED] font-medium">
               Get 7 days of full Pro access free
             </span>
-            <span className="hidden sm:inline text-[#55556A]">
+            <span className="hidden sm:inline text-[#81819A]">
               — real-time alerts, signal quality grades, full trade history
             </span>
           </div>

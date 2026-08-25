@@ -23,7 +23,7 @@ const TIER_COLORS: Record<number, string> = {
   3: "#F59E0B",
   2: "#94A3B8",
   1: "#CD7F32",
-  0: "#55556A",
+  0: "#81819A",
 };
 
 export function ClusterTimeline({ insiders, firstTrade, lastTrade }: ClusterTimelineProps) {
@@ -50,7 +50,7 @@ export function ClusterTimeline({ insiders, firstTrade, lastTrade }: ClusterTime
   return (
     <div className="mt-3 px-2">
       {/* Date axis labels */}
-      <div className="flex justify-between text-[10px] text-[#55556A] font-mono mb-1 px-1">
+      <div className="flex justify-between text-[10px] text-[#81819A] font-mono mb-1 px-1">
         <span>{firstTrade}</span>
         {!isSameDay && <span>{lastTrade}</span>}
       </div>
@@ -115,7 +115,7 @@ export function ClusterTimeline({ insiders, firstTrade, lastTrade }: ClusterTime
       </div>
 
       {/* Legend */}
-      <div className="flex items-center gap-3 mt-2 text-[10px] text-[#55556A]">
+      <div className="flex items-center gap-3 mt-2 text-[10px] text-[#81819A]">
         <span>Dot size = trade value</span>
         <span className="w-px h-3 bg-[#2A2A3A]" />
         {isSameDay ? (

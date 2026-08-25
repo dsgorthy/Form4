@@ -77,7 +77,7 @@ export function WatchButton({ ticker }: { ticker: string }) {
       className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium transition-colors ${
         watched
           ? "border-[#F59E0B]/30 bg-[#F59E0B]/10 text-[#F59E0B]"
-          : "border-[#2A2A3A] text-[#55556A] hover:text-[#E8E8ED] hover:border-[#55556A]"
+          : "border-[#2A2A3A] text-[#81819A] hover:text-[#E8E8ED] hover:border-[#81819A]"
       } ${loading ? "opacity-50" : ""}`}
     >
       <svg

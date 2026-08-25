@@ -11,14 +11,14 @@ const API = process.env.API_URL_INTERNAL || process.env.NEXT_PUBLIC_API_URL || "
 const BG = "#0A0A0F";
 const INK = "#E8E8ED";
 const MUTED = "#8888A0";
-const FAINT = "#55556A";
+const FAINT = "#81819A";
 const RULE = "#23232E";
 const ACCENT = "#3B82F6";
 const POS = "#22C55E";
 const NEG = "#EF4444";
 
 const GRADE_COLORS: Record<string, string> = {
-  "A+": "#D97706", A: "#F59E0B", B: "#94A3B8", C: "#CD7F32", D: "#55556A",
+  "A+": "#D97706", A: "#F59E0B", B: "#94A3B8", C: "#CD7F32", D: "#81819A",
 };
 
 export default async function Image({ params }: { params: Promise<{ id: string }> }) {

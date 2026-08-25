@@ -115,7 +115,7 @@ export function TradeOutcomeTimeline({ timeline, dominantType }: TradeOutcomeTim
       <CardContent>
         <ReactECharts option={option} theme="form4" className="h-[180px] sm:h-[240px]" opts={{ renderer: "svg" }} />
         {hasBoth && (
-          <div className="flex items-center gap-4 mt-2 text-[10px] text-[#55556A]">
+          <div className="flex items-center gap-4 mt-2 text-[10px] text-[#81819A]">
             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#8888A0] inline-block" /> Buy</span>
             <span className="flex items-center gap-1"><span className="w-2 h-2 rotate-45 bg-[#8888A0] inline-block" /> Sell</span>
             <span className="flex items-center gap-1"><span className="w-2 h-2 bg-[#22C55E] inline-block rounded-sm" /> Correct call</span>

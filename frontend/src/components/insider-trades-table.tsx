@@ -127,10 +127,10 @@ export function InsiderTradesTable({
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
-        <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A]">
+        <div className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A]">
           Trade History
         </div>
-        <span className="text-xs text-[#55556A]">{data.total} total</span>
+        <span className="text-xs text-[#81819A]">{data.total} total</span>
       </div>
       <div className="mb-4">
         <TransCodeSelector selected={transCodes} onChange={handleTransCodeChange} />
@@ -212,7 +212,7 @@ export function InsiderTradesTable({
                     t.trade_type === "buy"
                       ? "border-[#22C55E]/30 text-[#22C55E]"
                       : isRoutineSell
-                        ? "border-[#55556A]/30 text-[#55556A]"
+                        ? "border-[#81819A]/30 text-[#81819A]"
                         : "border-[#EF4444]/30 text-[#EF4444]"
                   }`}
                 >
@@ -241,7 +241,7 @@ export function InsiderTradesTable({
                   7d: {formatPercent(t.return_7d)}
                 </span>
               ) : isReturnUnavailable(t.trade_date, t.return_7d, 7) ? (
-                <span className="text-[10px] text-[#55556A]" title={unavailableReason((t as any).price_data_end)}>N/A</span>
+                <span className="text-[10px] text-[#81819A]" title={unavailableReason((t as any).price_data_end)}>N/A</span>
               ) : null}
             </div>
             {t.signals && t.signals.length > 0 && (
@@ -261,21 +261,21 @@ export function InsiderTradesTable({
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-[#2A2A3A] bg-[#1A1A26]/50">
-              <th className="px-4 py-3 text-left text-[#55556A] font-medium">Ticker</th>
-              <th className="px-4 py-3 text-left text-[#55556A] font-medium">Type</th>
+              <th className="px-4 py-3 text-left text-[#81819A] font-medium">Ticker</th>
+              <th className="px-4 py-3 text-left text-[#81819A] font-medium">Type</th>
               {/* A column of em-dashes is worse than no column. Trade grades
                   are absent for whole classes of filer, and Sylebra Capital's
                   profile spent a tenth of its table width on fifteen of them. */}
               {hasGrades && (
-                <th className="px-4 py-3 text-left text-[#55556A] font-medium">Trade Grade</th>
+                <th className="px-4 py-3 text-left text-[#81819A] font-medium">Trade Grade</th>
               )}
-              <th className="px-4 py-3 text-left text-[#55556A] font-medium">Traded</th>
-              <th className="px-4 py-3 text-left text-[#55556A] font-medium">Filed</th>
-              <th className="px-4 py-3 text-right text-[#55556A] font-medium">Price</th>
-              <th className="px-4 py-3 text-right text-[#55556A] font-medium">Value</th>
-              <th className="px-4 py-3 text-right text-[#55556A] font-medium">7d Stock</th>
-              <th className="px-4 py-3 text-right text-[#55556A] font-medium">30d Stock</th>
-              <th className="px-4 py-3 text-right text-[#55556A] font-medium">90d Stock</th>
+              <th className="px-4 py-3 text-left text-[#81819A] font-medium">Traded</th>
+              <th className="px-4 py-3 text-left text-[#81819A] font-medium">Filed</th>
+              <th className="px-4 py-3 text-right text-[#81819A] font-medium">Price</th>
+              <th className="px-4 py-3 text-right text-[#81819A] font-medium">Value</th>
+              <th className="px-4 py-3 text-right text-[#81819A] font-medium">7d Stock</th>
+              <th className="px-4 py-3 text-right text-[#81819A] font-medium">30d Stock</th>
+              <th className="px-4 py-3 text-right text-[#81819A] font-medium">90d Stock</th>
             </tr>
           </thead>
           <tbody>
@@ -284,7 +284,7 @@ export function InsiderTradesTable({
               return (
               <tr
                 key={t.trade_id}
-                className={`border-b border-[#2A2A3A]/50 hover:bg-[#1A1A26]/30 transition-colors ${isRoutineSell ? "text-[#55556A]" : ""}`}
+                className={`border-b border-[#2A2A3A]/50 hover:bg-[#1A1A26]/30 transition-colors ${isRoutineSell ? "text-[#81819A]" : ""}`}
               >
                 <td className="px-4 py-3">
                   {t.ticker === "NONE" ? (
@@ -302,7 +302,7 @@ export function InsiderTradesTable({
                       t.trade_type === "buy"
                         ? "border-[#22C55E]/30 text-[#22C55E]"
                         : isRoutineSell
-                          ? "border-[#55556A]/30 text-[#55556A]"
+                          ? "border-[#81819A]/30 text-[#81819A]"
                           : "border-[#EF4444]/30 text-[#EF4444]"
                     }`}
                   >
@@ -313,11 +313,11 @@ export function InsiderTradesTable({
                 </td>
                 {hasGrades && (
                 <td className="px-4 py-3">
-                  {(t as any).trade_grade ? <TradeGradeBadge grade={(t as any).trade_grade} /> : <span className="text-[#55556A]">—</span>}
+                  {(t as any).trade_grade ? <TradeGradeBadge grade={(t as any).trade_grade} /> : <span className="text-[#81819A]">—</span>}
                 </td>
                 )}
                 <td className="px-4 py-3 text-[#E8E8ED]">{t.trade_date}</td>
-                <td className="px-4 py-3 text-[#55556A]">{t.filing_date}</td>
+                <td className="px-4 py-3 text-[#81819A]">{t.filing_date}</td>
                 <td className="px-4 py-3 text-right font-mono text-[#E8E8ED]">
                   ${t.price?.toFixed(2) ?? "\u2014"}
                 </td>
@@ -341,7 +341,7 @@ export function InsiderTradesTable({
                           ? isGoodSignal
                             ? "text-[#22C55E]"
                             : "text-[#EF4444]"
-                          : "text-[#55556A]"
+                          : "text-[#81819A]"
                       }`}
                       title={unavailable ? unavailableReason((t as any).price_data_end) : undefined}
                     >

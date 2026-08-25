@@ -125,8 +125,8 @@ export function kindColor(kind: FilingKind | null): string {
     case "Compensation":
     case "Tax":
     case "Exercise":
-      return "#55556A";
+      return "#81819A";
     default:
-      return "#55556A";
+      return "#81819A";
   }
 }

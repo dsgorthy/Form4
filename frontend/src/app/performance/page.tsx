@@ -98,7 +98,7 @@ export default async function PerformancePage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-8 py-4">
-      <nav className="text-sm text-[#55556A]">
+      <nav className="text-sm text-[#81819A]">
         <Link href="/" className="hover:text-[#8888A0] transition-colors">
           Dashboard
         </Link>
@@ -159,7 +159,7 @@ export default async function PerformancePage() {
 
         <section className="space-y-3">
           <h2 className="text-lg font-medium text-[#E8E8ED]">Current figures</h2>
-          <p className="text-xs text-[#55556A]">
+          <p className="text-xs text-[#81819A]">
             Each strategy is measured from its own first trade to the present,
             against the S&amp;P 500 over that identical window. $100,000 start,
             idle cash in SPY. Annualised.
@@ -204,7 +204,7 @@ export default async function PerformancePage() {
           <div className="overflow-x-auto rounded-lg border border-[#2A2A3A] bg-[#12121A]">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-[#2A2A3A] text-xs uppercase tracking-wider text-[#55556A]">
+                <tr className="border-b border-[#2A2A3A] text-xs uppercase tracking-wider text-[#81819A]">
                   <th className="px-4 py-3 text-left font-medium">Year</th>
                   {books.map((b, i) => (
                     <th key={STRATEGY_KEYS[i]} className="px-4 py-3 text-right font-medium">
@@ -224,7 +224,7 @@ export default async function PerformancePage() {
                       return (
                         <td key={STRATEGY_KEYS[i]} className="px-4 py-2 text-right text-[#E8E8ED]">
                           {typeof v === "number" ? `${v > 0 ? "+" : ""}${v.toFixed(1)}%` : "—"}
-                          {row?.partial && <span className="ml-1 text-[#55556A]">*</span>}
+                          {row?.partial && <span className="ml-1 text-[#81819A]">*</span>}
                         </td>
                       );
                     })}
@@ -241,7 +241,7 @@ export default async function PerformancePage() {
               </tbody>
             </table>
           </div>
-          <p className="text-xs text-[#55556A]">
+          <p className="text-xs text-[#81819A]">
             * Partial year — the book started mid-year, so it is not a full
             twelve months against the index. The S&amp;P column is the full
             calendar year in every row. Worst peak-to-trough decline, marked
@@ -287,7 +287,7 @@ export default async function PerformancePage() {
           </p>
         </section>
 
-        <p className="border-t border-[#2A2A3A] pt-6 text-xs text-[#55556A]">
+        <p className="border-t border-[#2A2A3A] pt-6 text-xs text-[#81819A]">
           Figures update automatically. Last reviewed 23 August 2026.
         </p>
       </div>

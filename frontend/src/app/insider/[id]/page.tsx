@@ -79,11 +79,11 @@ function StatBox({
 }) {
   return (
     <div className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/50 p-4">
-      <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A] mb-1">
+      <div className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A] mb-1">
         {label}
       </div>
       <div className={`text-xl font-mono font-bold ${color || "text-[#E8E8ED]"}`}>{value}</div>
-      {sub && <div className="text-xs text-[#55556A] mt-0.5">{sub}</div>}
+      {sub && <div className="text-xs text-[#81819A] mt-0.5">{sub}</div>}
     </div>
   );
 }
@@ -95,7 +95,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
     // they carried no structure at all: every SEO surface rendered exactly one
     // heading, the H1, with nothing beneath it. Tailwind's preflight zeroes
     // heading margins so this is visually identical.
-    <h2 className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A] mb-3">
+    <h2 className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A] mb-3">
       {children}
     </h2>
   );
@@ -131,7 +131,7 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
     if (e.message?.includes("403")) {
       return (
         <div>
-          <nav className="flex items-center gap-2 text-sm text-[#55556A] mb-6">
+          <nav className="flex items-center gap-2 text-sm text-[#81819A] mb-6">
             <Link href="/" className="hover:text-[#8888A0] transition-colors">Dashboard</Link>
             <span>/</span>
             <Link href="/leaderboard" className="hover:text-[#8888A0] transition-colors">Leaderboard</Link>
@@ -196,7 +196,7 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
         )}
       />
       {/* Breadcrumb */}
-      <nav className="flex items-center gap-2 text-sm text-[#55556A] mb-6">
+      <nav className="flex items-center gap-2 text-sm text-[#81819A] mb-6">
         <Link href="/" className="hover:text-[#8888A0] transition-colors">
           Dashboard
         </Link>
@@ -264,13 +264,13 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                   </>
                 )}
                 {otherCount > 0 && (
-                  <span className="text-[#55556A]">
+                  <span className="text-[#81819A]">
                     {" "}(+{otherCount} {otherCount === 1 ? "company" : "companies"})
                   </span>
                 )}
               </p>
             )}
-            <p className="text-xs text-[#55556A] mb-8">
+            <p className="text-xs text-[#81819A] mb-8">
               {profile.cik && `CIK: ${profile.cik}`}
               {profile.cik && tr && " · "}
               {tr && `${tr.n_tickers} ${tr.n_tickers === 1 ? "company" : "companies"} traded`}
@@ -282,7 +282,7 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
       {/* Entity Relationships */}
       {profile.entity_group && (
         <div className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/50 px-4 py-3 mb-6">
-          <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A] mb-2">
+          <div className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A] mb-2">
             Entity Group
           </div>
           <div className="text-sm text-[#8888A0]">
@@ -353,7 +353,7 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
       {/* Grade by Ticker */}
       {(profile as any).ticker_grades?.length > 0 && (
         <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] p-4 mb-8">
-          <h3 className="text-xs font-semibold uppercase tracking-widest text-[#55556A] mb-3">
+          <h3 className="text-xs font-semibold uppercase tracking-widest text-[#81819A] mb-3">
             Grade by Ticker
           </h3>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
@@ -371,7 +371,7 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                   <div className="flex items-center gap-2 min-w-0">
                     {tg.career_grade && <InsiderGradeBadge grade={tg.career_grade} compact tooltip={`Career: ${tg.career_grade}`} />}
                     {tg.grade && tg.grade !== tg.career_grade && (
-                      <span className="text-[9px] text-[#55556A] font-mono">
+                      <span className="text-[9px] text-[#81819A] font-mono">
                         Form&nbsp;<span style={{ color: "#8888A0" }}>{tg.grade}</span>
                       </span>
                     )}
@@ -384,7 +384,7 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                       and the grade comes off the career record instead. Say
                       which record it is. "awaiting returns" is reserved for
                       rows carrying no score at all. */}
-                  <span className="text-[10px] text-[#55556A] font-mono shrink-0 ml-2">
+                  <span className="text-[10px] text-[#81819A] font-mono shrink-0 ml-2">
                     {tg.trade_count > 0
                       ? `${tg.trade_count} ${tg.trade_count === 1 ? "trade" : "trades"}`
                       : tg.career_trade_count > 0
@@ -435,11 +435,11 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                 </caption>
                 <thead>
                   <tr className="border-b border-[#2A2A3A]">
-                    <th scope="col" className="pb-2 text-left text-[10px] font-medium uppercase tracking-wider text-[#55556A]">
+                    <th scope="col" className="pb-2 text-left text-[10px] font-medium uppercase tracking-wider text-[#81819A]">
                       After
                     </th>
                     {["7 days", "30 days", "90 days"].map((w) => (
-                      <th key={w} scope="col" className="pb-2 text-right text-[10px] font-medium uppercase tracking-wider text-[#55556A]">
+                      <th key={w} scope="col" className="pb-2 text-right text-[10px] font-medium uppercase tracking-wider text-[#81819A]">
                         {w}
                       </th>
                     ))}
@@ -500,7 +500,7 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                 {/* Multi-window table */}
                 <table className="w-full text-xs">
                   <thead>
-                    <tr className="text-[#55556A]">
+                    <tr className="text-[#81819A]">
                       <th className="text-left font-medium pb-1.5"></th>
                       {["7d", "30d", "90d"].map(w => (
                         <th key={w} className={`text-right font-medium pb-1.5 ${tr.best_window === w ? "text-[#3B82F6]" : ""}`}>
@@ -513,7 +513,7 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                     <tr>
                       <td className="text-[#8888A0] py-1">Accuracy</td>
                       {[buyWinRate, tr.buy_win_rate_30d, tr.buy_win_rate_90d].map((wr, i) => (
-                        <td key={i} className={`text-right py-1 ${wr != null && wr >= 0.6 ? "text-[#22C55E]" : wr != null ? "text-[#E8E8ED]" : "text-[#55556A]"}`}>
+                        <td key={i} className={`text-right py-1 ${wr != null && wr >= 0.6 ? "text-[#22C55E]" : wr != null ? "text-[#E8E8ED]" : "text-[#81819A]"}`}>
                           {wr != null ? `${(wr * 100).toFixed(0)}%` : "\u2014"}
                         </td>
                       ))}
@@ -521,7 +521,7 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                     <tr>
                       <td className="text-[#8888A0] py-1">Avg Move</td>
                       {[buyAvgReturn, tr.buy_avg_return_30d, tr.buy_avg_return_90d].map((r, i) => (
-                        <td key={i} className={`text-right py-1 ${r != null ? (r >= 0 ? "text-[#22C55E]" : "text-[#EF4444]") : "text-[#55556A]"}`}>
+                        <td key={i} className={`text-right py-1 ${r != null ? (r >= 0 ? "text-[#22C55E]" : "text-[#EF4444]") : "text-[#81819A]"}`}>
                           {r != null ? formatPercent(r) : "\u2014"}
                         </td>
                       ))}
@@ -529,7 +529,7 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                     <tr>
                       <td className="text-[#8888A0] py-1">Alpha</td>
                       {[buyAvgAlpha, tr.buy_avg_abnormal_30d, tr.buy_avg_abnormal_90d].map((r, i) => (
-                        <td key={i} className={`text-right py-1 ${r != null ? (r >= 0 ? "text-[#22C55E]" : "text-[#EF4444]") : "text-[#55556A]"}`}>
+                        <td key={i} className={`text-right py-1 ${r != null ? (r >= 0 ? "text-[#22C55E]" : "text-[#EF4444]") : "text-[#81819A]"}`}>
                           {r != null ? formatPercent(r) : "\u2014"}
                         </td>
                       ))}
@@ -537,7 +537,7 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                   </tbody>
                 </table>
                 {tr.best_window && (
-                  <div className="text-[10px] text-[#55556A] mt-2">* Best window</div>
+                  <div className="text-[10px] text-[#81819A] mt-2">* Best window</div>
                 )}
               </div>
             </div>
@@ -555,7 +555,7 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                 {sellWinRate != null ? (
                   <table className="w-full text-xs">
                     <thead>
-                      <tr className="text-[#55556A]">
+                      <tr className="text-[#81819A]">
                         <th className="text-left font-medium pb-1.5"></th>
                         <th className="text-right font-medium pb-1.5">7d</th>
                         <th className="text-right font-medium pb-1.5">30d</th>
@@ -566,7 +566,7 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                       <tr>
                         <td className="text-[#8888A0] py-1">Accuracy</td>
                         {[sellWinRate, tr.sell_win_rate_30d, tr.sell_win_rate_90d].map((wr, i) => (
-                          <td key={i} className={`text-right py-1 ${wr != null && wr >= 0.6 ? "text-[#22C55E]" : wr != null ? "text-[#E8E8ED]" : "text-[#55556A]"}`}>
+                          <td key={i} className={`text-right py-1 ${wr != null && wr >= 0.6 ? "text-[#22C55E]" : wr != null ? "text-[#E8E8ED]" : "text-[#81819A]"}`}>
                             {wr != null ? `${(wr * 100).toFixed(0)}%` : "\u2014"}
                           </td>
                         ))}
@@ -574,7 +574,7 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                       <tr>
                         <td className="text-[#8888A0] py-1">Avg Move</td>
                         {[sellAvgReturn, tr.sell_avg_return_30d, tr.sell_avg_return_90d].map((r, i) => (
-                          <td key={i} className={`text-right py-1 ${r != null ? (r <= 0 ? "text-[#22C55E]" : "text-[#EF4444]") : "text-[#55556A]"}`}>
+                          <td key={i} className={`text-right py-1 ${r != null ? (r <= 0 ? "text-[#22C55E]" : "text-[#EF4444]") : "text-[#81819A]"}`}>
                             {r != null ? formatPercent(r) : "\u2014"}
                           </td>
                         ))}
@@ -582,7 +582,7 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                     </tbody>
                   </table>
                 ) : (
-                  <div className="text-xs text-[#55556A]">Not yet computed</div>
+                  <div className="text-xs text-[#81819A]">Not yet computed</div>
                 )}
                 {profile.sell_pattern && profile.sell_pattern.total_sells > 0 && (() => {
                   const sp = profile.sell_pattern!;
@@ -619,13 +619,13 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                       <span className={`font-mono text-xs px-1.5 py-0.5 rounded border ${
                         v.trans_code === "P" ? "border-[#22C55E]/30 text-[#22C55E]" :
                         v.trans_code === "S" ? "border-[#EF4444]/30 text-[#EF4444]" :
-                        "border-[#2A2A3A] text-[#55556A]"
+                        "border-[#2A2A3A] text-[#81819A]"
                       }`}>{v.trans_code}</span>
                       <span className="text-[#8888A0] text-xs">{v.label}</span>
                     </div>
                     <div className="text-right">
                       <div className="font-mono text-xs text-[#E8E8ED]">{formatCurrency(v.total_value)}</div>
-                      <div className="text-[10px] text-[#55556A]">{v.count} filings</div>
+                      <div className="text-[10px] text-[#81819A]">{v.count} filings</div>
                     </div>
                   </div>
                 ))}
@@ -669,12 +669,12 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                 >
                   <div className="flex items-center justify-between mb-1">
                     <TickerDisplay ticker={c.ticker} company={c.company} href={null} />
-                    <span className="text-xs text-[#55556A]">{c.trade_count} trades</span>
+                    <span className="text-xs text-[#81819A]">{c.trade_count} trades</span>
                   </div>
                   {!isPrivate && (
                     <div className="text-xs text-[#8888A0] truncate">{c.company}</div>
                   )}
-                  <div className="text-xs text-[#55556A] mt-1">
+                  <div className="text-xs text-[#81819A] mt-1">
                     {(() => {
                       const t = formatTitle((c as any).normalized_title || c.title);
                       return t ? `${t} · ` : "";

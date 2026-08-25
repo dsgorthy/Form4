@@ -16,7 +16,7 @@ export const metadata: Metadata = {
  *
  * WHY IT SAYS "PARTIALLY CONFORMANT" AND NOT "CONFORMANT"
  *
- * Because it is. Measured 2026-08-24: the tertiary text colour #55556A gives
+ * Because it is. Measured 2026-08-24: the tertiary text colour #81819A gives
  * 2.37:1 against the darkest panel background where WCAG AA needs 4.5:1, and
  * it is used in 618 places across 80 files. A statement claiming conformance
  * we do not have is a documented false claim about a legally-relevant fact —
@@ -38,7 +38,7 @@ export const metadata: Metadata = {
 export default function AccessibilityPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-8 py-4">
-      <nav className="text-sm text-[#55556A]">
+      <nav className="text-sm text-[#81819A]">
         <Link href="/" className="hover:text-[#8888A0] transition-colors">
           Dashboard
         </Link>
@@ -95,15 +95,6 @@ export default function AccessibilityPage() {
           <ul className="list-disc space-y-2 pl-5">
             <li>
               <strong className="text-[#E8E8ED]">
-                Some secondary text is too faint.
-              </strong>{" "}
-              Timestamps, captions and other supporting labels are shown in a
-              grey that does not have enough contrast against the dark
-              background. This affects a lot of pages. It is the single largest
-              gap and we are working on it.
-            </li>
-            <li>
-              <strong className="text-[#E8E8ED]">
                 Charts do not have text alternatives.
               </strong>{" "}
               Performance and price charts convey information visually that is
@@ -133,8 +124,10 @@ export default function AccessibilityPage() {
             <li>Semantic headings, landmarks and a declared page language.</li>
             <li>Text alternatives on images.</li>
             <li>
-              Contrast measured against WCAG AA thresholds rather than assumed,
-              which is how the gap above was found.
+              Text contrast measured against the WCAG AA thresholds rather than
+              assumed. The supporting-text colour used across the site was
+              found at 2.4:1 and has been corrected to 4.5:1 or better on every
+              background.
             </li>
           </ul>
         </section>
@@ -148,10 +141,10 @@ export default function AccessibilityPage() {
             want to hear about it — including if it is not on the list above.
             Email{" "}
             <a
-              href="mailto:accessibility@form4.app"
+              href="mailto:support@form4.app"
               className="text-[#3B82F6] hover:underline"
             >
-              accessibility@form4.app
+              support@form4.app
             </a>
             . Tell us the page and what happened, and we will reply within five
             business days.
@@ -173,8 +166,8 @@ export default function AccessibilityPage() {
           </p>
         </section>
 
-        <p className="border-t border-[#2A2A3A] pt-6 text-xs text-[#55556A]">
-          This statement was prepared on 24 August 2026 based on our own review
+        <p className="border-t border-[#2A2A3A] pt-6 text-xs text-[#81819A]">
+          This statement was prepared on 24 August 2026 and last updated the same day based on our own review
           of the site. It will be updated as we fix the items above.
         </p>
       </div>

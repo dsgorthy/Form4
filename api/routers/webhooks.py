@@ -149,6 +149,29 @@ async def stripe_webhook(
         elif status in ("canceled", "unpaid", "past_due"):
             await _downgrade_unless_comped(user_id)
 
+    elif event_type == "invoice.payment_failed":
+        # Subscribed in Stripe since the endpoint was created, handled nowhere.
+        # A failed renewal silently did nothing: no record, no downgrade, no
+        # warning to the customer. Stripe puts the subscription into past_due
+        # and retries on its own dunning schedule, and only emits
+        # customer.subscription.updated(status=unpaid) once it gives up — so
+        # for the whole retry window we knew nothing.
+        #
+        # Deliberately does NOT downgrade. A failed card is usually a card
+        # problem, not a cancellation, and revoking access on the first retry
+        # punishes the customer for their bank's fraud heuristic. Stripe's
+        # subscription.updated will downgrade us if dunning actually fails,
+        # and that path already respects comps.
+        customer_id = data_obj.get("customer")
+        user_id = await _find_clerk_user_by_customer(customer_id)
+        attempt = data_obj.get("attempt_count")
+        next_try = data_obj.get("next_payment_attempt")
+        logger.warning(
+            "invoice.payment_failed customer=%s user=%s attempt=%s next_attempt=%s "
+            "amount_due=%s — access left intact pending Stripe dunning",
+            customer_id, user_id, attempt, next_try, data_obj.get("amount_due"),
+        )
+
     elif event_type == "customer.subscription.deleted":
         customer_id = data_obj.get("customer")
         user_id = await _find_clerk_user_by_customer(customer_id)

@@ -38,7 +38,7 @@ export default function AdminIndexPage() {
     <div className="text-[#E8E8ED] py-6">
       <div className="mb-6">
         <h1 className="text-2xl font-bold">Admin</h1>
-        <p className="text-sm text-[#55556A] mt-1">
+        <p className="text-sm text-[#81819A] mt-1">
           Private operational dashboards. Visible only to accounts in{" "}
           <code className="text-[#8888A0]">ADMIN_USER_IDS</code>. Signed in as{" "}
           <code className="text-[#8888A0]">{user?.id}</code>.
@@ -54,7 +54,7 @@ export default function AdminIndexPage() {
           >
             <div className="flex items-baseline justify-between mb-2">
               <h2 className="text-lg font-semibold">{s.label}</h2>
-              <code className="text-xs text-[#55556A]">{s.href}</code>
+              <code className="text-xs text-[#81819A]">{s.href}</code>
             </div>
             <p className="text-sm text-[#8888A0]">{s.description}</p>
           </Link>

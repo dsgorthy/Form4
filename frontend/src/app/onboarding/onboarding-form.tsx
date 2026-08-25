@@ -130,7 +130,7 @@ export default function OnboardingForm({ strategies }: { strategies: StrategyCho
               className={`w-full text-left rounded-lg border p-4 transition-all ${
                 selectedStrategy === s.value
                   ? "border-[#3B82F6] bg-[#3B82F6]/10 ring-1 ring-[#3B82F6]/50"
-                  : "border-[#2A2A3A] bg-[#12121A] hover:border-[#55556A] hover:bg-[#1A1A26]"
+                  : "border-[#2A2A3A] bg-[#12121A] hover:border-[#81819A] hover:bg-[#1A1A26]"
               }`}
             >
               <div className="flex items-center gap-2 mb-1">
@@ -139,7 +139,7 @@ export default function OnboardingForm({ strategies }: { strategies: StrategyCho
                 </span>
               </div>
               <div className="text-xs text-[#8888A0] mb-1">{s.brief}</div>
-              <div className="text-[10px] text-[#55556A] font-mono">{s.stats}</div>
+              <div className="text-[10px] text-[#81819A] font-mono">{s.stats}</div>
             </button>
           ))}
         </div>
@@ -147,7 +147,7 @@ export default function OnboardingForm({ strategies }: { strategies: StrategyCho
         {/* Referral (optional, compact) */}
         <div className="mb-8">
           <h2 className="text-sm font-semibold text-[#E8E8ED] mb-2">
-            How did you find us? <span className="text-[#55556A] font-normal">Optional</span>
+            How did you find us? <span className="text-[#81819A] font-normal">Optional</span>
           </h2>
           <div className="flex flex-wrap gap-2">
             {REFERRAL_SOURCES.map((opt) => (
@@ -158,7 +158,7 @@ export default function OnboardingForm({ strategies }: { strategies: StrategyCho
                 className={`rounded-full px-3 py-1.5 text-xs font-medium transition-all ${
                   referral === opt.value
                     ? "bg-[#3B82F6] text-white"
-                    : "border border-[#2A2A3A] text-[#8888A0] hover:border-[#55556A] hover:text-[#E8E8ED]"
+                    : "border border-[#2A2A3A] text-[#8888A0] hover:border-[#81819A] hover:text-[#E8E8ED]"
                 }`}
               >
                 {opt.label}
@@ -178,7 +178,7 @@ export default function OnboardingForm({ strategies }: { strategies: StrategyCho
           <button
             onClick={() => submit(true)}
             disabled={submitting}
-            className="w-full text-center text-xs text-[#55556A] hover:text-[#8888A0] transition-colors py-1"
+            className="w-full text-center text-xs text-[#81819A] hover:text-[#8888A0] transition-colors py-1"
           >
             Skip for now
           </button>

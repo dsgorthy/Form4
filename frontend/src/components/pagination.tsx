@@ -17,7 +17,7 @@ export function Pagination({ total, limit, offset, onPageChange }: PaginationPro
 
   return (
     <div className="flex items-center justify-between pt-3">
-      <span className="text-xs text-[#55556A]">
+      <span className="text-xs text-[#81819A]">
         {offset + 1}-{Math.min(offset + limit, total)} of {total}
       </span>
       <div className="flex items-center gap-1">
@@ -35,7 +35,7 @@ export function Pagination({ total, limit, offset, onPageChange }: PaginationPro
         >
           Prev
         </button>
-        <span className="px-2 text-xs text-[#55556A]">
+        <span className="px-2 text-xs text-[#81819A]">
           {currentPage} / {totalPages}
         </span>
         <button

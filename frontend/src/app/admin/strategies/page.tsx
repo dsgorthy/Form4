@@ -72,7 +72,7 @@ export default function AdminStrategiesPage() {
       <div className="py-10">
         <h1 className="text-2xl font-bold text-[#E8E8ED]">Admin Diagnostics</h1>
         <p className="text-[#EF4444] mt-4">{error}</p>
-        <p className="text-[#55556A] text-sm mt-2">
+        <p className="text-[#81819A] text-sm mt-2">
           Signed in as <code className="text-[#8888A0]">{user?.id}</code>. If
           this is wrong, set <code>ADMIN_USER_IDS</code> on Studio to include
           your Clerk user ID.
@@ -85,7 +85,7 @@ export default function AdminStrategiesPage() {
     <div className="text-[#E8E8ED] py-6">
       <div className="mb-6">
         <h1 className="text-2xl font-bold">Admin — Strategy Diagnostics</h1>
-        <p className="text-sm text-[#55556A] mt-1">
+        <p className="text-sm text-[#81819A] mt-1">
           Private to your account. Per-strategy filter pass/fail, freshness
           contracts, recent rejections, and alerts. Distinct from the public{" "}
           <Link href="/portfolio" className="text-[#3B82F6] hover:underline">
@@ -104,7 +104,7 @@ export default function AdminStrategiesPage() {
           >
             <div className="flex items-baseline justify-between mb-2">
               <h2 className="text-lg font-semibold">{s.label}</h2>
-              <code className="text-xs text-[#55556A]">{s.name}</code>
+              <code className="text-xs text-[#81819A]">{s.name}</code>
             </div>
             <p className="text-xs text-[#8888A0] mb-4 line-clamp-2">{s.thesis}</p>
 
@@ -137,7 +137,7 @@ export default function AdminStrategiesPage() {
         ))}
       </div>
 
-      <div className="mt-8 text-xs text-[#55556A] space-y-1">
+      <div className="mt-8 text-xs text-[#81819A] space-y-1">
         <p>
           <Link href="/admin/jobs" className="text-[#3B82F6] hover:underline font-semibold">→ System Jobs Monitor</Link>{" "}·{" "}
           <Link href="/admin/pipelines" className="text-[#3B82F6] hover:underline font-semibold">→ Pipelines</Link>
@@ -167,11 +167,11 @@ function Stat({
     tone === "warn" ? "text-[#F59E0B]" : tone === "ok" ? "text-[#22C55E]" : "text-[#E8E8ED]";
   return (
     <div>
-      <div className="text-[10px] uppercase tracking-wider text-[#55556A]">
+      <div className="text-[10px] uppercase tracking-wider text-[#81819A]">
         {label}
       </div>
       <div className={`text-base font-medium ${valueColor}`}>{value}</div>
-      {hint && <div className="text-[10px] text-[#55556A]">{hint}</div>}
+      {hint && <div className="text-[10px] text-[#81819A]">{hint}</div>}
     </div>
   );
 }

@@ -87,7 +87,7 @@ function FilterButton({
       className={`rounded-md px-2.5 py-1 text-[11px] font-medium border transition-colors ${
         active
           ? `border-[${activeColor}]/50 bg-[${activeColor}]/10 text-[${activeColor}]`
-          : "border-[#2A2A3A] text-[#55556A] hover:text-[#8888A0]"
+          : "border-[#2A2A3A] text-[#81819A] hover:text-[#8888A0]"
       }`}
       style={
         active
@@ -336,7 +336,7 @@ export function InsiderTradeChart({ ticker }: InsiderTradeChartProps) {
         const more = dayTrades.length > 5 ? dayTrades.length - 5 : 0;
         const allGated = dayTrades.every((t) => t.gated);
         if (allGated) {
-          tooltip.innerHTML = `<div style="color:#55556A;font-size:11px">${dayTrades.length} trade${dayTrades.length > 1 ? "s" : ""} · <a href="/pricing" style="color:#3B82F6">Upgrade to Pro</a></div>`;
+          tooltip.innerHTML = `<div style="color:#81819A;font-size:11px">${dayTrades.length} trade${dayTrades.length > 1 ? "s" : ""} · <a href="/pricing" style="color:#3B82F6">Upgrade to Pro</a></div>`;
         } else {
           tooltip.innerHTML = shown
             .map((t) => {
@@ -362,7 +362,7 @@ export function InsiderTradeChart({ ticker }: InsiderTradeChartProps) {
                 </div>
               </div>`;
             })
-            .join("") + (more > 0 ? `<div style="color:#55556A">+${more} more</div>` : "");
+            .join("") + (more > 0 ? `<div style="color:#81819A">+${more} more</div>` : "");
         }
       });
 
@@ -406,7 +406,7 @@ export function InsiderTradeChart({ ticker }: InsiderTradeChartProps) {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex h-[400px] items-center justify-center text-[#55556A]">
+          <div className="flex h-[400px] items-center justify-center text-[#81819A]">
             Loading chart...
           </div>
         </CardContent>
@@ -423,7 +423,7 @@ export function InsiderTradeChart({ ticker }: InsiderTradeChartProps) {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex h-[400px] items-center justify-center text-[#55556A]">
+          <div className="flex h-[400px] items-center justify-center text-[#81819A]">
             No trade data available
           </div>
         </CardContent>
@@ -483,7 +483,7 @@ export function InsiderTradeChart({ ticker }: InsiderTradeChartProps) {
               <span className="w-px h-4 bg-[#2A2A3A]" />
               <button
                 onClick={() => setFilters(DEFAULT_FILTERS)}
-                className="text-[11px] text-[#55556A] hover:text-[#8888A0]"
+                className="text-[11px] text-[#81819A] hover:text-[#8888A0]"
               >
                 Clear
               </button>
@@ -493,7 +493,7 @@ export function InsiderTradeChart({ ticker }: InsiderTradeChartProps) {
       </CardHeader>
       <CardContent>
         {data.trades.length === 0 && data.candles.length === 0 ? (
-          <div className="flex h-[400px] items-center justify-center text-[#55556A]">
+          <div className="flex h-[400px] items-center justify-center text-[#81819A]">
             No trade data available
           </div>
         ) : (
@@ -507,7 +507,7 @@ export function InsiderTradeChart({ ticker }: InsiderTradeChartProps) {
           </div>
         )}
         {/* Legend */}
-        <div className="flex items-center gap-4 mt-3 text-[10px] text-[#55556A]">
+        <div className="flex items-center gap-4 mt-3 text-[10px] text-[#81819A]">
           <span className="flex items-center gap-1">
             <span className="inline-block w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-b-[6px] border-b-[#22C55E]" />
             Buy

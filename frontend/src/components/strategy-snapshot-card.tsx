@@ -47,7 +47,7 @@ function pct(value: number | undefined, decimals = 2): string {
 }
 
 function colorForPct(value: number | undefined): string {
-  if (value == null) return "text-[#55556A]";
+  if (value == null) return "text-[#81819A]";
   if (value > 0) return "text-[#22C55E]";
   if (value < 0) return "text-[#EF4444]";
   return "text-[#8888A0]";
@@ -76,7 +76,7 @@ export function StrategySnapshotCard({ snapshot }: { snapshot: StrategySnapshot 
         <div className="flex items-start justify-between gap-2">
           <div>
             <CardTitle className="text-base text-[#E8E8ED]">{snapshot.label}</CardTitle>
-            <div className="text-xs text-[#55556A] font-mono">{snapshot.name}</div>
+            <div className="text-xs text-[#81819A] font-mono">{snapshot.name}</div>
           </div>
           {!hasError && (
             <span className={`rounded px-2 py-0.5 text-[10px] font-medium border ${badge.cls}`}>
@@ -95,7 +95,7 @@ export function StrategySnapshotCard({ snapshot }: { snapshot: StrategySnapshot 
             {/* Equity row */}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <div className="text-[10px] uppercase tracking-wider text-[#55556A]">Current equity</div>
+                <div className="text-[10px] uppercase tracking-wider text-[#81819A]">Current equity</div>
                 <div className="text-2xl font-mono text-[#E8E8ED]">
                   {formatCurrency(snapshot.current_equity)}
                 </div>
@@ -104,11 +104,11 @@ export function StrategySnapshotCard({ snapshot }: { snapshot: StrategySnapshot 
                 </div>
               </div>
               <div>
-                <div className="text-[10px] uppercase tracking-wider text-[#55556A]">vs Backtest</div>
+                <div className="text-[10px] uppercase tracking-wider text-[#81819A]">vs Backtest</div>
                 <div className={`text-2xl font-mono ${colorForPct(snapshot.delta_from_expected_pct)}`}>
                   {pct(snapshot.delta_from_expected_pct)}
                 </div>
-                <div className="text-xs text-[#55556A]">
+                <div className="text-xs text-[#81819A]">
                   expected {formatCurrency(snapshot.expected_equity)}
                 </div>
               </div>
@@ -117,15 +117,15 @@ export function StrategySnapshotCard({ snapshot }: { snapshot: StrategySnapshot 
             {/* Detail row */}
             <div className="grid grid-cols-3 gap-3 border-t border-[#2A2A3A] pt-3 text-xs">
               <div>
-                <div className="text-[#55556A]">Started</div>
+                <div className="text-[#81819A]">Started</div>
                 <div className="font-mono text-[#E8E8ED]">{formatCurrency(snapshot.starting_capital)}</div>
               </div>
               <div>
-                <div className="text-[#55556A]">Cash</div>
+                <div className="text-[#81819A]">Cash</div>
                 <div className="font-mono text-[#E8E8ED]">{formatCurrency(snapshot.cash)}</div>
               </div>
               <div>
-                <div className="text-[#55556A]">Day</div>
+                <div className="text-[#81819A]">Day</div>
                 <div className={`font-mono ${colorForPct(snapshot.day_change_pct)}`}>
                   {pct(snapshot.day_change_pct)}
                 </div>
@@ -144,7 +144,7 @@ export function StrategySnapshotCard({ snapshot }: { snapshot: StrategySnapshot 
             {/* Open positions */}
             {snapshot.open_positions && snapshot.open_positions.length > 0 ? (
               <div>
-                <div className="text-[10px] uppercase tracking-wider text-[#55556A] mb-2">
+                <div className="text-[10px] uppercase tracking-wider text-[#81819A] mb-2">
                   Open positions ({snapshot.position_count})
                 </div>
                 <div className="space-y-1">
@@ -164,7 +164,7 @@ export function StrategySnapshotCard({ snapshot }: { snapshot: StrategySnapshot 
                 </div>
               </div>
             ) : (
-              <div className="text-xs text-[#55556A] italic">No open positions</div>
+              <div className="text-xs text-[#81819A] italic">No open positions</div>
             )}
           </>
         )}

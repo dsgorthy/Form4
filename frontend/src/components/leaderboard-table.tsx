@@ -113,14 +113,14 @@ export function LeaderboardTable({ filters, sort, order }: LeaderboardTableProps
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-[#2A2A3A] bg-[#1A1A26]/50">
-              <th className="px-3 md:px-4 py-3 text-left text-[#55556A] font-medium w-10">#</th>
-              <th className="px-3 md:px-4 py-3 text-left text-[#55556A] font-medium">Insider</th>
-              <th className="hidden md:table-cell px-4 py-3 text-left text-[#55556A] font-medium">Title</th>
-              <th className="px-3 md:px-4 py-3 text-center text-[#55556A] font-medium w-16">Rating</th>
-              <th className="px-3 md:px-4 py-3 text-right text-[#55556A] font-medium">Buys</th>
-              <th className="hidden md:table-cell px-4 py-3 text-center text-[#55556A] font-medium">Trend</th>
-              <th className="hidden md:table-cell px-4 py-3 text-right text-[#55556A] font-medium">Ticker</th>
-              <th className="hidden lg:table-cell px-4 py-3 text-right text-[#55556A] font-medium">Last Active</th>
+              <th className="px-3 md:px-4 py-3 text-left text-[#81819A] font-medium w-10">#</th>
+              <th className="px-3 md:px-4 py-3 text-left text-[#81819A] font-medium">Insider</th>
+              <th className="hidden md:table-cell px-4 py-3 text-left text-[#81819A] font-medium">Title</th>
+              <th className="px-3 md:px-4 py-3 text-center text-[#81819A] font-medium w-16">Rating</th>
+              <th className="px-3 md:px-4 py-3 text-right text-[#81819A] font-medium">Buys</th>
+              <th className="hidden md:table-cell px-4 py-3 text-center text-[#81819A] font-medium">Trend</th>
+              <th className="hidden md:table-cell px-4 py-3 text-right text-[#81819A] font-medium">Ticker</th>
+              <th className="hidden lg:table-cell px-4 py-3 text-right text-[#81819A] font-medium">Last Active</th>
             </tr>
           </thead>
           <tbody>
@@ -129,7 +129,7 @@ export function LeaderboardTable({ filters, sort, order }: LeaderboardTableProps
                 key={entry.insider_id}
                 className={`border-b border-[#2A2A3A]/50 hover:bg-[#1A1A26]/30 transition-colors ${isGated ? "select-none" : ""}`}
               >
-                <td className="px-3 md:px-4 py-3 text-[#55556A] font-mono text-xs">
+                <td className="px-3 md:px-4 py-3 text-[#81819A] font-mono text-xs">
                   {offset + i + 1}
                 </td>
                 <td className="px-3 md:px-4 py-3">
@@ -170,10 +170,10 @@ export function LeaderboardTable({ filters, sort, order }: LeaderboardTableProps
                       </Link>
                     )
                   ) : (
-                    <span className="text-[#55556A]">{"\u2014"}</span>
+                    <span className="text-[#81819A]">{"\u2014"}</span>
                   )}
                 </td>
-                <td className="hidden lg:table-cell px-4 py-3 text-right text-xs text-[#55556A]">
+                <td className="hidden lg:table-cell px-4 py-3 text-right text-xs text-[#81819A]">
                   {(() => {
                     const lastBuy = (entry as any).buy_last_date;
                     const lastSell = (entry as any).sell_last_date;
@@ -182,7 +182,7 @@ export function LeaderboardTable({ filters, sort, order }: LeaderboardTableProps
                     const days = Math.floor((Date.now() - new Date(last).getTime()) / 86400000);
                     if (days <= 30) return <span className="text-[#22C55E]">{last}</span>;
                     if (days <= 180) return last;
-                    return <span className="text-[#55556A]/60">{last}</span>;
+                    return <span className="text-[#81819A]/60">{last}</span>;
                   })()}
                 </td>
               </tr>

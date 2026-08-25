@@ -19,7 +19,7 @@ export async function ConvergenceAlerts() {
     return (
       <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] p-4">
         <h3 className="text-sm font-medium text-[#8888A0] mb-3">Convergence Alerts</h3>
-        <p className="text-xs text-[#55556A]">No convergence signals in the last 90 days</p>
+        <p className="text-xs text-[#81819A]">No convergence signals in the last 90 days</p>
       </div>
     );
   }
@@ -53,10 +53,10 @@ export async function ConvergenceAlerts() {
                 </span>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                <span className="text-[10px] text-[#55556A] font-mono hidden xl:inline">
+                <span className="text-[10px] text-[#81819A] font-mono hidden xl:inline">
                   {formatCurrency((item.insider_total_value ?? 0) + (item.politician_total_value_estimate ?? 0))}
                 </span>
-                <span className="text-[10px] text-[#55556A] font-mono">
+                <span className="text-[10px] text-[#81819A] font-mono">
                   {item.last_date.slice(5)}
                 </span>
               </div>

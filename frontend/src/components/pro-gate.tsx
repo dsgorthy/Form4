@@ -112,7 +112,7 @@ export function ProGate({
             {ctaLabel}
           </Link>
           {subtitle && (
-            <div className="text-[10px] text-[#55556A] mt-2">{subtitle}</div>
+            <div className="text-[10px] text-[#81819A] mt-2">{subtitle}</div>
           )}
         </div>
       </div>

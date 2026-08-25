@@ -15,7 +15,7 @@ interface FilingDetailPanelProps {
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A] mb-2">
+    <div className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A] mb-2">
       {children}
     </div>
   );

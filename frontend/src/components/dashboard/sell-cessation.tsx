@@ -13,7 +13,7 @@ export async function SellCessation() {
     return (
       <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] p-4">
         <h3 className="text-sm font-medium text-[#8888A0] mb-3">Sell Cessation</h3>
-        <p className="text-xs text-[#55556A]">Sign in with Pro to view sell cessation signals</p>
+        <p className="text-xs text-[#81819A]">Sign in with Pro to view sell cessation signals</p>
       </div>
     );
   }
@@ -25,7 +25,7 @@ export async function SellCessation() {
     return (
       <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] p-4">
         <h3 className="text-sm font-medium text-[#8888A0] mb-3">Sell Cessation</h3>
-        <p className="text-xs text-[#55556A]">No sell cessation signals detected</p>
+        <p className="text-xs text-[#81819A]">No sell cessation signals detected</p>
       </div>
     );
   }
@@ -33,15 +33,15 @@ export async function SellCessation() {
   return (
     <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] p-4">
       <h3 className="text-sm font-medium text-[#8888A0] mb-1">Sell Cessation</h3>
-      <p className="text-[10px] text-[#55556A] mb-3">Insiders who stopped selling — potential bullish signal</p>
+      <p className="text-[10px] text-[#81819A] mb-3">Insiders who stopped selling — potential bullish signal</p>
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
             <tr className="border-b border-[#2A2A3A]">
-              <th className="pb-2 text-left text-[#55556A] font-medium">Insider</th>
-              <th className="pb-2 text-center text-[#55556A] font-medium">Grade</th>
-              <th className="pb-2 text-right text-[#55556A] font-medium">Silent</th>
-              <th className="pb-2 text-left text-[#55556A] font-medium pl-3">Tickers</th>
+              <th className="pb-2 text-left text-[#81819A] font-medium">Insider</th>
+              <th className="pb-2 text-center text-[#81819A] font-medium">Grade</th>
+              <th className="pb-2 text-right text-[#81819A] font-medium">Silent</th>
+              <th className="pb-2 text-left text-[#81819A] font-medium pl-3">Tickers</th>
             </tr>
           </thead>
           <tbody>
@@ -66,7 +66,7 @@ export async function SellCessation() {
                   {((item as any).best_career_grade ?? (item as any).career_grade) != null ? (
                     <InsiderGradeBadge grade={(item as any).best_career_grade ?? (item as any).career_grade} compact />
                   ) : (
-                    <span className="text-[#55556A]">{"\u2014"}</span>
+                    <span className="text-[#81819A]">{"\u2014"}</span>
                   )}
                 </td>
                 <td className="py-1.5 text-right font-mono">

@@ -17,11 +17,11 @@ export function ContextFacts({ context, limit, inline }: ContextFactsProps) {
       <p className="text-xs text-[#8888A0]">
         {items.map((c, i) => (
           <span key={`${c.type}-${i}`}>
-            {c.text}{i < items.length - 1 && <span className="text-[#55556A]"> · </span>}
+            {c.text}{i < items.length - 1 && <span className="text-[#81819A]"> · </span>}
           </span>
         ))}
         {remaining > 0 && (
-          <span className="text-[#55556A]"> +{remaining} more</span>
+          <span className="text-[#81819A]"> +{remaining} more</span>
         )}
       </p>
     );
@@ -31,12 +31,12 @@ export function ContextFacts({ context, limit, inline }: ContextFactsProps) {
     <ul className="space-y-0.5">
       {items.map((c, i) => (
         <li key={`${c.type}-${i}`} className="flex items-start gap-1.5 text-xs text-[#8888A0]">
-          <span className="text-[#55556A] mt-px shrink-0">&bull;</span>
+          <span className="text-[#81819A] mt-px shrink-0">&bull;</span>
           <span>{c.text}</span>
         </li>
       ))}
       {remaining > 0 && (
-        <li className="text-xs text-[#55556A]">+{remaining} more</li>
+        <li className="text-xs text-[#81819A]">+{remaining} more</li>
       )}
     </ul>
   );

@@ -9,7 +9,7 @@ export default function DisclaimerPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-8 py-4">
       {/* Breadcrumb */}
-      <nav className="text-sm text-[#55556A]">
+      <nav className="text-sm text-[#81819A]">
         <Link href="/" className="hover:text-[#8888A0] transition-colors">
           Dashboard
         </Link>
@@ -112,7 +112,7 @@ export default function DisclaimerPage() {
         </section>
 
         <section className="space-y-2 rounded-lg border border-[#2A2A3A] bg-[#12121A] p-4">
-          <p className="text-[#55556A] text-xs leading-relaxed">
+          <p className="text-[#81819A] text-xs leading-relaxed">
             By using Form4, you acknowledge that you have read and understood this disclaimer.
             If you do not agree with these terms, do not use the service. For questions, contact{" "}
             <a href="mailto:support@form4.app" className="text-[#3B82F6] hover:underline">

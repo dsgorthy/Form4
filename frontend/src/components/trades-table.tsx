@@ -28,7 +28,7 @@ function TradeTags({ item }: { item: Filing }) {
   const kind = filingKind((item as any).signal_class);
   if (kind && kind !== "Discretionary") {
     tags.push(
-      <span key="kind" className="rounded px-1.5 py-0.5 text-[9px] font-medium bg-[#55556A]/20 text-[#8888A0] border border-[#55556A]/30">
+      <span key="kind" className="rounded px-1.5 py-0.5 text-[9px] font-medium bg-[#81819A]/20 text-[#8888A0] border border-[#81819A]/30">
         {kind}
       </span>
     );
@@ -37,7 +37,7 @@ function TradeTags({ item }: { item: Filing }) {
   // on a rhythm, and 5,831 discretionary sells do.
   if ((item as any).cohen_routine === 1 || (item as any).is_recurring === 1) {
     tags.push(
-      <span key="recur" className="rounded px-1.5 py-0.5 text-[9px] font-medium bg-[#55556A]/20 text-[#8888A0] border border-[#55556A]/30">
+      <span key="recur" className="rounded px-1.5 py-0.5 text-[9px] font-medium bg-[#81819A]/20 text-[#8888A0] border border-[#81819A]/30">
         Recurring
       </span>
     );
@@ -129,10 +129,10 @@ export function TradesTable({ ticker, initialData }: TradesTableProps) {
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A]">
+        <div className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A]">
           All Trades
         </div>
-        <span className="text-xs text-[#55556A]">{data.total} total</span>
+        <span className="text-xs text-[#81819A]">{data.total} total</span>
       </div>
 
       {/* Mobile: Card layout */}
@@ -197,17 +197,17 @@ export function TradesTable({ ticker, initialData }: TradesTableProps) {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-[#2A2A3A] bg-[#1A1A26]/50">
-              <th className="px-3 py-3 text-left text-[#55556A] font-medium">Insider</th>
-              <th className="px-3 py-3 text-left text-[#55556A] font-medium">Type</th>
-              <th className="hidden lg:table-cell px-3 py-3 text-left text-[#55556A] font-medium">Signal</th>
-              <th className="hidden lg:table-cell px-3 py-3 text-center text-[#55556A] font-medium">Tier</th>
-              <th className="px-3 py-3 text-left text-[#55556A] font-medium">Date</th>
-              <th className="hidden xl:table-cell px-3 py-3 text-left text-[#55556A] font-medium">Filed</th>
-              <th className="hidden lg:table-cell px-3 py-3 text-right text-[#55556A] font-medium">Price</th>
-              <th className="px-3 py-3 text-right text-[#55556A] font-medium">Value</th>
-              <th className="px-3 py-3 text-right text-[#55556A] font-medium">7d</th>
-              <th className="hidden lg:table-cell px-3 py-3 text-right text-[#55556A] font-medium">30d</th>
-              <th className="hidden xl:table-cell px-3 py-3 text-right text-[#55556A] font-medium">90d</th>
+              <th className="px-3 py-3 text-left text-[#81819A] font-medium">Insider</th>
+              <th className="px-3 py-3 text-left text-[#81819A] font-medium">Type</th>
+              <th className="hidden lg:table-cell px-3 py-3 text-left text-[#81819A] font-medium">Signal</th>
+              <th className="hidden lg:table-cell px-3 py-3 text-center text-[#81819A] font-medium">Tier</th>
+              <th className="px-3 py-3 text-left text-[#81819A] font-medium">Date</th>
+              <th className="hidden xl:table-cell px-3 py-3 text-left text-[#81819A] font-medium">Filed</th>
+              <th className="hidden lg:table-cell px-3 py-3 text-right text-[#81819A] font-medium">Price</th>
+              <th className="px-3 py-3 text-right text-[#81819A] font-medium">Value</th>
+              <th className="px-3 py-3 text-right text-[#81819A] font-medium">7d</th>
+              <th className="hidden lg:table-cell px-3 py-3 text-right text-[#81819A] font-medium">30d</th>
+              <th className="hidden xl:table-cell px-3 py-3 text-right text-[#81819A] font-medium">90d</th>
             </tr>
           </thead>
           <tbody>
@@ -247,11 +247,11 @@ export function TradesTable({ ticker, initialData }: TradesTableProps) {
                   {(t.score_tier ?? t.tier) != null ? (
                     <InsiderGradeBadge rating={(t as any).insider_rating} grade={(t as any).career_grade} label="Insider" />
                   ) : (
-                    <span className="text-[#55556A]">{"\u2014"}</span>
+                    <span className="text-[#81819A]">{"\u2014"}</span>
                   )}
                 </td>
                 <td className={`px-3 py-3 text-[#E8E8ED] ${t.gated ? "blur-[3px]" : ""}`}>{t.trade_date}</td>
-                <td className={`hidden xl:table-cell px-3 py-3 text-[#55556A] ${t.gated ? "blur-[3px]" : ""}`}>{t.filing_date}</td>
+                <td className={`hidden xl:table-cell px-3 py-3 text-[#81819A] ${t.gated ? "blur-[3px]" : ""}`}>{t.filing_date}</td>
                 <td className={`hidden lg:table-cell px-3 py-3 text-right font-mono text-[#E8E8ED] ${t.gated ? "blur-[3px]" : ""}`}>
                   ${t.price?.toFixed(2) ?? "\u2014"}
                 </td>
@@ -272,7 +272,7 @@ export function TradesTable({ ticker, initialData }: TradesTableProps) {
                               ? isGoodSignal
                                 ? "text-[#22C55E]"
                                 : "text-[#EF4444]"
-                              : "text-[#55556A]"
+                              : "text-[#81819A]"
                           }
                         >
                           {formatPercent(ret)}

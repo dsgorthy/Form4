@@ -93,7 +93,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
     // they carried no structure at all: every SEO surface rendered exactly one
     // heading, the H1, with nothing beneath it. Tailwind's preflight zeroes
     // heading margins so this is visually identical.
-    <h2 className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A] mb-3">
+    <h2 className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A] mb-3">
       {children}
     </h2>
   );
@@ -156,7 +156,7 @@ export default async function CompanyPage({ params }: { params: Promise<{ ticker
         )}
       />
       {/* Breadcrumb */}
-      <nav className="flex items-center gap-2 text-sm text-[#55556A] mb-6">
+      <nav className="flex items-center gap-2 text-sm text-[#81819A] mb-6">
         <Link href="/" className="hover:text-[#8888A0] transition-colors">
           Dashboard
         </Link>
@@ -196,7 +196,7 @@ export default async function CompanyPage({ params }: { params: Promise<{ ticker
           topInsiderName={topFiler?.name}
           topInsiderTitle={titleSummary(topFiler?.normalized_title || topFiler?.title)}
         />
-        <div className="flex flex-wrap items-center gap-2 md:gap-4 mt-2 text-xs text-[#55556A]">
+        <div className="flex flex-wrap items-center gap-2 md:gap-4 mt-2 text-xs text-[#81819A]">
           <span>{overview.total_trades} total trades</span>
           <span>{formatCurrency(overview.total_value)} total value</span>
           <span>
@@ -262,7 +262,7 @@ export default async function CompanyPage({ params }: { params: Promise<{ ticker
         <div className="overflow-x-auto rounded-lg border border-[#2A2A3A]">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-[#2A2A3A] text-xs uppercase text-[#55556A]">
+              <tr className="border-b border-[#2A2A3A] text-xs uppercase text-[#81819A]">
                 <th className="px-4 py-2 text-left font-medium">Insider</th>
                 <th className="px-4 py-2 text-left font-medium">Title</th>
                 <th className="px-4 py-2 text-left font-medium">Type</th>
@@ -285,7 +285,7 @@ export default async function CompanyPage({ params }: { params: Promise<{ ticker
                   <td className="px-4 py-2 text-right font-mono text-[#E8E8ED]">
                     {formatCurrency(t.value)}
                   </td>
-                  <td className="px-4 py-2 text-right font-mono text-[#55556A]">{t.trade_date}</td>
+                  <td className="px-4 py-2 text-right font-mono text-[#81819A]">{t.trade_date}</td>
                 </tr>
               ))}
             </tbody>

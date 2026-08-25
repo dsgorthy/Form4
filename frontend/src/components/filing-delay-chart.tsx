@@ -28,7 +28,7 @@ export function FilingDelayChart({ data }: FilingDelayChartProps) {
           <CardTitle className="text-sm font-medium text-[#8888A0]">Filing Delay Distribution</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex h-[200px] items-center justify-center text-[#55556A]">No filing delay data available</div>
+          <div className="flex h-[200px] items-center justify-center text-[#81819A]">No filing delay data available</div>
         </CardContent>
       </Card>
     );
@@ -75,7 +75,7 @@ export function FilingDelayChart({ data }: FilingDelayChartProps) {
       </CardHeader>
       <CardContent>
         <ReactECharts option={option} theme="form4" style={{ height: 200 }} opts={{ renderer: "svg" }} />
-        <div className="mt-3 flex items-center justify-center gap-4 text-xs text-[#55556A]">
+        <div className="mt-3 flex items-center justify-center gap-4 text-xs text-[#81819A]">
           <span>Avg: <span className="text-[#E8E8ED]">{stats.avg_delay} days</span></span>
           <span className="text-[#2A2A3A]">&middot;</span>
           <span>Median: <span className="text-[#E8E8ED]">{stats.median_delay} days</span></span>

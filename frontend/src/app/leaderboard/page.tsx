@@ -58,7 +58,7 @@ export default async function LeaderboardPage({ searchParams }: Props) {
       <div className="flex flex-col gap-4 mb-6 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-[#E8E8ED]">Leaderboard</h1>
-          <p className="text-sm text-[#55556A] mt-1">
+          <p className="text-sm text-[#81819A] mt-1">
             Ranked insiders by track record
             <span className="mx-2">&middot;</span>
             <a
@@ -136,7 +136,7 @@ export default async function LeaderboardPage({ searchParams }: Props) {
           {(minTrades || minTier || active !== "12m") && (
             <Link
               href="/leaderboard"
-              className="text-xs text-[#55556A] hover:text-[#8888A0]"
+              className="text-xs text-[#81819A] hover:text-[#8888A0]"
             >
               Reset
             </Link>

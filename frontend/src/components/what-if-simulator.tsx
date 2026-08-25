@@ -60,7 +60,7 @@ export function WhatIfSimulator({ tradeId }: { tradeId: string }) {
 
   return (
     <div className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/50 p-5">
-      <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A] mb-2">
+      <div className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A] mb-2">
         What If You Followed This Trade?
       </div>
       <div className="text-xs text-[#8888A0] mb-4">
@@ -79,11 +79,11 @@ export function WhatIfSimulator({ tradeId }: { tradeId: string }) {
       </div>
 
       {/* Stock performance table */}
-      <div className="text-xs text-[#55556A] mb-2">Stock Performance (hypothetical $10K position)</div>
+      <div className="text-xs text-[#81819A] mb-2">Stock Performance (hypothetical $10K position)</div>
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
-            <tr className="text-[#55556A] border-b border-[#2A2A3A]/50">
+            <tr className="text-[#81819A] border-b border-[#2A2A3A]/50">
               <th className="text-left py-1.5 pr-3 font-medium">Horizon</th>
               <th className="text-right py-1.5 px-2 font-medium">Stock</th>
               <th className="text-right py-1.5 px-2 font-medium">SPY</th>
@@ -100,10 +100,10 @@ export function WhatIfSimulator({ tradeId }: { tradeId: string }) {
                   <td className={`text-right py-1.5 px-2 ${isGood ? "text-[#22C55E]" : "text-[#EF4444]"}`}>
                     {h.stock_return > 0 ? "+" : ""}{h.stock_return}%
                   </td>
-                  <td className="text-right py-1.5 px-2 text-[#55556A]">
+                  <td className="text-right py-1.5 px-2 text-[#81819A]">
                     {h.spy_return != null ? `${h.spy_return > 0 ? "+" : ""}${h.spy_return}%` : "\u2014"}
                   </td>
-                  <td className={`text-right py-1.5 px-2 ${h.alpha != null ? (isSell ? (h.alpha < 0 ? "text-[#22C55E]" : "text-[#EF4444]") : (h.alpha > 0 ? "text-[#22C55E]" : "text-[#EF4444]")) : "text-[#55556A]"}`}>
+                  <td className={`text-right py-1.5 px-2 ${h.alpha != null ? (isSell ? (h.alpha < 0 ? "text-[#22C55E]" : "text-[#EF4444]") : (h.alpha > 0 ? "text-[#22C55E]" : "text-[#EF4444]")) : "text-[#81819A]"}`}>
                     {h.alpha != null ? `${h.alpha > 0 ? "+" : ""}${h.alpha}%` : "\u2014"}
                   </td>
                   <td className={`text-right py-1.5 pl-2 ${isGood ? "text-[#22C55E]" : "text-[#EF4444]"}`}>
@@ -117,7 +117,7 @@ export function WhatIfSimulator({ tradeId }: { tradeId: string }) {
       </div>
 
 
-      <div className="text-[10px] text-[#55556A] mt-3">
+      <div className="text-[10px] text-[#81819A] mt-3">
         Hypothetical returns based on actual market data. Past performance does not guarantee future results.
       </div>
     </div>

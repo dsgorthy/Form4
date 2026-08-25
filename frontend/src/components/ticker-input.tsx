@@ -112,10 +112,10 @@ export function TickerInput() {
             if (suggestions.length > 0) setIsOpen(true);
           }}
           placeholder="Enter ticker (e.g. AAPL, MSFT, NVDA)"
-          className="w-full rounded-md border border-[#2A2A3A] bg-[#1A1A26] px-4 py-2.5 pl-10 text-sm text-[#E8E8ED] placeholder:text-[#55556A] focus:border-[#3B82F6] focus:outline-none font-mono transition-colors"
+          className="w-full rounded-md border border-[#2A2A3A] bg-[#1A1A26] px-4 py-2.5 pl-10 text-sm text-[#E8E8ED] placeholder:text-[#81819A] focus:border-[#3B82F6] focus:outline-none font-mono transition-colors"
         />
         <svg
-          className="absolute left-3 top-1/2 -translate-y-1/2 text-[#55556A]"
+          className="absolute left-3 top-1/2 -translate-y-1/2 text-[#81819A]"
           width="16"
           height="16"
           viewBox="0 0 24 24"
@@ -134,7 +134,7 @@ export function TickerInput() {
               setIsOpen(false);
               router.push("/explore");
             }}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-[#55556A] hover:text-[#8888A0] transition-colors"
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-[#81819A] hover:text-[#8888A0] transition-colors"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M18 6L6 18M6 6l12 12" />
@@ -162,7 +162,7 @@ export function TickerInput() {
               <span className="text-xs text-[#8888A0] truncate flex-1">
                 {s.company}
               </span>
-              <span className="text-[10px] text-[#55556A] shrink-0">
+              <span className="text-[10px] text-[#81819A] shrink-0">
                 {s.trade_count} trades
               </span>
             </button>

@@ -9,7 +9,7 @@ export default function PrivacyPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-8 py-4">
       {/* Breadcrumb */}
-      <nav className="text-sm text-[#55556A]">
+      <nav className="text-sm text-[#81819A]">
         <Link href="/" className="hover:text-[#8888A0] transition-colors">
           Dashboard
         </Link>
@@ -18,7 +18,7 @@ export default function PrivacyPage() {
       </nav>
 
       <h1 className="text-2xl font-semibold text-[#E8E8ED]">Privacy Policy</h1>
-      <p className="text-sm text-[#55556A]">Effective date: March 15, 2026</p>
+      <p className="text-sm text-[#81819A]">Effective date: March 15, 2026</p>
 
       <div className="space-y-6 text-sm leading-relaxed text-[#8888A0]">
         <section className="space-y-2">

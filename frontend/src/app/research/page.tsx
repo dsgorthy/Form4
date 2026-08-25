@@ -51,7 +51,7 @@ function FeaturedCard({ post }: { post: ResearchPostMeta }) {
           {post.frontmatter.summary}
         </p>
       )}
-      <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-[#55556A]">
+      <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-[#81819A]">
         <span className="text-[#8888A0]">{post.frontmatter.author}</span>
         {post.frontmatter.date && (
           <>
@@ -75,7 +75,7 @@ function PostCard({ post }: { post: ResearchPostMeta }) {
       className="block rounded-lg border border-[#2A2A3A] bg-[#12121A] p-5 hover:border-[#3B82F6]/50 transition-colors"
     >
       {post.frontmatter.subtitle && (
-        <div className="text-xs font-medium uppercase tracking-widest text-[#55556A] mb-1">
+        <div className="text-xs font-medium uppercase tracking-widest text-[#81819A] mb-1">
           {post.frontmatter.subtitle}
         </div>
       )}
@@ -87,7 +87,7 @@ function PostCard({ post }: { post: ResearchPostMeta }) {
           {post.frontmatter.summary}
         </p>
       )}
-      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#55556A]">
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#81819A]">
         {post.frontmatter.date && (
           <time dateTime={post.frontmatter.date}>
             {formatResearchDate(post.frontmatter.date)}
@@ -178,7 +178,7 @@ export default function ResearchHubPage() {
               Insider Grade (A+ to D) measures the person&apos;s historical track record.
               Trade Grade (1-5★) scores each transaction on 13 factors. Bayesian analysis across 196K+ insider trades.
             </p>
-            <div className="mt-3 text-xs text-[#55556A]">
+            <div className="mt-3 text-xs text-[#81819A]">
               Reference · How scoring works
             </div>
           </Link>

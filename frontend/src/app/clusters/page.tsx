@@ -133,7 +133,7 @@ export default async function ClustersPage({ searchParams }: Props) {
       <div className="flex flex-col gap-4 mb-6 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-[#E8E8ED]">Clusters</h1>
-          <p className="text-sm text-[#55556A] mt-1">
+          <p className="text-sm text-[#81819A] mt-1">
             {data.total} active clusters ({days}d window) &middot; Multiple insiders trading the same stock
           </p>
         </div>
@@ -203,7 +203,7 @@ export default async function ClustersPage({ searchParams }: Props) {
           {(tradeType || minValue || days !== "14") && (
             <Link
               href="/clusters"
-              className="text-xs text-[#55556A] hover:text-[#8888A0]"
+              className="text-xs text-[#81819A] hover:text-[#8888A0]"
             >
               Reset
             </Link>
@@ -248,19 +248,19 @@ export default async function ClustersPage({ searchParams }: Props) {
 
               <div className="flex items-center gap-4 md:gap-6 text-sm flex-wrap md:justify-end">
                 <div className="text-left md:text-right">
-                  <div className="text-[10px] uppercase tracking-wider text-[#55556A]">Insiders</div>
+                  <div className="text-[10px] uppercase tracking-wider text-[#81819A]">Insiders</div>
                   <div className="font-mono font-bold text-[#E8E8ED]">{cluster.insider_count}</div>
                 </div>
                 <div className="text-left md:text-right">
-                  <div className="text-[10px] uppercase tracking-wider text-[#55556A]">Total Value</div>
+                  <div className="text-[10px] uppercase tracking-wider text-[#81819A]">Total Value</div>
                   <div className="font-mono font-bold text-[#E8E8ED]">{formatCurrency(cluster.total_value)}</div>
                 </div>
                 <div className="text-left md:text-right">
-                  <div className="text-[10px] uppercase tracking-wider text-[#55556A]">C-Suite</div>
+                  <div className="text-[10px] uppercase tracking-wider text-[#81819A]">C-Suite</div>
                   <div className="font-mono font-bold text-[#E8E8ED]">{cluster.csuite_count}</div>
                 </div>
                 <div className="text-left md:text-right">
-                  <div className="text-[10px] uppercase tracking-wider text-[#55556A]">Window</div>
+                  <div className="text-[10px] uppercase tracking-wider text-[#81819A]">Window</div>
                   <div className="text-xs text-[#8888A0]">
                     {cluster.first_trade === cluster.last_trade
                       ? cluster.first_trade
@@ -289,7 +289,7 @@ export default async function ClustersPage({ searchParams }: Props) {
                             <InsiderGradeBadge grade={(ins as any).career_grade} />
                           ) : null}
                         </div>
-                        <div className={`text-xs truncate mt-0.5 ${isGated ? "text-[#55556A]/40 blur-[3px]" : "text-[#55556A]"}`}>
+                        <div className={`text-xs truncate mt-0.5 ${isGated ? "text-[#81819A]/40 blur-[3px]" : "text-[#81819A]"}`}>
                           {ins.title}
                           {ins.is_csuite ? " (C-Suite)" : ""}
                         </div>
@@ -298,7 +298,7 @@ export default async function ClustersPage({ searchParams }: Props) {
                         <div className={`font-mono text-xs ${isGated ? "text-[#E8E8ED]/40 blur-[3px]" : "text-[#E8E8ED]"}`}>
                           {formatCurrency(ins.trade_value)}
                         </div>
-                        <div className={`text-[10px] ${isGated ? "text-[#55556A]/40 blur-[3px]" : "text-[#55556A]"}`}>
+                        <div className={`text-[10px] ${isGated ? "text-[#81819A]/40 blur-[3px]" : "text-[#81819A]"}`}>
                           {ins.last_trade_date}
                         </div>
                       </div>
@@ -322,7 +322,7 @@ export default async function ClustersPage({ searchParams }: Props) {
 
       {/* Empty state */}
       {data.items.length === 0 && (
-        <div className="flex flex-col items-center justify-center h-40 rounded-lg border border-[#2A2A3A] text-[#55556A]">
+        <div className="flex flex-col items-center justify-center h-40 rounded-lg border border-[#2A2A3A] text-[#81819A]">
           <div className="text-lg mb-1">No clusters detected</div>
           <div className="text-xs">Try widening the time window or removing filters</div>
         </div>
@@ -331,7 +331,7 @@ export default async function ClustersPage({ searchParams }: Props) {
       {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-between mt-6">
-          <p className="text-sm text-[#55556A]">
+          <p className="text-sm text-[#81819A]">
             Showing {offset + 1}–{Math.min(offset + PAGE_SIZE, data.total)} of {data.total}
           </p>
           <div className="flex items-center gap-2">

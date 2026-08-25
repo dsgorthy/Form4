@@ -103,7 +103,7 @@ export function CalendarHeatmap({ data, days = 90 }: CalendarHeatmapProps) {
             key={i}
             x={m.x}
             y={9}
-            className="fill-[#55556A]"
+            className="fill-[#81819A]"
             fontSize={7}
             fontFamily="monospace"
           >
@@ -118,7 +118,7 @@ export function CalendarHeatmap({ data, days = 90 }: CalendarHeatmapProps) {
               key={i}
               x={0}
               y={i * cellTotal + cellSize - 1 + 14}
-              className="fill-[#55556A]"
+              className="fill-[#81819A]"
               fontSize={7}
               fontFamily="monospace"
             >
@@ -167,7 +167,7 @@ export function CalendarHeatmap({ data, days = 90 }: CalendarHeatmapProps) {
             {tooltip.day.count} filings &middot; {formatCurrency(tooltip.day.total_value)}
           </div>
           {tooltip.day.top_ticker && (
-            <div className="text-[#55556A]">Top: {tooltip.day.top_ticker}</div>
+            <div className="text-[#81819A]">Top: {tooltip.day.top_ticker}</div>
           )}
         </div>
       )}

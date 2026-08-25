@@ -97,21 +97,21 @@ export function CongressTable({ ticker, initialData }: CongressTableProps) {
   return (
     <div className="mb-8">
       <div className="flex items-baseline gap-2 mb-3">
-        <span className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A]">
+        <span className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A]">
           Political Activity (Congress) ({data.total})
         </span>
-        <span className="text-[10px] text-[#55556A]/50">· ~1 day delay</span>
+        <span className="text-[10px] text-[#81819A]/50">· ~1 day delay</span>
       </div>
       <div className={`overflow-x-auto rounded-lg border border-[#2A2A3A] ${loading ? "opacity-60" : ""} transition-opacity`}>
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-[#2A2A3A] bg-[#1A1A26]/50">
-              <th className="px-3 md:px-4 py-3 text-left text-[#55556A] font-medium">Politician</th>
-              <th className="hidden md:table-cell px-4 py-3 text-left text-[#55556A] font-medium">Party</th>
-              <th className="px-3 md:px-4 py-3 text-left text-[#55556A] font-medium">Type</th>
-              <th className="px-3 md:px-4 py-3 text-left text-[#55556A] font-medium">Date</th>
-              <th className="px-3 md:px-4 py-3 text-right text-[#55556A] font-medium">Value Range</th>
-              <th className="hidden md:table-cell px-4 py-3 text-left text-[#55556A] font-medium">Owner</th>
+              <th className="px-3 md:px-4 py-3 text-left text-[#81819A] font-medium">Politician</th>
+              <th className="hidden md:table-cell px-4 py-3 text-left text-[#81819A] font-medium">Party</th>
+              <th className="px-3 md:px-4 py-3 text-left text-[#81819A] font-medium">Type</th>
+              <th className="px-3 md:px-4 py-3 text-left text-[#81819A] font-medium">Date</th>
+              <th className="px-3 md:px-4 py-3 text-right text-[#81819A] font-medium">Value Range</th>
+              <th className="hidden md:table-cell px-4 py-3 text-left text-[#81819A] font-medium">Owner</th>
             </tr>
           </thead>
           <tbody>
@@ -122,7 +122,7 @@ export function CongressTable({ ticker, initialData }: CongressTableProps) {
               >
                 <td className="px-3 md:px-4 py-3 font-medium text-[#E8E8ED]">
                   {ct.politician_name}
-                  <span className="ml-2 text-xs text-[#55556A]">
+                  <span className="ml-2 text-xs text-[#81819A]">
                     {ct.chamber} &middot; {ct.state}
                   </span>
                 </td>
@@ -144,7 +144,7 @@ export function CongressTable({ ticker, initialData }: CongressTableProps) {
                         : ct.trade_type.toLowerCase().includes("sell") ||
                             ct.trade_type.toLowerCase().includes("sale")
                           ? "border-[#EF4444]/30 text-[#EF4444]"
-                          : "border-[#55556A]/30 text-[#8888A0]"
+                          : "border-[#81819A]/30 text-[#8888A0]"
                     }`}
                   >
                     {ct.trade_type.toUpperCase()}

@@ -89,7 +89,7 @@ export function InsiderScoreChart({ insiderId }: { insiderId: string }) {
       <div className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/50 p-5">
         <div className="flex items-center justify-between mb-3">
           <div>
-            <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A]">
+            <div className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A]">
               PIT Score Over Time
             </div>
           </div>
@@ -106,7 +106,7 @@ export function InsiderScoreChart({ insiderId }: { insiderId: string }) {
             </select>
           )}
         </div>
-        <div className="text-xs text-[#55556A] py-8 text-center">Not enough data for {view === "all" ? "this insider" : view}</div>
+        <div className="text-xs text-[#81819A] py-8 text-center">Not enough data for {view === "all" ? "this insider" : view}</div>
       </div>
     );
   }
@@ -204,10 +204,10 @@ export function InsiderScoreChart({ insiderId }: { insiderId: string }) {
     <div className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/50 p-5">
       <div className="flex items-center justify-between mb-3">
         <div>
-          <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A]">
+          <div className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A]">
             PIT Score Over Time
           </div>
-          <div className="text-xs text-[#55556A] mt-0.5">
+          <div className="text-xs text-[#81819A] mt-0.5">
             Point-in-time grade evolution with each new trade
           </div>
         </div>

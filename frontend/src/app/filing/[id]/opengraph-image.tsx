@@ -11,7 +11,7 @@ const API = process.env.API_URL_INTERNAL || process.env.NEXT_PUBLIC_API_URL || "
 const BG = "#0A0A0F";
 const INK = "#E8E8ED";
 const MUTED = "#8888A0";
-const FAINT = "#55556A";
+const FAINT = "#81819A";
 const RULE = "#23232E";
 const ACCENT = "#3B82F6";
 

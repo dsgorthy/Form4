@@ -108,14 +108,14 @@ export default async function ResearchPostPage({
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
       <article className="mx-auto max-w-3xl py-8 md:py-12">
-        <nav className="mb-8 text-sm text-[#55556A]">
+        <nav className="mb-8 text-sm text-[#81819A]">
           <Link href="/research" className="hover:text-[#E8E8ED] transition-colors">
             Research
           </Link>
           <span className="mx-2">/</span>
           {/* Per-type listing pages were removed 2026-08-12 when /research
               collapsed to a single hub — this is a label, not a link. */}
-          <span className="text-[#55556A]">
+          <span className="text-[#81819A]">
             {RESEARCH_TYPE_LABELS[post.type]}
           </span>
         </nav>
@@ -137,7 +137,7 @@ export default async function ResearchPostPage({
               {post.frontmatter.summary}
             </p>
           )}
-          <div className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-[#55556A]">
+          <div className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-[#81819A]">
             <span className="text-[#8888A0]">{post.frontmatter.author}</span>
             {post.frontmatter.date && (
               <>
@@ -177,7 +177,7 @@ export default async function ResearchPostPage({
                       {p.frontmatter.summary}
                     </p>
                   )}
-                  <div className="mt-2 text-xs text-[#55556A]">
+                  <div className="mt-2 text-xs text-[#81819A]">
                     {formatResearchDate(p.frontmatter.date)} · {p.readingTimeMinutes} min read
                   </div>
                 </Link>

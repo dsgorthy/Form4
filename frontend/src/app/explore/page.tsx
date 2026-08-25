@@ -51,7 +51,7 @@ interface CompanyOverview {
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A] mb-3">
+    <div className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A] mb-3">
       {children}
     </div>
   );
@@ -202,7 +202,7 @@ export default async function ExplorePage({ searchParams }: Props) {
       {!overview && (
         <div className="mb-8">
           <h1 className="text-2xl font-bold text-[#E8E8ED] mb-1">Explore</h1>
-          <p className="text-sm text-[#55556A] mb-4">
+          <p className="text-sm text-[#81819A] mb-4">
             Look up any company or insider — trade history, track records, and political overlap
           </p>
           <EntitySearch variant="hero" />
@@ -213,7 +213,7 @@ export default async function ExplorePage({ searchParams }: Props) {
       {error && (
         <div className="flex flex-col items-center justify-center h-48 rounded-lg border border-[#2A2A3A] bg-[#12121A]">
           <div className="text-lg text-[#8888A0] mb-2">{error}</div>
-          <p className="text-xs text-[#55556A]">Check the ticker symbol and try again</p>
+          <p className="text-xs text-[#81819A]">Check the ticker symbol and try again</p>
         </div>
       )}
 
@@ -229,7 +229,7 @@ export default async function ExplorePage({ searchParams }: Props) {
               <WatchButton ticker={overview.ticker} />
             </div>
             <p className="text-[#8888A0] mt-1">{overview.company}</p>
-            <div className="flex flex-wrap items-center gap-2 md:gap-4 mt-2 text-xs text-[#55556A]">
+            <div className="flex flex-wrap items-center gap-2 md:gap-4 mt-2 text-xs text-[#81819A]">
               <span>{overview.total_trades} total trades</span>
               <span>{formatCurrency(overview.total_value)} total value</span>
               <span>

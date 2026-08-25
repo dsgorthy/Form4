@@ -196,9 +196,9 @@ export default async function CongressPage({ searchParams }: Props) {
           <h1 className="text-2xl font-bold text-[#E8E8ED]">
             Congress Trades
           </h1>
-          <p className="text-sm text-[#55556A] mt-1">
+          <p className="text-sm text-[#81819A] mt-1">
             {data.total.toLocaleString()} trades
-            <span className="ml-2 text-[#55556A]/60">· Data delayed ~1 day from STOCK Act filings</span>
+            <span className="ml-2 text-[#81819A]/60">· Data delayed ~1 day from STOCK Act filings</span>
           </p>
         </div>
 
@@ -274,7 +274,7 @@ export default async function CongressPage({ searchParams }: Props) {
               name="ticker"
               defaultValue={ticker}
               placeholder="Ticker..."
-              className="w-20 rounded-md border border-[#2A2A3A] bg-[#12121A] px-2 py-1.5 text-xs font-mono text-[#E8E8ED] placeholder-[#55556A] focus:border-[#3B82F6] focus:outline-none"
+              className="w-20 rounded-md border border-[#2A2A3A] bg-[#12121A] px-2 py-1.5 text-xs font-mono text-[#E8E8ED] placeholder-[#81819A] focus:border-[#3B82F6] focus:outline-none"
             />
           </form>
 
@@ -282,7 +282,7 @@ export default async function CongressPage({ searchParams }: Props) {
           {hasFilters && (
             <Link
               href="/congress"
-              className="text-xs text-[#55556A] hover:text-[#8888A0]"
+              className="text-xs text-[#81819A] hover:text-[#8888A0]"
             >
               Clear
             </Link>
@@ -301,13 +301,13 @@ export default async function CongressPage({ searchParams }: Props) {
       {/* Ticker filter badge */}
       {ticker && (
         <div className="mb-4 flex items-center gap-2">
-          <span className="text-xs text-[#55556A]">Filtered to:</span>
+          <span className="text-xs text-[#81819A]">Filtered to:</span>
           <span className="rounded-md bg-[#1A1A26] border border-[#2A2A3A] px-2 py-1 text-xs font-mono text-[#E8E8ED]">
             {ticker}
           </span>
           <Link
             href={buildUrl({ ticker: "", page: "1" })}
-            className="text-xs text-[#55556A] hover:text-[#8888A0]"
+            className="text-xs text-[#81819A] hover:text-[#8888A0]"
           >
             Remove
           </Link>
@@ -319,25 +319,25 @@ export default async function CongressPage({ searchParams }: Props) {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-[#2A2A3A] bg-[#1A1A26]/50">
-              <th className="px-3 md:px-4 py-3 text-left text-[#55556A] font-medium">
+              <th className="px-3 md:px-4 py-3 text-left text-[#81819A] font-medium">
                 Politician
               </th>
-              <th className="px-3 md:px-4 py-3 text-left text-[#55556A] font-medium">
+              <th className="px-3 md:px-4 py-3 text-left text-[#81819A] font-medium">
                 Ticker
               </th>
-              <th className="px-3 md:px-4 py-3 text-center text-[#55556A] font-medium">
+              <th className="px-3 md:px-4 py-3 text-center text-[#81819A] font-medium">
                 Type
               </th>
-              <th className="hidden md:table-cell px-4 py-3 text-left text-[#55556A] font-medium">
+              <th className="hidden md:table-cell px-4 py-3 text-left text-[#81819A] font-medium">
                 Trade Date
               </th>
-              <th className="px-3 md:px-4 py-3 text-right text-[#55556A] font-medium">
+              <th className="px-3 md:px-4 py-3 text-right text-[#81819A] font-medium">
                 Value
               </th>
-              <th className="hidden md:table-cell px-4 py-3 text-left text-[#55556A] font-medium">
+              <th className="hidden md:table-cell px-4 py-3 text-left text-[#81819A] font-medium">
                 Owner
               </th>
-              <th className="hidden md:table-cell px-4 py-3 text-left text-[#55556A] font-medium">
+              <th className="hidden md:table-cell px-4 py-3 text-left text-[#81819A] font-medium">
                 Filed
               </th>
             </tr>
@@ -364,9 +364,9 @@ export default async function CongressPage({ searchParams }: Props) {
                         {trade.party}
                       </Badge>
                     ) : (
-                      <span className="text-[10px] text-[#55556A]">{"\u2014"}</span>
+                      <span className="text-[10px] text-[#81819A]">{"\u2014"}</span>
                     )}
-                    <span className="hidden md:inline text-[10px] text-[#55556A]">
+                    <span className="hidden md:inline text-[10px] text-[#81819A]">
                       {trade.state}
                     </span>
                   </div>
@@ -423,7 +423,7 @@ export default async function CongressPage({ searchParams }: Props) {
 
       {/* Empty state */}
       {data.items.length === 0 && (
-        <div className="flex h-40 items-center justify-center text-[#55556A] rounded-lg border border-[#2A2A3A] mt-4">
+        <div className="flex h-40 items-center justify-center text-[#81819A] rounded-lg border border-[#2A2A3A] mt-4">
           No trades match your filters
         </div>
       )}
@@ -431,7 +431,7 @@ export default async function CongressPage({ searchParams }: Props) {
       {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-between mt-6">
-          <p className="text-sm text-[#55556A]">
+          <p className="text-sm text-[#81819A]">
             Showing {offset + 1}–{Math.min(offset + PAGE_SIZE, data.total)} of{" "}
             {data.total.toLocaleString()}
           </p>

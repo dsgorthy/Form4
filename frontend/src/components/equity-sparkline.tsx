@@ -88,7 +88,7 @@ export function EquitySparkline({
       />
 
       {benchPath && (
-        <path d={benchPath} fill="none" stroke="#55556A" strokeWidth="1.5"
+        <path d={benchPath} fill="none" stroke="#81819A" strokeWidth="1.5"
               vectorEffect="non-scaling-stroke" />
       )}
       <path d={areaPath} fill="url(#eq-fill)" stroke="none" />

@@ -65,7 +65,7 @@ export function EquityCurve({ data, benchmark, startingCapital }: EquityCurvePro
         height: isMobile ? 260 : 380,
         layout: {
           background: { type: lc.ColorType.Solid, color: "#12121A" },
-          textColor: "#55556A",
+          textColor: "#81819A",
           fontFamily: "ui-monospace, SFMono-Regular, monospace",
           fontSize: 11,
         },
@@ -122,7 +122,7 @@ export function EquityCurve({ data, benchmark, startingCapital }: EquityCurvePro
       // Starting capital line
       equitySeries.createPriceLine({
         price: startingCapital,
-        color: "#55556A",
+        color: "#81819A",
         lineWidth: 1,
         lineStyle: lc.LineStyle.Dashed,
         axisLabelVisible: true,
@@ -132,7 +132,7 @@ export function EquityCurve({ data, benchmark, startingCapital }: EquityCurvePro
       // SPY benchmark
       if (benchmark && benchmark.length > 0) {
         const benchSeries = chart.addSeries(lc.LineSeries, {
-          color: "#55556A",
+          color: "#81819A",
           lineWidth: 1,
           lineStyle: lc.LineStyle.Dashed,
           crosshairMarkerVisible: false,
@@ -230,7 +230,7 @@ export function EquityCurve({ data, benchmark, startingCapital }: EquityCurvePro
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2 mb-3">
         <div>
-          <div className="text-[10px] font-semibold uppercase tracking-widest text-[#55556A] mb-1">
+          <div className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A] mb-1">
             Portfolio Equity
           </div>
           <div className="flex items-baseline gap-3">
@@ -244,7 +244,7 @@ export function EquityCurve({ data, benchmark, startingCapital }: EquityCurvePro
               {isPositive ? "+" : ""}${Math.abs(displayPnl).toLocaleString(undefined, { maximumFractionDigits: 0 })}
             </span>
           </div>
-          <div className="text-[10px] text-[#55556A] mt-0.5 h-4">
+          <div className="text-[10px] text-[#81819A] mt-0.5 h-4">
             {hoverInfo ? (
               <>
                 {hoverInfo.date}
@@ -268,7 +268,7 @@ export function EquityCurve({ data, benchmark, startingCapital }: EquityCurvePro
               className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
                 activeRange === label
                   ? "bg-[#3B82F6]/20 text-[#3B82F6]"
-                  : "text-[#55556A] hover:text-[#8888A0] hover:bg-[#1A1A26]"
+                  : "text-[#81819A] hover:text-[#8888A0] hover:bg-[#1A1A26]"
               }`}
             >
               {label}
@@ -281,14 +281,14 @@ export function EquityCurve({ data, benchmark, startingCapital }: EquityCurvePro
       <div ref={containerRef} className="w-full h-[260px] sm:h-[380px]" />
 
       {/* Legend */}
-      <div className="flex items-center gap-4 mt-2 text-[10px] text-[#55556A]">
+      <div className="flex items-center gap-4 mt-2 text-[10px] text-[#81819A]">
         <span className="flex items-center gap-1.5">
           <span className="w-4 h-0.5 bg-[#3B82F6] inline-block rounded" />
           Portfolio
         </span>
         {benchmark && benchmark.length > 0 && (
           <span className="flex items-center gap-1.5">
-            <span className="w-4 h-0.5 bg-[#55556A] inline-block rounded" style={{ borderTop: "1px dashed #55556A" }} />
+            <span className="w-4 h-0.5 bg-[#81819A] inline-block rounded" style={{ borderTop: "1px dashed #81819A" }} />
             S&P 500 (SPY)
           </span>
         )}

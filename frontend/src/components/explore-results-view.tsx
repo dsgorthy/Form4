@@ -37,7 +37,7 @@ export interface ResultsInsider {
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-[#55556A]">
+    <div className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-[#81819A]">
       {children}
     </div>
   );
@@ -70,7 +70,7 @@ export function ExploreResultsView({
       <div className="overflow-x-auto rounded-lg border border-[#2A2A3A]">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-[#2A2A3A] text-xs uppercase text-[#55556A]">
+            <tr className="border-b border-[#2A2A3A] text-xs uppercase text-[#81819A]">
               <th className="px-4 py-2 text-left font-medium">Ticker</th>
               <th className="px-4 py-2 text-left font-medium">Company</th>
               <th className="px-4 py-2 text-right font-medium">Trades</th>
@@ -111,7 +111,7 @@ export function ExploreResultsView({
       <div className="overflow-x-auto rounded-lg border border-[#2A2A3A]">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-[#2A2A3A] text-xs uppercase text-[#55556A]">
+            <tr className="border-b border-[#2A2A3A] text-xs uppercase text-[#81819A]">
               <th className="px-4 py-2 text-left font-medium">Name</th>
               <th className="px-4 py-2 text-left font-medium">Role</th>
               <th className="px-4 py-2 text-left font-medium">Company</th>
@@ -130,14 +130,14 @@ export function ExploreResultsView({
                   </Link>
                 </td>
                 <td className="px-4 py-2 text-[#8888A0]">{ins.primary_title || "—"}</td>
-                <td className="px-4 py-2 font-mono text-xs text-[#55556A]">
+                <td className="px-4 py-2 font-mono text-xs text-[#81819A]">
                   {ins.primary_ticker || "—"}
                 </td>
                 <td className="px-4 py-2 text-right">
                   {ins.best_career_grade ? (
                     <InsiderGradeBadge grade={ins.best_career_grade} />
                   ) : (
-                    <span className="text-[#55556A]">—</span>
+                    <span className="text-[#81819A]">—</span>
                   )}
                 </td>
               </tr>
@@ -154,7 +154,7 @@ export function ExploreResultsView({
         <h1 className="mb-1 text-2xl font-bold text-[#E8E8ED]">
           Results for &ldquo;{term}&rdquo;
         </h1>
-        <p className="text-sm text-[#55556A]">
+        <p className="text-sm text-[#81819A]">
           {insiderTotal.toLocaleString()} insider
           {insiderTotal === 1 ? "" : "s"} &middot;{" "}
           {tickerTotal.toLocaleString()} compan{tickerTotal === 1 ? "y" : "ies"}
@@ -166,7 +166,7 @@ export function ExploreResultsView({
           <p className="text-sm text-[#8888A0]">
             No companies or insiders match &ldquo;{term}&rdquo;
           </p>
-          <p className="mt-1 text-xs text-[#55556A]">
+          <p className="mt-1 text-xs text-[#81819A]">
             Try a ticker symbol, a company name, or a person&rsquo;s full name.
           </p>
         </div>

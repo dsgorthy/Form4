@@ -108,7 +108,7 @@ export function TickerAutocomplete({
         }}
         placeholder={placeholder}
         maxLength={10}
-        className="w-full rounded-md border border-[#2A2A3A] bg-[#1A1A26] px-3 py-2 text-sm text-[#E8E8ED] placeholder-[#55556A] focus:outline-none focus:border-[#3B82F6] uppercase font-mono"
+        className="w-full rounded-md border border-[#2A2A3A] bg-[#1A1A26] px-3 py-2 text-sm text-[#E8E8ED] placeholder-[#81819A] focus:outline-none focus:border-[#3B82F6] uppercase font-mono"
       />
 
       {isOpen && suggestions.length > 0 && (
@@ -129,7 +129,7 @@ export function TickerAutocomplete({
               <span className="text-xs text-[#8888A0] truncate flex-1">
                 {s.company}
               </span>
-              <span className="text-[10px] text-[#55556A] shrink-0">
+              <span className="text-[10px] text-[#81819A] shrink-0">
                 {s.trade_count} trades
               </span>
             </button>

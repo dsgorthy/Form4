@@ -28,7 +28,7 @@ export async function ActivitySpikes() {
     return (
       <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] p-4">
         <h3 className="text-sm font-medium text-[#8888A0] mb-3">Activity Spikes</h3>
-        <p className="text-xs text-[#55556A]">Sign in with Pro to view activity spikes</p>
+        <p className="text-xs text-[#81819A]">Sign in with Pro to view activity spikes</p>
       </div>
     );
   }
@@ -40,7 +40,7 @@ export async function ActivitySpikes() {
     return (
       <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] p-4">
         <h3 className="text-sm font-medium text-[#8888A0] mb-3">Activity Spikes</h3>
-        <p className="text-xs text-[#55556A]">No inflection signals detected</p>
+        <p className="text-xs text-[#81819A]">No inflection signals detected</p>
       </div>
     );
   }
@@ -75,7 +75,7 @@ export async function ActivitySpikes() {
                 </span>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                <span className={`text-[10px] font-mono hidden xl:inline ${isGated ? "text-[#55556A]/40 blur-[3px]" : "text-[#55556A]"}`}>
+                <span className={`text-[10px] font-mono hidden xl:inline ${isGated ? "text-[#81819A]/40 blur-[3px]" : "text-[#81819A]"}`}>
                   {formatCurrency(item.recent_value)}
                 </span>
                 <span

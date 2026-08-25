@@ -22,7 +22,7 @@ export function SentimentChart({ data }: SentimentChartProps) {
           <CardTitle className="text-sm font-medium text-[#8888A0]">Market Insider Sentiment</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex h-[300px] items-center justify-center text-[#55556A]">No sentiment data available</div>
+          <div className="flex h-[300px] items-center justify-center text-[#81819A]">No sentiment data available</div>
         </CardContent>
       </Card>
     );
