@@ -333,14 +333,17 @@ Practical consequences:
 - Any change to any conviction input will move the book by tens of percent.
   That is not a bug being reintroduced; it is this design.
 - The gate threshold is doing more work than any individual signal.
-  **`min_conviction` was swept 2026-08-23 and deliberately NOT changed:** the
-  in-sample optimum fails out of sample on all three books (A-List best-in 1.5
-  / best-out 2.0; Breakout 0.0 / 2.0; Dip Buys 0.0 / 1.5). It is not tunable on
-  this data. But **2.0 wins out-of-sample on both A-List and Breakout** and
-  beats shipped on A-List over the full period too (71.2% vs 63.3%), which
-  agrees with the perturbation result that noise improves A-List's median.
-  Two independent signals say A-List's 1.5 is too low. Needs a proper
-  walk-forward, and it moves live alerts, so it is Derek's call.
+  **`min_conviction` STAYS AT 1.5 — settled 2026-08-24, after the proper
+  walk-forward the 08-23 sweep asked for.** The earlier reading that "two
+  independent signals say A-List's 1.5 is too low" did not survive it. Floor
+  2.0 returns 67.3% both with and without `planned_buy` admitted — it always
+  excluded COE — so 4.5 of the 7.4 points credited to raising the floor were
+  really the planned-purchase rule, now applied explicitly. What is left is
+  +2.9 in-sample with a walk-forward that gives it nothing: three of four cuts
+  pick 1.5, and the cut that picks 2.0 admits the identical six trades. On
+  Breakout, 2.0 costs 24 points. See the methodology doc's min_conviction
+  section for the tables. Worth knowing: 16 of the 17 positions floor 2.0
+  drops score EXACTLY 1.5, so the gate is a mass point rather than a spread.
 
 Still unvalidated out of sample at this level, and the 6.8% drawdown is
 flattered by the book sitting ~41% in cash. Idle cash held in SPY; 1x leverage — the 2x book was built,

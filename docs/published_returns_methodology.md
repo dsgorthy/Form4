@@ -247,7 +247,14 @@ do essentially nothing and the mean is carried by a tail. A-List is +15.66%
 median against +13.68% mean, which is the opposite shape and a much healthier
 one.
 
-## min_conviction: raise it on A-List, leave Breakout alone
+## min_conviction: leave it at 1.5 — the case for raising it was the COE trade
+
+**Reversed 2026-08-24.** This section previously recommended raising A-List's
+floor from 1.5 to 2.0 on the strength of a +8.4-point fixed-floor gain and a
+walk-forward that picked 2.0 at all four cuts. Re-measured after 10b5-1
+planned purchases were excluded, **most of that gain was the same single
+position the new rule removes**, and the walk-forward no longer supports the
+change at all. The recommendation is withdrawn.
 
 **What the number is.** Every candidate filing gets a *conviction score* — a
 sum of roughly twelve half-point components (insider grade, C-suite role,
@@ -255,51 +262,65 @@ cluster size, dip depth, first-ever buy, position vs the moving averages).
 `min_conviction` is the floor: score below it and the candidate is rejected. It
 is 1.5 on A-List and Breakout, 3.0 on Dip Buys, and has never been tuned.
 
-**The score works, weakly.** On A-List's 44 taken positions the rank
-correlation between conviction and P&L is **+0.18** — real but close to noise.
-The useful structure is at the bottom, not across the range:
+**The overlap, measured directly.** The same sweep run against the book with
+and without `planned_buy` admitted:
 
-| conviction | n | mean | median | win |
+| | floor 1.5 | floor 2.0 | gain from raising |
+|---|---|---|---|
+| book as it was (planned_buy admitted) | 59.9% | 67.3% | **+7.4** |
+| book as shipped (planned_buy excluded) | 64.4% | 67.3% | **+2.9** |
+
+**Floor 2.0 returns 67.3% in both books — identical.** It always excluded COE,
+because COE scored below 2.0. So 4.5 of the 7.4 points attributed to "raise the
+floor" were really "stop buying planned purchases", now done explicitly and for
+a stated reason rather than implicitly by a threshold. Two changes were being
+credited with one effect.
+
+**Walk-forward, re-run.** Pick the floor that looked best before a cut date,
+measure what it earned after:
+
+| cut | pick | OOS pick | OOS shipped | delta |
 |---|---|---|---|---|
-| **1.5–2.0** | **17** | **+6.75%** | +14.81% | **59%** |
-| 2.0–2.5 | 14 | +20.06% | +18.30% | 79% |
-| 2.5–3.0 | 7 | +12.51% | +9.81% | 71% |
-| 3.0+ | 6 | +19.83% | +17.55% | 67% |
-| all | 44 | +13.68% | +15.66% | 68% |
+| 2024-06-30 | 1.5 | 64.9% | 64.9% | +0.0 |
+| 2025-01-01 | 1.5 | 85.0% | 85.0% | +0.0 |
+| 2025-06-30 | 1.5 | 79.8% | 79.8% | +0.0 |
+| 2026-01-01 | 2.0 | 64.3% | 64.3% | +0.0 |
 
-**39% of the book sits in the bottom bucket and earns half the book's return.**
+Three cuts pick the shipped floor. The fourth picks 2.0 and earns exactly the
+same, because from 2026-01-01 the two floors admit the *same six trades* —
+verified, not inferred. Previously this table read "2.0 at every cut, +20.0
+points average"; that was the pre-exclusion book, and the gain was COE.
 
-**Walk-forward.** Pick the floor that looked best on data before a cut date,
-then measure what it actually earned after. Four cuts:
-
-| | A-List | Insider Breakout |
-|---|---|---|
-| floor picked at every cut | **2.0** | 1.0 |
-| average gain vs shipped | **+20.0 pts** | **−34.1 pts** |
-| cuts where tuning helped | 2 of 4 | **0 of 4** |
-
-And as a fixed floor over the whole period:
+**Fixed floor over the whole period, as shipped today:**
 
 | floor | A-List | Breakout |
 |---|---|---|
-| 1.0 | 49.2% | **68.3%** |
-| **1.5 (shipped)** | 62.4% | 64.2% |
-| **2.0** | **70.8%** | 42.3% |
-| 2.5 | 33.1% | 30.6% |
+| 1.0 | 51.4% | **64.9%** |
+| **1.5 (shipped)** | **64.4%** | **58.8%** |
+| 2.0 | 67.3% | 34.7% |
+| 2.5 | 22.6% | 18.1% |
+| 3.0 | 12.5% | 0.9% |
 
-**A-List: raise 1.5 → 2.0.** It is the walk-forward pick at every cut, the best
-fixed floor over the full period (+8.4 points), and max drawdown is unchanged
-(23.2% against 22.6%). The mechanism is visible in the bucket table rather than
-being a curve-fit.
+**A-List: leave it at 1.5.** What remains for 2.0 is +2.9 points in-sample and
+a genuinely better trade-row drawdown (11.4% → 7.2%), against a walk-forward
+that gives it nothing and a trade count falling 44 → 38 on a book that fires
+about thirteen times a year. An in-sample gain with no out-of-sample support
+is the definition of the thing this document exists to avoid.
 
-**Breakout: do not touch it.** Its in-sample pick (1.0) lost out of sample at
-every single cut, by 30 points or more three times out of four.
+**Breakout: do not touch it.** Its in-sample pick is 1.0 and always has been;
+raising to 2.0 costs it 24 points (58.8% → 34.7%).
 
-**Caveats that belong with this.** A-List drops from 44 trades to 38, and it
-already fires only ~13 times a year — the floor buys return by taking fewer
-alerts. The +20.0 average gain is dominated by one cut (+53.6); the median cut
-gained far less. And this is still one book over 3.6 years in a bull market.
+**A structural note worth keeping.** Of the 17 positions floor 2.0 drops,
+sixteen score *exactly* 1.5 — the floor is a mass point, not the low end of a
+spread. That is why the gate is so sensitive: a ±0.5 move in any one of twelve
+half-point components pushes a whole cohort across it at once, which is the
+same mechanism described under the conviction fragility band. The
+seventeenth, SUNS at conviction 3.0, is dropped not by the floor but because
+a different trade occupied its slot — admission is non-monotonic in the floor.
 
+**If this is revisited**, the honest experiment is a floor between 1.5 and 2.0
+measured on a book that has not also just changed underneath it, and against
+walk-forward rather than the full period.
 
 ---
 
