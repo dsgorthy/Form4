@@ -581,9 +581,20 @@ def scan_congress_convergence(iconn: ConnectionWrapper, nconn: ConnectionWrapper
     return count
 
 
+#: Tags that mark a filing as mechanically driven even though signal_class
+#: reports it as discretionary. In SEC terms these ARE discretionary sales; the
+#: tag adds the context signal_class cannot see, because the classifier reads a
+#: row in isolation and a grant filed the day before is a different row.
+MECHANICAL_TAGS = ("post_vest_dump", "exercise_and_sell")
+
+
 def should_notify_watchlist(signal_class: str | None,
-                           user_wants_all: bool) -> bool:
+                            user_wants_all: bool,
+                            tags: "tuple[str, ...] | list[str] | None" = None) -> bool:
     """Does this filing clear the watchlist default for this user?
+
+    Two gates. `signal_class` removes what SEC coding already marks as
+    mechanical; the tags remove what it cannot see.
 
     THE DEFAULT IS MEANINGFUL FILINGS ONLY. 71.6% of Form 4s are mechanical:
     10b5-1 plans set up months ago, compensation grants, tax withheld on
@@ -604,7 +615,15 @@ def should_notify_watchlist(signal_class: str | None,
         return True
     if signal_class is None or str(signal_class).strip() == "":
         return True          # fail open — see docstring
-    return signal_class in MEANINGFUL_CLASSES
+    if signal_class not in MEANINGFUL_CLASSES:
+        return False
+    # Selling shares you were handed last week is not a decision. Twelve P&G
+    # executives were granted shares on 2026-08-19 and sold them on 08-20;
+    # signal_class called all twelve discretionary. 23.1% of discretionary
+    # sells in 180 days follow an award or exercise within five days.
+    if tags and any(t in MECHANICAL_TAGS for t in tags):
+        return False
+    return True
 
 
 def scan_watchlist_activity(iconn: ConnectionWrapper, nconn: ConnectionWrapper, latest: str) -> int:
@@ -666,7 +685,25 @@ def scan_watchlist_activity(iconn: ConnectionWrapper, nconn: ConnectionWrapper, 
                        MAX(t.title) AS title, t.trade_type, t.trade_date,
                        MAX(t.filing_date) AS filing_date,
                        SUM(t.value) AS total_value,
-                       t.signal_class
+                       t.signal_class,
+                       -- Mechanical-behaviour tags. signal_class cannot see a
+                       -- grant filed the day before; the tag can.
+                       --
+                       -- Scoped to the whole filing group, not MIN(trade_id):
+                       -- the tag is written per lot, and an award-then-sell
+                       -- filed in three tranches may only tag one of them.
+                       -- Joining trade_signals directly would be simpler and
+                       -- wrong -- a trade carrying BOTH tags would duplicate
+                       -- its row and double SUM(t.value).
+                       (SELECT string_agg(DISTINCT v.signal_type, ',')
+                          FROM trade_signals v
+                          JOIN trades t2 ON t2.trade_id = v.trade_id
+                         WHERE t2.insider_id  = t.insider_id
+                           AND t2.ticker      = t.ticker
+                           AND t2.trade_type  = t.trade_type
+                           AND t2.trade_date  = t.trade_date
+                           AND v.signal_type IN ('post_vest_dump',
+                                                 'exercise_and_sell')) AS tags
                   FROM trades t
                   JOIN insiders i ON t.insider_id = i.insider_id
                  WHERE t.ingested_at > ? AND t.ingested_at <= ?
@@ -714,7 +751,8 @@ def scan_watchlist_activity(iconn: ConnectionWrapper, nconn: ConnectionWrapper, 
 
         for user_id in audience:
             if not should_notify_watchlist(
-                    r.get("signal_class"), user_id in unfiltered_users):
+                    r.get("signal_class"), user_id in unfiltered_users,
+                    tuple(filter(None, (r.get("tags") or "").split(",")))):
                 continue
             dedup = _dedup_key("wla", user_id, str(r["trade_id"]), r["trade_date"])
             if _insert_notification(nconn, user_id, "watchlist_activity",

@@ -103,11 +103,31 @@ def test_a_missed_weekday_run_still_halts(contract):
     )
 
 
-def test_assert_fresh_uses_business_hours_when_the_flag_is_set(
-        monkeypatch, contract):
+def test_assert_fresh_uses_business_hours_when_the_flag_is_set(monkeypatch):
+    """A generous threshold on purpose.
+
+    The first version used the real 26h contract and was time-of-day
+    dependent: a Friday 17:30 write is ~19h of business time old on Monday
+    morning and ~26h by Monday evening, so the test passed before lunch and
+    failed after it. What is being asserted is that assert_fresh consults
+    business hours AT ALL, not where a particular boundary falls — so pick a
+    threshold the raw age clears and the business age does not, with room on
+    both sides.
+    """
+    generous = F.FreshnessContract(
+        table="trades", column="pit_cluster_size", max_staleness_hours=40.0,
+        required_for=("quality_momentum",), description="",
+        populated_by="form4_pipeline",
+    )
     friday = _last_friday_1730_pt()
-    _patch(monkeypatch, contract, friday)
-    # Must not raise: raw age is ~60-84h, business age is well under 26h.
+    _patch(monkeypatch, generous, friday)
+
+    raw = (datetime.now(timezone.utc) - friday).total_seconds() / 3600
+    assert raw > 40, f"premise: raw age {raw:.1f}h must exceed the threshold"
+    business = F.business_age_hours(friday)
+    assert business < 40, f"premise: business age {business:.1f}h must not"
+
+    # Must not raise — which can only be true if the weekend was discounted.
     F.assert_fresh(None, table="trades", column="pit_cluster_size",
                    strategy="quality_momentum")
 
