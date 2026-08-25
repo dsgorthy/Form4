@@ -591,7 +591,7 @@ def get_insider_trades(
                 agg.trade_type, agg.trade_date, agg.filing_date,
                 agg.price, agg.qty, agg.value, agg.lot_count,
                 agg.is_csuite, agg.trans_code,
-                agg.is_10b5_1, agg.is_routine,
+                agg.is_10b5_1, agg.is_routine, agg.signal_class,
                 agg.pit_grade, agg.pit_blended_score,
                 tr.return_7d, tr.return_30d, tr.return_90d,
                 tr.abnormal_7d, tr.abnormal_30d, tr.abnormal_90d
@@ -611,6 +611,33 @@ def get_insider_trades(
                     GROUP_CONCAT(DISTINCT t.trans_code) AS trans_code,
                     MAX(t.is_10b5_1) AS is_10b5_1,
                     MAX(t.is_routine) AS is_routine,
+                    -- signal_class was NOT selected here, so every row reached
+                    -- the client as null. insider-trades-table derives
+                    -- `isRoutineSell = trade_type === "sell" &&
+                    -- !isDiscretionary(signal_class)`, and isDiscretionary(null)
+                    -- is false — so EVERY sell on EVERY insider page was
+                    -- labelled "Routine", including plain discretionary sales.
+                    -- The filing and explore pages had the field and disagreed,
+                    -- which is how it was noticed.
+                    --
+                    -- AGGREGATION RULE: if ANY lot is discretionary, the
+                    -- filing is discretionary.
+                    --
+                    -- Not MAX(). 723 filing groups in the last 90 days hold
+                    -- more than one class even after grouping by trade_type —
+                    -- `discretionary_sell + gift + tax_withholding` is a
+                    -- common shape. MAX() sorts alphabetically and would
+                    -- return `tax_withholding`, hiding a genuine open-market
+                    -- sale behind the vesting paperwork filed beside it.
+                    --
+                    -- A filing containing a real decision IS a real decision,
+                    -- whatever mechanical rows accompany it.
+                    COALESCE(
+                        MAX(t.signal_class) FILTER (
+                            WHERE t.signal_class IN ('discretionary_buy',
+                                                     'discretionary_sell')),
+                        MAX(t.signal_class)
+                    ) AS signal_class,
                     MAX(t.pit_grade) AS pit_grade,
                     MAX(t.pit_blended_score) AS pit_blended_score
                 FROM trades t
