@@ -103,11 +103,34 @@ export interface FilingCounts {
 }
 
 export interface FilingStats {
+  // One row per FILING, discretionary only, all three windows on the same
+  // basis. `*_scored_filings_*` is the denominator each figure is computed
+  // on and is always present, including when it is below the publishing
+  // floor (MIN_SCORED_FILINGS) and the figures beside it are null.
   buy_win_rate_7d?: number | null;
   buy_avg_return_7d?: number | null;
   buy_avg_abnormal_7d?: number | null;
+  buy_scored_filings_7d?: number | null;
+  buy_win_rate_30d?: number | null;
+  buy_avg_return_30d?: number | null;
+  buy_avg_abnormal_30d?: number | null;
+  buy_scored_filings_30d?: number | null;
+  buy_win_rate_90d?: number | null;
+  buy_avg_return_90d?: number | null;
+  buy_avg_abnormal_90d?: number | null;
+  buy_scored_filings_90d?: number | null;
   sell_win_rate_7d?: number | null;
   sell_avg_return_7d?: number | null;
+  sell_avg_abnormal_7d?: number | null;
+  sell_scored_filings_7d?: number | null;
+  sell_win_rate_30d?: number | null;
+  sell_avg_return_30d?: number | null;
+  sell_avg_abnormal_30d?: number | null;
+  sell_scored_filings_30d?: number | null;
+  sell_win_rate_90d?: number | null;
+  sell_avg_return_90d?: number | null;
+  sell_avg_abnormal_90d?: number | null;
+  sell_scored_filings_90d?: number | null;
 }
 
 export interface InsiderProfile {

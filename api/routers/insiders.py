@@ -6,7 +6,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.auth import UserContext, get_current_user
 from api.db import get_db
-from api.filters import add_signal_class_filter, add_trans_code_filter, filing_group_by
+from api.filters import (
+    MEANINGFUL_CLASSES,
+    add_signal_class_filter,
+    add_trans_code_filter,
+    filing_group_by,
+)
 from api.gating import PUBLIC_VOLUME_FIELDS, require_pro
 from api.id_encoding import (
     decode_insider_id,
@@ -21,6 +26,39 @@ from api.price_dates import enrich_items_with_price_end
 
 router = APIRouter(prefix="/api/v1/insiders", tags=["insiders"])
 
+#: Minimum discretionary FILINGS before this product will publish an accuracy
+#: percentage for an insider. Set to 5 on 2026-08-25.
+#:
+#: Filtering to discretionary filings shrinks the basis hard, and an accuracy
+#: rendered to the nearest point over one or two filings can only ever read
+#: 0%, 50% or 100%. Measured over insiders with >=5 sell lots, the corrected
+#: basis lands: 2.1% at zero filings, 3.6% at one, 5.0% at two, 15.9% at 3-4,
+#: 38.7% at 5-9, 26.6% at 10-24, 8.2% at 25+. A floor of 5 keeps the block on
+#: 73.5% of sell records and 66.2% of buy records and drops the arithmetic
+#: artifacts. Below it the API serves the filing count and nothing else.
+MIN_SCORED_FILINGS = 5
+
+
+def apply_scoring_floor(
+    n: int,
+    wins: Optional[int],
+    avg_return: Optional[float],
+    avg_abnormal: Optional[float],
+) -> tuple[Optional[float], Optional[float], Optional[float]]:
+    """Publish a window's figures only if it clears :data:`MIN_SCORED_FILINGS`.
+
+    Returns ``(win_rate, avg_return, avg_abnormal)``, every element ``None``
+    when the basis is too thin. Pure, so the floor is testable without a
+    database -- it is the one rule standing between this product and an
+    "accuracy" of 100% derived from a single filing.
+    """
+    if n is None or n < MIN_SCORED_FILINGS:
+        return None, None, None
+    return (
+        round((wins or 0) / n, 4),
+        None if avg_return is None else round(avg_return, 6),
+        None if avg_abnormal is None else round(avg_abnormal, 6),
+    )
 
 
 def resolve_insider_id(conn, identifier: str) -> int | None:
@@ -254,28 +292,67 @@ def get_insider(identifier: str, user: UserContext = Depends(get_current_user)) 
             ORDER BY total_value DESC
         """, (insider_id,)).fetchall()
 
-        # Filing-level win rates (consistent with filing-level counts).
-        # Same derivative-exclusion as volume_by_type — we want the win rate
-        # of stock trades, not options that share a 'P'/'S' code.
+        # Filing-level win rates, all three windows, discretionary only.
+        #
+        # Rebuilt 2026-08-25. This block used to serve only 7d and the page
+        # took 30d/90d straight from `insider_track_records`, which counts
+        # execution LOTS. One table row therefore carried two denominators:
+        # Romano Gianluca (27782) rendered "Filings 19" beside an accuracy
+        # computed over 154 lots. See `docs/insider_track_record.md`.
+        #
+        # Three rules, and all three windows obey them identically:
+        #   1. one row per FILING, not per lot. A purchase filled in five
+        #      tranches is one decision, not five.
+        #   2. discretionary only  -- a 10b5-1 plan sale, a tax withholding
+        #      and an option exercise are not timing decisions. Derived from
+        #      MEANINGFUL_CLASSES; never type the class names here.
+        #   3. same duplicate/derivative/superseded exclusions as
+        #      `filing_counts` below, so the header count and the denominator
+        #      are the same population.
+        #
+        # AVG over the lots in a filing, not MAX: MAX reports the best lot in
+        # a multi-lot filing as if it were the filing's outcome.
+        _cls = tuple(MEANINGFUL_CLASSES)
+        _cls_ph = ", ".join("?" for _ in _cls)
         filing_win_rates = conn.execute(f"""
             SELECT
                 trade_type,
-                COUNT(*) AS total,
-                SUM(CASE WHEN ret > 0 THEN 1 ELSE 0 END) AS wins,
-                AVG(ret) AS avg_return,
-                AVG(abn) AS avg_abnormal
+                COUNT(ret7)  AS n7,
+                COUNT(ret30) AS n30,
+                COUNT(ret90) AS n90,
+                -- "win" is directional: a buy wins when the stock rose, a
+                -- sell wins when it fell. Counted explicitly rather than as
+                -- (total - wins), which scored a flat 0.00% as a good sell.
+                SUM(CASE WHEN (trade_type = 'buy'  AND ret7  > 0)
+                           OR (trade_type = 'sell' AND ret7  < 0)
+                         THEN 1 ELSE 0 END) AS wins7,
+                SUM(CASE WHEN (trade_type = 'buy'  AND ret30 > 0)
+                           OR (trade_type = 'sell' AND ret30 < 0)
+                         THEN 1 ELSE 0 END) AS wins30,
+                SUM(CASE WHEN (trade_type = 'buy'  AND ret90 > 0)
+                           OR (trade_type = 'sell' AND ret90 < 0)
+                         THEN 1 ELSE 0 END) AS wins90,
+                AVG(ret7) AS avg_ret7, AVG(ret30) AS avg_ret30, AVG(ret90) AS avg_ret90,
+                AVG(abn7) AS avg_abn7, AVG(abn30) AS avg_abn30, AVG(abn90) AS avg_abn90
             FROM (
-                SELECT t.trade_type, MAX(tr.return_7d) AS ret, MAX(tr.abnormal_7d) AS abn
+                SELECT t.trade_type,
+                       AVG(tr.return_7d)    AS ret7,
+                       AVG(tr.return_30d)   AS ret30,
+                       AVG(tr.return_90d)   AS ret90,
+                       AVG(tr.abnormal_7d)  AS abn7,
+                       AVG(tr.abnormal_30d) AS abn30,
+                       AVG(tr.abnormal_90d) AS abn90
                 FROM trades t
                 JOIN trade_returns tr ON t.trade_id = tr.trade_id
                 WHERE t.insider_id = ? AND t.trans_code IN ('P', 'S')
                   AND t.superseded_by IS NULL
-                  AND tr.return_7d IS NOT NULL
                   AND t.is_derivative = 0
+                  AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
+                  AND t.signal_class IN ({_cls_ph})
                 GROUP BY t.trade_type, COALESCE(t.filing_key, t.accession, t.trade_date)
             )
             GROUP BY trade_type
-        """, (insider_id,)).fetchall()
+        """, (insider_id, *_cls)).fetchall()
 
         # Filing-level trade counts (consistent with feed display).
         filing_counts = conn.execute("""
@@ -351,20 +428,29 @@ def get_insider(identifier: str, user: UserContext = Depends(get_current_user)) 
                 m["insider_id"] = encode_insider_id(m["insider_id"])
     result["entity_group"] = entity_group
 
-    # Filing-level win rates override track record values
+    # Filing-level win rates are the ONLY source for the track-record block.
+    # There is deliberately no fallback to `insider_track_records` here: those
+    # columns count lots, and no daily writer has refreshed them since
+    # February 2026 (`sync_to_track_records` writes score/counts/dates and
+    # never the win rates). Retired 2026-08-25 -- see the migration.
     filing_stats = {}
     for row in filing_win_rates:
         tt = row["trade_type"]
-        total = row["total"]
-        if tt == "buy":
-            filing_stats["buy_win_rate_7d"] = round(row["wins"] / total, 4) if total else None
-            filing_stats["buy_avg_return_7d"] = round(row["avg_return"], 6) if row["avg_return"] is not None else None
-            filing_stats["buy_avg_abnormal_7d"] = round(row["avg_abnormal"], 6) if row["avg_abnormal"] is not None else None
-        elif tt == "sell":
-            # For sells, "win" = stock declined
-            sell_wins = total - row["wins"]  # invert: wins counted as ret>0, but for sells ret<0 is good
-            filing_stats["sell_win_rate_7d"] = round(sell_wins / total, 4) if total else None
-            filing_stats["sell_avg_return_7d"] = round(row["avg_return"], 6) if row["avg_return"] is not None else None
+        if tt not in ("buy", "sell"):
+            continue
+        for window in ("7d", "30d", "90d"):
+            w = window[:-1]  # "7d" -> "7"
+            n = row[f"n{w}"] or 0
+            # The count is published at every n, including below the floor and
+            # at zero. The denominator being invisible is what let this block
+            # show an accuracy over 154 lots under a header reading 19.
+            filing_stats[f"{tt}_scored_filings_{window}"] = n
+            rate, ret, abn = apply_scoring_floor(
+                n, row[f"wins{w}"], row[f"avg_ret{w}"], row[f"avg_abn{w}"]
+            )
+            filing_stats[f"{tt}_win_rate_{window}"] = rate
+            filing_stats[f"{tt}_avg_return_{window}"] = ret
+            filing_stats[f"{tt}_avg_abnormal_{window}"] = abn
     result["filing_stats"] = filing_stats
 
     if filing_counts:

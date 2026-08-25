@@ -482,6 +482,17 @@ first.
 
 **"Anything with a score, grade, star or badge"** — `api/ratings.py` is the single definition of every rating this product publishes: Insider Rating (A+/A/B/C/Unrated, from `career_grade`) and Trade Rating (Exceptional/Strong/Notable/**Modest**/Weak, from the 0-100 trade score — the 50-59 band was renamed from "Routine" on 2026-08-21 and must never be called that again, because `is_routine` / `cohen_routine` / the "SELL · Routine" chip already mean something different and the two disagreed on the same filing). Tags are 1-to-many and never rate. Never add a new scale, never retype a band name or threshold, never render `pit_grade` or `conviction` as a user-facing rating. `frontend/src/lib/ratings.ts` mirrors it; `tests/unit/test_ratings_parity.py` fails the build on drift. Read `reference_rating_taxonomy.md` in Claude memory first.
 
+**"Anything about an insider's Accuracy, Avg Move, Alpha or track record"** —
+read `docs/insider_track_record.md` FIRST. That block has exactly ONE basis:
+one row per FILING (never per execution lot), discretionary only (derived from
+`MEANINGFUL_CLASSES`, never typed), the same exclusions as the filing count
+above it, suppressed below `MIN_SCORED_FILINGS`, and the denominator always
+rendered in the `Scored` row. It is computed on the fly in
+`api/routers/insiders.py` — the `insider_track_records` win-rate columns were
+**retired 2026-08-25** and NULLed; nothing had refreshed them since February
+2026 and they counted lots. Do not reintroduce a stored win rate.
+`tests/unit/test_track_record_is_one_basis.py` fails the build on drift.
+
 **"Anything that sends a notification or an email"** — read
 `docs/notification_architecture.md` FIRST. The in-app feed and the inbox are
 deliberately different products: the feed is pulled and generous, email is

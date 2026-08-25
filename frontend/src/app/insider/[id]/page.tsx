@@ -587,11 +587,30 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
         const fs = profile.filing_stats;
         const buyCount = fc?.buy ?? tr.buy_count;
         const sellCount = fc?.sell ?? tr.sell_count;
-        const buyWinRate = fs?.buy_win_rate_7d ?? tr.buy_win_rate_7d;
-        const buyAvgReturn = fs?.buy_avg_return_7d ?? tr.buy_avg_return_7d;
-        const buyAvgAlpha = fs?.buy_avg_abnormal_7d ?? tr.buy_avg_abnormal_7d;
-        const sellWinRate = fs?.sell_win_rate_7d ?? tr.sell_win_rate_7d;
-        const sellAvgReturn = fs?.sell_avg_return_7d ?? tr.sell_avg_return_7d;
+        // Every figure in this block comes from filing_stats and nothing else.
+        // The `tr.*` win-rate columns counted execution lots and stopped being
+        // refreshed in February 2026; they were retired 2026-08-25. Reading
+        // them here is what put two denominators in one table row.
+        const buyRates = [fs?.buy_win_rate_7d, fs?.buy_win_rate_30d, fs?.buy_win_rate_90d];
+        const buyMoves = [fs?.buy_avg_return_7d, fs?.buy_avg_return_30d, fs?.buy_avg_return_90d];
+        const buyAlphas = [fs?.buy_avg_abnormal_7d, fs?.buy_avg_abnormal_30d, fs?.buy_avg_abnormal_90d];
+        const buyScored = [fs?.buy_scored_filings_7d, fs?.buy_scored_filings_30d, fs?.buy_scored_filings_90d];
+        const sellRates = [fs?.sell_win_rate_7d, fs?.sell_win_rate_30d, fs?.sell_win_rate_90d];
+        const sellMoves = [fs?.sell_avg_return_7d, fs?.sell_avg_return_30d, fs?.sell_avg_return_90d];
+        const sellScored = [fs?.sell_scored_filings_7d, fs?.sell_scored_filings_30d, fs?.sell_scored_filings_90d];
+        // The API nulls every figure for a window that falls below the
+        // publishing floor, so "nothing survived the floor" is exactly
+        // "no window has a rate".
+        const buyScorable = buyRates.some(r => r != null);
+        const sellScorable = sellRates.some(r => r != null);
+        const buyBasis = Math.max(0, ...buyScored.map(n => n ?? 0));
+        const sellBasis = Math.max(0, ...sellScored.map(n => n ?? 0));
+        const tooFew = (n: number) =>
+          n === 0
+            ? "No scored discretionary filings"
+            : `Only ${n} discretionary ${n === 1 ? "filing" : "filings"} \u2014 too few to score`;
+        const BASIS_NOTE =
+          "Discretionary filings only. 10b5-1 plan trades, tax withholding and option exercises are excluded, and each column is one row per filing rather than per execution lot.";
         return (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
           {/* Buy Track Record */}
@@ -603,7 +622,7 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                   <span className="text-[#8888A0]">Filings</span>
                   <span className="font-mono text-[#E8E8ED]">{buyCount}</span>
                 </div>
-                {/* Multi-window table */}
+                {buyScorable ? (
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="text-[#81819A]">
@@ -618,7 +637,7 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                   <tbody className="font-mono">
                     <tr>
                       <td className="text-[#8888A0] py-1">Accuracy</td>
-                      {[buyWinRate, tr.buy_win_rate_30d, tr.buy_win_rate_90d].map((wr, i) => (
+                      {buyRates.map((wr, i) => (
                         <td key={i} className={`text-right py-1 ${wr != null && wr >= 0.6 ? "text-[#22C55E]" : wr != null ? "text-[#E8E8ED]" : "text-[#81819A]"}`}>
                           {wr != null ? `${(wr * 100).toFixed(0)}%` : "\u2014"}
                         </td>
@@ -626,7 +645,7 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                     </tr>
                     <tr>
                       <td className="text-[#8888A0] py-1">Avg Move</td>
-                      {[buyAvgReturn, tr.buy_avg_return_30d, tr.buy_avg_return_90d].map((r, i) => (
+                      {buyMoves.map((r, i) => (
                         <td key={i} className={`text-right py-1 ${r != null ? (r >= 0 ? "text-[#22C55E]" : "text-[#EF4444]") : "text-[#81819A]"}`}>
                           {r != null ? formatPercent(r) : "\u2014"}
                         </td>
@@ -634,17 +653,27 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                     </tr>
                     <tr>
                       <td className="text-[#8888A0] py-1">Alpha</td>
-                      {[buyAvgAlpha, tr.buy_avg_abnormal_30d, tr.buy_avg_abnormal_90d].map((r, i) => (
+                      {buyAlphas.map((r, i) => (
                         <td key={i} className={`text-right py-1 ${r != null ? (r >= 0 ? "text-[#22C55E]" : "text-[#EF4444]") : "text-[#81819A]"}`}>
                           {r != null ? formatPercent(r) : "\u2014"}
                         </td>
                       ))}
                     </tr>
+                    <tr>
+                      <td className="text-[#8888A0] py-1">Scored</td>
+                      {buyScored.map((n, i) => (
+                        <td key={i} className="text-right py-1 text-[#81819A]">{n ?? 0}</td>
+                      ))}
+                    </tr>
                   </tbody>
                 </table>
-                {tr.best_window && (
+                ) : (
+                  <div className="text-xs text-[#81819A]">{tooFew(buyBasis)}</div>
+                )}
+                {tr.best_window && buyScorable && (
                   <div className="text-[10px] text-[#81819A] mt-2">* Best window</div>
                 )}
+                <div className="text-[10px] text-[#81819A] mt-2">{BASIS_NOTE}</div>
               </div>
             </div>
           )}
@@ -658,7 +687,7 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                   <span className="text-[#8888A0]">Filings</span>
                   <span className="font-mono text-[#E8E8ED]">{sellCount}</span>
                 </div>
-                {sellWinRate != null ? (
+                {sellScorable ? (
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="text-[#81819A]">
@@ -671,7 +700,7 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                     <tbody className="font-mono">
                       <tr>
                         <td className="text-[#8888A0] py-1">Accuracy</td>
-                        {[sellWinRate, tr.sell_win_rate_30d, tr.sell_win_rate_90d].map((wr, i) => (
+                        {sellRates.map((wr, i) => (
                           <td key={i} className={`text-right py-1 ${wr != null && wr >= 0.6 ? "text-[#22C55E]" : wr != null ? "text-[#E8E8ED]" : "text-[#81819A]"}`}>
                             {wr != null ? `${(wr * 100).toFixed(0)}%` : "\u2014"}
                           </td>
@@ -679,17 +708,24 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                       </tr>
                       <tr>
                         <td className="text-[#8888A0] py-1">Avg Move</td>
-                        {[sellAvgReturn, tr.sell_avg_return_30d, tr.sell_avg_return_90d].map((r, i) => (
+                        {sellMoves.map((r, i) => (
                           <td key={i} className={`text-right py-1 ${r != null ? (r <= 0 ? "text-[#22C55E]" : "text-[#EF4444]") : "text-[#81819A]"}`}>
                             {r != null ? formatPercent(r) : "\u2014"}
                           </td>
                         ))}
                       </tr>
+                      <tr>
+                        <td className="text-[#8888A0] py-1">Scored</td>
+                        {sellScored.map((n, i) => (
+                          <td key={i} className="text-right py-1 text-[#81819A]">{n ?? 0}</td>
+                        ))}
+                      </tr>
                     </tbody>
                   </table>
                 ) : (
-                  <div className="text-xs text-[#81819A]">Not yet computed</div>
+                  <div className="text-xs text-[#81819A]">{tooFew(sellBasis)}</div>
                 )}
+                <div className="text-[10px] text-[#81819A] mt-2">{BASIS_NOTE}</div>
                 {profile.sell_pattern && profile.sell_pattern.total_sells > 0 && (() => {
                   const sp = profile.sell_pattern!;
                   const routinePct = Math.round((sp.routine_sells / sp.total_sells) * 100);
