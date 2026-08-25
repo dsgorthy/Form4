@@ -177,6 +177,30 @@ export interface InsiderProfile {
     score_recency_weighted: number;
     tier_recency: string;
   } | null;
+
+  /** Shares still held, per ticker, from the most recent filing's
+   *  `shares_owned_after` marked at that ticker's last close.
+   *
+   *  UNGATED on purpose. It is the single most concrete fact about an
+   *  insider — what they actually own today — and it comes straight off the
+   *  Form 4 rather than out of anything we compute, so there is nothing here
+   *  to withhold. Empty for insiders who only ever filed derivative or
+   *  disposal rows with no post-transaction holding.
+   */
+  holdings?: {
+    ticker: string;
+    shares: number;
+    last_close: number | null;
+    value: number | null;
+    as_of: string | null;
+  }[];
+
+  /** Trailing twelve months, counted in FILINGS not execution lots -- a
+   *  purchase filled in five tranches is one decision. */
+  ttm?: {
+    buys: { filings: number; shares: number; value: number };
+    sells: { filings: number; shares: number; value: number };
+  } | null;
 }
 
 export interface InsiderCompany {

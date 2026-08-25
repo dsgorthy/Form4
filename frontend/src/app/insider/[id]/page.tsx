@@ -320,6 +320,112 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
         </div>
       )}
 
+      {/* Position & Last 12 Months.
+
+          Placed above the track-record material, and UNGATED, because these
+          are the two questions a visitor actually arrives with: what does
+          this person own, and what have they done lately. Both come straight
+          off the Form 4 -- `shares_owned_after` marked at the last close, and
+          a twelve-month rollup -- rather than out of anything we score, so
+          there is nothing here that gating would be protecting.
+
+          Counted in FILINGS, not execution lots. A purchase filled in five
+          tranches is one decision, and showing it as five was what made
+          every sell on this page read as a flurry. */}
+      {(() => {
+        const holdings = profile.holdings ?? [];
+        const ttm = profile.ttm;
+        const held = holdings.filter((h) => h.shares > 0);
+        const ttmActive = !!ttm && (ttm.buys.filings > 0 || ttm.sells.filings > 0);
+        if (!held.length && !ttmActive) return null;
+
+        const totalValue = held.reduce((a, h) => a + (h.value ?? 0), 0);
+        // Only sum tickers we could actually price. Treating an unpriced
+        // holding as $0 would understate the total silently; saying so is
+        // better than quietly being wrong.
+        const unpriced = held.filter((h) => h.value == null).length;
+        const asOf = held.map((h) => h.as_of).filter(Boolean).sort().pop();
+
+        return (
+          <div className="grid gap-4 md:grid-cols-2 mb-8">
+            {held.length > 0 && (
+              <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] p-4">
+                <SectionLabel>Current Position</SectionLabel>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-[10px] uppercase tracking-widest text-[#5A5A70]">
+                      <th className="text-left font-semibold pb-2">Ticker</th>
+                      <th className="text-right font-semibold pb-2">Shares</th>
+                      <th className="text-right font-semibold pb-2">Value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {held.map((h) => (
+                      <tr key={h.ticker} className="border-t border-[#2A2A3A]/60">
+                        <td className="py-2">
+                          <TickerDisplay ticker={h.ticker} />
+                        </td>
+                        <td className="py-2 text-right font-mono tabular-nums text-[#E8E8ED]">
+                          {h.shares.toLocaleString()}
+                        </td>
+                        <td className="py-2 text-right font-mono tabular-nums text-[#E8E8ED]">
+                          {h.value != null ? formatCurrency(h.value) : "\u2014"}
+                        </td>
+                      </tr>
+                    ))}
+                    {held.length > 1 && (
+                      <tr className="border-t border-[#2A2A3A]">
+                        <td className="py-2 text-[#81819A]">Total</td>
+                        <td />
+                        <td className="py-2 text-right font-mono tabular-nums font-bold text-[#E8E8ED]">
+                          {formatCurrency(totalValue)}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+                <p className="text-[11px] text-[#5A5A70] mt-3 leading-relaxed">
+                  Shares reported on the most recent Form 4
+                  {asOf ? `, priced at the ${asOf} close` : ""}.
+                  {unpriced > 0 &&
+                    ` ${unpriced} holding${unpriced > 1 ? "s" : ""} could not be priced and ${unpriced > 1 ? "are" : "is"} excluded from the total.`}
+                </p>
+              </div>
+            )}
+
+            {ttmActive && (
+              <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] p-4">
+                <SectionLabel>Last 12 Months</SectionLabel>
+                <div className="grid grid-cols-2 gap-4">
+                  {([["Bought", ttm!.buys, "text-emerald-400"],
+                     ["Sold", ttm!.sells, "text-red-400"]] as const).map(
+                    ([label, side, color]) => (
+                      <div key={label}>
+                        <div className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A] mb-1">
+                          {label}
+                        </div>
+                        <div className={`text-xl font-mono font-bold tabular-nums ${side.filings ? color : "text-[#5A5A70]"}`}>
+                          {side.filings ? formatCurrency(side.value) : "\u2014"}
+                        </div>
+                        <div className="text-xs text-[#81819A] mt-0.5">
+                          {side.filings === 0
+                            ? "No filings"
+                            : `${side.filings} filing${side.filings > 1 ? "s" : ""} \u00b7 ${side.shares.toLocaleString()} sh`}
+                        </div>
+                      </div>
+                    ),
+                  )}
+                </div>
+                <p className="text-[11px] text-[#5A5A70] mt-3 leading-relaxed">
+                  Counted per filing, not per execution lot \u2014 a purchase
+                  filled in several tranches is one decision.
+                </p>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {/* Score */}
       {tr && (() => {
         const fc = profile.filing_counts;
