@@ -47,8 +47,14 @@ REPO = Path(__file__).resolve().parents[1]
 CLERK_SECRET_KEY = os.getenv("CLERK_SECRET_KEY", "")
 
 
-def assert_production_credentials() -> None:
-    """Refuse to run against Clerk's TEST instance.
+def check_production_credentials() -> str | None:
+    """Are the Clerk credentials usable for sending email?
+
+    Returns None when they are, or a reason string when they are not. The
+    caller keeps SCANNING either way -- in-app notifications do not touch
+    Clerk and work fine, so refusing the whole run would break something that
+    currently works in order to report something that does not. Only the mail
+    is withheld, loudly, and main() exits non-zero at the end.
 
     THE BUG THIS EXISTS FOR. `api/config.py` loads `api/.env` FIRST and the
     repo-root `.env` second with override=False, so whatever `api/.env` says
@@ -70,21 +76,24 @@ def assert_production_credentials() -> None:
     Set FORM4_ALLOW_TEST_CREDENTIALS=1 to run against test keys deliberately.
     """
     if os.getenv("FORM4_ALLOW_TEST_CREDENTIALS") == "1":
-        return
+        return None
     if CLERK_SECRET_KEY.startswith("sk_test_"):
         import api.config as _c
-        raise SystemExit(
-            "REFUSING TO RUN: CLERK_SECRET_KEY is a TEST key (sk_test_...).\n"
-            "Every production user lookup will 404 and no email will send.\n"
-            f"Loaded via api/config.py, which prefers {_c.__file__.rsplit('/', 1)[0]}"
-            "/.env over the repo-root .env.\n"
-            "Remove or rename that file, or set FORM4_ALLOW_TEST_CREDENTIALS=1."
+        return (
+            "CLERK_SECRET_KEY is a TEST key (sk_test_...). Every production "
+            "user lookup will 404 and no email can be sent. It is loaded via "
+            f"api/config.py, which prefers {_c.__file__.rsplit('/', 1)[0]}"
+            "/.env over the repo-root .env. Remove or rename that file, or "
+            "set FORM4_ALLOW_TEST_CREDENTIALS=1 to silence this."
         )
     if not CLERK_SECRET_KEY:
-        raise SystemExit(
-            "REFUSING TO RUN: CLERK_SECRET_KEY is unset, so no user can be "
-            "resolved and no email can be sent."
-        )
+        return ("CLERK_SECRET_KEY is unset, so no user can be resolved and "
+                "no email can be sent.")
+    return None
+
+
+#: Set by main(). Email sends are skipped while it holds a reason.
+_MAIL_BLOCKED: str | None = None
 
 
 def _get_user_email(user_id: str) -> str | None:
@@ -839,6 +848,8 @@ def _try_send_realtime(nconn: ConnectionWrapper, user: dict,
     undefined name — used to take down the whole cycle, so one subscriber's
     bad address silenced everyone else's alerts.
     """
+    if _MAIL_BLOCKED:
+        return          # already logged once at ERROR by main()
     try:
         _maybe_send_realtime_email(nconn, user, title, body)
     except Exception as exc:                      # noqa: BLE001
@@ -996,6 +1007,10 @@ def send_daily_digests(nconn: ConnectionWrapper) -> int:
            WHERE np.email_enabled = 1 AND np.email_frequency = 'daily'""",
     ).fetchall()
 
+    if _MAIL_BLOCKED:
+        logger.error("digest skipped: %s", _MAIL_BLOCKED)
+        return 0
+
     sent = 0
     for row in users:
         user_id = row["user_id"]
@@ -1040,7 +1055,10 @@ def main() -> None:
     parser.add_argument("--digest", action="store_true", help="Send daily digest emails")
     args = parser.parse_args()
 
-    assert_production_credentials()
+    global _MAIL_BLOCKED
+    _MAIL_BLOCKED = check_production_credentials()
+    if _MAIL_BLOCKED:
+        logger.error("EMAIL DISABLED THIS RUN: %s", _MAIL_BLOCKED)
     init_db()
 
     if args.digest:
@@ -1050,6 +1068,8 @@ def main() -> None:
             logger.info("Daily digest: sent %d emails", sent)
         finally:
             nconn.close()
+        if _MAIL_BLOCKED:
+            sys.exit(1)
         return
 
     # Normal scan.
@@ -1063,6 +1083,12 @@ def main() -> None:
     with pipeline_run("notification_scanner",
                       log_path=str(REPO / "logs/insideredge-notifications.log")) as _run:
         _scan(_run)
+
+    # Scanning succeeded; mail did not happen. Exit non-zero so launchd, the
+    # watchdog and /admin/pipelines all show it. An ERROR line on its own is
+    # exactly what this failure already survived for months.
+    if _MAIL_BLOCKED:
+        sys.exit(1)
 
 
 def _scan(_run=None) -> None:
