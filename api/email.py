@@ -133,8 +133,15 @@ def build_notification_email(title: str, body: str, unsubscribe_url: str = "") -
 def build_digest_email(
     notifications: list[dict],
     unsubscribe_url: str = "",
+    overflow: int = 0,
 ) -> str:
-    """Build HTML email for a daily digest of notifications."""
+    """Build HTML email for a daily digest of notifications.
+
+    `overflow` is how many eligible alerts are NOT listed here. It is stated
+    in the email rather than dropped: the previous digest took a silent
+    LIMIT 50 and marked everything delivered, so a user with 300 pending
+    alerts was told about 50 and quietly lost 250.
+    """
     items_html = ""
     for n in notifications:
         items_html += f"""
@@ -146,6 +153,19 @@ def build_digest_email(
 
     unsub = _legal_footer(unsubscribe_url)
 
+    total = len(notifications) + overflow
+    header = f"{total} new alert{'' if total == 1 else 's'}"
+    more_html = ""
+    if overflow > 0:
+        # Named, not silently dropped. If this line is showing up every day
+        # the user's filters are too loose and we would rather they see that
+        # than be quietly served an arbitrary top slice.
+        more_html = (
+            '<div style="padding:12px 0 0;font-size:13px;color:#8888A0;">'
+            f'and <strong style="color:#E8E8ED;">{overflow} more</strong> '
+            'waiting in the app.</div>'
+        )
+
     return f"""
     <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#0A0A0F;color:#E8E8ED;">
       <div style="margin-bottom:16px;">
@@ -153,8 +173,9 @@ def build_digest_email(
         <span style="margin-left:8px;font-size:13px;color:#8888A0;">Daily Digest</span>
       </div>
       <div style="background:#12121A;border:1px solid #2A2A3A;border-radius:8px;padding:16px;">
-        <div style="font-size:12px;color:#55556A;margin-bottom:8px;">{len(notifications)} new alert{"s" if len(notifications) != 1 else ""}</div>
+        <div style="font-size:12px;color:#55556A;margin-bottom:8px;">{header}</div>
         {items_html}
+        {more_html}
       </div>
       {unsub}
     </div>

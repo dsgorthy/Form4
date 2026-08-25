@@ -42,6 +42,7 @@ from dagster_dbt import DbtCliResource
 from dagster_project.assets.congress_sync import congress_trades_form4_sync
 from dagster_project.assets.dbt import dataplane_dbt_assets, dbt_project
 from dagster_project.assets.form4_pipeline import (
+    form4_alert_assets,
     form4_pipeline_assets,
     form4_weekly_assets,
 )
@@ -131,6 +132,27 @@ form4_weekly_schedule = ScheduleDefinition(
     name="form4_weekly_sunday",
     job=form4_weekly_job,
     cron_schedule="0 9 * * 0",
+    execution_timezone="America/Los_Angeles",
+    default_status=DefaultScheduleStatus.RUNNING,
+)
+
+# 07:00 PT daily. The 17:30 pipeline of the previous evening has landed by
+# then and the market has not opened, so a subscriber reads the digest with
+# the day ahead of them rather than behind.
+#
+# Nothing had ever passed --digest before 2026-08-24, so the three subscribers
+# on the daily frequency could not have received mail at all. Safe to point at
+# a queue with history in it: the scanner expires anything older than
+# EMAIL_TTL_DAYS before composing, so there is no backlog to flood with.
+form4_alerts_job = define_asset_job(
+    name="form4_alerts",
+    selection=AssetSelection.assets(*form4_alert_assets),
+)
+
+form4_alerts_schedule = ScheduleDefinition(
+    name="form4_alerts_daily",
+    job=form4_alerts_job,
+    cron_schedule="0 7 * * *",
     execution_timezone="America/Los_Angeles",
     default_status=DefaultScheduleStatus.RUNNING,
 )
@@ -357,10 +379,13 @@ def realtime_5min_loop(context: SensorEvaluationContext):
 defs = Definitions(
     assets=[*signal_assets, congress_trades_form4_sync,
             insider_trades_form4_sync,
-            *form4_pipeline_assets, *form4_weekly_assets, dataplane_dbt_assets],
+            *form4_pipeline_assets, *form4_weekly_assets,
+            *form4_alert_assets, dataplane_dbt_assets],
     jobs=[daily_signals_job, dbt_marts_job, form4_pipeline_job,
+          form4_alerts_job,
           realtime_strategy_job, insider_filings_shadow_job],
     schedules=[daily_signals_schedule, dbt_marts_schedule,
+               form4_alerts_schedule,
                form4_pipeline_schedule, form4_weekly_schedule,
                insider_filings_settle_nightly],
     sensors=[ntfy_on_run_failure, realtime_5min_loop,

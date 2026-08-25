@@ -310,6 +310,60 @@ CYCLE_CAPS: dict[str, int] = {
 
 DAILY_CAP = 50  # Max notifications per user per day across all types
 
+# ---------------------------------------------------------------------------
+# Email queue policy
+# ---------------------------------------------------------------------------
+#
+# WHY THIS EXISTS. On 2026-08-24 there were 6,890 notifications with
+# emailed = 0, the oldest from March, 92% of them activity_spike -- one user
+# alone had 5,114. None had ever been emailed, because the scanner was
+# resolving users against the wrong Clerk instance. When that was fixed the
+# obvious next move was "turn the digest on", and the obvious next move was
+# wrong: it would have sent a digest of five-month-old alerts and then marked
+# the whole backlog delivered.
+#
+# The lesson is not "tune the threshold". A queue that only drains by being
+# emailed will always be one outage away from either a flood or a silent
+# discard. So:
+#
+#   1. RELEVANCE AT WRITE TIME. A notification nobody would want should never
+#      be created. The activity_spike detector fired 159 times a DAY on
+#      average (peak 282) before this change.
+#   2. THE QUEUE EXPIRES. Anything older than EMAIL_TTL_DAYS is never
+#      emailed, whatever happens upstream. An August email about a March
+#      filing is worse than no email.
+#   3. THE DIGEST IS BOUNDED AND HONEST. Top DIGEST_MAX_ITEMS, with an
+#      explicit "+N more" -- not a silent LIMIT 50.
+#   4. BACKPRESSURE IS LOUD. A queue that grows means the filters are wrong
+#      or a detector is broken. It gets logged at ERROR, not accumulated.
+
+#: An unsent notification older than this is never emailed. It stays in the
+#: in-app feed, which is a history; email is a nudge, and a stale nudge is
+#: noise.
+EMAIL_TTL_DAYS = 3
+
+#: Most items rendered individually in one digest. Beyond this the digest
+#: says how many more are waiting rather than listing them.
+DIGEST_MAX_ITEMS = 12
+
+#: activity_spike relevance floors. A ratio alone is meaningless when the
+#: denominator is near zero -- see the detector's docstring.
+SPIKE_MIN_VALUE = 1_000_000     # dollars in the 7-day window
+SPIKE_MIN_INSIDERS = 2          # one person is not a spike
+SPIKE_MIN_RATIO = 5.0
+
+#: Queue depth per user above which we stop treating it as normal.
+BACKPRESSURE_THRESHOLD = 200
+
+#: notifications.emailed values.
+EMAIL_PENDING = 0
+EMAIL_SENT = 1
+#: Aged out under EMAIL_TTL_DAYS and deliberately never sent. A distinct
+#: value rather than reusing SENT, because "we chose not to email this" and
+#: "we emailed this" are different facts and the difference is the thing
+#: worth being able to audit later.
+EMAIL_EXPIRED = 2
+
 # In-memory counters reset each scan cycle
 _cycle_counts: dict[tuple[str, str], int] = {}  # (user_id, event_type) -> count this cycle
 _daily_counts: dict[str, int | None] = {}  # user_id -> count today (cached)
@@ -496,8 +550,25 @@ def scan_cluster_formations(iconn: ConnectionWrapper, nconn: ConnectionWrapper, 
 
 
 def scan_activity_spikes(iconn: ConnectionWrapper, nconn: ConnectionWrapper, latest: str) -> int:
-    """Detect tickers with activity 2x+ above 90-day baseline.
-    Only considers open-market trades (P/S) and excludes routine/10b5-1 sells."""
+    """Tickers whose open-market activity is a real, large outlier.
+
+    RETUNED 2026-08-24. This fired **159 times a day on average, peaking at
+    282**, and was 92% of a 6,890-item unsent backlog. Three things were
+    wrong, all of them making the denominator or the gate meaningless:
+
+      - It gated on `is_routine`, a boolean that is barely populated. The
+        product's actual definition of a meaningful filing is `signal_class`,
+        which every other surface already uses.
+      - There was no absolute floor, so a ticker with a near-zero baseline
+        produced enormous ratios from nothing. The live examples included
+        "ACHR sell at 989.7x baseline" -- that is a small number divided by a
+        smaller one, not news.
+      - A single insider was enough. A spike worth telling somebody about is
+        several people moving at once.
+
+    Measured over eight sample days, the rules below take it from 159.6
+    alerts/day to 20.2 (peak 37).
+    """
     # Text date columns on this side, and the underlying events are daily,
     # so compare on the date part. latest_ts is kept so the watermark
     # written back stays a timestamp for every event type.
@@ -505,6 +576,11 @@ def scan_activity_spikes(iconn: ConnectionWrapper, nconn: ConnectionWrapper, lat
     latest = _as_date_str(latest)
 
     # Recent 7 days — open-market only, exclude routine
+    # Built from MEANINGFUL_CLASSES, never typed out -- the definition lives
+    # in api/classification.KIND_META and test_meaningful_is_one_definition
+    # fails the build if a surface hardcodes its own copy.
+    _meaningful = ", ".join("'%s'" % c for c in MEANINGFUL_CLASSES)
+
     recent = iconn.execute(
         """SELECT ticker, trade_type, MAX(company) AS company,
                   SUM(value) AS recent_value,
@@ -514,8 +590,8 @@ def scan_activity_spikes(iconn: ConnectionWrapper, nconn: ConnectionWrapper, lat
            WHERE filing_date BETWEEN date(?, '-7 days') AND ?
              AND trans_code IN ('P', 'S')
              AND (is_duplicate = 0 OR is_duplicate IS NULL)
-             AND (is_routine != 1 OR is_routine IS NULL)
-           GROUP BY ticker, trade_type""",
+             AND signal_class IN ({meaningful})
+           GROUP BY ticker, trade_type""".format(meaningful=_meaningful),
         (latest, latest),
     ).fetchall()
 
@@ -527,8 +603,8 @@ def scan_activity_spikes(iconn: ConnectionWrapper, nconn: ConnectionWrapper, lat
            WHERE filing_date BETWEEN date(?, '-90 days') AND date(?, '-8 days')
              AND trans_code IN ('P', 'S')
              AND (is_duplicate = 0 OR is_duplicate IS NULL)
-             AND (is_routine != 1 OR is_routine IS NULL)
-           GROUP BY ticker, trade_type""",
+             AND signal_class IN ({meaningful})
+           GROUP BY ticker, trade_type""".format(meaningful=_meaningful),
         (latest, latest),
     ).fetchall():
         baseline[(row["ticker"], row["trade_type"])] = row["daily_avg"]
@@ -544,7 +620,13 @@ def scan_activity_spikes(iconn: ConnectionWrapper, nconn: ConnectionWrapper, lat
         if weekly_baseline <= 0:
             continue
         ratio = r["recent_value"] / weekly_baseline
-        if ratio < 5.0:
+        if ratio < SPIKE_MIN_RATIO:
+            continue
+        # Absolute floors. Without these a ticker with a near-zero baseline
+        # generates a 989x "spike" out of one small filing.
+        if (r["recent_value"] or 0) < SPIKE_MIN_VALUE:
+            continue
+        if (r["recent_insiders"] or 0) < SPIKE_MIN_INSIDERS:
             continue
 
         action = "buy" if r["trade_type"] == "buy" else "sell"
@@ -552,6 +634,11 @@ def scan_activity_spikes(iconn: ConnectionWrapper, nconn: ConnectionWrapper, lat
         body = f"{r['ticker']} ({r['company']}) {action} activity is {ratio:.1f}x above its 90-day average with {r['recent_insiders']} insiders active"
 
         for user in users:
+            # The user's own floor, which this path ignored completely --
+            # only high_value_filing consulted it. Someone who set
+            # min_trade_value to $1M was still being sent $40k spikes.
+            if r["recent_value"] < (user.get("min_trade_value") or 0):
+                continue
             dedup = _dedup_key("asp", user["user_id"], r["ticker"], r["trade_type"], r["latest_filing"])
             if _insert_notification(nconn, user["user_id"], "activity_spike", title, body, r["ticker"], dedup):
                 count += 1
@@ -999,50 +1086,126 @@ def scan_portfolio_alerts(iconn: ConnectionWrapper, nconn: ConnectionWrapper, la
     return count
 
 
+def expire_stale_notifications(nconn: ConnectionWrapper) -> int:
+    """Age out anything too old to be worth emailing.
+
+    This is the property that makes the queue safe. However long email is
+    broken -- a bad key, an outage, a detector gone haywire -- the queue can
+    only ever hold EMAIL_TTL_DAYS of sendable material. There is no state in
+    which turning email back on produces a flood, and no need to ever decide
+    "should we dump the backlog", because the backlog cannot exist.
+
+    The rows are not deleted. They stay in the in-app feed, which is a
+    history and should be complete; only their eligibility for email ends.
+    """
+    # The DB's own clock, not Python's. created_at is TEXT written by NOW(),
+    # so it carries the server's offset; comparing it against a string built
+    # from a UTC datetime would be off by the offset. Same source, same
+    # format, no skew.
+    cur = nconn.execute(
+        f"""UPDATE notifications
+               SET emailed = {EMAIL_EXPIRED}
+             WHERE emailed = {EMAIL_PENDING}
+               AND created_at < (NOW() - INTERVAL '{EMAIL_TTL_DAYS} days')::text"""
+    )
+    n = cur.rowcount or 0
+    if n:
+        logger.info("expired %d notification(s) older than %d days",
+                    n, EMAIL_TTL_DAYS)
+    nconn.commit()
+    return n
+
+
+def report_backpressure(nconn: ConnectionWrapper) -> list[tuple[str, int]]:
+    """A growing queue is a configuration error, not a backlog.
+
+    If a user is accruing more than BACKPRESSURE_THRESHOLD pending items
+    inside the TTL window, no digest size will fix it -- their filters are
+    wrong or a detector is misfiring. Say so loudly. This is exactly what was
+    missing while one user accumulated 5,114 activity_spike rows.
+    """
+    rows = nconn.execute(
+        f"""SELECT user_id, COUNT(*) AS n
+              FROM notifications
+             WHERE emailed = {EMAIL_PENDING}
+             GROUP BY user_id
+            HAVING COUNT(*) > ?""",
+        (BACKPRESSURE_THRESHOLD,),
+    ).fetchall()
+    out = [(r["user_id"], r["n"]) for r in rows]
+    for user_id, n in out:
+        logger.error(
+            "BACKPRESSURE: %s has %d pending notifications inside a %d-day "
+            "window. A digest cannot fix this -- their filters are too loose "
+            "or a detector is misfiring.", user_id, n, EMAIL_TTL_DAYS)
+    return out
+
+
 def send_daily_digests(nconn: ConnectionWrapper) -> int:
-    """Send daily digest emails for users with unread notifications and daily frequency."""
+    """One bounded digest per user with unsent, in-date notifications."""
+    if _MAIL_BLOCKED:
+        logger.error("digest skipped: %s", _MAIL_BLOCKED)
+        return 0
+
+    expire_stale_notifications(nconn)
+    report_backpressure(nconn)
+
     users = nconn.execute(
         """SELECT DISTINCT np.user_id
            FROM notification_preferences np
            WHERE np.email_enabled = 1 AND np.email_frequency = 'daily'""",
     ).fetchall()
 
-    if _MAIL_BLOCKED:
-        logger.error("digest skipped: %s", _MAIL_BLOCKED)
-        return 0
-
     sent = 0
     for row in users:
         user_id = row["user_id"]
-        notifications = nconn.execute(
-            """SELECT title, body, event_type, ticker, created_at
-               FROM notifications
-               WHERE user_id = ? AND emailed = 0
-               ORDER BY created_at DESC
-               LIMIT 50""",
+
+        # Everything eligible, not just what fits. The overflow has to be
+        # counted to be reported, and marked to avoid being re-offered
+        # tomorrow as though it were new.
+        pending = nconn.execute(
+            f"""SELECT id, title, body, event_type, ticker, created_at
+                  FROM notifications
+                 WHERE user_id = ? AND emailed = {EMAIL_PENDING}
+                 ORDER BY created_at DESC""",
             (user_id,),
         ).fetchall()
-
-        if not notifications:
+        if not pending:
             continue
 
         email = _get_user_email(user_id)
         if not email:
+            logger.warning("no email address for %s — digest skipped", user_id)
             continue
 
-        items = [dict(n) for n in notifications]
-        html = build_digest_email(items)
-        subject = f"Form4 Daily Digest — {len(items)} new alert{'s' if len(items) != 1 else ''}"
+        shown = [dict(n) for n in pending[:DIGEST_MAX_ITEMS]]
+        overflow = len(pending) - len(shown)
 
-        if send_email(email, subject, html):
-            nconn.execute(
-                "UPDATE notifications SET emailed = 1 WHERE user_id = ? AND emailed = 0",
-                (user_id,),
-            )
-            nconn.commit()
-            sent += 1
+        html = build_digest_email(shown, overflow=overflow)
+        subject = _digest_subject(len(pending))
+
+        if not send_email(email, subject, html):
+            logger.warning("digest send failed for %s — left pending", user_id)
+            continue
+
+        # Only now, and only what this digest actually accounted for: the
+        # shown items and the overflow it declared. Marking on the way in
+        # would lose them all on a send failure.
+        ids = [n["id"] for n in pending]
+        nconn.execute(
+            f"UPDATE notifications SET emailed = {EMAIL_SENT} "
+            f"WHERE id IN ({','.join('?' * len(ids))})",
+            ids,
+        )
+        nconn.commit()
+        sent += 1
+        logger.info("digest to %s: %d shown, %d more", user_id, len(shown), overflow)
 
     return sent
+
+
+def _digest_subject(total: int) -> str:
+    return f"Form4 Daily Digest — {total} new alert{'' if total == 1 else 's'}"
 
 
 # ---------------------------------------------------------------------------

@@ -224,3 +224,48 @@ form4_pipeline_assets = [
 form4_weekly_assets = [
     form4_ticker_metadata,
 ]
+
+
+# ---------------------------------------------------------------------------
+# Alert delivery
+# ---------------------------------------------------------------------------
+#
+# Scheduling lives in Dagster. The scan itself still runs from
+# com.openclaw.insideredge-notifications every 5 minutes because it needs a
+# cadence launchd is better suited to; the DIGEST is a once-a-day job and
+# belongs here with everything else that runs on a schedule.
+#
+# Why this asset did not exist until 2026-08-24: nothing had ever passed
+# `--digest`. Three of the four subscribers with email enabled are on the
+# daily frequency, so they could not have received mail even once the Clerk
+# credential bug beneath it was fixed. 6,890 notifications had accumulated
+# unsent.
+#
+# It is safe to run against that history because the scanner expires anything
+# older than EMAIL_TTL_DAYS before composing a digest -- see the email queue
+# policy block in notification_scanner.py. The queue cannot hold more than a
+# few days of sendable material no matter how long delivery is broken, so
+# there is no flood to guard against and no backlog to decide about.
+
+
+@asset(group_name="form4_alerts", compute_kind="python",
+       description="Daily notification digest email. Expires stale queue first.")
+def form4_notification_digest(context: AssetExecutionContext) -> Output:
+    out = _run(context, ["/opt/homebrew/bin/python3",
+                         f"{REPO}/pipelines/notification_scanner.py",
+                         "--digest"],
+               timeout=900)
+    sent = 0
+    for line in out.splitlines():
+        if "Daily digest: sent" in line:
+            try:
+                sent = int(line.split("sent")[1].split()[0])
+            except (IndexError, ValueError):
+                pass
+    return Output(sent, metadata={"emails_sent": MetadataValue.int(sent),
+                                  "tail": MetadataValue.text(out[-1200:])})
+
+
+form4_alert_assets = [
+    form4_notification_digest,
+]
