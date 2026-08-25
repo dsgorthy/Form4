@@ -355,6 +355,19 @@ def simulate_one_strategy(
            FROM trades t
            JOIN insiders i ON t.insider_id = i.insider_id
            WHERE t.trans_code = 'P'
+             -- A 10b5-1 PLANNED purchase carries no information about the
+             -- insider's current view — that is what "planned" means. We already exclude
+             -- planned_sell by only admitting discretionary classes elsewhere; admitting
+             -- planned_buy here was the asymmetry, not a decision.
+
+             -- Measured 2026-08-24 over the full history:
+             --     discretionary_buy  n=112,831  abnormal 30d  +1.71%   47.3% beat SPY
+             --     planned_buy        n=  1,020  abnormal 30d  -2.22%   43.0% beat SPY
+
+             -- Not merely weaker — negative. The one planned_buy that ever reached a
+             -- published book was COE in A-List on 2026-05-19, which closed -43.2%: one of
+             -- that book's two worst positions.
+             AND (t.signal_class IS NULL OR t.signal_class <> 'planned_buy')
              AND t.filing_date >= ? AND t.filing_date <= ?
            ORDER BY t.filing_date, t.trade_id""").format(grade_col=GRADE_COLUMN),
         (start_date, end_date),

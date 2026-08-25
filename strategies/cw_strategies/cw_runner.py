@@ -644,6 +644,19 @@ def _build_thesis_query(thesis: dict, lookback_days: int) -> tuple[str, list]:
 
     # Base: recent P-code buys, not duplicated
     clauses.append("t.trans_code = 'P'")
+    # A 10b5-1 PLANNED purchase carries no information about the
+    # insider's current view — that is what "planned" means. We already exclude
+    # planned_sell by only admitting discretionary classes elsewhere; admitting
+    # planned_buy here was the asymmetry, not a decision.
+
+    # Measured 2026-08-24 over the full history:
+    #     discretionary_buy  n=112,831  abnormal 30d  +1.71%   47.3% beat SPY
+    #     planned_buy        n=  1,020  abnormal 30d  -2.22%   43.0% beat SPY
+
+    # Not merely weaker — negative. The one planned_buy that ever reached a
+    # published book was COE in A-List on 2026-05-19, which closed -43.2%: one of
+    # that book's two worst positions.
+    clauses.append("(t.signal_class IS NULL OR t.signal_class <> 'planned_buy')")
     clauses.append(f"t.filing_date >= date('now', '-{int(lookback_days)} days')")
     clauses.append("(t.is_duplicate = 0 OR t.is_duplicate IS NULL)")
 
