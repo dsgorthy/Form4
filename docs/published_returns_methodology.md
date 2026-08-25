@@ -155,16 +155,24 @@ candidates clear the floor, not how many.
 row, because the three books start on three different dates and a shared column
 cannot be one of their partial windows.
 
-**These are the figures the API serves and the site shows** (`/performance`).
-A fresh re-simulation from the yamls gives the same numbers for Breakout to the
-decimal but differs on A-List (+65.4 / +41.1 / +69.2 / +43.2) and Dip Buys
-(+52.1 / +46.2 / +26.6 / +10.1). The API reads persisted `strategy_portfolio`
-rows; the harness re-simulates. **That gap is unexplained and is an open item**
-— it is the same shape as every defect this document records, two surfaces
-answering one question differently, and it should be run down before either set
-is quoted anywhere new. The direction and the concentration finding are
-unaffected: both agree Breakout's 2024 is +231.2% and both agree A-List has no
-single dominant year.
+**These are the figures the API serves and the site shows** (`/performance`),
+and they are the correct ones.
+
+*Run down 2026-08-24, and it was not a data problem.* A private comparison
+harness produced different numbers and was wrong twice over. Recorded because
+the next person to build a harness will reach for the same two shortcuts:
+
+1. **It annualised over a 252-day trading year.** CAGR is a calendar-time
+   quantity — the API divides by 365.25, which `test_cagr_uses_a_real_year_length`
+   already pins. Worth ~0.5 of a point.
+2. **It re-simulated from the yaml instead of reading the persisted book.**
+   Fine for comparing variants against each other, wrong for reproducing what
+   the site publishes.
+
+Run both curve implementations over the *same* persisted rows and they agree to
+a tenth of a point, including capped-vs-uncapped position sizing. There was
+never a disagreement between the API and the database — only between the API
+and a scratch script. **Quote the API.**
 
 **Insider Breakout's CAGR is one year, and that year is close to one
 position.** Strip 2024 and the remaining three years are +34.2%, +18.6% and

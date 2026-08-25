@@ -274,10 +274,12 @@ noise improves its median by 4.3 points.
 | 2025 | +72.1% | +18.6% | +26.8% | +16.6% |
 | 2026 | +44.4% | +21.8% | **+10.1%** | +12.1% |
 
-\* partial first year. These are what the API serves. **OPEN ITEM:** a fresh
-re-simulation matches Breakout exactly but disagrees with the API on A-List and
-Dip Buys — persisted `strategy_portfolio` rows vs re-simulating the yaml. Two
-surfaces, one question, different answers. Run it down.
+\* partial first year. **These are what the API serves and they are correct.**
+Resolved 2026-08-24: a scratch harness disagreed because it annualised over a
+252-day trading year (CAGR is calendar time — the API uses 365.25, pinned by
+`test_cagr_uses_a_real_year_length`) and re-simulated from the yaml instead of
+reading the persisted book. Same rows through either curve implementation agree
+to a tenth of a point. **Quote the API, not a harness.**
 
 That year is close to one position: PDYN was **+489.9% at the 2024 mark**
 before giving back to +296% at its January exit — the same position that

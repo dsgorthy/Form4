@@ -73,6 +73,9 @@ type BookSummary = {
   total_trades: number;
   wins: number;
   win_rate: number;
+  /** Peak-to-trough on the DAILY-marked blended curve. Must come from the API,
+   *  never from the overlay series — see the note at the drawdown tile. */
+  max_drawdown_daily: number | null;
 };
 
 async function getJson(path: string, revalidate = 300) {
@@ -163,7 +166,7 @@ export default async function LandingPage() {
 
   let hero: null | {
     final: number; spy: number; years: number;
-    cagrBlended: number; cagrSpy: number; dd: number; positions: number; from: string;
+    cagrBlended: number; cagrSpy: number; dd: number | null; positions: number; from: string;
   } = null;
 
   if (blended.length > 2) {
@@ -178,7 +181,9 @@ export default async function LandingPage() {
       years,
       cagrBlended: cagr(first.equity, last.equity, years),
       cagrSpy: cagr(pure[0].equity, pure[pure.length - 1].equity, years),
-      dd: maxDrawdown(blended.map((p) => p.equity)),
+      // dd is filled from the API below, not computed here. Left null so a
+      // missing value shows a dash instead of a wrong number.
+      dd: null as number | null,
       positions: Number(rows[rows.length - 1].n_positions ?? 0),
       from: first.date,
     };
@@ -236,7 +241,20 @@ export default async function LandingPage() {
               {[
                 ["Return a year", `${hero.cagrBlended.toFixed(1)}%`, `S&P 500 ${hero.cagrSpy.toFixed(1)}%`],
                 ["Winners", lead ? `${lead.win_rate}%` : "—", lead ? `${lead.wins} of ${lead.total_trades} trades` : ""],
-                ["Worst drop", `${hero.dd.toFixed(1)}%`, "peak to trough"],
+                // THE OVERLAY IS WEEKLY. 178 points across 3.5 years, so a
+                // drawdown that opens and closes inside a week is invisible to
+                // it. Computing this tile from that series advertised a
+                // "worst drop" of 9.5% when the daily-marked figure is 23.7% —
+                // a 2.5x understatement on the most prominent risk number on
+                // the site, and a smoothness claim we have no business making.
+                // The API measures it daily; use that.
+                [
+                  "Worst drop",
+                  typeof lead?.max_drawdown_daily === "number"
+                    ? `${lead.max_drawdown_daily.toFixed(1)}%`
+                    : "—",
+                  "peak to trough, marked daily",
+                ],
                 ["Open today", `${hero.positions}`, "positions"],
               ].map(([k, v, sub]) => (
                 <div key={k} className="bg-[#12121A] px-5 py-4">
