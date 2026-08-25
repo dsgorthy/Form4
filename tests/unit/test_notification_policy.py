@@ -193,3 +193,27 @@ def test_the_unsubscribe_endpoint_accepts_post():
     decorator = src[max(0, i - 300):i]
     assert "POST" in decorator, (
         "unsubscribe is not reachable by POST, but the mail claims it is")
+
+
+def test_the_architecture_doc_matches_the_code():
+    """The doc states the tiers and caps as fact. If they drift, the doc is
+    misinformation about a system people will trust it to describe."""
+    doc = (REPO / "docs/notification_architecture.md").read_text()
+    import pipelines.notification_scanner as NS
+
+    # Name AND value together. Asserting the bare number is useless: a "4" or
+    # a "5" appears in a dozen unrelated places in this document, so the
+    # first version of this test passed happily when the cap was changed.
+    for name, value in (("MAX_EMAILS_PER_USER_PER_DAY", MAX_EMAILS_PER_USER_PER_DAY),
+                        ("EMAIL_TTL_DAYS", NS.EMAIL_TTL_DAYS),
+                        ("BACKPRESSURE_THRESHOLD", NS.BACKPRESSURE_THRESHOLD)):
+        assert f"{name} = {value}" in doc, (
+            f"the doc does not state `{name} = {value}`; it has drifted from "
+            f"the code it describes")
+    for event_type, tier in TIERS.items():
+        # every type named, with its tier somewhere in the same table row
+        assert event_type in doc, f"{event_type} is not described in the doc"
+    for t in ("activity_spike", "congress_convergence"):
+        i = doc.index(t)
+        assert "FEED_ONLY" in doc[i:i + 300], (
+            f"the doc does not show {t} as FEED_ONLY")
