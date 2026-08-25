@@ -27,6 +27,12 @@ from api.email import build_digest_email, build_notification_email, send_email
 # take the whole job down.
 from api.public_fields import ACTIVE_STRATEGIES, PRO_ALERT_EVENTS, strategy_label
 from api.filters import MEANINGFUL_CLASSES
+from api.notification_policy import (
+    MAX_EMAILS_PER_USER_PER_DAY,
+    emailable_types,
+    is_direct,
+    may_email,
+)
 from api.notifications_db import get_connection as get_notif_connection
 from api.notifications_db import init_db
 
@@ -503,7 +509,7 @@ def scan_high_value_filings(iconn: ConnectionWrapper, nconn: ConnectionWrapper, 
 
             if _insert_notification(nconn, user["user_id"], "high_value_filing", title, body, r["ticker"], dedup):
                 count += 1
-                _try_send_realtime(nconn, user, title, body)
+                _try_send_realtime(nconn, user, title, body, "high_value_filing")
 
     _set_watermark(nconn, "high_value_filing", latest)
     nconn.commit()
@@ -542,7 +548,7 @@ def scan_cluster_formations(iconn: ConnectionWrapper, nconn: ConnectionWrapper, 
             dedup = _dedup_key("clf", user["user_id"], r["ticker"], r["trade_type"], r["latest_filing"])
             if _insert_notification(nconn, user["user_id"], "cluster_formation", title, body, r["ticker"], dedup):
                 count += 1
-                _try_send_realtime(nconn, user, title, body)
+                _try_send_realtime(nconn, user, title, body, "cluster_formation")
 
     _set_watermark(nconn, "cluster_formation", latest)
     nconn.commit()
@@ -642,7 +648,7 @@ def scan_activity_spikes(iconn: ConnectionWrapper, nconn: ConnectionWrapper, lat
             dedup = _dedup_key("asp", user["user_id"], r["ticker"], r["trade_type"], r["latest_filing"])
             if _insert_notification(nconn, user["user_id"], "activity_spike", title, body, r["ticker"], dedup):
                 count += 1
-                _try_send_realtime(nconn, user, title, body)
+                _try_send_realtime(nconn, user, title, body, "activity_spike")
 
     nconn.commit()
     return count
@@ -711,7 +717,7 @@ def scan_congress_convergence(iconn: ConnectionWrapper, nconn: ConnectionWrapper
             dedup = _dedup_key("ccv", user["user_id"], r["ticker"], str(week))
             if _insert_notification(nconn, user["user_id"], "congress_convergence", title, body, r["ticker"], dedup):
                 count += 1
-                _try_send_realtime(nconn, user, title, body)
+                _try_send_realtime(nconn, user, title, body, "congress_convergence")
 
     nconn.commit()
     return count
@@ -901,7 +907,8 @@ def scan_watchlist_activity(iconn: ConnectionWrapper, nconn: ConnectionWrapper, 
                 ).fetchone()
                 if pref:
                     _try_send_realtime(
-                        nconn, dict(pref) | {"user_id": user_id}, title, body)
+                        nconn, dict(pref) | {"user_id": user_id}, title, body,
+                        "watchlist_activity")
 
     _set_watermark(nconn, "watchlist_activity", latest)
     nconn.commit()
@@ -927,7 +934,8 @@ def _maybe_send_realtime_email(nconn: ConnectionWrapper, user: dict, title: str,
 
 
 def _try_send_realtime(nconn: ConnectionWrapper, user: dict,
-                       title: str, body: str) -> None:
+                       title: str, body: str,
+                       event_type: str = "") -> None:
     """Delivery failure must never abort the scan.
 
     The notification row is already committed; the email is a best-effort
@@ -937,6 +945,12 @@ def _try_send_realtime(nconn: ConnectionWrapper, user: dict,
     """
     if _MAIL_BLOCKED:
         return          # already logged once at ERROR by main()
+    # Tier gate. Only DIRECT event types are worth an email the moment they
+    # happen; everything else waits for the digest, and FEED_ONLY types never
+    # email at all. Without this, a user on `realtime` received one email per
+    # activity_spike -- eighty a day, of which 12.8% were ever opened.
+    if event_type and not is_direct(event_type):
+        return
     try:
         _maybe_send_realtime_email(nconn, user, title, body)
     except Exception as exc:                      # noqa: BLE001
@@ -1046,7 +1060,7 @@ def scan_portfolio_alerts(iconn: ConnectionWrapper, nconn: ConnectionWrapper, la
                                r["ticker"], r["entry_date"])
             if _insert_notification(nconn, user["user_id"], "portfolio_alert", title, body, r["ticker"], dedup):
                 count += 1
-                _try_send_realtime(nconn, user, title, body)
+                _try_send_realtime(nconn, user, title, body, "portfolio_alert")
 
     for row in new_exits:
         r = dict(row)
@@ -1079,7 +1093,7 @@ def scan_portfolio_alerts(iconn: ConnectionWrapper, nconn: ConnectionWrapper, la
                                r["ticker"], r["exit_date"])
             if _insert_notification(nconn, user["user_id"], "portfolio_alert", title, body, r["ticker"], dedup):
                 count += 1
-                _try_send_realtime(nconn, user, title, body)
+                _try_send_realtime(nconn, user, title, body, "portfolio_alert")
 
     _set_watermark(nconn, "portfolio_alert", latest_ts)
     nconn.commit()
@@ -1141,6 +1155,22 @@ def report_backpressure(nconn: ConnectionWrapper) -> list[tuple[str, int]]:
     return out
 
 
+def _emails_sent_today(nconn: ConnectionWrapper, user_id: str) -> int:
+    """Deliveries today, counted as distinct send events rather than rows.
+
+    One digest covering forty notifications is ONE email. Counting rows here
+    would make a single digest look like forty and permanently gate the user.
+    """
+    row = nconn.execute(
+        """SELECT COUNT(DISTINCT emailed_at) AS n
+              FROM notifications
+             WHERE user_id = ?
+               AND emailed_at >= (NOW() - INTERVAL '1 day')::text""",
+        (user_id,),
+    ).fetchone()
+    return int(row["n"] or 0) if row else 0
+
+
 def send_daily_digests(nconn: ConnectionWrapper) -> int:
     """One bounded digest per user with unsent, in-date notifications."""
     if _MAIL_BLOCKED:
@@ -1160,17 +1190,41 @@ def send_daily_digests(nconn: ConnectionWrapper) -> int:
     for row in users:
         user_id = row["user_id"]
 
-        # Everything eligible, not just what fits. The overflow has to be
-        # counted to be reported, and marked to avoid being re-offered
-        # tomorrow as though it were new.
+        # Three gates, in this order, and each removes a different thing:
+        #
+        #   emailed = PENDING   not already sent or expired
+        #   event_type IN (...) the type has earned an email at all. FEED_ONLY
+        #                       types are 95% of everything ever created and
+        #                       ~12% of what anyone opens; they stay in the
+        #                       feed and never reach an inbox.
+        #   is_read = 0         they have not already seen it in the app.
+        #                       Email exists for the ABSENT user. Mailing
+        #                       someone what they read an hour ago is the
+        #                       purest form of the spam this is meant to stop.
+        #
+        # Everything eligible is selected, not just what fits, because the
+        # overflow has to be counted to be reported.
+        _types = ", ".join("?" * len(emailable_types()))
         pending = nconn.execute(
             f"""SELECT id, title, body, event_type, ticker, created_at
                   FROM notifications
-                 WHERE user_id = ? AND emailed = {EMAIL_PENDING}
+                 WHERE user_id = ?
+                   AND emailed = {EMAIL_PENDING}
+                   AND is_read = 0
+                   AND event_type IN ({_types})
                  ORDER BY created_at DESC""",
-            (user_id,),
+            (user_id, *emailable_types()),
         ).fetchall()
         if not pending:
+            continue
+
+        # Delivery-layer cap, not a creation-layer one. DAILY_CAP throttles
+        # how many notifications are CREATED, which protects the inbox by
+        # starving the in-app feed -- the wrong layer, and the reason the
+        # feed was capped at 50/day while the inbox got nothing at all.
+        if _emails_sent_today(nconn, user_id) >= MAX_EMAILS_PER_USER_PER_DAY:
+            logger.info("%s already had %d emails today — digest held",
+                        user_id, MAX_EMAILS_PER_USER_PER_DAY)
             continue
 
         email = _get_user_email(user_id)
@@ -1191,9 +1245,12 @@ def send_daily_digests(nconn: ConnectionWrapper) -> int:
         # Only now, and only what this digest actually accounted for: the
         # shown items and the overflow it declared. Marking on the way in
         # would lose them all on a send failure.
+        # One timestamp for the whole digest, so COUNT(DISTINCT emailed_at)
+        # counts SENDS rather than notifications.
         ids = [n["id"] for n in pending]
         nconn.execute(
-            f"UPDATE notifications SET emailed = {EMAIL_SENT} "
+            f"UPDATE notifications SET emailed = {EMAIL_SENT}, "
+            f"    emailed_at = NOW()::text "
             f"WHERE id IN ({','.join('?' * len(ids))})",
             ids,
         )

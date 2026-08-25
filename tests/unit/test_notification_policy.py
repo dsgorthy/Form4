@@ -1,0 +1,166 @@
+"""Email is scarce; the in-app feed is not. That distinction is the design.
+
+WHY THIS EXISTS
+
+`notifications.emailed` fused two different things into one row: the fact
+that something happened and is worth showing (the feed) and the decision to
+interrupt someone about it (the email). Every fix to one broke the other --
+DAILY_CAP throttled CREATION to protect the inbox, starving the feed, while
+the inbox received nothing at all for five months.
+
+The tiers are set from measured attention, over all 6,920 notifications ever
+created:
+
+    high_value_filing        68 rows   57.4% read
+    cluster_formation       293 rows   24.9% read
+    activity_spike        6,378 rows   12.8% read   <- 92% of everything
+    congress_convergence    175 rows   10.3% read
+
+Read rate is inversely proportional to volume. That is the whole argument.
+"""
+from __future__ import annotations
+
+import ast
+from pathlib import Path
+
+import pytest
+
+from api.notification_policy import (
+    DEFAULT_TIER,
+    MAX_EMAILS_PER_USER_PER_DAY,
+    TIERS,
+    Tier,
+    emailable_types,
+    is_direct,
+    may_email,
+    tier_of,
+)
+
+REPO = Path(__file__).resolve().parents[2]
+SCANNER = REPO / "pipelines/notification_scanner.py"
+
+
+# ── the policy itself ───────────────────────────────────────────────────────
+
+def test_the_noisiest_types_never_email():
+    """activity_spike and congress_convergence are 95% of all volume and
+    ~12% of all reads. They are feed material, not mail."""
+    for t in ("activity_spike", "congress_convergence"):
+        assert not may_email(t), f"{t} can still generate email"
+
+
+def test_the_product_promise_emails_directly():
+    for t in ("portfolio_alert", "watchlist_activity"):
+        assert is_direct(t), f"{t} should be a DIRECT tier"
+
+
+def test_an_unknown_event_type_cannot_email():
+    """A new detector is noisy before it is tuned. Earn the email."""
+    assert DEFAULT_TIER is Tier.FEED_ONLY
+    assert not may_email("some_detector_added_next_month")
+
+
+def test_emailable_types_is_derived_not_typed():
+    assert set(emailable_types()) == {t for t in TIERS if may_email(t)}
+    assert "activity_spike" not in emailable_types()
+
+
+def test_the_daily_email_cap_is_small():
+    assert 1 <= MAX_EMAILS_PER_USER_PER_DAY <= 6, (
+        "a cap this product would not notice is not a cap")
+
+
+# ── the scanner honours it ──────────────────────────────────────────────────
+
+def _fn(name: str) -> str:
+    tree = ast.parse(SCANNER.read_text())
+    fn = next(n for n in ast.walk(tree)
+              if isinstance(n, ast.FunctionDef) and n.name == name)
+    body = fn.body[1:] if (fn.body and isinstance(fn.body[0], ast.Expr)
+                           and isinstance(fn.body[0].value, ast.Constant)) else fn.body
+    return "\n".join(ast.unparse(n) for n in body)
+
+
+def test_realtime_email_is_gated_on_the_tier():
+    body = _fn("_try_send_realtime")
+    assert "is_direct" in body, (
+        "realtime sends are not tier-gated, so a user on `realtime` gets one "
+        "email per activity_spike -- eighty a day")
+
+
+def test_every_realtime_call_says_what_it_is_sending():
+    """An un-typed call defaults to sending, which defeats the gate."""
+    tree = ast.parse(SCANNER.read_text())
+    bad = []
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Call) and getattr(n.func, "id", "") == "_try_send_realtime":
+            if len(n.args) < 5 and not any(k.arg == "event_type" for k in n.keywords):
+                bad.append(ast.unparse(n)[:80])
+    assert not bad, f"_try_send_realtime called without an event_type: {bad}"
+
+
+def test_the_digest_only_selects_emailable_types():
+    """Assert on the WHERE clause, not on the identifier appearing somewhere.
+
+    The first version checked `"emailable_types" in body`, which stayed true
+    when the filter was deleted from the query because the placeholder-building
+    line above it still mentioned the function. It passed against the bug.
+    """
+    body = _fn("send_daily_digests")
+    assert "event_type IN" in body, (
+        "the digest query does not filter by event_type, so FEED_ONLY types "
+        "reach inboxes")
+    assert "emailable_types()" in body, (
+        "the type list must come from the policy, not be typed out")
+
+
+def test_the_digest_skips_what_the_user_already_read():
+    """Email exists for the ABSENT user. Mailing someone what they read an
+    hour ago is the purest form of the spam this is meant to prevent."""
+    body = _fn("send_daily_digests")
+    assert "is_read = 0" in body
+
+
+def test_the_send_cap_is_at_the_delivery_layer():
+    body = _fn("send_daily_digests")
+    assert "MAX_EMAILS_PER_USER_PER_DAY" in body
+    # and it must not be the creation-layer cap wearing a new name
+    assert "DAILY_CAP" not in body
+
+
+def test_the_cap_counts_sends_not_notifications():
+    """One digest covering forty notifications is ONE email. Counting rows
+    would gate the user out permanently after a single send."""
+    body = _fn("_emails_sent_today")
+    assert "emailed_at" in body, "the cap must count by send time"
+    assert "COUNT(DISTINCT" in body
+
+
+def test_delivery_time_is_recorded():
+    body = _fn("send_daily_digests")
+    assert "emailed_at = NOW()" in body, (
+        "nothing stamps emailed_at, so the cap can never see a send")
+
+
+def test_the_schema_declares_emailed_at():
+    """A fresh database must match the migrated one."""
+    schema = (REPO / "api/notifications_db.py").read_text()
+    assert "emailed_at" in schema
+
+
+def test_noisy_scanners_run_last():
+    """DAILY_CAP is shared across event types, so whichever scanner runs
+    first spends the budget. activity_spike alone would consume it."""
+    src = SCANNER.read_text()
+    order = []
+    for ev in ("portfolio_alert", "watchlist_activity", "high_value_filing",
+               "congress_convergence", "cluster_formation", "activity_spike"):
+        marker = f'results["{ev}"] ='
+        assert marker in src, f"{ev} is not dispatched in _scan"
+        order.append((src.index(marker), ev))
+    order.sort()
+    ran = [ev for _, ev in order]
+    assert ran[-1] == "activity_spike", (
+        f"activity_spike must run last or it eats the shared daily budget "
+        f"before anything anyone reads gets a chance: {ran}")
+    assert ran.index("high_value_filing") < ran.index("activity_spike")

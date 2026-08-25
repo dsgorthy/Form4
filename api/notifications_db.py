@@ -41,6 +41,10 @@ CREATE TABLE IF NOT EXISTS notifications.notifications (
     dedup_key TEXT NOT NULL,
     is_read INTEGER NOT NULL DEFAULT 0,
     emailed INTEGER NOT NULL DEFAULT 0,
+    -- When it was DELIVERED, not created. `emailed` is a state with no time,
+    -- which makes a per-user-per-day send cap unenforceable. Nullable: rows
+    -- sent before 2026-08-25 read correctly as "sent, time unknown".
+    emailed_at TEXT,
     created_at TEXT NOT NULL DEFAULT NOW(),
     UNIQUE (user_id, dedup_key)
 );
