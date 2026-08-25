@@ -445,3 +445,39 @@ def get_chart_data(
         result["gated"] = True
         result["free_cutoff"] = free_cutoff
     return result
+
+
+@router.get("/{ticker}/insiders")
+def company_insiders(ticker: str, limit: int = Query(default=50, le=200)):
+    """Everyone who has filed on this ticker, most recent first.
+
+    Cross-links the company and insider pages, and carries the career grade on
+    each name — the thing a competitor roster cannot show.
+
+    MEANINGFUL filings only. An unfiltered roster is dominated by people who
+    have only ever received a compensation grant, which is not "an insider who
+    trades this stock".
+    """
+    with get_db() as conn:
+        rows = conn.execute("""
+            SELECT DISTINCT ON (t.insider_id)
+                   t.insider_id,
+                   COALESCE(i.display_name, i.name) AS name,
+                   i.slug,
+                   t.title,
+                   t.career_grade,
+                   t.filing_date::text AS last_filed,
+                   t.trade_type AS last_action
+              FROM trades t
+              JOIN insiders i ON i.insider_id = t.insider_id
+             WHERE t.ticker = ?
+               AND t.signal_class IN ('discretionary_buy', 'discretionary_sell')
+             ORDER BY t.insider_id, t.filing_date DESC, t.trade_id DESC
+        """, (ticker.upper(),)).fetchall()
+
+    items = sorted(
+        (dict(r) for r in rows),
+        key=lambda r: r["last_filed"] or "",
+        reverse=True,
+    )[:limit]
+    return {"ticker": ticker.upper(), "count": len(items), "items": items}

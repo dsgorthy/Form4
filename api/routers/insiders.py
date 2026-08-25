@@ -381,6 +381,72 @@ def get_insider(identifier: str, user: UserContext = Depends(get_current_user)) 
     result.update(best_pit)
     result["ticker_grades"] = ticker_grades
 
+    # ── holdings ────────────────────────────────────────────────────────────
+    #
+    # `shares_owned_after` is a RUNNING BALANCE, not a delta — the latest
+    # filing per (insider, ticker) is the position, and summing the column
+    # double-counts. A filing split across five tranches carries the same
+    # balance on every lot, so DISTINCT ON is doing real work here.
+    #
+    # Coverage is 98.3% of rows in the last 60 days. A ticker with no price is
+    # reported with shares and no value rather than dropped.
+    result["holdings"] = [
+        {
+            "ticker": h["ticker"],
+            "shares": int(h["shares"]) if h["shares"] is not None else None,
+            "last_close": float(h["close"]) if h["close"] is not None else None,
+            "value": (round(float(h["shares"]) * float(h["close"]), 2)
+                      if h["shares"] is not None and h["close"] is not None else None),
+            "as_of": h["filing_date"],
+        }
+        for h in conn.execute("""
+            WITH latest AS (
+              SELECT DISTINCT ON (t.ticker)
+                     t.ticker, t.shares_owned_after AS shares, t.filing_date
+                FROM trades t
+               WHERE t.insider_id = ?
+                 AND t.shares_owned_after IS NOT NULL
+                 AND t.shares_owned_after > 0
+               ORDER BY t.ticker, t.filing_date DESC, t.trade_id DESC
+            )
+            SELECT l.ticker, l.shares, l.filing_date::text AS filing_date, p.close
+              FROM latest l
+              LEFT JOIN LATERAL (
+                    SELECT close FROM prices.daily_prices
+                     WHERE ticker = l.ticker ORDER BY date DESC LIMIT 1
+              ) p ON true
+             ORDER BY (l.shares * COALESCE(p.close, 0)) DESC
+        """, (insider_id,)).fetchall()
+    ]
+
+    # ── trailing twelve months ──────────────────────────────────────────────
+    #
+    # Counts FILINGS, not lots — a purchase filled in five tranches is one
+    # decision. And only MEANINGFUL classes: 184k compensation grants and 221k
+    # option exercises carry trade_type='buy', so an unfiltered count reports
+    # shares an insider was handed as shares they bought.
+    ttm = {}
+    for r in conn.execute("""
+        SELECT trade_type,
+               count(DISTINCT COALESCE(filing_key, accession, CAST(trade_date AS TEXT))) AS filings,
+               COALESCE(sum(shares), 0) AS shares,
+               COALESCE(sum(value), 0)  AS value
+          FROM trades
+         WHERE insider_id = ?
+           AND signal_class IN ('discretionary_buy', 'discretionary_sell')
+           AND filing_date::date >= (CURRENT_DATE - INTERVAL '12 months')
+         GROUP BY trade_type
+    """, (insider_id,)).fetchall():
+        ttm[r["trade_type"]] = {
+            "filings": r["filings"],
+            "shares": int(r["shares"] or 0),
+            "value": float(r["value"] or 0),
+        }
+    result["ttm"] = {
+        "buys": ttm.get("buy", {"filings": 0, "shares": 0, "value": 0.0}),
+        "sells": ttm.get("sell", {"filings": 0, "shares": 0, "value": 0.0}),
+    }
+
     # Non-Pro sees who this is and what they did; not how well it worked.
     if not user.is_pro:
         # Volume survives, outcomes do not. buy_count / sell_count / n_tickers

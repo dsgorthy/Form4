@@ -232,45 +232,59 @@ do essentially nothing and the mean is carried by a tail. A-List is +15.66%
 median against +13.68% mean, which is the opposite shape and a much healthier
 one.
 
-## min_conviction: measured, and deliberately NOT changed
+## min_conviction: raise it on A-List, leave Breakout alone
 
-Swept 0.0–5.0 on all three books, split in-sample / out-of-sample at 2025-06-01
-(the same split used for the stop):
+**What the number is.** Every candidate filing gets a *conviction score* — a
+sum of roughly twelve half-point components (insider grade, C-suite role,
+cluster size, dip depth, first-ever buy, position vs the moving averages).
+`min_conviction` is the floor: score below it and the candidate is rejected. It
+is 1.5 on A-List and Breakout, 3.0 on Dip Buys, and has never been tuned.
 
-| | shipped | best in-sample | best out-of-sample | holds? |
+**The score works, weakly.** On A-List's 44 taken positions the rank
+correlation between conviction and P&L is **+0.18** — real but close to noise.
+The useful structure is at the bottom, not across the range:
+
+| conviction | n | mean | median | win |
 |---|---|---|---|---|
-| A-List Buys | 1.5 | **1.5** (54.9%) | 2.0 (119.1%) | no |
-| Insider Breakout | 1.5 | 0.0 (78.5%) | 2.0 (58.5%) | no |
-| Insider Dip Buys | 3.0 | 0.0 (36.3%) | 1.5 (45.6%) | no |
+| **1.5–2.0** | **17** | **+6.75%** | +14.81% | **59%** |
+| 2.0–2.5 | 14 | +20.06% | +18.30% | 79% |
+| 2.5–3.0 | 7 | +12.51% | +9.81% | 71% |
+| 3.0+ | 6 | +19.83% | +17.55% | 67% |
+| all | 44 | +13.68% | +15.66% | 68% |
 
-**The in-sample optimum fails out of sample on every single book.** That is the
-answer to "is min_conviction tunable on this data", and the answer is no —
-fitting it would be fitting noise, which is precisely the selection bias this
-document already carries as its largest caveat. **No config was changed.**
+**39% of the book sits in the bottom bucket and earns half the book's return.**
 
-Two things are worth keeping from the sweep. First, **2.0 wins out-of-sample on
-both A-List and Breakout**, and on A-List it also beats the shipped value over
-the full period (71.2% against 63.3%). Second, that agrees with the perturbation
-study above, where adding pure noise to A-List's conviction improved its median
-by 4.3 points. Two independent measurements both say **A-List's gate at 1.5 is
-too low.**
+**Walk-forward.** Pick the floor that looked best on data before a cut date,
+then measure what it actually earned after. Four cuts:
 
-That is a genuine lead and not a config edit. It needs a real walk-forward —
-rolling refit, several splits, out-of-sample only — before anything moves, and
-the parameter changes live alerts, so it is a decision rather than a cleanup.
-Recorded here so the next session starts from the evidence rather than
-re-deriving it.
+| | A-List | Insider Breakout |
+|---|---|---|
+| floor picked at every cut | **2.0** | 1.0 |
+| average gain vs shipped | **+20.0 pts** | **−34.1 pts** |
+| cuts where tuning helped | 2 of 4 | **0 of 4** |
 
-The earlier trade-level result still holds directionally: after regrading,
-trades keeping A+/A returned +17.8% median against +6.4% for those losing it.
+And as a fixed floor over the whole period:
 
-**Insider Dip Buys is now verified** (2026-08-23). Its primary filter lost a
-third of its qualifying signals to the tranche correction, so the threshold was
-re-tested: `min_consecutive_sells` is flat from 10 down to 6 (36.5 / 36.4 /
-36.6% CAGR) and worse below, and 10 has the best Sharpe. Sizing was swept from
-`6 x 17%` to `2 x 50%`; the shipped `4 x 25%` is best on Sharpe. No change
-warranted — but note it is only 19% deployed, so four-fifths of what a holder
-experiences is SPY, and its Sharpe of 0.70 is the weakest of the three.
+| floor | A-List | Breakout |
+|---|---|---|
+| 1.0 | 49.2% | **68.3%** |
+| **1.5 (shipped)** | 62.4% | 64.2% |
+| **2.0** | **70.8%** | 42.3% |
+| 2.5 | 33.1% | 30.6% |
+
+**A-List: raise 1.5 → 2.0.** It is the walk-forward pick at every cut, the best
+fixed floor over the full period (+8.4 points), and max drawdown is unchanged
+(23.2% against 22.6%). The mechanism is visible in the bucket table rather than
+being a curve-fit.
+
+**Breakout: do not touch it.** Its in-sample pick (1.0) lost out of sample at
+every single cut, by 30 points or more three times out of four.
+
+**Caveats that belong with this.** A-List drops from 44 trades to 38, and it
+already fires only ~13 times a year — the floor buys return by taking fewer
+alerts. The +20.0 average gain is dominated by one cut (+53.6); the median cut
+gained far less. And this is still one book over 3.6 years in a bull market.
+
 
 ---
 

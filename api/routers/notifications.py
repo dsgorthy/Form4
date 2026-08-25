@@ -251,7 +251,10 @@ def get_watchlist(user: UserContext = Depends(require_auth)) -> dict:
     """List watched tickers."""
     with get_notifications_db() as conn:
         rows = conn.execute(
-            "SELECT ticker, added_at FROM watchlist WHERE user_id = ? ORDER BY added_at DESC",
+            # ticker IS NOT NULL: the same table now holds insider follows,
+            # and a NULL ticker would render as a blank row on the watchlist.
+            "SELECT ticker, added_at FROM watchlist "
+            "WHERE user_id = ? AND ticker IS NOT NULL ORDER BY added_at DESC",
             (user.user_id,),
         ).fetchall()
     return {"items": [dict(r) for r in rows]}
@@ -335,3 +338,102 @@ def unsubscribe(user_id: str = Query(...), token: str = Query(...)) -> dict:
         )
         conn.commit()
     return {"ok": True, "message": "Email notifications disabled. You can re-enable them in settings."}
+
+
+# ── following an insider ────────────────────────────────────────────────────
+#
+# `watchlist` has carried `insider_id` since it was built and nothing ever
+# wrote to it: the product offered per-insider alerts, the matcher only read
+# `w.ticker`, and following an insider delivered nothing. The matcher was fixed
+# 2026-08-24; these are the endpoints that finally put data in front of it.
+
+
+class InsiderFollow(BaseModel):
+    insider_id: int
+
+
+@router.get("/watchlist/insiders")
+def get_followed_insiders(user: UserContext = Depends(require_auth)) -> dict:
+    """Insiders this user follows, with enough to render a link."""
+    with get_notifications_db() as conn:
+        rows = conn.execute(
+            "SELECT insider_id, added_at FROM watchlist "
+            "WHERE user_id = ? AND insider_id IS NOT NULL ORDER BY added_at DESC",
+            (user.user_id,),
+        ).fetchall()
+    ids = [r["insider_id"] for r in rows]
+    if not ids:
+        return {"items": []}
+    with get_db() as iconn:
+        names = {
+            r["insider_id"]: r for r in iconn.execute(
+                "SELECT insider_id, COALESCE(display_name, name) AS name, slug "
+                "FROM insiders WHERE insider_id = ANY(?)", (ids,)
+            ).fetchall()
+        }
+    return {"items": [
+        {"insider_id": r["insider_id"], "added_at": r["added_at"],
+         "name": (names.get(r["insider_id"]) or {}).get("name"),
+         "slug": (names.get(r["insider_id"]) or {}).get("slug")}
+        for r in rows
+    ]}
+
+
+@router.post("/watchlist/insiders")
+def follow_insider(
+    body: InsiderFollow,
+    user: UserContext = Depends(require_auth),
+) -> dict:
+    """Follow an insider. Alerts default to meaningful filings only."""
+    with get_db() as iconn:
+        row = iconn.execute(
+            "SELECT COALESCE(display_name, name) AS name FROM insiders "
+            "WHERE insider_id = ?", (body.insider_id,),
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Insider not found")
+
+    with get_notifications_db() as conn:
+        count = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM watchlist "
+            "WHERE user_id = ? AND insider_id IS NOT NULL",
+            (user.user_id,),
+        ).fetchone()["cnt"]
+        # Counted separately from tickers: they are different things to follow
+        # and sharing one budget would make following an insider silently cost
+        # a ticker slot.
+        limit = WATCHLIST_LIMIT_PRO if user.is_pro else WATCHLIST_LIMIT_FREE
+        if count >= limit:
+            raise HTTPException(
+                status_code=400,
+                detail=(f"Following up to {limit} insiders. Remove one first."
+                        if user.is_pro else
+                        f"A free account follows up to {WATCHLIST_LIMIT_FREE} "
+                        f"insiders. Remove one, or upgrade for {WATCHLIST_LIMIT_PRO}."),
+            )
+        # Same reason as the ticker path: the scanner selects on
+        # notification_preferences.watchlist_activity, so without a row this
+        # follow matches nothing and the user is never told.
+        _ensure_preferences(conn, user.user_id)
+        conn.execute(
+            "INSERT OR IGNORE INTO watchlist (user_id, insider_id) VALUES (?, ?)",
+            (user.user_id, body.insider_id),
+        )
+        conn.commit()
+    return {"ok": True, "insider_id": body.insider_id, "name": row["name"]}
+
+
+@router.delete("/watchlist/insiders/{insider_id}")
+def unfollow_insider(
+    insider_id: int,
+    user: UserContext = Depends(require_auth),
+) -> dict:
+    with get_notifications_db() as conn:
+        result = conn.execute(
+            "DELETE FROM watchlist WHERE user_id = ? AND insider_id = ?",
+            (user.user_id, insider_id),
+        )
+        conn.commit()
+        if result.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Not following that insider")
+    return {"ok": True, "insider_id": insider_id}
