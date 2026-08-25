@@ -21,14 +21,16 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt -r api/requirements.txt
-          pip install httpx stripe "PyJWT[crypto]" pydantic python-dotenv resend slowapi
           pip install ruff pytest
 
       - name: Lint (ruff — critical errors only, tighten over time)
         run: ruff check api/ --select E9,F63,F7,F82
 
+      # No -x. With it, a single missing package at collection time masks
+      # the entire suite: 60 consecutive red runs reported one bs4 ImportError
+      # while 1,396 tests were never executed and their state was unknown.
       - name: Test
-        run: PYTHONPATH="${{ github.workspace }}" pytest tests/unit -x -q
+        run: PYTHONPATH="${{ github.workspace }}" pytest tests/unit -q
 
   frontend:
     name: Frontend (typecheck + build)

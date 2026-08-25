@@ -19,7 +19,34 @@ if str(_FRAMEWORK_ROOT) not in sys.path:
 from framework.data.alpaca_client import AlpacaClient
 
 sys.path.insert(0, str(Path(__file__).parent))
-import notify
+# `notify` was Telegram progress reporting. The module was deleted in
+# "Phase 1 reliability rebuild + Telegram removal" and this script was left
+# importing it, so it has been unable to start since -- the import fails
+# before main() is reached. Replaced with logging, which is what the rest of
+# the pipeline uses. Found 2026-08-24 by test_dependencies_are_declared.
+
+
+class _Notify:
+    """Logging stand-in for the removed Telegram notifier."""
+
+    @staticmethod
+    def phase_start(phase, msg):
+        logger.info("%s: %s", phase, msg)
+
+    @staticmethod
+    def phase_end(phase, msg=""):
+        logger.info("%s complete. %s", phase, msg)
+
+    @staticmethod
+    def progress(phase, msg):
+        logger.info("%s: %s", phase, msg)
+
+    @staticmethod
+    def error(phase, msg):
+        logger.error("%s: %s", phase, msg)
+
+
+notify = _Notify()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s — %(message)s")
 logger = logging.getLogger(__name__)

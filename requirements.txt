@@ -9,3 +9,19 @@ pyyaml>=6.0
 pytz>=2023.3
 python-telegram-bot>=20.0
 psycopg2-binary>=2.9
+# Congress scraper (pipelines/congress_scraper/scrape_capitol_trades.py) has
+# imported this at module scope for months. It was in no requirements file, so
+# every CI run since at least 2026-08-22 died at collection -- 60 consecutive
+# failures, and because CI runs pytest with -x, one missing package hid the
+# other 1,396 tests entirely.
+beautifulsoup4>=4.12
+
+# Imported at module scope and previously undeclared, found by
+# test_dependencies_are_declared. starlette and urllib3 arrive transitively
+# via fastapi and requests, but code imports them directly and a transitive
+# dependency is not a promise.
+yfinance>=0.2
+matplotlib>=3.7
+websockets>=12.0
+starlette
+urllib3

@@ -3,3 +3,10 @@ uvicorn[standard]
 sqids
 slowapi
 psycopg2-binary
+# These were installed by a hand-maintained `pip install ...` line in
+# ci.yml rather than declared here, which is the same gap beautifulsoup4 fell
+# through. Declared where they belong so CI installs what production does.
+stripe
+PyJWT[crypto]
+resend
+pydantic
