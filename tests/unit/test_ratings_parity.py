@@ -132,3 +132,32 @@ def test_python_module_parses_as_the_source_of_truth():
         n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module
     }
     assert imported <= {"__future__", "typing"}, f"ratings.py imports {imported}"
+
+
+# ── the docs must name the bands the code actually has ─────────────────────
+
+
+def test_claude_md_names_the_real_bands():
+    """CLAUDE.md called the 50-59 band "Routine" for three days after it was
+    renamed to "Modest". That is not a cosmetic error: `is_routine`,
+    `cohen_routine` and the "SELL · Routine" chip already use that word for a
+    different axis, the two disagreed on the same filing, and the rename on
+    2026-08-21 exists specifically to end the collision. A stale name in the
+    file every session reads first puts it straight back.
+    """
+    import re
+    from pathlib import Path
+
+    from api.ratings import TRADE_RATINGS
+
+    doc = (Path(__file__).resolve().parents[2] / "CLAUDE.md").read_text()
+    m = re.search(r"Trade Rating \(([^,]+),", doc)
+    assert m, "CLAUDE.md no longer describes the Trade Rating bands"
+    named = [x.strip("* ") for x in m.group(1).split("/")]
+    assert named == list(TRADE_RATINGS), (
+        f"CLAUDE.md names the bands {named}; the code has {list(TRADE_RATINGS)}"
+    )
+    assert "Routine" not in named, (
+        "'Routine' is back as a rating band name. It already means "
+        "'this insider does this on a schedule' elsewhere in the product."
+    )
