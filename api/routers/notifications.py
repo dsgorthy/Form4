@@ -21,7 +21,18 @@ router = APIRouter(prefix="/api/v1/notifications", tags=["notifications"])
 # deliverability liability, so the free ceiling stays low enough that a single
 # abandoned account cannot generate much of it.
 WATCHLIST_LIMIT_FREE = 10
-WATCHLIST_LIMIT_PRO = 25
+
+#: None means UNLIMITED. Pro had a 25-name ceiling until 2026-08-24; it was
+#: removed because it is exactly the kind of number the paragraph above says
+#: Pro should not be buying. Someone tracking a sector or a whole fund's
+#: filings hits 25 immediately, and telling a paying subscriber to delete a
+#: ticker before adding another is a worse experience than the free tier's
+#: honest "upgrade for more".
+#:
+#: Email volume does not scale with this. A Pro user on `daily` gets one
+#: digest regardless of follow count; only `realtime` is per-filing, and that
+#: is an explicit opt-in to their own inbox.
+WATCHLIST_LIMIT_PRO = None
 
 # ---------------------------------------------------------------------------
 # Request / response models
@@ -281,14 +292,12 @@ def add_to_watchlist(
             (user.user_id,),
         ).fetchone()["cnt"]
         limit = WATCHLIST_LIMIT_PRO if user.is_pro else WATCHLIST_LIMIT_FREE
-        if count >= limit:
-            detail = (
-                f"Watchlist limited to {limit} tickers. Remove one first."
-                if user.is_pro else
-                f"A free account follows up to {WATCHLIST_LIMIT_FREE} tickers. "
-                f"Remove one, or upgrade for {WATCHLIST_LIMIT_PRO}."
-            )
-            raise HTTPException(status_code=400, detail=detail)
+        if limit is not None and count >= limit:
+            raise HTTPException(
+                status_code=400,
+                detail=f"A free account follows up to {WATCHLIST_LIMIT_FREE} "
+                       f"tickers. Remove one, or upgrade to follow as many as "
+                       f"you like.")
         # Create the preferences row if this is their first follow.
         #
         # notification_scanner selects users with
@@ -403,14 +412,12 @@ def follow_insider(
         # and sharing one budget would make following an insider silently cost
         # a ticker slot.
         limit = WATCHLIST_LIMIT_PRO if user.is_pro else WATCHLIST_LIMIT_FREE
-        if count >= limit:
+        if limit is not None and count >= limit:
             raise HTTPException(
                 status_code=400,
-                detail=(f"Following up to {limit} insiders. Remove one first."
-                        if user.is_pro else
-                        f"A free account follows up to {WATCHLIST_LIMIT_FREE} "
-                        f"insiders. Remove one, or upgrade for {WATCHLIST_LIMIT_PRO}."),
-            )
+                detail=f"A free account follows up to {WATCHLIST_LIMIT_FREE} "
+                       f"insiders. Remove one, or upgrade to follow as many "
+                       f"as you like.")
         # Same reason as the ticker path: the scanner selects on
         # notification_preferences.watchlist_activity, so without a row this
         # follow matches nothing and the user is never told.

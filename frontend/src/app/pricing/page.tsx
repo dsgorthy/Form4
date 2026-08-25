@@ -31,7 +31,9 @@ function billingFromPriceId(priceId: string): string {
 // The split now: Pro is everything we compute. Pro+ is getting it out of the
 // product — bulk export and programmatic access.
 const FREE_FEATURES = [
-  "Follow up to 10 companies",
+  // 10 companies AND 10 insiders -- WATCHLIST_LIMIT_FREE is applied to each
+  // list separately, so following an insider does not cost a company slot.
+  "Follow up to 10 companies and 10 insiders",
   "Email alerts when they file",
   "Last 90 days of filings",
   "Company & insider pages",
@@ -39,6 +41,10 @@ const FREE_FEATURES = [
 ];
 
 const PRO_FEATURES = [
+  // Unlimited since 2026-08-24 (WATCHLIST_LIMIT_PRO = None). It was 25, and
+  // an unadvertised cap that a sector-tracker hits on day one is worth less
+  // than an advertised absence of one.
+  "Follow unlimited companies & insiders",
   "Insider grades & full track records",
   "Filter any feed by grade or tier",
   "Real-time portfolio & positions",

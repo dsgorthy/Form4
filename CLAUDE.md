@@ -118,6 +118,19 @@ shared logic into `framework/decision/` rather than reimplementing in place.
 # Run all tests
 python3 -m pytest tests/unit -v
 
+# Run all tests INCLUDING the API ones. USE THIS ONE.
+#
+# Plain `python3 -m pytest` on the Mini silently skips every test that imports
+# fastapi — those files open with `pytest.importorskip("fastapi")`. That was 27
+# tests across test_follow_is_free.py and test_insider_url_resolution.py which
+# ran NOWHERE: the Mini has no fastapi, the API Docker image has no pytest, and
+# `studio deploy form4` never invokes pytest at all. Found 2026-08-24 while
+# changing a constant those very tests assert on — the local suite stayed green
+# and would have shipped a broken assertion.
+#
+# The venv has requirements.txt + api/requirements.txt installed.
+/Users/derekg/.venvs/form4-tests/bin/python -m pytest tests/unit -q
+
 # Backtest a historical strategy (archived/research)
 python3 pipelines/run_backtest.py --strategy spy_gap_fill --capital 50000 --position-pct 5.0
 

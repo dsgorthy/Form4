@@ -82,11 +82,34 @@ def test_research_tools_stay_pro_plus():
 
 # ── the free cap is a cost guard, not the product boundary ──────────────────
 
-def test_free_cap_is_lower_than_pro_but_usable():
-    assert 0 < WATCHLIST_LIMIT_FREE < WATCHLIST_LIMIT_PRO
+def test_free_cap_is_usable_and_pro_is_unlimited():
     # Ten names is a real watchlist. A cap of one or two would make the free
     # tier a demo, which defeats the reason it exists.
     assert WATCHLIST_LIMIT_FREE >= 10
+    # None means unlimited, from 2026-08-24. A number here -- any number --
+    # means someone reintroduced a Pro ceiling.
+    assert WATCHLIST_LIMIT_PRO is None
+
+
+def test_neither_enforcement_site_compares_against_an_unlimited_cap():
+    """`count >= None` raises TypeError, and it raises inside the follow
+    handler, so a Pro user would get a 500 on their FIRST follow rather than
+    an unlimited watchlist. Both call sites must guard on None."""
+    import ast, inspect
+    from api.routers import notifications as N
+
+    src = inspect.getsource(N)
+    tree = ast.parse(src)
+    sites = [n for n in ast.walk(tree)
+             if isinstance(n, ast.Compare)
+             and ast.unparse(n).startswith("count >= limit")]
+    assert len(sites) == 2, f"expected 2 cap checks, found {len(sites)}"
+    for cmp_node in sites:
+        parent = next(n for n in ast.walk(tree)
+                      if isinstance(n, ast.If) and cmp_node in ast.walk(n.test))
+        guard = ast.unparse(parent.test)
+        assert "is not None" in guard, (
+            f"cap check is unguarded and will TypeError for Pro: {guard}")
 
 
 def test_following_creates_the_preferences_row_that_makes_alerts_fire():
@@ -184,3 +207,45 @@ def test_turning_a_pro_alert_off_is_always_allowed():
         "the check must exempt falsy values, or a lapsed user is trapped with "
         "alerts they cannot disable"
     )
+
+
+# ── the pricing page is marketing copy for a real gate ──────────────────────
+
+PRICING = (
+    __import__("pathlib").Path(__file__).resolve().parents[2]
+    / "frontend/src/app/pricing/page.tsx"
+)
+
+
+def test_pricing_copy_matches_the_actual_follow_limits():
+    """The gate and the claim about the gate must agree.
+
+    This exact drift has happened before on this page -- FREE advertised
+    "Congress trades" while the endpoint required Pro+ -- and the fix was to
+    move the code, not the copy. Same rule here: if this fails, decide which
+    of the two is wrong before editing either.
+    """
+    copy = PRICING.read_text()
+    free_block = copy[copy.index("FREE_FEATURES"):copy.index("PRO_FEATURES")]
+    pro_block = copy[copy.index("PRO_FEATURES"):copy.index("PRO_PLUS_FEATURES")]
+
+    # Strip comments -- they cite the numbers in order to explain them, and
+    # matching the explanation instead of the copy is how this test would
+    # pass against a page that says the wrong thing.
+    def strip(b):
+        return "\n".join(l for l in b.splitlines()
+                         if not l.strip().startswith("//"))
+
+    free_block, pro_block = strip(free_block), strip(pro_block)
+
+    assert str(WATCHLIST_LIMIT_FREE) in free_block, (
+        f"free tier enforces {WATCHLIST_LIMIT_FREE} but the page does not "
+        f"say so")
+
+    if WATCHLIST_LIMIT_PRO is None:
+        assert "unlimited" in pro_block.lower(), (
+            "Pro follows are unlimited and that is a selling point the page "
+            "does not mention")
+    else:
+        assert str(WATCHLIST_LIMIT_PRO) in pro_block, (
+            f"Pro is capped at {WATCHLIST_LIMIT_PRO} and the page must say so")
