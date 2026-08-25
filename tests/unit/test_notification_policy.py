@@ -217,3 +217,61 @@ def test_the_architecture_doc_matches_the_code():
         i = doc.index(t)
         assert "FEED_ONLY" in doc[i:i + 300], (
             f"the doc does not show {t} as FEED_ONLY")
+
+
+# ── the realtime path is capped too ─────────────────────────────────────────
+
+def test_the_realtime_path_respects_the_same_daily_cap():
+    """DIRECT is uncapped otherwise, and DIRECT includes watchlist_activity.
+
+    Pro follows became unlimited on 2026-08-24 and there are ~308 meaningful
+    filings a day across ~68 tickers, so a heavy follower on `realtime` would
+    have received dozens of separate emails a day. The digest was capped; this
+    path was not.
+    """
+    body = _fn("_try_send_realtime")
+    assert "MAX_EMAILS_PER_USER_PER_DAY" in body, (
+        "realtime sends are uncapped")
+
+
+def test_going_over_the_cap_keeps_the_notification_in_the_feed():
+    """Withhold the email, not the notification."""
+    import pipelines.notification_scanner as NS
+    body = _fn("_try_send_realtime")
+    # the cap path returns without touching the row's state
+    i = body.index("MAX_EMAILS_PER_USER_PER_DAY")
+    window = body[i:i + 400]
+    assert "return" in window
+    assert "DELETE" not in window and "emailed = 1" not in window
+
+
+def test_a_realtime_send_is_stamped():
+    """Unstamped, the cap can never see a realtime send and would only ever
+    count digests -- so the ceiling would not bind on the one path that can
+    actually flood someone."""
+    body = _fn("_try_send_realtime")
+    assert "emailed_at = NOW()" in body
+
+
+def test_every_realtime_call_passes_the_notification_id():
+    tree = ast.parse(SCANNER.read_text())
+    bad = []
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Call) and getattr(n.func, "id", "") == "_try_send_realtime":
+            if len(n.args) < 6 and not any(k.arg == "notification_id" for k in n.keywords):
+                bad.append(ast.unparse(n)[:80])
+    assert not bad, f"cannot stamp what it sent: {bad}"
+
+
+def test_the_cap_check_cannot_abort_the_scan():
+    """_try_send_realtime exists so one bad delivery does not silence every
+    other subscriber. A cap check is a DB query and must sit inside the
+    guard, not in front of it."""
+    tree = ast.parse(SCANNER.read_text())
+    fn = next(n for n in ast.walk(tree)
+              if isinstance(n, ast.FunctionDef) and n.name == "_try_send_realtime")
+    tries = [n for n in fn.body if isinstance(n, ast.Try)]
+    assert tries, "_try_send_realtime has no top-level try"
+    guarded = ast.unparse(tries[0])
+    assert "MAX_EMAILS_PER_USER_PER_DAY" in guarded, (
+        "the cap check is outside the try block")

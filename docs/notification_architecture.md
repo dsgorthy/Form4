@@ -97,6 +97,17 @@ Applied in order; each removes something the others do not.
    at the delivery layer, counted by `COUNT(DISTINCT emailed_at)` so one
    digest of forty items is one email.
 
+**The cap applies to the realtime path too**, which matters more than the
+digest: DIRECT includes `watchlist_activity`, Pro follows became unlimited on
+2026-08-24, and there are ~308 meaningful filings a day across ~68 tickers. A
+heavy follower on `realtime` would otherwise receive dozens of separate
+emails. Over the ceiling the notification still lands in the feed and stays
+`PENDING`; only the email is withheld. Realtime sends stamp `emailed_at`, or
+the ceiling could only ever see digests and would not bind on the one path
+that can actually flood someone. The check sits inside the delivery guard and
+fails open — if the count cannot be read, the cost of guessing wrong is one
+extra email and the cost of the other guess is silencing a paying subscriber.
+
 ---
 
 ## The queue cannot accumulate

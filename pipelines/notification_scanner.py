@@ -422,8 +422,13 @@ def _insert_notification(
     body: str,
     ticker: str | None,
     dedup_key: str,
-) -> bool:
-    """Insert notification if within budget, returns True if inserted."""
+) -> int | None:
+    """Insert if within budget. Returns the new row id, or None.
+
+    Returns the ID rather than a bool so the caller can stamp emailed_at on
+    the exact row it delivered. Truthiness is preserved for the `if
+    _insert_notification(...)` callers -- SERIAL ids start at 1.
+    """
     if not _check_budget(nconn, user_id, event_type):
         return False
     try:
@@ -434,11 +439,21 @@ def _insert_notification(
             (user_id, event_type, title, body, ticker, dedup_key),
         )
         inserted = cur.rowcount > 0
-        if inserted:
-            _record_sent(user_id, event_type)
-        return inserted
+        if not inserted:
+            return None
+        _record_sent(user_id, event_type)
+        # The id, so a realtime send can stamp emailed_at on the row it
+        # actually delivered. dedup_key is unique per user, so this is exact.
+        # A follow-up SELECT rather than RETURNING: the compat layer rewrites
+        # INSERT OR IGNORE into ON CONFLICT DO NOTHING and appending RETURNING
+        # to that is not something it is known to handle.
+        row = nconn.execute(
+            "SELECT id FROM notifications WHERE user_id = ? AND dedup_key = ?",
+            (user_id, dedup_key),
+        ).fetchone()
+        return int(row["id"]) if row else None
     except Exception:
-        return False
+        return None
 
 
 def _dedup_key(event_type: str, *parts: str) -> str:
@@ -510,9 +525,10 @@ def scan_high_value_filings(iconn: ConnectionWrapper, nconn: ConnectionWrapper, 
             body = f"{r['insider_name']} ({title_str}) at {r['company']} {action} {value_fmt} worth of {r['ticker']} on {r['trade_date']}"
             dedup = _dedup_key("hvf", user["user_id"], str(r["trade_id"]), r["trade_date"])
 
-            if _insert_notification(nconn, user["user_id"], "high_value_filing", title, body, r["ticker"], dedup):
+            _nid = _insert_notification(nconn, user["user_id"], "high_value_filing", title, body, r["ticker"], dedup)
+            if _nid:
                 count += 1
-                _try_send_realtime(nconn, user, title, body, "high_value_filing")
+                _try_send_realtime(nconn, user, title, body, "high_value_filing", _nid)
 
     _set_watermark(nconn, "high_value_filing", latest)
     nconn.commit()
@@ -549,9 +565,10 @@ def scan_cluster_formations(iconn: ConnectionWrapper, nconn: ConnectionWrapper, 
         body = f"{r['insider_count']} insiders {action} {r['ticker']} ({r['company']}) totaling {value_fmt}"
         for user in users:
             dedup = _dedup_key("clf", user["user_id"], r["ticker"], r["trade_type"], r["latest_filing"])
-            if _insert_notification(nconn, user["user_id"], "cluster_formation", title, body, r["ticker"], dedup):
+            _nid = _insert_notification(nconn, user["user_id"], "cluster_formation", title, body, r["ticker"], dedup)
+            if _nid:
                 count += 1
-                _try_send_realtime(nconn, user, title, body, "cluster_formation")
+                _try_send_realtime(nconn, user, title, body, "cluster_formation", _nid)
 
     _set_watermark(nconn, "cluster_formation", latest)
     nconn.commit()
@@ -649,9 +666,10 @@ def scan_activity_spikes(iconn: ConnectionWrapper, nconn: ConnectionWrapper, lat
             if r["recent_value"] < (user.get("min_trade_value") or 0):
                 continue
             dedup = _dedup_key("asp", user["user_id"], r["ticker"], r["trade_type"], r["latest_filing"])
-            if _insert_notification(nconn, user["user_id"], "activity_spike", title, body, r["ticker"], dedup):
+            _nid = _insert_notification(nconn, user["user_id"], "activity_spike", title, body, r["ticker"], dedup)
+            if _nid:
                 count += 1
-                _try_send_realtime(nconn, user, title, body, "activity_spike")
+                _try_send_realtime(nconn, user, title, body, "activity_spike", _nid)
 
     nconn.commit()
     return count
@@ -718,9 +736,10 @@ def scan_congress_convergence(iconn: ConnectionWrapper, nconn: ConnectionWrapper
         for user in users:
             week = datetime.strptime(latest, "%Y-%m-%d").isocalendar()[1]
             dedup = _dedup_key("ccv", user["user_id"], r["ticker"], str(week))
-            if _insert_notification(nconn, user["user_id"], "congress_convergence", title, body, r["ticker"], dedup):
+            _nid = _insert_notification(nconn, user["user_id"], "congress_convergence", title, body, r["ticker"], dedup)
+            if _nid:
                 count += 1
-                _try_send_realtime(nconn, user, title, body, "congress_convergence")
+                _try_send_realtime(nconn, user, title, body, "congress_convergence", _nid)
 
     nconn.commit()
     return count
@@ -900,8 +919,9 @@ def scan_watchlist_activity(iconn: ConnectionWrapper, nconn: ConnectionWrapper, 
                     tuple(filter(None, (r.get("tags") or "").split(",")))):
                 continue
             dedup = _dedup_key("wla", user_id, str(r["trade_id"]), r["trade_date"])
-            if _insert_notification(nconn, user_id, "watchlist_activity",
-                                    title, body, r["ticker"], dedup):
+            _nid = _insert_notification(nconn, user_id, "watchlist_activity",
+                                        title, body, r["ticker"], dedup)
+            if _nid:
                 count += 1
                 pref = nconn.execute(
                     "SELECT email_enabled, email_frequency FROM "
@@ -911,7 +931,7 @@ def scan_watchlist_activity(iconn: ConnectionWrapper, nconn: ConnectionWrapper, 
                 if pref:
                     _try_send_realtime(
                         nconn, dict(pref) | {"user_id": user_id}, title, body,
-                        "watchlist_activity")
+                        "watchlist_activity", _nid)
 
     _set_watermark(nconn, "watchlist_activity", latest)
     nconn.commit()
@@ -938,7 +958,8 @@ def _maybe_send_realtime_email(nconn: ConnectionWrapper, user: dict, title: str,
 
 def _try_send_realtime(nconn: ConnectionWrapper, user: dict,
                        title: str, body: str,
-                       event_type: str = "") -> None:
+                       event_type: str = "",
+                       notification_id: int | None = None) -> None:
     """Delivery failure must never abort the scan.
 
     The notification row is already committed; the email is a best-effort
@@ -954,8 +975,47 @@ def _try_send_realtime(nconn: ConnectionWrapper, user: dict,
     # activity_spike -- eighty a day, of which 12.8% were ever opened.
     if event_type and not is_direct(event_type):
         return
+
+    # The same daily ceiling the digest respects. Without it the DIRECT tier
+    # is uncapped, and DIRECT includes watchlist_activity -- with Pro follows
+    # now unlimited and 308 meaningful filings a day across 68 tickers, a
+    # heavy follower on `realtime` would receive dozens of separate emails.
+    #
+    # Over the cap the notification still lands in the FEED; only the email
+    # is withheld. It stays emailed = PENDING, so nothing is lost.
+    user_id = user.get("user_id")
+
     try:
+        # Inside the try, because this function's whole contract is that a
+        # delivery problem never reaches the caller -- and a cap check is a
+        # database query like any other. Outside it, a blip here would abort
+        # the scan for every other subscriber too.
+        #
+        # Fails OPEN, matching _is_pro: if we cannot count, the cost of
+        # guessing wrong is one extra email, and the cost of the opposite
+        # guess is silencing someone who is paying.
+        try:
+            over_cap = (user_id and _emails_sent_today(nconn, user_id)
+                        >= MAX_EMAILS_PER_USER_PER_DAY)
+        except Exception as exc:                  # noqa: BLE001
+            logger.warning("could not read the send count for %s (%s) — "
+                           "allowing this one", user_id, exc)
+            over_cap = False
+        if over_cap:
+            logger.info("%s at the daily email ceiling — %s held to the feed",
+                        user_id, event_type or "notification")
+            return
+
         _maybe_send_realtime_email(nconn, user, title, body)
+        # Stamp the row we just delivered, or the cap above can never see a
+        # realtime send and would only ever count digests.
+        if notification_id is not None:
+            nconn.execute(
+                f"UPDATE notifications SET emailed = {EMAIL_SENT}, "
+                f"    emailed_at = NOW()::text WHERE id = ?",
+                (notification_id,),
+            )
+            nconn.commit()
     except Exception as exc:                      # noqa: BLE001
         logger.warning("realtime delivery failed for %s: %s: %s",
                        user.get("user_id"), type(exc).__name__, exc)
@@ -1061,9 +1121,10 @@ def scan_portfolio_alerts(iconn: ConnectionWrapper, nconn: ConnectionWrapper, la
         for user in users:
             dedup = _dedup_key("pfe", user["user_id"], r["strategy"],
                                r["ticker"], r["entry_date"])
-            if _insert_notification(nconn, user["user_id"], "portfolio_alert", title, body, r["ticker"], dedup):
+            _nid = _insert_notification(nconn, user["user_id"], "portfolio_alert", title, body, r["ticker"], dedup)
+            if _nid:
                 count += 1
-                _try_send_realtime(nconn, user, title, body, "portfolio_alert")
+                _try_send_realtime(nconn, user, title, body, "portfolio_alert", _nid)
 
     for row in new_exits:
         r = dict(row)
@@ -1094,9 +1155,10 @@ def scan_portfolio_alerts(iconn: ConnectionWrapper, nconn: ConnectionWrapper, la
         for user in users:
             dedup = _dedup_key("pfx", user["user_id"], r["strategy"],
                                r["ticker"], r["exit_date"])
-            if _insert_notification(nconn, user["user_id"], "portfolio_alert", title, body, r["ticker"], dedup):
+            _nid = _insert_notification(nconn, user["user_id"], "portfolio_alert", title, body, r["ticker"], dedup)
+            if _nid:
                 count += 1
-                _try_send_realtime(nconn, user, title, body, "portfolio_alert")
+                _try_send_realtime(nconn, user, title, body, "portfolio_alert", _nid)
 
     _set_watermark(nconn, "portfolio_alert", latest_ts)
     nconn.commit()
