@@ -137,6 +137,18 @@
   * {
     @apply border-border outline-ring/50;
   }
+  /* The document must never pan sideways on a phone.
+     <nav> is position:sticky, which pins vertically but travels horizontally
+     with the document — so ONE element wider than the screen drags the
+     hamburger off the right edge, and it stays dragged off as you move between
+     pages. Wide content belongs in an overflow-x-auto wrapper, which scrolls
+     on its own; this is the backstop for the next element that forgets.
+     `clip`, not `hidden`: hidden makes the element a scroll container, which
+     breaks position:sticky on every descendant. clip does not. */
+  html,
+  body {
+    overflow-x: clip;
+  }
   body {
     @apply bg-background text-foreground;
     background-color: var(--ie-bg);

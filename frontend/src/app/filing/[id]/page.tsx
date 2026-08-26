@@ -584,7 +584,15 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
           <h2 className="text-lg font-semibold text-[#E8E8ED] mb-4">
             Related Trades by This Insider
           </h2>
-          <div className="overflow-x-auto rounded-lg border border-[#2A2A3A]">
+          {/* `relative`: the hidden header below is sr-only, which is
+              position:absolute, and an absolutely positioned box is only
+              clipped by an ancestor that is its CONTAINING BLOCK. A static
+              wrapper is not one — so it escaped the scroller entirely and was
+              laid out at its static position ~456px in, past the right edge of
+              a 390px phone. That made the whole document pannable sideways,
+              and <nav> is position:sticky, which travels with it: the
+              hamburger ended up off-screen on every filing page. */}
+          <div className="relative overflow-x-auto rounded-lg border border-[#2A2A3A]">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[#2A2A3A] bg-[#1A1A26]/50">
@@ -593,7 +601,14 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
                   <th className="px-4 py-3 text-left text-[#81819A] font-medium">Filed</th>
                   <th className="px-4 py-3 text-right text-[#81819A] font-medium">Value</th>
                   <th className="px-4 py-3 text-right text-[#81819A] font-medium">7d Stock</th>
-                  <th className="px-4 py-3 text-right text-[#81819A] font-medium sr-only">Filing</th>
+                  {/* sr-only belongs on a span INSIDE the cell, never on the
+                      cell: it is position:absolute, which takes a <th> out of
+                      the table's column layout altogether. Both halves matter
+                      — see the wrapper above for what the absolute positioning
+                      cost once it was out. */}
+                  <th className="px-4 py-3 text-right text-[#81819A] font-medium">
+                    <span className="sr-only">Filing</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>

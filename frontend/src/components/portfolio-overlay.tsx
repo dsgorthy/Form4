@@ -308,7 +308,11 @@ export function PortfolioOverlay({ strategy = "form4_insider", onDateRangeChange
     <div className="space-y-2">
       {/* Header: selector + stats + range buttons */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div className="flex items-center gap-3">
+        {/* flex-wrap: the select is sized by its longest option ("Russell 2000
+            (IWM)") and will not shrink, so the select + range buttons need
+            208 + 149px against the 358px a 390px phone leaves. Without a wrap
+            they pushed the document 7px wider than the screen. */}
+        <div className="flex flex-wrap items-center gap-3">
           <div>
             <div className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A] mb-1">
               Idle Cash Vehicle
@@ -323,7 +327,7 @@ export function PortfolioOverlay({ strategy = "form4_insider", onDateRangeChange
               ))}
             </select>
           </div>
-          <div className="flex gap-1 ml-3 mt-4">
+          <div className="flex gap-1 mt-4">
             {RANGES.map(({ label, days }) => (
               <button
                 key={label}
