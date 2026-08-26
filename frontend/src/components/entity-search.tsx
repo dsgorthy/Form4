@@ -160,20 +160,46 @@ export function EntitySearch({
   const boxRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const isHero = variant === "hero";
+  // Which request is allowed to write state. See run().
+  const latest = useRef(0);
 
-  const run = useCallback(async (term: string) => {
+  /**
+   * SHORT QUERIES ARE SLOWER, so an in-flight one WILL overtake the query
+   * that replaced it.
+   *
+   * Measured against production: `q=A` takes 2.13s because it matches 6,754
+   * tickers and 106,822 insiders and the ranking ORDER BY is the expensive
+   * part; `q=AAPL` takes 1.24s and matches one company. Type "A", pause past
+   * the debounce, then finish the word, and the reply for "A" lands almost a
+   * second AFTER the reply for "AAPL" and overwrites it. What the user is
+   * left looking at is the top of the "A" list — "A" and "AMZN" — under the
+   * word AAPL, which reads as "we have never heard of Apple".
+   *
+   * The old code cleared the debounce TIMER on every keystroke but never
+   * cancelled a request already in flight, and applied whatever came back.
+   *
+   * Two guards, because either alone leaves a hole. The AbortController stops
+   * the wasted work as soon as the term changes; the sequence number is what
+   * actually makes it correct, since a response can already be in the
+   * microtask queue by the time abort() is called.
+   */
+  const run = useCallback(async (term: string, signal: AbortSignal) => {
+    const mine = ++latest.current;
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/search?q=${encodeURIComponent(term)}`);
-      if (res.ok) {
-        setResults(await res.json());
-        setActive(-1);
-        setOpen(true);
-      }
+      const res = await fetch(`${API_BASE}/search?q=${encodeURIComponent(term)}`, { signal });
+      if (!res.ok) return;
+      const data: SearchResponse = await res.json();
+      if (mine !== latest.current) return;   // a newer term already answered
+      setResults(data);
+      setActive(-1);
+      setOpen(true);
     } catch {
-      setResults(null);
+      // An abort is the expected path when the user keeps typing, and must
+      // not blank results the newer request is about to fill.
+      if (!signal.aborted && mine === latest.current) setResults(null);
     } finally {
-      setLoading(false);
+      if (mine === latest.current) setLoading(false);
     }
   }, []);
 
@@ -182,8 +208,12 @@ export function EntitySearch({
       setResults(null);
       return;
     }
-    const t = setTimeout(() => run(q.trim()), DEBOUNCE_MS);
-    return () => clearTimeout(t);
+    const ctrl = new AbortController();
+    const t = setTimeout(() => run(q.trim(), ctrl.signal), DEBOUNCE_MS);
+    return () => {
+      clearTimeout(t);
+      ctrl.abort();
+    };
   }, [q, run]);
 
   // Close on outside click so the panel doesn't sit over page content.
