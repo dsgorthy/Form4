@@ -119,30 +119,49 @@ against the real book:
 published returns are consistent with the data.** There is no contradiction to
 explain away.
 
-### But the grade is not what is producing that
+### And the grade DOES work — my second alarm was the same mistake as the first
 
-Grading the same population by the **stored `career_grade` the book actually
-reads**, discretionary buys since 2024, filing-grouped:
+I then reported that the stored grade produces an inverted ordering, A+ worst
+at −7.14% and −26.02% at 90d. **Also wrong, and wrong the same way.** Those
+33 "A+ filings" were not 33 independent observations: **14 of them were one
+insider buying RCG across three weeks**, five more were one insider in ADV,
+four one insider in ENPH. Ten tickers, dominated by a single bad episode.
 
-| stored grade | filings | median abn 30d | median abn 90d |
+The unit of an independent observation is the **insider+ticker EPISODE**, not
+the filing. Grouping by filing was the right fix for counting execution
+tranches; it is the wrong unit for evaluating a predictor. Re-measured one row
+per episode, full history:
+
+| grade | episodes | median abn 30d | median abn 90d |
 |---|---|---|---|
-| **A+** | 33 | **−7.14%** | **−26.02%** |
-| A | 137 | −0.98% | −9.17% |
-| **B** | 1,231 | **−0.01%** | −3.82% |
-| C | 3,130 | −1.05% | −3.28% |
-| D | 6,232 | −1.39% | −4.11% |
-| unrated | 2,597 | −1.47% | −4.16% |
+| **A+** | 25 | **+8.96%** | **+17.91%** |
+| **A** | 108 | +4.75% | +5.69% |
+| **B** | 1,650 | +4.31% | +4.01% |
+| **C** | 5,220 | +1.15% | +0.60% |
+| **D** | 10,416 | **−1.62%** | −3.22% |
 
-**A+ is the worst bucket on the board**, and A trails B. The ordering the
-grade asserts is not the ordering the returns produce. All 44 book positions
-are graded A or A+ — yet the A/A+ *population* underperforms while the book's
-selection from it returns +17.77%.
+**Monotonic, and monotonic in every era** (pre-2021, 2021-2023, 2024+). The
+career grade orders returns correctly. Nothing here needs rescuing.
 
-So the edge is coming from what sits on top of the grade — conviction ≥1.5,
-the chart conditions, the three-slot capacity constraint and entry timing —
-not from the grade itself. Sample sizes at the top are small (A+ n=33,
-A n=137) and 90-day medians are broadly negative across every bucket in this
-period, so this is a flag, not a verdict.
+## Does the population fix actually improve it?
+
+Same episode-level harness, PIT-clean, grades recomputed under each population:
+
+| | A/A+ median | D median | spread | ungradeable |
+|---|---|---|---|---|
+| current (all buys) | +1.67% | −1.41% | **+3.08pp** | 14,412 |
+| fixed (discretionary + hygiene) | +1.09% | −2.32% | **+3.41pp** | **19,635** |
+
+**Marginal.** The extreme spread widens about 11%, the D tier sharpens
+(−1.41 → −2.32), but the A tier degrades below B and **5,223 more episodes
+lose their grade entirely** — restricting to discretionary purchases leaves
+many insiders with no prior observable buy to score against. 23.7% of episodes
+change grade and 83% of those changes are "loses its grade".
+
+So the population fix is defensible on **correctness** — grading someone on
+stock they were handed is indefensible however the backtest reads — but it is
+not justified by a performance improvement, and it costs a fifth of the
+graded population.
 
 ## Recommended sequence
 
