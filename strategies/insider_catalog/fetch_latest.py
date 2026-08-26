@@ -32,7 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from config.database import get_connection
 from backfill_live import (
-    fetch_all_form4_filings,
+    fetch_form4_filings_from_index,
     fetch_form4_xml,
     insert_trades,
     parse_form4_xml,
@@ -357,13 +357,17 @@ def _run_fetch_inner(start_date: str, end_date: str, dry_run: bool) -> dict:
     known = get_known_accessions(conn)
     logger.info("Known processed accessions: %d", len(known))
 
-    # Fetch filing metadata from EFTS
+    # Discovery comes from EDGAR's DAILY INDEX, not EFTS. See
+    # fetch_form4_filings_from_index for the three reasons; the short version
+    # is that EFTS caps at 10,000 hits while reporting the cap as the total,
+    # and on 2026-08-26 it answered HTTP 500 at offset 500 and took the whole
+    # run down with it.
     t0 = time.monotonic()
-    filings = fetch_all_form4_filings(start_date, end_date)
+    filings = fetch_form4_filings_from_index(start_date, end_date)
 
     # Filter to only new filings
     new_filings = [f for f in filings if f["accession"] not in known]
-    logger.info("EFTS filings: %d total, %d new", len(filings), len(new_filings))
+    logger.info("Index filings: %d total, %d new", len(filings), len(new_filings))
 
     if not new_filings:
         elapsed = time.monotonic() - t0

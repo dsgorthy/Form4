@@ -195,6 +195,96 @@ def search_form4_filings(
     return filings, total_hits
 
 
+def fetch_form4_filings_from_index(start_date: str, end_date: str) -> List[dict]:
+    """Every Form 4 EDGAR published in [start_date, end_date], from the DAILY INDEX.
+
+    THIS REPLACES EFTS FOR DISCOVERY, and EFTS should not be used for it again.
+    Three separate defects, all of which this avoids:
+
+    1. EFTS hard-caps at 10,000 hits AND REPORTS THE CAP AS THE TOTAL. For
+       2021Q1 it answers `total = 10000` where EDGAR published 64,665. Past
+       the cap it returns HTTP 200 with zero hits, so the pagination loop in
+       fetch_all_form4_filings exits on `len(filings) == 0` and logs success.
+       That is how the historical backfill came to hold 48.6% of the record
+       while believing it was complete.
+    2. It is a search API and it fails like one. On 2026-08-26 it returned
+       HTTP 500 at offset 500 for a two-day window; raise_for_status turned
+       that into an exception that killed the ENTIRE run, so the cycle
+       processed nothing at all.
+    3. It needs a text query at all — the caller passes q='"4"' — which is a
+       hack that quietly makes discovery depend on document text.
+
+    The daily index is a static file, one request per day, complete, and has
+    no notion of relevance or paging.
+
+        https://www.sec.gov/Archives/edgar/daily-index/{Y}/QTR{q}/form.{YYYYMMDD}.idx
+
+    Columns are Form Type / Company Name / CIK / Date Filed / File Name, and
+    the company name contains spaces while the last three fields never do, so
+    they are read from the right.
+
+    A Form 4 is listed ONCE PER FILER — issuer and each reporting owner — so
+    the same accession appears 2+ times with different CIKs. We keep the first
+    and dedupe; any associated CIK resolves the Archives path.
+
+    Returns the same shape fetch_all_form4_filings did:
+        {accession, cik, company, filing_date}
+    """
+    from datetime import date as _date, timedelta as _td
+
+    def _day(d: _date) -> List[dict]:
+        q = (d.month - 1) // 3 + 1
+        url = (f"https://www.sec.gov/Archives/edgar/daily-index/{d.year}/QTR{q}/"
+               f"form.{d:%Y%m%d}.idx")
+        try:
+            resp = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=60)
+            time.sleep(REQUEST_DELAY)
+        except requests.RequestException as exc:
+            logger.warning("daily index %s unreachable: %s", d, exc)
+            return []
+        if resp.status_code in (403, 404):
+            return []          # weekend, holiday, or not published yet
+        if resp.status_code != 200:
+            logger.warning("daily index %s returned HTTP %s", d, resp.status_code)
+            return []
+
+        rows = []
+        for line in resp.text.splitlines():
+            # "4" and "4/A" only. Startswith on the padded column avoids
+            # matching 40-F, 424B2 and friends.
+            if not (line.startswith("4 ") or line.startswith("4/A ")):
+                continue
+            parts = line.split()
+            if len(parts) < 4:
+                continue
+            path, filed, cik = parts[-1], parts[-2], parts[-3]
+            m = re.search(r"(\d{10}-\d{2}-\d{6})", path)
+            if not m or not cik.isdigit() or len(filed) != 8:
+                continue
+            company = " ".join(parts[1:-3]).strip()
+            rows.append({
+                "accession": m.group(1),
+                "cik": cik,
+                "company": company,
+                "filing_date": f"{filed[:4]}-{filed[4:6]}-{filed[6:]}",
+            })
+        return rows
+
+    start = _date.fromisoformat(start_date)
+    end = _date.fromisoformat(end_date)
+    seen, out = set(), []
+    day = start
+    while day <= end:
+        for r in _day(day):
+            if r["accession"] not in seen:
+                seen.add(r["accession"])
+                out.append(r)
+        day += _td(days=1)
+    logger.info("Daily index: %d unique Form 4 filings in %s to %s",
+                len(out), start_date, end_date)
+    return out
+
+
 def fetch_all_form4_filings(start_date: str, end_date: str) -> List[dict]:
     """Paginate through all Form 4 filings in a date range."""
     all_filings = []
