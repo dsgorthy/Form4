@@ -350,11 +350,18 @@ def load_quarter(conn, cache: InsiderCache, y: int, q: int, dry_run: bool) -> di
 
 
 def _flush(conn, batch) -> int:
+    """Returns rows ACTUALLY added, not rows attempted.
+
+    ON CONFLICT DO NOTHING does not raise, so counting successful execute()
+    calls counted every row we already held as an insert: the first 2021Q1
+    pass reported 120,732 where 63,264 landed.
+    """
     n = 0
     for row in batch:
         try:
-            conn.execute(INSERT_SQL, row)
-            n += 1
+            cur = conn.execute(INSERT_SQL, row)
+            rc = getattr(cur, "rowcount", 1)
+            n += rc if rc and rc > 0 else 0
         except Exception:
             pass          # unique index rejected a row we already hold
     conn.commit()
