@@ -18,6 +18,20 @@ in this docstring are the ORIGINAL trade-date-anchored validation and are
 retained only as history — they are inflated, because trade_returns measures
 from the transaction date rather than from the first close a subscriber could
 have acted on. The filing-anchored numbers are in api/ratings.py.
+
+EVERY FACTOR BELOW THAT ONLY MEANS SOMETHING ON A PURCHASE IS GATED ON is_buy.
+This scorer runs on sells too, and until 2026-08-26 it did not distinguish: the
+bands were measured on buys, but the factors were applied to both sides and
+worded for one. A reader of EOSE 2026-07-28 — a 10b5-1 sale into a 47%
+drawdown, tagged bearish — was shown "3 insiders buying together", "Stock down
+47%" and an A-grade bonus as the reasons it scored 65/100. 62% of published
+sells carried at least one such factor.
+
+The rule when adding a factor: ask what the factor asserts, then ask whether
+that sentence is true of a SALE. If it is not, gate it. Direction-neutral
+factors (role, 10b5-1, routine pattern, opportunistic, cluster size, largest
+ever) apply to both and must read correctly on both — see the Cluster wording.
+tests/unit/test_trade_grade_factors_match_direction.py fails the build on drift.
 """
 
 from __future__ import annotations
@@ -105,17 +119,23 @@ def compute_trade_grade(item: dict) -> dict:
     trade_type = item.get("trade_type", "buy")
     is_buy = trade_type == "buy"
 
-    # --- 1. Insider PIT grade ---
+    # --- 1. Insider PIT grade — BUYS ONLY ---
+    # A grade is a claim about PURCHASES. pit_scoring._get_returns filters its
+    # population to MEANINGFUL_BUY_CLASSES (fixed 2026-08-25), so the letter
+    # means "this person's buys worked out". Adding 12 points to a SALE because
+    # the seller is a good buyer is a category error: it was giving A+ insiders
+    # credit for getting out. 21,574 sells carried it in the last year.
     pit_grade = item.get("pit_grade")
-    if pit_grade in ("A+", "A"):
-        score += 12
-        factors.append({"name": "Insider Grade", "points": 12, "description": f"PIT {pit_grade}-grade insider"})
-    elif pit_grade == "B":
-        score += 6
-        factors.append({"name": "Insider Grade", "points": 6, "description": "PIT B-grade insider"})
-    elif pit_grade == "C":
-        score += 2
-        factors.append({"name": "Insider Grade", "points": 2, "description": "PIT C-grade insider"})
+    if is_buy:
+        if pit_grade in ("A+", "A"):
+            score += 12
+            factors.append({"name": "Insider Grade", "points": 12, "description": f"PIT {pit_grade}-grade insider"})
+        elif pit_grade == "B":
+            score += 6
+            factors.append({"name": "Insider Grade", "points": 6, "description": "PIT B-grade insider"})
+        elif pit_grade == "C":
+            score += 2
+            factors.append({"name": "Insider Grade", "points": 2, "description": "PIT C-grade insider"})
 
     # --- 2. Role ---
     role = _categorize_role(item.get("title") or item.get("normalized_title"))
@@ -143,29 +163,45 @@ def compute_trade_grade(item: dict) -> dict:
     # endpoint supplied neither, because it selected `t.pit_cluster_size` under
     # that name and nothing read it. The cluster factor, worth up to 12 points,
     # had been scoring 0 on filing pages for its whole life.
+    #
+    # The wording is DERIVED FROM THE ROW, never fixed. It said "buying
+    # together" unconditionally, and this factor fires on sells too — 46,856
+    # of them in the last year alone, 42.3% of every sell we publish. EOSE on
+    # 2026-07-28 is the shape of it: three officers filed 10b5-1 sales into a
+    # 47% drawdown, the page tagged the filing Opportunistic (bearish), and
+    # then listed "+8 Cluster: 3 insiders buying together" underneath as a
+    # reason it scored 65. Nobody bought anything.
     cluster = item.get("cluster_size_pit") or 0
+    together = "buying together" if is_buy else "selling together"
     if cluster >= 4:
         score += 12
-        factors.append({"name": "Cluster", "points": 12, "description": f"{cluster} insiders buying together"})
+        factors.append({"name": "Cluster", "points": 12, "description": f"{cluster} insiders {together}"})
     elif cluster >= 3:
         score += 8
-        factors.append({"name": "Cluster", "points": 8, "description": f"{cluster} insiders buying together"})
+        factors.append({"name": "Cluster", "points": 8, "description": f"{cluster} insiders {together}"})
     elif cluster >= 2:
         score += 4
-        factors.append({"name": "Cluster", "points": 4, "description": f"{cluster} insiders buying together"})
+        factors.append({"name": "Cluster", "points": 4, "description": f"{cluster} insiders {together}"})
 
-    # --- 4. Dip depth ---
-    dips = [d for d in [item.get("dip_1mo"), item.get("dip_3mo")] if d is not None]
-    best_dip = min(dips) if dips else 0
-    if best_dip <= -0.40:
-        score += 10
-        factors.append({"name": "Deep Dip", "points": 10, "description": f"Stock down {abs(best_dip)*100:.0f}%"})
-    elif best_dip <= -0.25:
-        score += 5
-        factors.append({"name": "Dip", "points": 5, "description": f"Stock down {abs(best_dip)*100:.0f}%"})
-    elif best_dip <= -0.15:
-        score += 2
-        factors.append({"name": "Moderate Dip", "points": 2, "description": f"Stock down {abs(best_dip)*100:.0f}%"})
+    # --- 4. Dip depth — BUYS ONLY ---
+    # The whole content of this factor is "they bought weakness". Pointed the
+    # other way it says an insider sold into a collapse and scores it +10 for
+    # the depth of the collapse — EOSE's officers got the maximum 10 for
+    # selling into a 47% drawdown. There is no measured claim that a deeper
+    # drawdown makes a SALE more notable, so it earns nothing here. The
+    # drawdown itself is still on the page; it is just not a reason.
+    if is_buy:
+        dips = [d for d in [item.get("dip_1mo"), item.get("dip_3mo")] if d is not None]
+        best_dip = min(dips) if dips else 0
+        if best_dip <= -0.40:
+            score += 10
+            factors.append({"name": "Deep Dip", "points": 10, "description": f"Stock down {abs(best_dip)*100:.0f}%"})
+        elif best_dip <= -0.25:
+            score += 5
+            factors.append({"name": "Dip", "points": 5, "description": f"Stock down {abs(best_dip)*100:.0f}%"})
+        elif best_dip <= -0.15:
+            score += 2
+            factors.append({"name": "Moderate Dip", "points": 2, "description": f"Stock down {abs(best_dip)*100:.0f}%"})
 
     # --- 5. Opportunistic vs routine ---
     cohen = item.get("cohen_routine")
@@ -186,8 +222,11 @@ def compute_trade_grade(item: dict) -> dict:
         score -= 5
         factors.append({"name": "Routine Pattern", "points": -5, "description": "Frequent routine trader"})
 
-    # --- 8. Rare reversal ---
-    if item.get("is_rare_reversal") == 1:
+    # --- 8. Rare reversal — BUYS ONLY ---
+    # The flag literally means "persistent seller now BUYING", and its own
+    # description said so while sitting on 1,676 sells. Whatever set the flag
+    # on those rows, the sentence cannot be true of a sale.
+    if is_buy and item.get("is_rare_reversal") == 1:
         score += 8
         factors.append({"name": "Rare Reversal", "points": 8, "description": "Persistent seller now buying"})
 
