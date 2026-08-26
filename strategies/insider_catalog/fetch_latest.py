@@ -47,6 +47,19 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+# A filing that could not be FETCHED is not a filing with no trades. Attempts
+# are capped so a genuinely dead accession cannot be retried forever, but the
+# cap is generous: everything under it is a transient EDGAR error and EDGAR
+# rate-limits aggressively.
+MAX_FETCH_ATTEMPTS = 6
+
+# Ceiling on how many previously-failed filings one run re-drives. The normal
+# path only looks at the last `--days` days, so without this sweep a filing
+# that failed for two days would fall out of the window and never be seen
+# again. Two requests each, ~10/s at EDGAR's limit.
+RETRY_SWEEP_LIMIT = 200
+
+
 def ensure_processed_table(conn):
     """Create processed_filings table if it doesn't exist."""
     conn.execute("""
@@ -57,6 +70,40 @@ def ensure_processed_table(conn):
             processed_at TEXT DEFAULT (datetime('now'))
         )
     """)
+    # WHAT THIS TABLE MEANS CHANGED ON 2026-08-26.
+    #
+    # It used to record only "we have seen this accession", and the fetcher
+    # wrote a row for a filing whose XML DOWNLOAD FAILED with the comment
+    # "Still mark as processed to avoid retrying bad XMLs every run". Since
+    # get_known_accessions reads the whole table, that filing was then never
+    # requested again. EDGAR rate-limits hard, so this converted every
+    # transient 403/429/timeout into permanent data loss.
+    #
+    # The rate was 0.0% every month through 2026-02 and then 21.5% in April,
+    # 25.5% in July. Of 24 sampled zero-trade rows, 14 held real
+    # non-derivative transactions that are simply absent from `trades`.
+    #
+    # `status` is the distinction that was missing:
+    #   ok        parsed, produced trades
+    #   empty     parsed, genuinely has no non-derivative transactions
+    #   failed    we never got an answer — RETRY
+    #   abandoned failed MAX_FETCH_ATTEMPTS times; kept for audit, not retried
+    for ddl in (
+        "ALTER TABLE processed_filings ADD COLUMN IF NOT EXISTS status TEXT",
+        "ALTER TABLE processed_filings ADD COLUMN IF NOT EXISTS attempts INTEGER DEFAULT 0",
+        "ALTER TABLE processed_filings ADD COLUMN IF NOT EXISTS last_error TEXT",
+        "ALTER TABLE processed_filings ADD COLUMN IF NOT EXISTS last_attempt_at TEXT",
+        # Needed to rebuild the EDGAR request on a retry. The table only ever
+        # held the accession, so a failed filing could not be re-fetched even
+        # if we had wanted to.
+        "ALTER TABLE processed_filings ADD COLUMN IF NOT EXISTS cik TEXT",
+        "ALTER TABLE processed_filings ADD COLUMN IF NOT EXISTS company TEXT",
+        "CREATE INDEX IF NOT EXISTS idx_processed_retry ON processed_filings (status, attempts)",
+    ):
+        try:
+            conn.execute(ddl)
+        except Exception:  # pragma: no cover - older engines / already applied
+            pass
     conn.execute("""
         CREATE TABLE IF NOT EXISTS sync_meta (
             key TEXT PRIMARY KEY,
@@ -98,18 +145,86 @@ def backfill_processed_from_trades(conn):
 
 
 def get_known_accessions(conn) -> set:
-    """Get all accession numbers we've already processed."""
+    """Accessions we are DONE with — i.e. must not fetch again.
+
+    A row whose status is `failed` and which still has attempts left is
+    deliberately NOT in this set. That is the whole fix: the old version
+    returned every row in the table, so one bad download retired a filing
+    permanently.
+
+    NULL status is every row written before 2026-08-26. Those are treated as
+    done, because re-driving 948k of them through EDGAR one at a time is the
+    wrong tool — the bulk SEC datasets cover that ground far faster.
+    """
     rows = conn.execute(
-        "SELECT accession FROM processed_filings"
+        """SELECT accession FROM processed_filings
+            WHERE status IS NULL
+               OR status IN ('ok', 'empty', 'abandoned')
+               OR attempts >= ?""",
+        (MAX_FETCH_ATTEMPTS,),
     ).fetchall()
     return {r[0] for r in rows}
 
 
+def get_retryable(conn, limit: int) -> list:
+    """Filings we failed to fetch and have not given up on, oldest first."""
+    return conn.execute(
+        """SELECT accession, filing_date, attempts, cik, company
+             FROM processed_filings
+            WHERE status = 'failed' AND attempts < ? AND cik IS NOT NULL
+            ORDER BY filing_date DESC, accession
+            LIMIT ?""",
+        (MAX_FETCH_ATTEMPTS, limit),
+    ).fetchall()
+
+
 def mark_processed(conn, accession: str, filing_date: str, trade_count: int):
-    """Mark a filing as processed (even if it had 0 trades)."""
+    """Record a filing we actually READ. Never call this for a failed fetch.
+
+    An upsert, not INSERT OR IGNORE: a filing that failed earlier already has
+    a row, and the old statement would silently keep the failure and drop the
+    successful retry on the floor.
+    """
+    status = "ok" if trade_count > 0 else "empty"
     conn.execute(
-        "INSERT OR IGNORE INTO processed_filings (accession, filing_date, trade_count) VALUES (?, ?, ?)",
-        (accession, filing_date, trade_count),
+        """INSERT INTO processed_filings
+               (accession, filing_date, trade_count, status, attempts,
+                last_error, last_attempt_at)
+           VALUES (?, ?, ?, ?, 1, NULL, datetime('now'))
+           ON CONFLICT (accession) DO UPDATE SET
+               trade_count     = excluded.trade_count,
+               status          = excluded.status,
+               attempts        = processed_filings.attempts + 1,
+               last_error      = NULL,
+               last_attempt_at = excluded.last_attempt_at""",
+        (accession, filing_date, trade_count, status),
+    )
+
+
+def mark_attempt_failed(conn, accession: str, filing_date: str, error: str,
+                        cik: str = None, company: str = None):
+    """Record a fetch that produced NO ANSWER. The filing stays in the queue.
+
+    This is the row the old code wrote as `processed` with trade_count = 0,
+    which is why ~12% of filings vanished. Once attempts reach the cap the
+    status becomes `abandoned` so it stops being retried, but it is still
+    visible — an abandoned row is a reconciliation finding, not a silent one.
+    """
+    conn.execute(
+        """INSERT INTO processed_filings
+               (accession, filing_date, trade_count, status, attempts,
+                last_error, last_attempt_at, cik, company)
+           VALUES (?, ?, 0, 'failed', 1, ?, datetime('now'), ?, ?)
+           ON CONFLICT (accession) DO UPDATE SET
+               attempts        = processed_filings.attempts + 1,
+               status          = CASE
+                                     WHEN processed_filings.attempts + 1 >= ?
+                                     THEN 'abandoned' ELSE 'failed' END,
+               last_error      = excluded.last_error,
+               last_attempt_at = excluded.last_attempt_at,
+               cik             = COALESCE(excluded.cik, processed_filings.cik),
+               company         = COALESCE(excluded.company, processed_filings.company)""",
+        (accession, filing_date, str(error)[:300], cik, company, MAX_FETCH_ATTEMPTS),
     )
 
 
@@ -204,6 +319,34 @@ def run_fetch(days: int = 2, dry_run: bool = False) -> dict:
     return stats
 
 
+def _process_one(conn, filing: dict, dry_run: bool):
+    """Fetch, parse and insert ONE filing.
+
+    Returns (inserted, outcome, parsed, buys, sells) where outcome is
+    'ok' | 'empty' | 'failed'. Shared by the live pass and the retry sweep so
+    the two cannot drift on what counts as a success.
+    """
+    acc, fdate = filing["accession"], filing["filing_date"]
+    xml, filed_at = fetch_form4_xml(filing["cik"], acc)
+    if xml is None:
+        # THE BUG THIS FUNCTION EXISTS TO PREVENT: this used to call
+        # mark_processed(..., 0), which retired the filing forever.
+        if not dry_run:
+            mark_attempt_failed(conn, acc, fdate, "xml unavailable from EDGAR",
+                                cik=filing.get("cik"), company=filing.get("company"))
+        return 0, "failed", 0, 0, 0
+
+    trades = parse_form4_xml(xml, filing["cik"], fdate, filing.get("company"))
+    buys = sum(1 for t in trades if t["trade_type"] == "buy")
+    sells = len(trades) - buys
+    if dry_run:
+        return 0, ("ok" if trades else "empty"), len(trades), buys, sells
+
+    inserted = insert_trades(conn, trades, acc, filed_at=filed_at) if trades else 0
+    mark_processed(conn, acc, fdate, len(trades))
+    return inserted, ("ok" if trades else "empty"), len(trades), buys, sells
+
+
 def _run_fetch_inner(start_date: str, end_date: str, dry_run: bool) -> dict:
     conn = get_connection()
 
@@ -237,28 +380,13 @@ def _run_fetch_inner(start_date: str, end_date: str, dry_run: bool) -> dict:
     sells = 0
 
     for i, filing in enumerate(new_filings):
-        xml, filed_at = fetch_form4_xml(filing["cik"], filing["accession"])
-        if xml is None:
+        inserted, outcome, t_parsed, b, sl = _process_one(conn, filing, dry_run)
+        if outcome == "failed":
             xml_failures += 1
-            # Still mark as processed to avoid retrying bad XMLs every run
-            if not dry_run:
-                mark_processed(conn, filing["accession"], filing["filing_date"], 0)
-            continue
-
-        trades = parse_form4_xml(
-            xml, filing["cik"], filing["filing_date"], filing["company"]
-        )
-        total_parsed += len(trades)
-        for t in trades:
-            if t["trade_type"] == "buy":
-                buys += 1
-            else:
-                sells += 1
-
-        if not dry_run:
-            inserted = insert_trades(conn, trades, filing["accession"], filed_at=filed_at) if trades else 0
-            total_inserted += inserted
-            mark_processed(conn, filing["accession"], filing["filing_date"], len(trades))
+        total_inserted += inserted
+        total_parsed += t_parsed
+        buys += b
+        sells += sl
 
         if (i + 1) % 50 == 0:
             conn.commit()
@@ -266,6 +394,32 @@ def _run_fetch_inner(start_date: str, end_date: str, dry_run: bool) -> dict:
 
     if not dry_run:
         conn.commit()
+
+    # Re-drive filings an earlier run could not read. Without this the fix is
+    # only half a fix: the normal path asks EFTS for the last `--days` days,
+    # so anything that failed for longer than that window would never be
+    # offered again no matter how retryable we marked it.
+    retried = recovered = 0
+    try:
+        for acc, fdate, attempts, cik, company in get_retryable(conn, RETRY_SWEEP_LIMIT):
+            retried += 1
+            inserted, outcome, _, _, _ = _process_one(
+                conn, {"accession": acc, "filing_date": fdate,
+                       "cik": cik, "company": company}, dry_run)
+            if outcome != "failed":
+                recovered += 1
+                total_inserted += inserted
+        if retried and not dry_run:
+            conn.commit()
+    except Exception as exc:            # never let recovery break the live path
+        logger.warning("retry sweep aborted after %d: %s", retried, exc)
+    if retried:
+        logger.info("Retry sweep: %d re-driven, %d recovered", retried, recovered)
+
+    if xml_failures:
+        logger.warning(
+            "%d filing(s) could not be fetched this run and remain QUEUED "
+            "(they are not counted as processed)", xml_failures)
 
     # Post-processing for new inserts
     if not dry_run and total_inserted > 0:

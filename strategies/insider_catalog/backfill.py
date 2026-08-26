@@ -130,12 +130,13 @@ def normalize_ticker(raw: str) -> str | None:
     # Remove surrounding parentheses
     t = t.strip("()")
 
-    # Reject obvious non-tickers
-    if t.upper() in ("N/A", "NA", ""):
-        return None
-
-    # "NONE" = private/unlisted company — preserve as-is for display purposes
-    if t.upper() == "NONE":
+    # An issuer that tells us it has no symbol is UNLISTED, not unparseable.
+    # Returning None here made parse_form4_xml discard the whole filing (it
+    # bails on a falsy ticker), so every one of these was dropped on the floor
+    # and then recorded as processed. 150 filings in 2021Q1 alone, ~0.2% of
+    # every quarter. "NONE" is the value this codebase already uses for a
+    # private or unlisted issuer, and those rows render fine.
+    if t.upper() in ("N/A", "NA", "NONE", ""):
         return "NONE"
 
     # Strip known exchange prefixes: "NYSE:", "OTCQX:", "ASX:", "NASDAQ:", etc.
@@ -171,6 +172,20 @@ def normalize_ticker(raw: str) -> str | None:
     parts = t.split()
     if len(parts) == 2 and parts[1].isalpha() and len(parts[1]) <= 3:
         t = parts[0]
+
+    # Space-separated symbols that are not a Bloomberg suffix. Everything
+    # reaching here used to fall through to the "contains a space" reject at
+    # the bottom, which discarded the ENTIRE filing — Crawford & Company files
+    # as "CRDA CRDB" and lost all 15 of its 2021Q1 filings that way.
+    #
+    #   letters spelled out   "N O G"       -> NOG   (join)
+    #   dual-class listing    "CRDA CRDB"   -> CRDA  (first, same as "X AND Y")
+    #
+    # The join case is only safe when EVERY token is a single character;
+    # joining "CRDA CRDB" would invent CRDACRDB, which is not a ticker.
+    parts = t.split()
+    if len(parts) > 1 and all(p.isalpha() for p in parts):
+        t = "".join(parts) if all(len(p) == 1 for p in parts) else parts[0]
 
     # Strip exchange/market suffixes after colon: "PAYD:OTC", "OV6:GR"
     if ":" in t:
