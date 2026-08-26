@@ -221,6 +221,21 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
           showLabel
         />
       </div>
+      {/* Why an active filer can still be Unrated. Before 2026-08-25 the grade
+          was built from every row with trade_type='buy' — 42% compensation
+          grants and 39% option exercises. It now counts open-market purchases
+          only, so plenty of people with a long filing history have nothing to
+          grade. Saying so beats letting the reader assume we have no data. */}
+      {!(profile as any).best_career_grade && (
+        <p className="text-sm text-[#8888A0] mb-3 max-w-2xl">
+          <span className="text-[#E8E8ED]">Unrated.</span>{" "}
+          We grade insiders only on stock they chose to buy on the open market.
+          Grants, option exercises and vesting say nothing about timing, so they
+          don&apos;t count — which is why someone can file often and still have
+          no grade. It isn&apos;t a bad sign: unrated buys beat every graded
+          tier below A.
+        </p>
+      )}
       {(() => {
         const cos = companies.companies;
         const primary = primaryCompany;

@@ -43,7 +43,7 @@ export const INSIDER_RATING_BLURB: Record<InsiderRating, string> = {
   B: "Slightly better than the market on average.",
   C: "Measured, and no better than the market.",
   Unrated:
-    "Not enough history at this company to judge. Not a bad score — unrated buys have outperformed every graded tier below A.",
+    "Only stock they chose to buy counts — not grants, option exercises or vesting. An insider can file often and still be unrated. Not a bad sign: unrated buys beat every graded tier below A.",
 };
 
 /**

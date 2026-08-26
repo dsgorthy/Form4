@@ -506,6 +506,25 @@ and a per-user daily cap. The queue expires after `EMAIL_TTL_DAYS`, which is
 what makes it safe to leave email broken. `tests/unit/test_notification_policy.py`
 and `test_email_queue_policy.py` fail the build on drift.
 
+**"Anything about how an insider is GRADED"** — a grade is a claim about
+decisions, so only decisions enter it. `pit_scoring._get_returns` filters on
+`signal_class IN MEANINGFUL_BUY_CLASSES` (derived from `MEANINGFUL_CLASSES`,
+never typed) plus the same superseded/derivative/duplicate hygiene every other
+reader applies. **Fixed 2026-08-25**: it previously filtered on
+`trade_type = 'buy'` alone, so every grade ever published was built from a
+population that is 42.5% compensation grants, 39.3% option exercises and 18%
+actual purchases — 76.5% of graded insiders were scored mostly on stock a
+board handed them. Randal Kirk went D to B, Leonard Baker D to A. Never gate
+this population on `trade_type`; 184k grants and 221k exercises carry
+`trade_type='buy'`. `tests/unit/test_grade_counts_decisions_only.py` fails the
+build on drift. Evidence: `docs/pit_grade_research.md`.
+
+**Evaluating a grade or signal?** The unit of an independent observation is
+the insider+ticker EPISODE, not the filing. Filing-grouping is correct for
+counting execution tranches and WRONG here — one insider buying RCG 14 times
+in three weeks is one bet, and counting it as 14 produced two false alarms on
+2026-08-25 before it was caught.
+
 **"PIT audit / scoring change"** — MANDATORY: read `reference_signal_registry.md` from Claude memory first. Then follow the full PIT Validation Checklist above. Never skip this even if the change seems safe.
 
 **"Insider pipeline work"** — Clarify which step: fetch (`fetch_latest.py`), compute returns (`compute_returns.py`), score (`pit_scoring.py`), or options pull (`options_pull.py --from-db`). Always specify date range. DB source is PostgreSQL `form4` — never CSV or SQLite.

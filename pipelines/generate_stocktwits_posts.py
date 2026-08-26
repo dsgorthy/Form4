@@ -68,6 +68,7 @@ SQL = """
 SELECT
     MIN(t.trade_id)              AS trade_id,
     MIN(t.filing_key)            AS filing_key,
+    t.insider_id                 AS insider_id,
     t.ticker,
     MAX(t.company)               AS company,
     t.signal_class,
@@ -269,6 +270,342 @@ SELECT
 HAVING SUM(t.value) > 25000
 """
 
+# ─── Multi-day context ───────────────────────────────────────────────────────
+#
+# EVERYTHING ABOVE IS ONE FILING DAY WIDE. INSIDER BEHAVIOUR IS NOT.
+#
+# A filing is a tranche of a decision that usually takes several days to
+# execute and disclose. Ranking and describing one tranche in isolation
+# produced four distinct failures in the 2026-08-25 batch alone:
+#
+#   $BABA  Joseph Tsai bought $10.3M on 08-24 and $10.4M on 08-25, and BOTH
+#          were posted, each as an isolated "largest purchase they've ever
+#          made". Both rows carry is_largest_ever and the second only wins by
+#          the 1.3% price difference on an identical 720,000-share block, so
+#          the flag was true, useless and repeated. The actual story — $20.7M
+#          over two days, the CEO buying $5.0M alongside him, and the first
+#          open-market purchases by any Alibaba insider on record — is
+#          invisible to a query that cannot see past one filing_date.
+#
+#   $AUGO  Bruno Sousa's third consecutive selling disclosure in six days
+#          ($22.9M, $10.75M, $19.6M). Posted twice, each time as though it
+#          were the first, and each time with a stake percentage derived from
+#          that day's lots alone.
+#
+#   $TTMI  Different insiders buying on consecutive days. day_cluster_n counts
+#   $AMR   only within a single filing_date, so a cluster forming across the
+#          week scores as two unrelated singles and neither leads.
+#
+#   $CPAY  A $49.3M "CEO sale" that is the tail of a 450,000-share option
+#          exercise four days earlier. The exercise_and_sell tag spans three
+#          days, so the last tranche of a multi-day liquidation escapes it.
+#
+# Fetched for the CANDIDATES ONLY, as a handful of small queries keyed on the
+# candidate tickers, rather than as more correlated subqueries hung off the
+# main SELECT — that statement already carries four and is at the limit of
+# what anyone will read.
+
+#: How far back a single insider's own accumulation/distribution is followed.
+LOOKBACK_PROGRAM_DAYS = 30
+#: How far back OTHER insiders at the same company are followed.
+LOOKBACK_CLUSTER_DAYS = 30
+#: How far back the opposite side is followed, to spot a regime change.
+LOOKBACK_OPPOSITE_DAYS = 90
+#: An M (exercise) or A (grant) this recently makes a sale partly mechanical.
+LOOKBACK_EXERCISE_DAYS = 14
+#: Posting the same ticker again inside this many days needs a reason.
+REPOST_QUIET_DAYS = 10
+#: ...and that reason is either a materially bigger program, or a new insider.
+REPOST_GROWTH = 1.5
+
+# The main query types these six predicates four times over (main WHERE plus
+# three cluster subqueries) and a comment there records what happened the one
+# time a subquery did not carry them: RBLX counted six cohen_routine sells
+# into a headline that said "6 insiders disclosed $4.3M". The context queries
+# are a fifth, sixth and seventh copy, so they share one constant.
+_EXCL = """
+   AND NOT COALESCE(x.value_suspect, FALSE)
+   AND (x.is_duplicate = 0 OR x.is_duplicate IS NULL)
+   AND x.superseded_by IS NULL
+   AND COALESCE(x.is_routine, 0) = 0
+   AND COALESCE(x.cohen_routine, 0) = 0
+   AND COALESCE(x.is_tax_sale, 0) = 0
+"""
+
+# One insider's own run on one ticker, one direction. Counted in FILINGS, not
+# rows — a Form 4 reports one decision as however many lots the broker filled,
+# and tests/unit/test_filing_level_grouping.py exists because that has already
+# been miscounted in four separate places. filing_key is the same grouping key
+# /insiders/{id}/trades uses.
+CTX_PROGRAM = f"""
+SELECT x.insider_id, x.ticker, x.signal_class,
+       COUNT(DISTINCT COALESCE(x.filing_key, x.accession, x.trade_date::text)) AS n_filings,
+       SUM(x.value)            AS value,
+       MIN(x.filing_date)::text AS first_filing,
+       MAX(x.filing_date)::text AS last_filing
+  FROM trades x
+ WHERE x.ticker = ANY(?)
+   AND x.signal_class IN ('discretionary_buy', 'discretionary_sell')
+   AND x.filing_date::date >  ?::date - ?
+   AND x.filing_date::date <= ?::date
+   {_EXCL}
+ GROUP BY 1, 2, 3
+"""
+
+# The per-filing breakdown behind that total, so a post can say "$10.3M on
+# 8/24, then another $10.4M on 8/25" instead of only the sum. Values are summed
+# per filing across lots for the same reason as above.
+CTX_PROGRAM_LEGS = f"""
+SELECT x.insider_id, x.ticker, x.signal_class,
+       x.filing_date::text AS filing_date,
+       SUM(x.value)        AS value
+  FROM trades x
+ WHERE x.ticker = ANY(?)
+   AND x.signal_class IN ('discretionary_buy', 'discretionary_sell')
+   AND x.filing_date::date >  ?::date - ?
+   AND x.filing_date::date <= ?::date
+   {_EXCL}
+ GROUP BY 1, 2, 3, 4
+ ORDER BY 1, 2, 3, 4
+"""
+
+# Everyone at the company, same direction, over the window — the cross-DAY
+# equivalent of day_cluster_events. Joint filers are collapsed first: a fund
+# and its two managing members each file the same underlying sale, and counting
+# accessions turned one AVAH seller into "6 insiders disclosed $558.5M". The
+# signature is (trade_date, value), which is what api.filters.deduplicate_filers
+# has always used.
+CTX_CLUSTER = f"""
+SELECT e.ticker, e.signal_class,
+       COUNT(DISTINCT e.insider_id) AS n,
+       SUM(e.value)                 AS value,
+       MIN(e.filing_date)::text     AS first_filing,
+       MAX(e.filing_date)::text     AS last_filing
+  FROM (SELECT DISTINCT ON (x.ticker, x.signal_class, x.trade_date, x.value)
+               x.ticker, x.signal_class, x.insider_id, x.value, x.filing_date
+          FROM trades x
+         WHERE x.ticker = ANY(?)
+           AND x.signal_class IN ('discretionary_buy', 'discretionary_sell')
+           AND x.filing_date::date >  ?::date - ?
+           AND x.filing_date::date <= ?::date
+           {_EXCL}
+         ORDER BY x.ticker, x.signal_class, x.trade_date, x.value, x.insider_id) e
+ GROUP BY 1, 2
+"""
+
+# Who else is in that cluster, largest first. "2 insiders bought $25.7M" is a
+# statistic; "the CEO bought $5.0M alongside him" is the reason to read it.
+# Joint filers collapsed first, same as above, then summed per person.
+CTX_CLUSTER_MEMBERS = f"""
+SELECT e.ticker, e.signal_class, e.insider_id,
+       MAX(COALESCE(i.display_name, i.name)) AS insider_name,
+       MAX(e.title)  AS insider_title,
+       SUM(e.value)  AS value
+  FROM (SELECT DISTINCT ON (x.ticker, x.signal_class, x.trade_date, x.value)
+               x.ticker, x.signal_class, x.insider_id, x.value, x.title
+          FROM trades x
+         WHERE x.ticker = ANY(?)
+           AND x.signal_class IN ('discretionary_buy', 'discretionary_sell')
+           AND x.filing_date::date >  ?::date - ?
+           AND x.filing_date::date <= ?::date
+           {_EXCL}
+         ORDER BY x.ticker, x.signal_class, x.trade_date, x.value, x.insider_id) e
+  JOIN insiders i ON i.insider_id = e.insider_id
+ GROUP BY 1, 2, 3
+ ORDER BY 6 DESC
+"""
+
+# What the other side of the book did over a longer window. This is the line
+# that makes BABA a story rather than a large purchase: Alibaba insiders filed
+# nothing but exercises and sales for five months, and then the chairman and
+# the CEO bought. A buy into persistent selling is a regime change; a buy into
+# more buying is a trend.
+CTX_OPPOSITE = f"""
+SELECT x.ticker, x.signal_class, COUNT(*) AS n, SUM(x.value) AS value
+  FROM trades x
+ WHERE x.ticker = ANY(?)
+   AND x.signal_class IN ('discretionary_buy', 'discretionary_sell')
+   AND x.filing_date::date >  ?::date - ?
+   AND x.filing_date::date <= ?::date
+   {_EXCL}
+ GROUP BY 1, 2
+"""
+
+# Same-direction activity BEFORE the program window, used only to say "first
+# on record". Deliberately unbounded backwards.
+CTX_PRIOR = f"""
+SELECT x.ticker, x.signal_class, COUNT(*) AS n
+  FROM trades x
+ WHERE x.ticker = ANY(?)
+   AND x.signal_class IN ('discretionary_buy', 'discretionary_sell')
+   AND x.filing_date::date <= ?::date - ?
+   {_EXCL}
+ GROUP BY 1, 2
+"""
+
+# Option exercises and grants near a sale. NO exclusions here and no
+# signal_class filter: M and A rows are by definition not discretionary, which
+# is exactly why they never show up in the query above and why a sale that is
+# really an option cash-out can look like a decision.
+CTX_MECHANICAL = """
+SELECT x.insider_id, x.ticker,
+       MAX(x.trade_date)::text AS last_date,
+       SUM(CASE WHEN x.trans_code = 'M' THEN x.qty ELSE 0 END) AS exercised_qty
+  FROM trades x
+ WHERE x.ticker = ANY(?)
+   AND x.trans_code IN ('M', 'A')
+   AND x.trade_date::date >  ?::date - ?
+   AND x.trade_date::date <= ?::date
+ GROUP BY 1, 2
+"""
+
+# What we last told people about this ticker. Without it the feed repeats
+# itself: BABA went out twice in two days with near-identical wording.
+CTX_LAST_POST = """
+SELECT DISTINCT ON (s.ticker)
+       s.ticker, s.ref_date::text AS ref_date, s.value, s.insider_name, s.direction
+  FROM social_posts s
+ WHERE s.platform = 'stocktwits' AND s.ticker = ANY(?)
+ ORDER BY s.ticker, s.created_at DESC
+"""
+
+
+def _days_between(a: str | None, b: str | None) -> int:
+    """Inclusive span in days between two ISO dates. 8/24→8/25 is two days."""
+    if not a or not b:
+        return 1
+    return abs((date.fromisoformat(b[:10]) - date.fromisoformat(a[:10])).days) + 1
+
+
+_SPELLED = {2: "two", 3: "three", 4: "four", 5: "five", 6: "six",
+            7: "seven", 8: "eight", 9: "nine", 10: "ten"}
+
+
+def span_phrase(days: int) -> str:
+    """"two days", "six days", "three weeks" — never "2 days"."""
+    if days <= 1:
+        return "a single day"
+    if days <= 10:
+        return f"{_SPELLED[days]} days"
+    if days <= 14:
+        return "two weeks"
+    if days <= 24:
+        return f"{days} days"
+    return "a month" if days <= 34 else f"{days} days"
+
+
+def attach_context(conn, rows: list[dict], day: str) -> None:
+    """Fill each candidate with what was happening around it. Mutates in place.
+
+    Every field added here is OPTIONAL downstream. annotate() drops a line
+    whose input is missing rather than guessing, so a context query that
+    returns nothing degrades to the old one-day behaviour instead of
+    fabricating a program that is not there.
+    """
+    tickers = sorted({r["ticker"] for r in rows})
+    if not tickers:
+        return
+
+    def q(sql, params):
+        return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+    prog = {(r["insider_id"], r["ticker"], r["signal_class"]): r
+            for r in q(CTX_PROGRAM, (tickers, day, LOOKBACK_PROGRAM_DAYS, day))}
+    legs: dict[tuple, list[dict]] = {}
+    for r in q(CTX_PROGRAM_LEGS, (tickers, day, LOOKBACK_PROGRAM_DAYS, day)):
+        legs.setdefault((r["insider_id"], r["ticker"], r["signal_class"]), []).append(r)
+    clust = {(r["ticker"], r["signal_class"]): r
+             for r in q(CTX_CLUSTER, (tickers, day, LOOKBACK_CLUSTER_DAYS, day))}
+    members: dict[tuple, list[dict]] = {}
+    for r in q(CTX_CLUSTER_MEMBERS, (tickers, day, LOOKBACK_CLUSTER_DAYS, day)):
+        members.setdefault((r["ticker"], r["signal_class"]), []).append(r)
+    opp = {(r["ticker"], r["signal_class"]): r
+           for r in q(CTX_OPPOSITE, (tickers, day, LOOKBACK_OPPOSITE_DAYS, day))}
+    prior = {(r["ticker"], r["signal_class"]): r
+             for r in q(CTX_PRIOR, (tickers, day, LOOKBACK_PROGRAM_DAYS))}
+    mech = {(r["insider_id"], r["ticker"]): r
+            for r in q(CTX_MECHANICAL, (tickers, day, LOOKBACK_EXERCISE_DAYS, day))}
+    try:
+        posted = {r["ticker"]: r for r in q(CTX_LAST_POST, (tickers,))}
+    except Exception as e:                                     # noqa: BLE001
+        logger.warning("social_posts lookup failed, repeat guard is off: %s", e)
+        posted = {}
+
+    other = {"discretionary_buy": "discretionary_sell",
+             "discretionary_sell": "discretionary_buy"}
+
+    for t in rows:
+        key = (t["insider_id"], t["ticker"], t["signal_class"])
+        tk = (t["ticker"], t["signal_class"])
+
+        p = prog.get(key)
+        if p and (p["n_filings"] or 0) >= 2:
+            t["prog_n_filings"] = p["n_filings"]
+            t["prog_value"] = p["value"]
+            t["prog_span_days"] = _days_between(p["first_filing"], p["last_filing"])
+            t["prog_legs"] = [(r["filing_date"], r["value"])
+                              for r in legs.get(key, [])]
+
+        c = clust.get(tk)
+        if c and (c["n"] or 0) >= 2:
+            t["win_cluster_n"] = c["n"]
+            t["win_cluster_value"] = c["value"]
+            t["win_cluster_span_days"] = _days_between(c["first_filing"], c["last_filing"])
+            # The biggest participant who is NOT the filer this post is about.
+            peers = [m for m in members.get(tk, [])
+                     if m["insider_id"] != t["insider_id"]]
+            if peers:
+                t["peer_name"] = peers[0]["insider_name"]
+                t["peer_title"] = peers[0]["insider_title"]
+                t["peer_value"] = peers[0]["value"]
+
+        o = opp.get((t["ticker"], other[t["signal_class"]]))
+        if o:
+            t["opp_n"] = o["n"]
+            t["opp_value"] = o["value"]
+
+        # "First on record" is only safe to say about a ticker we demonstrably
+        # cover. Alibaba's first filing of any kind is 2026-03-25, so "first
+        # ever" would be a claim about the dataset, not the company. Requiring
+        # prior activity on the OTHER side proves coverage exists.
+        t["is_first_on_record"] = (
+            (prior.get(tk, {}).get("n") or 0) == 0 and (t.get("opp_n") or 0) >= 3
+        )
+
+        if t["signal_class"] == "discretionary_sell":
+            m = mech.get((t["insider_id"], t["ticker"]))
+            if m and m.get("last_date"):
+                t["mech_date"] = m["last_date"]
+                t["mech_qty"] = m.get("exercised_qty") or 0
+
+        lp = posted.get(t["ticker"])
+        if lp:
+            t["last_posted_date"] = lp["ref_date"]
+            t["last_posted_value"] = lp["value"]
+            t["last_posted_name"] = lp["insider_name"]
+
+
+def is_repeat_worth_posting(t: dict, day: str) -> bool:
+    """Have we already said this? If so, has it materially moved on?
+
+    BABA went out on 08-24 as "$10.3M, largest purchase they've ever made" and
+    was queued again on 08-25 as "$10.4M, largest purchase they've ever made".
+    Two posts, one story, and the second reads as a correction of the first.
+
+    A repeat earns its slot two ways: the program is materially bigger than the
+    figure we last published, or somebody new has joined it. A different person
+    buying is news even when the cheque is smaller — which is exactly the AMR
+    case, where Gorzynski's $2.1M follows Courtis's $3.2M.
+    """
+    last = t.get("last_posted_date")
+    if not last or _days_between(last, day) > REPOST_QUIET_DAYS:
+        return True
+    if (t.get("insider_name") or "") != (t.get("last_posted_name") or ""):
+        return True
+    now = t.get("prog_value") or t.get("value") or 0
+    before = t.get("last_posted_value") or 0
+    return before <= 0 or now >= before * REPOST_GROWTH
+
 
 def is_cluster_story(t: dict) -> bool:
     """Should this be told as "N insiders did X the same day"?
@@ -304,7 +641,23 @@ def hooks(t: dict) -> list[str]:
     if is_cluster_story(t) and (t.get("day_cluster_value") or 0) >= 1_000_000:
         found.append("cluster")
 
+    # Somebody buying again, three days after buying, is the most legible
+    # signal there is and the old query could not see it. Counted in filings,
+    # so a purchase that filled in five lots is still one decision.
+    if (t.get("prog_n_filings") or 0) >= 2:
+        found.append("repeat filer")
+
+    # A cluster that forms across the week rather than inside one day. TTMI and
+    # AMR each had a second insider buy the following session and neither
+    # registered, because day_cluster_n resets at midnight.
+    if (t.get("win_cluster_n") or 0) >= 2 and (t.get("win_cluster_value") or 0) >= 1_000_000:
+        found.append("multi-day cluster")
+
     if is_buy:
+        # Buying where the record shows only exercises and sales. This is the
+        # whole of the BABA story and none of it was expressible before.
+        if t.get("is_first_on_record"):
+            found.append("first buy on record")
         if (t.get("career_grade") or "") in ("A+", "A", "B"):
             found.append("graded insider")
         if t.get("is_first_ever"):
@@ -329,7 +682,12 @@ def hooks(t: dict) -> list[str]:
             # `fraction` is POSITIVE and of the prior position — 0.33 means the
             # stake was cut by a third. It is not a signed pct_change.
             found.append("cut a third of the stake")
-    if t.get("is_largest_ever"):
+    # "Largest sale they've ever made" is true of almost every option cash-out,
+    # because exercising 450,000 options and selling into it is the largest
+    # thing most executives ever do in their own stock. CPAY reached the top of
+    # the 2026-08-25 feed that way. It can still be SAID (annotate discloses
+    # the exercise beside it) but it can no longer be the only reason to post.
+    if t.get("is_largest_ever") and not t.get("mech_date"):
         found.append("largest ever sale")
     return found
 
@@ -358,12 +716,22 @@ def score(t: dict) -> float:
     # Deduped EVENTS, not filer rows — joint filers are one seller.
     others = max((t.get("day_cluster_events") or t.get("day_cluster_n") or 1) - 1, 0)
     story_value = (t.get("day_cluster_value") or 0) if others >= 2 else 0
+    # An insider on their third disclosure in a week is telling a $53M story,
+    # not a $19.6M one, and the reader is shown the larger figure — so rank on
+    # it. Same for a cluster that assembled over several days.
+    story_value = max(story_value, t.get("prog_value") or 0)
+    if (t.get("win_cluster_n") or 0) >= 2:
+        story_value = max(story_value, t.get("win_cluster_value") or 0)
     story_value = max(story_value, t.get("value") or 1)
     size = min(math.log10(max(story_value, 1)) * 6, 45)
     own = min(math.log10(max(t.get("value") or 1, 1)) * 2, 14)
     # Count alone is not a story — five insiders splitting $750K is a payroll
     # event. The bonus only applies once the day clears seven figures.
+    others = max(others, (t.get("win_cluster_n") or 1) - 1)
     cluster = min(others * 5, 20) if story_value >= 1_000_000 else 0
+    # A repeat filer outranks a one-off of the same size: conviction shown
+    # twice is worth more than conviction shown once.
+    cluster += min(((t.get("prog_n_filings") or 1) - 1) * 6, 18)
 
     # A fund vehicle trimming 1% is a worse representative of the day than a
     # sitting officer, and PBF picked the fund over four selling executives.
@@ -407,7 +775,17 @@ def render(t: dict) -> str:
     others = max((t.get("day_cluster_events") or t.get("day_cluster_n") or 1) - 1, 0)
     noun = "buying" if verb == "bought" else "selling"
     lines: list[str] = []
-    if is_cluster_story(t):
+    if (t.get("prog_n_filings") or 0) >= 2:
+        # The headline is the whole run. "bought $10.4M" and "has bought $20.7M
+        # over two days" are the same filing described at two different
+        # altitudes, and only one of them is news on the second day.
+        lines = [f"${t['ticker']} — {who} has {verb} "
+                 f"{_amount(t.get('prog_value') or val)} over "
+                 f"{span_phrase(t.get('prog_span_days') or 2)}"]
+        bullets = [f"· {a}" for a in annotate(t, max_lines=3)]
+        if bullets:
+            lines += [""] + bullets
+    elif is_cluster_story(t):
         # The published count is the number of distinct transactions, not the
         # number of Form 4s. Three related persons reporting one sale is one
         # sale, and saying "3 insiders" about it is simply false.
@@ -518,6 +896,13 @@ def main() -> int:
     if not rows:
         logger.info("No qualifying filings for %s", day)
         return 0
+
+    attach_context(conn, rows, day)
+    before = len(rows)
+    rows = [r for r in rows if is_repeat_worth_posting(r, day)]
+    if before != len(rows):
+        logger.info("repeat guard dropped %d candidate(s) already posted",
+                    before - len(rows))
 
     # How many posts today is a property of the day, not a constant. A day
     # with eleven genuinely notable filings should produce eleven posts; a

@@ -32,6 +32,8 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)-8s %(message)s",
     datefmt="%H:%M:%S",
 )
+from api.filters import MEANINGFUL_CLASSES  # noqa: E402
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -480,6 +482,11 @@ SCORER_V3 = BayesianScorerV3()
 # Observable return lags — must match build_pit_scores.py
 _RETURN_LAGS = {"7d": 10, "30d": 40, "90d": 100}
 
+#: The buy-side meaningful classes, DERIVED from the one definition of
+#: "meaningful" rather than typed here. A grade is a claim about decisions, so
+#: only decisions may enter it.
+MEANINGFUL_BUY_CLASSES = tuple(c for c in MEANINGFUL_CLASSES if c.endswith("_buy"))
+
 
 def compute_insider_ticker_score(
     conn: object,
@@ -525,16 +532,37 @@ def compute_insider_ticker_score(
         # returns are the same number; AVG collapses them without weighting
         # games. Grouped on ticker too, so an accession covering two issuers
         # stays two observations.
+        # A GRADE MEASURES DECISIONS, NOT COMPENSATION.
+        #
+        # This filtered on `trade_type = 'buy'` and nothing else until
+        # 2026-08-25, which meant every grade was built from a population that
+        # is 42.5% compensation grants, 39.3% option exercises and only 18.0%
+        # actual purchases. 76.5% of graded insiders were scored mostly on
+        # stock a board handed them on a date they did not choose. Randal Kirk
+        # (insider 279) was graded on 102 filings of which 44 were purchases
+        # and 57 were grants.
+        #
+        # `trade_type` cannot do this job: 184k compensation grants and 221k
+        # option exercises are stored with trade_type = 'buy'. signal_class
+        # can, and is derived here rather than typed. See
+        # docs/pit_grade_research.md and reference_meaningful_filings.md.
+        #
+        # The three hygiene predicates match every other reader of this table.
+        cls_ph = ", ".join("?" for _ in MEANINGFUL_BUY_CLASSES)
         query = f"""
             SELECT MIN(t.trade_date) AS trade_date, AVG(tr.{col}) AS ret
             FROM trades t
             JOIN trade_returns tr ON t.trade_id = tr.trade_id
-            WHERE t.insider_id = ? AND t.trade_type = 'buy'
+            WHERE t.insider_id = ?
+              AND t.signal_class IN ({cls_ph})
+              AND t.superseded_by IS NULL
+              AND t.is_derivative = 0
+              AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
               AND t.trade_date <= ?
               AND t.filing_date <= ?
               AND tr.{col} IS NOT NULL
         """
-        params = [insider_id_val, cutoff, as_of_date]
+        params = [insider_id_val, *MEANINGFUL_BUY_CLASSES, cutoff, as_of_date]
         if ticker_val:
             query += " AND t.ticker = ?"
             params.append(ticker_val)
