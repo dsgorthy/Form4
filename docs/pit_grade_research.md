@@ -97,36 +97,62 @@ The top of the distribution is noise. Production's top-1% median by year:
 2023 **+5.81**, 2024 **−2.82**, 2025 **+13.06**, 2026 **−10.49**, on n = 23–36
 per year. Nothing can be concluded from a bucket that small.
 
-## The finding that outranks all of this
+## The A-List contradiction, resolved — and my first answer was wrong
 
-Applying the A-List gate (`career_grade` A+/A) to discretionary buys since
-2024:
+I initially reported that the A-List gate admits trades with a median forward
+abnormal 30d of **−4.06%** against a −1.26% baseline. **That was wrong.** It
+used grades recomputed by this harness over every discretionary buy, which is
+a different and much larger set than the book actually holds. Corrected
+against the real book:
 
-| group | n | median abnormal 30d |
-|---|---|---|
-| admitted today, kept by the fix | 127 | **−4.06%** |
-| dropped by the fix | 28 | −0.20% |
-| newly admitted by the fix | 22 | −1.48% |
-| **all discretionary buys (baseline)** | 13,297 | **−1.26%** |
+| the 44 closed A-List positions | |
+|---|---|
+| median realised P&L | **+17.77%** |
+| mean P&L | +14% |
+| win rate | 68.2% |
+| average hold | 61.5 days |
+| median abnormal 30d (same trades) | **+3.12%** |
+| median raw 30d | +4.23% |
+| baseline, all discretionary buys | **−1.26%** |
 
-**The trades the A+/A gate admits underperform the population it selects
-from**, and the ones the population fix would remove were *better* than the
-ones it keeps. n=127 is small and this is 30-day abnormal return, whereas the
-books hold 42 trading days and apply conviction, sizing and stops on top — so
-this is not a claim that A-List is broken. It is a claim that **the career
-grade is not demonstrably doing the job it is being used for**, and that has
-to be reconciled against the published book performance before anyone tunes
-the scorer further.
+**The book's trades do outperform, by about 4.4pp of 30-day alpha, and the
+published returns are consistent with the data.** There is no contradiction to
+explain away.
+
+### But the grade is not what is producing that
+
+Grading the same population by the **stored `career_grade` the book actually
+reads**, discretionary buys since 2024, filing-grouped:
+
+| stored grade | filings | median abn 30d | median abn 90d |
+|---|---|---|---|
+| **A+** | 33 | **−7.14%** | **−26.02%** |
+| A | 137 | −0.98% | −9.17% |
+| **B** | 1,231 | **−0.01%** | −3.82% |
+| C | 3,130 | −1.05% | −3.28% |
+| D | 6,232 | −1.39% | −4.11% |
+| unrated | 2,597 | −1.47% | −4.16% |
+
+**A+ is the worst bucket on the board**, and A trails B. The ordering the
+grade asserts is not the ordering the returns produce. All 44 book positions
+are graded A or A+ — yet the A/A+ *population* underperforms while the book's
+selection from it returns +17.77%.
+
+So the edge is coming from what sits on top of the grade — conviction ≥1.5,
+the chart conditions, the three-slot capacity constraint and entry timing —
+not from the grade itself. Sample sizes at the top are small (A+ n=33,
+A n=137) and 90-day medians are broadly negative across every bucket in this
+period, so this is a flag, not a verdict.
 
 ## Recommended sequence
 
-1. **Reconcile the exp8 result against A-List's published returns.** If the
-   gate genuinely selects below-baseline trades at 30d, the grade's role needs
-   rethinking, not its coefficients.
-2. **Then** make the population fix — grading people on compensation grants is
-   indefensible on its face and improves ranking out of sample — measuring
-   A-List admission before and after.
+1. **Make the population fix.** Grading people on compensation grants is
+   indefensible on its face and it improves ranking out of sample. Measure
+   A-List admission before and after, using the STORED grade, not a
+   recomputation — that is the mistake that produced the bogus −4.06%.
+2. **Separately, establish what is actually carrying the three books.** The
+   grade asserts an ordering the returns do not produce (A+ worst, B best).
+   If conviction and the capacity constraint are doing the work, that changes
+   what the grade is for and whether it should gate at all.
 3. Only then consider ticker-primary scoping and dropping the 7d weight, both
-   of which are supported for *ranking* and unsupported for *gating*.
-
-Do not do 2 or 3 before 1.
+   supported for *ranking* and unsupported for *gating*.
