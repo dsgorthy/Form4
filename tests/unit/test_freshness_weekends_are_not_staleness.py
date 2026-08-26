@@ -44,27 +44,51 @@ def contract():
     )
 
 
-def _patch(monkeypatch, contract, last_written: datetime):
-    """Point assert_fresh at a fixed contract and a fixed last-written time."""
+def _patch(monkeypatch, contract, last_written: datetime, now: datetime):
+    """Point assert_fresh at a fixed contract, last-written time AND clock.
+
+    `now` is not optional. assert_fresh reads the wall clock twice — once
+    through get_freshness for the raw age, once inside business_age_hours —
+    and a test that lets either float is really asserting something about the
+    day it happens to run on. Both are pinned here to the same instant.
+    """
     class Reg:
         def lookup(self, table, column):
             return contract
     monkeypatch.setattr(F.FreshnessRegistry, "get", staticmethod(lambda: Reg()))
-    age = (datetime.now(timezone.utc) - last_written).total_seconds() / 3600
+    age = (now - last_written).total_seconds() / 3600
     monkeypatch.setattr(F, "get_freshness", lambda conn, table, column:
                         (last_written, age))
+    # assert_fresh calls business_age_hours(ts) with no `now`, so it would
+    # otherwise fall back to the real clock. Bind it, keeping the real
+    # weekend/holiday arithmetic — that is the thing under test.
+    real = F.business_age_hours
+    monkeypatch.setattr(F, "business_age_hours",
+                        lambda ts, at=None: real(ts, at if at is not None else now))
 
 
 def _last_friday_1730_pt() -> datetime:
-    """A real Friday 17:30 PACIFIC — form4_pipeline's actual fire time
-    (`30 17 * * 1-5`, America/Los_Angeles) — as an aware UTC instant."""
+    """The most recent Friday 17:30 PACIFIC strictly IN THE PAST.
+
+    form4_pipeline's actual fire time (`30 17 * * 1-5`,
+    America/Los_Angeles), as an aware UTC instant.
+
+    "Strictly in the past" is the whole point. This walked back to the nearest
+    weekday-4 date including TODAY, so running it on a Friday before 17:30
+    returned a timestamp in the FUTURE: the age under test came out at −8.5
+    hours and every premise built on it collapsed.
+    """
     from zoneinfo import ZoneInfo
     PT = ZoneInfo("America/Los_Angeles")
     now_pt = datetime.now(PT)
     d = now_pt.date()
-    while d.weekday() != 4:
+    while True:
+        while d.weekday() != 4:
+            d -= timedelta(days=1)
+        fired = datetime(d.year, d.month, d.day, 17, 30, tzinfo=PT)
+        if fired < now_pt:
+            return fired.astimezone(timezone.utc)
         d -= timedelta(days=1)
-    return datetime(d.year, d.month, d.day, 17, 30, tzinfo=PT).astimezone(timezone.utc)
 
 
 def _pt_morning_after(friday: datetime, days: int) -> datetime:
@@ -80,7 +104,7 @@ def test_a_friday_write_is_fresh_on_monday(monkeypatch, contract):
     ~60 raw hours but only ~12 business hours."""
     friday = _last_friday_1730_pt()
     monday = _pt_morning_after(friday, 3)
-    _patch(monkeypatch, contract, friday)
+    _patch(monkeypatch, contract, friday, monday)
     raw = (monday - friday).total_seconds() / 3600
     assert raw > 26, f"premise: raw age {raw:.1f}h must exceed the 26h contract"
     business = F.business_age_hours(friday, monday)
@@ -104,15 +128,30 @@ def test_a_missed_weekday_run_still_halts(contract):
 
 
 def test_assert_fresh_uses_business_hours_when_the_flag_is_set(monkeypatch):
-    """A generous threshold on purpose.
+    """A generous threshold on purpose, against a PINNED clock.
 
-    The first version used the real 26h contract and was time-of-day
-    dependent: a Friday 17:30 write is ~19h of business time old on Monday
-    morning and ~26h by Monday evening, so the test passed before lunch and
-    failed after it. What is being asserted is that assert_fresh consults
-    business hours AT ALL, not where a particular boundary falls — so pick a
-    threshold the raw age clears and the business age does not, with room on
-    both sides.
+    What is being asserted is that assert_fresh consults business hours AT
+    ALL, not where a particular boundary falls — so the threshold is one the
+    raw age clears and the business age does not, with room on both sides.
+
+    Twice now this has been written against the wall clock and twice it has
+    gone red on a calendar, not on a regression:
+
+      1. The real 26h contract made it time-of-DAY dependent — a Friday 17:30
+         write is ~19 business hours old on Monday morning and ~26h by Monday
+         evening, so it passed before lunch and failed after it. Fixed by
+         widening the threshold to 40h.
+      2. Widening did not help, because business hours keep accruing all week.
+         Anchored to "last Friday" against a live now, the premise
+         `raw > 40 > business` only holds on a MONDAY or TUESDAY. Measured
+         across a full week it was red five days in seven, and on a Friday
+         before 17:30 `_last_friday_1730_pt` returned a FUTURE timestamp and
+         the raw age came out at −8.5 hours.
+
+    So the clock is pinned. `_patch` binds both places assert_fresh reads it,
+    and the scenario is fixed at the one the module exists for: written Friday
+    17:30, read at Monday 06:25 preflight. 60.9 raw hours, 12.9 business
+    hours, every day of the week.
     """
     generous = F.FreshnessContract(
         table="trades", column="pit_cluster_size", max_staleness_hours=40.0,
@@ -120,11 +159,12 @@ def test_assert_fresh_uses_business_hours_when_the_flag_is_set(monkeypatch):
         populated_by="form4_pipeline",
     )
     friday = _last_friday_1730_pt()
-    _patch(monkeypatch, generous, friday)
+    monday = _pt_morning_after(friday, 3)
+    _patch(monkeypatch, generous, friday, monday)
 
-    raw = (datetime.now(timezone.utc) - friday).total_seconds() / 3600
+    raw = (monday - friday).total_seconds() / 3600
     assert raw > 40, f"premise: raw age {raw:.1f}h must exceed the threshold"
-    business = F.business_age_hours(friday)
+    business = F.business_age_hours(friday, monday)
     assert business < 40, f"premise: business age {business:.1f}h must not"
 
     # Must not raise — which can only be true if the weekend was discounted.
@@ -141,7 +181,7 @@ def test_assert_fresh_uses_raw_hours_when_the_flag_is_cleared(
         populated_by="something_daily", business_hours_only=False,
     )
     friday = _last_friday_1730_pt()
-    _patch(monkeypatch, seven_day, friday)
+    _patch(monkeypatch, seven_day, friday, _pt_morning_after(friday, 3))
     with pytest.raises(F.StaleSignalError):
         F.assert_fresh(None, table="trades", column="pit_cluster_size",
                        strategy="quality_momentum")
