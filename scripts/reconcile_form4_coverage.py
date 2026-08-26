@@ -27,6 +27,7 @@ Usage:
   python3 scripts/reconcile_form4_coverage.py --days 7
   python3 scripts/reconcile_form4_coverage.py --date 2026-08-14 --list-missing
   python3 scripts/reconcile_form4_coverage.py --days 30 --min-coverage 99.0
+  python3 scripts/reconcile_form4_coverage.py --days 30 --requeue
 """
 from __future__ import annotations
 
@@ -98,6 +99,67 @@ def held_accessions(conn, day: date) -> tuple[set[str], set[str]]:
     return in_trades, read_ok
 
 
+def requeue(conn, days_missing) -> int:
+    """Hand missing filings back to the fetcher by marking them `failed`.
+
+    The fetcher skips anything already in processed_filings, and every filing
+    lost between April and August 2026 has a row there — written by the bug,
+    with trade_count 0 and a NULL status. So fixing the fetcher does not on
+    its own recover them: they look processed.
+
+    This does not fetch anything. It sets status='failed', attempts=0 and
+    records the cik the retry needs, which puts the filing back in
+    get_retryable() and lets the normal 5-minute run drain it. Deliberately
+    the same path a fresh failure takes, so recovery and steady state cannot
+    drift.
+
+    Only touches accessions with NO rows in `trades`. A filing we read and
+    found genuinely empty is left alone.
+    """
+    import urllib.request as _u
+    queued = 0
+    for day, missing in days_missing:
+        # The daily index carries the CIK; processed_filings may not.
+        q = (day.month - 1) // 3 + 1
+        url = (f"https://www.sec.gov/Archives/edgar/daily-index/{day.year}/QTR{q}/"
+               f"form.{day:%Y%m%d}.idx")
+        req = _u.Request(url, headers={"User-Agent": USER_AGENT})
+        try:
+            with _u.urlopen(req, timeout=60) as resp:
+                body = resp.read().decode("latin-1")
+        except Exception:
+            continue
+        time.sleep(REQUEST_DELAY)
+        cik_of = {}
+        for line in body.splitlines():
+            if line.startswith("4 ") or line.startswith("4/A "):
+                parts = line.split()
+                m = ACC_RE.search(parts[-1]) if parts else None
+                if m and m.group(1) not in cik_of and parts[-3].isdigit():
+                    cik_of[m.group(1)] = (parts[-3], " ".join(parts[1:-3]).strip())
+        for acc in sorted(missing):
+            cik, company = cik_of.get(acc, (None, None))
+            if not cik:
+                continue
+            conn.execute(
+                """INSERT INTO processed_filings
+                       (accession, filing_date, trade_count, status, attempts,
+                        last_error, last_attempt_at, cik, company)
+                   VALUES (?, ?, 0, 'failed', 0, 'requeued by reconciliation',
+                           NULL, ?, ?)
+                   ON CONFLICT (accession) DO UPDATE SET
+                       status     = 'failed',
+                       attempts   = 0,
+                       last_error = 'requeued by reconciliation',
+                       cik        = excluded.cik,
+                       company    = COALESCE(excluded.company, processed_filings.company)""",
+                (acc, day.isoformat(), cik, company),
+            )
+            queued += 1
+        conn.commit()
+    return queued
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--days", type=int, default=7,
@@ -106,6 +168,8 @@ def main() -> int:
     ap.add_argument("--min-coverage", type=float, default=99.0,
                     help="exit non-zero below this %% of EDGAR's filings")
     ap.add_argument("--list-missing", action="store_true")
+    ap.add_argument("--requeue", action="store_true",
+                    help="hand every missing filing back to the fetcher's retry queue")
     args = ap.parse_args()
 
     end = (datetime.strptime(args.date, "%Y-%m-%d").date() if args.date
@@ -148,6 +212,11 @@ def main() -> int:
                     print(f"   {day.isoformat()}  {acc}")
         else:
             print("   re-run with --list-missing to enumerate them")
+
+    if args.requeue and worst:
+        queued = requeue(conn, worst)
+        print(f"\nQueued {queued:,} filing(s) for the fetcher to re-drive.")
+        print("  insider-fetch drains RETRY_SWEEP_LIMIT per 5-minute run.")
 
     if overall < args.min_coverage:
         print(f"\nFAIL: {overall:.1f}% < {args.min_coverage}% required")
