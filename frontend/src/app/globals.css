@@ -159,6 +159,44 @@
   }
 }
 
+/* ============================================================
+   iOS Safari zooms the page when you focus a small control
+   ============================================================
+
+   Focus an input whose COMPUTED font-size is under 16px and mobile Safari
+   zooms the viewport in to make it readable. That is deliberate on Apple's
+   part, not a bug. What makes it a bug here is what happens next: the zoom
+   PERSISTS across a client-side navigation, because App Router never reloads
+   the document. Tap the nav search (text-sm, 14px), pick a company, land on
+   /explore — still zoomed, and now <nav> is wider than the visible area, so
+   the hamburger sits off the right edge until you pan back to it.
+
+   Every one of the 15 form controls in this app was under 16px: the nav
+   search at 14px on EVERY page, the portfolio selects at 14px, the congress
+   filters at 12px.
+
+   This is deliberately a blanket rule rather than `text-base md:text-sm` on
+   each control, because the failure mode is a control someone adds later and
+   sizes at text-sm without knowing any of the above. The label, the helper
+   text and the surrounding copy can stay as small as the design wants — iOS
+   only measures the control that takes focus.
+
+   NOT `user-scalable=no` / `maximum-scale=1` on the viewport meta. That also
+   stops the zoom, by taking pinch-zoom away from everyone who needs it, and
+   fails WCAG 1.4.4. Sizing the control fixes the cause instead.
+
+   Unlayered on purpose: Tailwind's utilities sit in @layer utilities, and an
+   unlayered rule outranks any layered one, so this beats text-sm without
+   !important. A control that genuinely wants to be BIGGER than 16px on a
+   phone must say so with higher specificity. */
+@media (max-width: 767px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
 /* Clerk overrides — visibility fixes on dark bg */
 [data-clerk-component] [class*="badge"],
 [data-clerk-component] [class*="Badge"] {
