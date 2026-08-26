@@ -13,6 +13,8 @@ grid of Accuracy, Avg Move, Alpha and Scored across 7d / 30d / 90d windows.
 Every figure in the block, both sides, all three windows, is computed the same
 way. There is no second source.
 
+0. **Buys and sells are not scored on the same terms**, because they do not
+   carry the same information. See "Which sells get scored" below.
 1. **One row per FILING, never per execution lot.** A purchase filled in five
    tranches is one decision, not five. See the `filing_not_lot_grouping`
    memory — the same error cost A-List its published headline in August.
@@ -102,6 +104,70 @@ discretionary sells is someone who only ever sells on a plan.
 
 Note the floor is applied per window, so a recent insider can show 7d and 30d
 and correctly show nothing at 90d.
+
+## Which sells get scored
+
+*Added 2026-08-25, second pass.*
+
+A discretionary buy predicts. A discretionary sell, on its own, does not.
+Measured across 291,033 discretionary sell filings, filing-grouped:
+
+| | filings | median abnormal 30d |
+|---|---|---|
+| discretionary **buy** | 63,536 | −0.63% |
+| discretionary **sell** | 291,002 | −0.58% |
+
+**Read every figure here against ≈−0.6%, not zero.** That is benchmark drift —
+insider stocks are smaller than SPY — and it applies to buys and sells alike.
+The buy edge is real but lives in the right tail: **+1.67% mean** against a
+−0.63% median. It also means the Alpha row shows a small negative for a
+perfectly average insider.
+
+So sells are scored only when they carry at least one of two signals:
+
+**1. First sale after buying this ticker.** Monotonic:
+
+| | filings | median abn 30d |
+|---|---|---|
+| first sell, ≥3 prior buys | 917 | **−2.03%** |
+| first sell, 1–2 prior buys | 3,423 | −1.54% |
+| first sell, no buy history | 47,849 | −0.83% |
+| not a first sell | 238,844 | −0.52% |
+
+**2. Speculative holder.** Entity/fund −1.58%, 10% owner −0.77%, officer
+−0.57%, director −0.55%. Officers and directors — 193,000 filings between
+them — are indistinguishable from baseline. They sell to diversify.
+
+Together the two give **−2.83%**, and the stack is monotonic in every era with
+data and widening: the 0-signal to 2-signal spread runs 1.96pp (2016–19),
+2.03pp (2020–22), 2.74pp (2023–26).
+
+**Consequence: most sell blocks correctly go dark.** Of 16,756 insiders with a
+sell block, 1,310 (7.8%) retain a scored one. That is the finding, not a
+regression — the other 92% never had a measurable sell record.
+
+### Measured and rejected — do not re-add
+
+- **Fraction of the stake sold.** Flat at every slice, −0.54% to −0.75%. A
+  >90% near-total exit is −0.57%. Selling the entire position says nothing.
+- **Sale size vs the insider's own history.** Non-monotonic across z-buckets.
+- **Gap regularity between sales.** Metronomic −0.35%, very lumpy −0.32%. Flat.
+- **Cluster selling.** Real but *inverted*, and dropped for a different
+  reason: a solo seller is −1.07% and a 9+ exodus is −0.09%, because an
+  exodus is a lockup expiry or an offering window. It adds nothing on top of
+  the two flags above (−2.81% with it, −2.83% without) and needs a
+  ticker-wide trailing-window join that costs 1.3s on the heaviest insider.
+  Excluded on cost, not on sign.
+
+`tests/unit/test_track_record_is_one_basis.py` names each rejected hypothesis
+so it cannot quietly return.
+
+### Still owed
+
+Thresholds were chosen after looking at the data. This needs a walk-forward
+with pre-specified cuts before it should be trusted as a rating — the
+`min_conviction` episode is the precedent. The speculative flag is
+`title ILIKE` matching; `trades.rptowner_relationship` is probably cleaner.
 
 ## Deliberately not changed
 

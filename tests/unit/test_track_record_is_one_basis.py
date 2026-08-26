@@ -85,7 +85,10 @@ def test_the_class_filter_is_derived_not_typed():
 def test_every_window_is_grouped_by_filing():
     """One row per filing, for all three windows, or the denominators diverge."""
     sql = _sql_only()
-    assert "GROUP BY t.trade_type, COALESCE(t.filing_key, t.accession, t.trade_date)" in sql
+    # Grouped on ticker too, so an accession covering two issuers stays two
+    # observations rather than being averaged into one.
+    assert "GROUP BY t.trade_type, t.ticker," in sql
+    assert "COALESCE(t.filing_key, t.accession, t.trade_date)" in sql
     for w in WINDOWS:
         assert f"return_{w}d" in sql, f"{w}d is missing from the filing-grouped query"
 
@@ -157,3 +160,47 @@ def test_the_floor_is_never_bypassed_by_the_loop():
     assert "apply_scoring_floor(" in src
     body = src[src.index("filing_stats = {}"):src.index('result["filing_stats"] = filing_stats')]
     assert f"/ n" not in body, "win rate computed inline; it must go through the floor helper"
+
+
+def test_a_sell_must_earn_its_score_but_a_buy_need_not():
+    """Buys are scored as they come; sells must carry a signal.
+
+    Measured over 291,033 discretionary sell filings the median abnormal 30d
+    is -0.58% against a -0.58% baseline -- exactly nothing. Only two
+    conditions separate a sale that predicts: it is the first sale after
+    buying this ticker, or the seller is an entity/fund or 10% owner. Both
+    together give -2.83%.
+    """
+    sql = _sql_only()
+    assert "trade_type = 'buy'" in sql, "buys must stay unconditionally scoreable"
+    assert "prior_sells = 0 AND prior_buys >= 1" in sql, "first-sell-after-buying flag is gone"
+    assert "OR speculative" in sql, "speculative-holder flag is gone"
+    # The sequence must look only backwards, or the flag peeks at the future.
+    assert "ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING" in sql
+
+
+def test_the_rejected_sell_hypotheses_stay_rejected():
+    """Three plausible signals were measured and found empty. Keep them out.
+
+    - fraction of the stake sold: flat at every slice, -0.54% to -0.75%, and
+      a >90% near-total exit is -0.57%. Selling everything says nothing.
+    - sale size vs the insider's own history: non-monotonic across z-buckets.
+    - gap regularity between sales: flat.
+
+    Each is intuitive enough to be re-added by someone reasoning from first
+    principles, which is why this test names them.
+    """
+    sql = _sql_only()
+    for banned, why in [
+        ("shares_owned_after", "fraction-of-stake sold was measured and is flat"),
+        ("stddev", "size-vs-own-history was measured and is non-monotonic"),
+        ("LAG(", "gap regularity was measured and is flat"),
+    ]:
+        assert banned not in sql, f"{banned} is back in the win-rate query; {why}"
+
+
+def test_percent_patterns_are_bound_not_inlined():
+    """A literal % would be eaten by the ? -> %s compat layer."""
+    sql = _sql_only()
+    assert "ILIKE ?" in sql, "title patterns must be bound parameters"
+    assert "'%" not in sql, "a literal % pattern reached the SQL; bind it instead"

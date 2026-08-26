@@ -314,7 +314,75 @@ def get_insider(identifier: str, user: UserContext = Depends(get_current_user)) 
         # a multi-lot filing as if it were the filing's outcome.
         _cls = tuple(MEANINGFUL_CLASSES)
         _cls_ph = ", ".join("?" for _ in _cls)
+        # `%` cannot appear literally: this SQL goes through the ? -> %s compat
+        # layer, which would read it as a format character. Bind the patterns.
+        _pat_10pct, _pat_owner = "%10%", "%owner%"
         filing_win_rates = conn.execute(f"""
+            WITH filings AS (
+                SELECT t.trade_type, t.ticker,
+                       COALESCE(t.filing_key, t.accession, t.trade_date) AS fkey,
+                       MIN(t.trade_date) AS d,
+                       -- "speculative holder": an entity/fund or a 10% owner.
+                       -- Verified 2026-08-25 that every title containing "10"
+                       -- is the 10% ownership designation, so this cannot
+                       -- catch an unrelated number.
+                       BOOL_OR(i.is_entity = 1
+                               OR t.title ILIKE ?
+                               OR t.title ILIKE ?) AS speculative,
+                       AVG(tr.return_7d)    AS ret7,
+                       AVG(tr.return_30d)   AS ret30,
+                       AVG(tr.return_90d)   AS ret90,
+                       AVG(tr.abnormal_7d)  AS abn7,
+                       AVG(tr.abnormal_30d) AS abn30,
+                       AVG(tr.abnormal_90d) AS abn90
+                FROM trades t
+                JOIN insiders i ON i.insider_id = t.insider_id
+                -- LEFT, deliberately: a filing with no returns yet still has
+                -- to occupy its place in the sequence below, or a later sale
+                -- looks like it followed fewer purchases than it did.
+                LEFT JOIN trade_returns tr ON t.trade_id = tr.trade_id
+                WHERE t.insider_id = ? AND t.trans_code IN ('P', 'S')
+                  AND t.superseded_by IS NULL
+                  AND t.is_derivative = 0
+                  AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
+                  AND t.signal_class IN ({_cls_ph})
+                GROUP BY t.trade_type, t.ticker,
+                         COALESCE(t.filing_key, t.accession, t.trade_date)
+            ), seq AS (
+                SELECT *,
+                    COUNT(*) FILTER (WHERE trade_type='buy')  OVER w AS prior_buys,
+                    COUNT(*) FILTER (WHERE trade_type='sell') OVER w AS prior_sells
+                FROM filings
+                WINDOW w AS (PARTITION BY ticker ORDER BY d
+                             ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+            ), scoreable AS (
+                -- Buys are scored as they come: a discretionary purchase is a
+                -- decision by construction, and it carries +1.67% median
+                -- abnormal 30d against a -0.63% baseline.
+                --
+                -- Sells are not. Measured over 291,033 discretionary sell
+                -- filings, the median is -0.58% against a -0.58% baseline --
+                -- exactly nothing. Only two conditions separate a sale that
+                -- predicts from one that does not, and a sell is scored here
+                -- only if it meets at least one:
+                --
+                --   1. FIRST SELL AFTER BUYING this ticker. -2.03% median with
+                --      3+ prior purchases, -1.54% with 1-2, against -0.52%
+                --      for a sale that follows other sales. The accumulator
+                --      who has started selling.
+                --   2. SPECULATIVE HOLDER. Entity/fund -1.58%, 10% owner
+                --      -0.77%; officers -0.57% and directors -0.55%, which is
+                --      the baseline. Employees sell to diversify.
+                --
+                -- Both flags together give -2.83%. Deliberately NOT used:
+                -- fraction of the stake sold (flat, even a >90% exit), sale
+                -- size vs the insider's own history (non-monotonic), and gap
+                -- regularity (flat). See docs/insider_track_record.md.
+                SELECT * FROM seq
+                 WHERE trade_type = 'buy'
+                    OR (prior_sells = 0 AND prior_buys >= 1)
+                    OR speculative
+            )
             SELECT
                 trade_type,
                 COUNT(ret7)  AS n7,
@@ -334,25 +402,9 @@ def get_insider(identifier: str, user: UserContext = Depends(get_current_user)) 
                          THEN 1 ELSE 0 END) AS wins90,
                 AVG(ret7) AS avg_ret7, AVG(ret30) AS avg_ret30, AVG(ret90) AS avg_ret90,
                 AVG(abn7) AS avg_abn7, AVG(abn30) AS avg_abn30, AVG(abn90) AS avg_abn90
-            FROM (
-                SELECT t.trade_type,
-                       AVG(tr.return_7d)    AS ret7,
-                       AVG(tr.return_30d)   AS ret30,
-                       AVG(tr.return_90d)   AS ret90,
-                       AVG(tr.abnormal_7d)  AS abn7,
-                       AVG(tr.abnormal_30d) AS abn30,
-                       AVG(tr.abnormal_90d) AS abn90
-                FROM trades t
-                JOIN trade_returns tr ON t.trade_id = tr.trade_id
-                WHERE t.insider_id = ? AND t.trans_code IN ('P', 'S')
-                  AND t.superseded_by IS NULL
-                  AND t.is_derivative = 0
-                  AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
-                  AND t.signal_class IN ({_cls_ph})
-                GROUP BY t.trade_type, COALESCE(t.filing_key, t.accession, t.trade_date)
-            )
+            FROM scoreable
             GROUP BY trade_type
-        """, (insider_id, *_cls)).fetchall()
+        """, (_pat_10pct, _pat_owner, insider_id, *_cls)).fetchall()
 
         # Filing-level trade counts (consistent with feed display).
         filing_counts = conn.execute("""

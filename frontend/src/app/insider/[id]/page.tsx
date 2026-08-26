@@ -605,12 +605,16 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
         const sellScorable = sellRates.some(r => r != null);
         const buyBasis = Math.max(0, ...buyScored.map(n => n ?? 0));
         const sellBasis = Math.max(0, ...sellScored.map(n => n ?? 0));
-        const tooFew = (n: number) =>
+        const tooFew = (n: number, noun = "discretionary") =>
           n === 0
-            ? "No scored discretionary filings"
-            : `Only ${n} discretionary ${n === 1 ? "filing" : "filings"} \u2014 too few to score`;
-        const BASIS_NOTE =
+            ? `No scored ${noun} filings`
+            : `Only ${n} ${noun} ${n === 1 ? "filing" : "filings"} \u2014 too few to score`;
+        const BUY_BASIS_NOTE =
           "Discretionary filings only. 10b5-1 plan trades, tax withholding and option exercises are excluded, and each column is one row per filing rather than per execution lot.";
+        // Sells carry a further restriction, and it is not a cosmetic one:
+        // an ordinary discretionary sale does not predict returns at all.
+        const SELL_BASIS_NOTE =
+          "Decision sells only \u2014 a first sale after buying the stock, or a sale by a fund or 10% owner. Ordinary sales by officers and directors show no relationship to what the stock does next, so they are counted but not scored.";
         return (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
           {/* Buy Track Record */}
@@ -673,7 +677,7 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                 {tr.best_window && buyScorable && (
                   <div className="text-[10px] text-[#81819A] mt-2">* Best window</div>
                 )}
-                <div className="text-[10px] text-[#81819A] mt-2">{BASIS_NOTE}</div>
+                <div className="text-[10px] text-[#81819A] mt-2">{BUY_BASIS_NOTE}</div>
               </div>
             </div>
           )}
@@ -723,9 +727,9 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                     </tbody>
                   </table>
                 ) : (
-                  <div className="text-xs text-[#81819A]">{tooFew(sellBasis)}</div>
+                  <div className="text-xs text-[#81819A]">{tooFew(sellBasis, "decision-sell")}</div>
                 )}
-                <div className="text-[10px] text-[#81819A] mt-2">{BASIS_NOTE}</div>
+                <div className="text-[10px] text-[#81819A] mt-2">{SELL_BASIS_NOTE}</div>
                 {profile.sell_pattern && profile.sell_pattern.total_sells > 0 && (() => {
                   const sp = profile.sell_pattern!;
                   const routinePct = Math.round((sp.routine_sells / sp.total_sells) * 100);
