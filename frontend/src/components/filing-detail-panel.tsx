@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { InsiderGradeBadge } from "@/components/insider-grade-badge";
 import { formatCurrency, formatPercent } from "@/lib/format";
-import { TickerDisplay, companyToSlug } from "@/components/ui/ticker-display";
+import { TickerDisplay, companyHref } from "@/components/ui/ticker-display";
 import type { Filing } from "@/lib/types";
 
 interface FilingDetailPanelProps {
@@ -97,7 +97,7 @@ export function FilingDetailPanel({ filing, onClose }: FilingDetailPanelProps) {
             {/* Header */}
             <div className="mb-6">
               <div className="flex items-center gap-3 mb-1">
-                <TickerDisplay ticker={filing.ticker} company={filing.company} href={null} className="text-2xl font-bold" />
+                <TickerDisplay ticker={filing.ticker} company={filing.company} className="text-2xl font-bold" />
                 <Badge
                   variant="outline"
                   className={`text-xs font-mono ${
@@ -109,8 +109,14 @@ export function FilingDetailPanel({ filing, onClose }: FilingDetailPanelProps) {
                   {filing.trade_type.toUpperCase()}
                 </Badge>
               </div>
-              {filing.ticker !== "NONE" && (
-                <div className="text-[#8888A0] text-sm">{filing.company}</div>
+              {/* Same header, same fix as the full filing page. */}
+              {filing.ticker !== "NONE" && filing.company && (
+                <Link
+                  href={companyHref(filing.ticker, filing.company)!}
+                  className="block text-[#8888A0] hover:text-blue-400 transition-colors text-sm"
+                >
+                  {filing.company}
+                </Link>
               )}
             </div>
 
@@ -220,12 +226,14 @@ export function FilingDetailPanel({ filing, onClose }: FilingDetailPanelProps) {
               >
                 View Full Filing
               </Link>
-              <Link
-                href={filing.ticker === "NONE" ? `/company/private/${companyToSlug(filing.company)}` : `/company/${filing.ticker}`}
-                className="flex items-center justify-center rounded-lg border border-[#2A2A3A] bg-[#1A1A26] px-4 py-2.5 text-sm font-medium text-[#E8E8ED] hover:bg-[#2A2A3A]/60 transition-colors"
-              >
-                View Company
-              </Link>
+              {companyHref(filing.ticker, filing.company) && (
+                <Link
+                  href={companyHref(filing.ticker, filing.company)!}
+                  className="flex items-center justify-center rounded-lg border border-[#2A2A3A] bg-[#1A1A26] px-4 py-2.5 text-sm font-medium text-[#E8E8ED] hover:bg-[#2A2A3A]/60 transition-colors"
+                >
+                  View Company
+                </Link>
+              )}
               <Link
                 href={`/insider/${filing.cik || filing.insider_id}`}
                 className="flex items-center justify-center rounded-lg border border-[#2A2A3A] bg-[#1A1A26] px-4 py-2.5 text-sm font-medium text-[#E8E8ED] hover:bg-[#2A2A3A]/60 transition-colors"

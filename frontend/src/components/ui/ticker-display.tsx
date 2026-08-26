@@ -6,6 +6,21 @@ export function companyToSlug(name: string): string {
   return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
+/**
+ * Where a company lives. Listed companies go to /company/{ticker}; private and
+ * unlisted issuers (ticker "NONE") have no symbol, so they go to a shadow
+ * profile keyed by an encoded name.
+ *
+ * Returns null when there is nowhere to send anyone — a private issuer whose
+ * name we do not have. Callers must not render a link in that case; the
+ * filing page used to build `/company/private/bnVsbA==` (that is btoa("null"))
+ * and ship it as a button.
+ */
+export function companyHref(ticker: string, company?: string | null): string | null {
+  if (ticker && ticker !== "NONE") return `/company/${ticker}`;
+  return company ? `/company/private/${companyToSlug(company)}` : null;
+}
+
 interface TickerDisplayProps {
   ticker: string;
   company?: string;

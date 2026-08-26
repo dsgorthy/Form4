@@ -11,7 +11,7 @@ import { FilingSummary } from "@/components/entity-summary";
 import { FollowCta } from "@/components/follow-cta";
 import { filingJsonLd, jsonLdScript } from "@/lib/structured-data";
 import { Badge } from "@/components/ui/badge";
-import { TickerDisplay, companyToSlug } from "@/components/ui/ticker-display";
+import { TickerDisplay, companyHref } from "@/components/ui/ticker-display";
 import { SignalBadges } from "@/components/signal-badge";
 import { ContextFacts } from "@/components/context-facts";
 import { FilingCorrectionNotice } from "@/components/filing-correction-notice";
@@ -148,6 +148,7 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
     filing.return_7d != null || filing.return_30d != null || filing.return_90d != null;
   const allReturnsUnavailable = !hasReturns &&
     isReturnUnavailable(filing.trade_date, filing.return_7d, 7);
+  const companyUrl = companyHref(filing.ticker, filing.company);
 
   return (
     <div>
@@ -179,7 +180,7 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
             "CPAY [SELL] CORPAY, INC." two lines apart reads as a rendering
             bug rather than a hierarchy. */}
         <span className="text-[#E8E8ED] flex items-center gap-1 min-w-0">
-          <TickerDisplay ticker={filing.ticker} company={filing.company} href={null} />
+          <TickerDisplay ticker={filing.ticker} company={filing.company} />
         </span>
       </nav>
 
@@ -189,7 +190,7 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
           h1 above them, which is a broken outline on two thirds of the
           indexed site. The heading states what the page is: who traded what. */}
       <h1 className="flex flex-wrap items-center gap-3 sm:gap-4 mb-8 text-2xl sm:text-3xl font-bold">
-        <TickerDisplay ticker={filing.ticker} company={filing.company} href={null} className="text-2xl sm:text-3xl font-bold" />
+        <TickerDisplay ticker={filing.ticker} company={filing.company} className="text-2xl sm:text-3xl font-bold" />
         {" "}
         <span className="sr-only">
           {filing.insider_name} {filing.trade_type === "buy" ? "bought" : "sold"}{" "}
@@ -205,8 +206,19 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
         >
           {filing.trade_type.toUpperCase()}
         </Badge>
-        {filing.ticker !== "NONE" && (
-          <span className="text-[#8888A0] text-sm sm:text-base break-words">{filing.company}</span>
+        {/* The company NAME is a link, not just the symbol beside it. A
+            reader who wants the company clicks the words they recognise —
+            "Eos Energy Enterprises, Inc." — not the four letters. Both were
+            plain text here, and the only route to /company was a View Company
+            button far below the fold, so the click did nothing and the page
+            looked broken. */}
+        {filing.ticker !== "NONE" && filing.company && companyUrl && (
+          <Link
+            href={companyUrl}
+            className="text-[#8888A0] hover:text-blue-400 transition-colors text-sm sm:text-base break-words"
+          >
+            {filing.company}
+          </Link>
         )}
       </h1>
 
@@ -564,12 +576,14 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
 
       {/* Action links */}
       <div className="flex gap-3 mb-10">
-        <Link
-          href={filing.ticker === "NONE" ? `/company/private/${companyToSlug(filing.company)}` : `/company/${filing.ticker}`}
-          className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26] px-5 py-2.5 text-sm font-medium text-[#E8E8ED] hover:bg-[#2A2A3A]/60 transition-colors"
-        >
-          View Company
-        </Link>
+        {companyUrl && (
+          <Link
+            href={companyUrl}
+            className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26] px-5 py-2.5 text-sm font-medium text-[#E8E8ED] hover:bg-[#2A2A3A]/60 transition-colors"
+          >
+            View Company
+          </Link>
+        )}
         <Link
           href={insiderPath(filing.insider_name, filing.cik || filing.insider_id, filing.insider_slug)}
           className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26] px-5 py-2.5 text-sm font-medium text-[#E8E8ED] hover:bg-[#2A2A3A]/60 transition-colors"
@@ -616,14 +630,18 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
                   <tr key={r.trade_id} className="border-b border-[#2A2A3A]/50 hover:bg-[#1A1A26]/30">
                     {/* A ticker goes to the company. It read as a filing link
                         only because this table had nowhere else to click, so
-                        the row now carries an explicit one in the last cell. */}
+                        the row now carries an explicit one in the last cell.
+                        Built by hand, it shipped `/company/NONE` for every
+                        private issuer — a soft 404 that answers HTTP 200 and
+                        renders "not found", so users landed on it and Google
+                        indexed it. TickerDisplay has always known that an
+                        unlisted company lives at /company/private/{slug}. */}
                     <td className="px-4 py-3">
-                      <Link
-                        href={`/company/${r.ticker}`}
-                        className="font-mono font-semibold text-blue-400 hover:text-blue-300"
-                      >
-                        {r.ticker}
-                      </Link>
+                      <TickerDisplay
+                        ticker={r.ticker}
+                        company={r.company}
+                        className="text-blue-400 hover:text-blue-300"
+                      />
                     </td>
                     <td className="px-4 py-3">
                       <Badge
