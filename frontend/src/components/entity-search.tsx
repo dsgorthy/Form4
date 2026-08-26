@@ -25,6 +25,12 @@
  * once on empty->result rather than on every search. That was the other half
  * of the old confusion: explore rendered its search bar three separate times,
  * in a different position per page mode.
+ *
+ * `onNavigate` exists because this component navigates with router.push rather
+ * than a <Link>, so a parent that is itself a dismissable surface — the mobile
+ * nav panel — has no click on an anchor to hang a close on. Without it the
+ * panel stayed open on top of the page the search had just opened, and the
+ * only way out was the X.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -138,9 +144,12 @@ function GroupHeader({
 export function EntitySearch({
   variant = "nav",
   initial = "",
+  onNavigate,
 }: {
   variant?: "nav" | "hero";
   initial?: string;
+  /** Fired after a result is chosen and the route push is issued. */
+  onNavigate?: () => void;
 }) {
   const router = useRouter();
   const [q, setQ] = useState(initial);
@@ -208,6 +217,7 @@ export function EntitySearch({
     setOpen(false);
     if (!isHero) setQ("");
     router.push(path);
+    onNavigate?.();
   };
 
   const term = q.trim();

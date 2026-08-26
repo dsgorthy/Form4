@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { UserButton, useUser, useAuth } from "@clerk/nextjs";
@@ -93,6 +93,16 @@ export function Nav() {
   const { isSignedIn, isLoaded } = useAuth();
   const { user } = useUser();
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  // Close the panel whenever the route changes. Every <Link> below also closes
+  // it on click, but that only covers navigations that go through an anchor in
+  // this component: the search box pushes a route itself, and so would a back
+  // gesture or any link we add later. A menu left open over the page the user
+  // just asked for is the failure, so catch it at the route rather than at
+  // each call site.
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
 
   const userIsPro = isPro(user);
   const userTier = getUserTier(user);
@@ -218,9 +228,12 @@ export function Nav() {
       {/* Mobile menu panel */}
       {mobileOpen && (
         <div className="md:hidden border-t border-[#2A2A3A] bg-[#0A0A0F] px-4 pb-4 pt-2 space-y-1">
-          {/* Search */}
+          {/* Search. The panel is a dismissable surface and this input is the
+              one control in it that navigates without an anchor, so it has to
+              say so explicitly — pathname alone does not change when the
+              search only swaps ?ticker= on /explore. */}
           <div className="pb-2">
-            <EntitySearch />
+            <EntitySearch onNavigate={() => setMobileOpen(false)} />
           </div>
 
           {/* Primary links */}
