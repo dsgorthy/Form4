@@ -179,8 +179,9 @@ class InsiderCache:
     far more damagingly than a missing cik.
     """
 
-    def __init__(self, conn):
+    def __init__(self, conn, dry_run: bool = False):
         self.conn = conn
+        self.dry_run = dry_run
         rows = conn.execute(
             "SELECT name_normalized, insider_id FROM insiders "
             "WHERE name_normalized IS NOT NULL").fetchall()
@@ -193,6 +194,12 @@ class InsiderCache:
         hit = self.map.get(norm)
         if hit is not None:
             return hit
+        if self.dry_run:
+            # A dry run must not mint insiders. The first version did, and
+            # left 552 orphan rows behind on its first pass.
+            self.created += 1
+            self.map[norm] = -1
+            return -1
         cur = self.conn.execute(
             "INSERT INTO insiders (name, name_normalized, cik) VALUES (?, ?, ?) "
             "RETURNING insider_id", (name, norm, cik or None))
@@ -385,7 +392,7 @@ def main() -> int:
     done = {r[0] for r in conn.execute(
         "SELECT quarter FROM sec_dataset_progress").fetchall()}
 
-    cache = InsiderCache(conn)
+    cache = InsiderCache(conn, dry_run=args.dry_run)
     grand = 0
     for y, q in quarters(args.start, args.end):
         key = f"{y}q{q}"
