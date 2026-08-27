@@ -86,6 +86,18 @@ STEPS = [
                           "--since", "2006-01-01"]),
     ("cohen_pit",        [PY, str(STUDY / "compute_cohen_pit.py")]),
     ("returns",          [PY, str(STUDY / "backfill_returns.py"), "--skip-download"]),
+    # PIT SCORES. Missing from the first version of this chain, which is the
+    # defect that made the 2026-08-27 diff unreadable: career_grades ran
+    # against an insider_ticker_scores computed over the OLD half-dataset, and
+    # 261,589 rows lost a grade they previously had -- including insiders with
+    # 46 buys and 38 returns, who are not short of history.
+    #
+    # insider_ticker_scores is written by refresh_features_daily.sh, not by
+    # anything else in this list. It is the `form4_features` asset in the
+    # Dagster pipeline and it sits between returns and grades there too.
+    ("features",         ["/bin/bash",
+                          str(REPO / "strategies" / "insider_catalog"
+                              / "refresh_features_daily.sh")]),
     ("pit_grades",       [PY, str(STUDY / "backfill_pit_grades.py")]),
     ("career_grades",    [PY, str(STUDY / "compute_career_grades.py"),
                           "--since", PRICE_START, "--rebuild"]),
