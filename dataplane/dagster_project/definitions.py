@@ -46,6 +46,10 @@ from dagster_project.assets.form4_pipeline import (
     form4_pipeline_assets,
     form4_weekly_assets,
 )
+from dagster_project.assets.form4_ops import (
+    form4_ops_assets,
+    form4_ops_schedules,
+)
 from dagster_project.assets.insider_sync import insider_trades_form4_sync
 from dagster_project.assets.signals import (
     build_signal_assets,
@@ -380,14 +384,17 @@ defs = Definitions(
     assets=[*signal_assets, congress_trades_form4_sync,
             insider_trades_form4_sync,
             *form4_pipeline_assets, *form4_weekly_assets,
-            *form4_alert_assets, dataplane_dbt_assets],
+            *form4_alert_assets, *form4_ops_assets, dataplane_dbt_assets],
     jobs=[daily_signals_job, dbt_marts_job, form4_pipeline_job,
           form4_alerts_job,
           realtime_strategy_job, insider_filings_shadow_job],
     schedules=[daily_signals_schedule, dbt_marts_schedule,
                form4_alerts_schedule,
                form4_pipeline_schedule, form4_weekly_schedule,
-               insider_filings_settle_nightly],
+               insider_filings_settle_nightly,
+               # Twelve jobs moved off launchd 2026-08-26. Their crons are
+               # disabled in the same change -- leaving both would double-run.
+               *form4_ops_schedules],
     sensors=[ntfy_on_run_failure, realtime_5min_loop,
              insider_filings_shadow_5min],
     resources={
