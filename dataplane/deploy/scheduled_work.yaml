@@ -47,6 +47,18 @@ dagster:
       only_in_a runs 4-11%, i.e. the CRON path is the one missing filings.
       That is the same loss found independently against EDGAR on 2026-08-26.
 
+  - name: form4_ops
+    schedule: "10 schedules, 12 assets — see assets/form4_ops.py"
+    replaced: [enrich-narratives, breaking-signal, trial-emails,
+               ceowatcher-reader, monday-paper-monitor, alpaca-reconcile,
+               thesis-monitor, post-deploy-audit, daily-summary,
+               daily-content, strategy-health, pit-shadow]
+    note: >
+      Moved 2026-08-26. Orchestration only — each asset shells out to the
+      exact command its plist ran, same interpreter and same time.
+      framework.observability.wrap is kept on the ten that had it, so
+      /admin/pipelines still sees them. Plists retired to ~/retired_plists.
+
 pending:
   # Ordered by what it costs to leave alone.
   - name: insider-fetch
@@ -65,16 +77,10 @@ pending:
       LABEL is com.openclaw.form4-notifications, left over from the old Insider
       Edge naming — so any audit that enumerates plist filenames misses it, and
       mine did. Enumerate `launchctl list`, never the directory.
-  - name: enrich-narratives
-    schedule: "every 5m"
   - name: strategy-intraday
     schedule: "every 10m"
   - name: refresh-open-position-prices
     schedule: "every 15m"
-  - name: breaking-signal
-    schedule: "every 30m"
-  - name: trial-emails
-    schedule: "every 6h"
   - name: rebuild-insider-companies
     schedule: "05:30"
   - name: form4-seed-positions
@@ -87,26 +93,8 @@ pending:
       moves, the threshold check moves with it.
   - name: paper-reset-phase2
     schedule: "06:32"
-  - name: monday-paper-monitor
-    schedule: "07:30"
   - name: strategy-simulator
     schedule: "07:00"
-  - name: ceowatcher-reader
-    schedule: "08:30"
-  - name: alpaca-reconcile
-    schedule: "13:30 weekdays"
-  - name: thesis-monitor
-    schedule: "13:30 weekdays"
-  - name: post-deploy-audit
-    schedule: "14:00 weekdays"
-  - name: daily-summary
-    schedule: "14:30 weekdays"
-  - name: daily-content
-    schedule: "17:00"
-  - name: strategy-health
-    schedule: "17:00"
-  - name: pit-shadow
-    schedule: "18:00"
   - name: quality-notrend
     schedule: "long-lived daemon"
     note: "Unloaded 2026-08-26 for the SEC reload. Resume before migrating."
