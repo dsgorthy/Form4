@@ -86,6 +86,17 @@ STEPS = [
                           "--since", "2006-01-01"]),
     ("cohen_pit",        [PY, str(STUDY / "compute_cohen_pit.py")]),
     ("returns",          [PY, str(STUDY / "backfill_returns.py"), "--skip-download"]),
+    # THE TRADEABLE LABELS. backfill_returns.py fills abnormal_* anchored to
+    # TRADE date, which nobody can trade on. abnormal_*td_from_filing is
+    # anchored to the filing, and the migration note is blunt about why it
+    # exists: a model fitted on the trade-date columns scored a +6.85pp
+    # walk-forward decile spread while having no ranking power on returns
+    # anyone could capture.
+    #
+    # Every published measurement uses the from_filing columns. Omitting this
+    # step left them NULL on all 191,290 newly loaded discretionary buys, so
+    # any signal study run before it silently fell back to the inflated basis.
+    ("returns_from_filing", [PY, str(STUDY / "backfill_returns_from_filing.py")]),
     # PIT SCORES. Missing from the first version of this chain, which is the
     # defect that made the 2026-08-27 diff unreadable: career_grades ran
     # against an insider_ticker_scores computed over the OLD half-dataset, and
