@@ -318,21 +318,29 @@ REPOST_QUIET_DAYS = 10
 #: ...and that reason is either a materially bigger program, or a new insider.
 REPOST_GROWTH = 1.5
 
-# ── Rate limits. These exist because the account was banned. ───────────────
+# ── Rate limits. Added after the account was suspended. ────────────────────
 #
 # Stocktwits suspended us on 2026-08-26. Nothing in the content broke a
-# published rule -- measured across the 53 posts: no links, no promotion, no
-# irrelevant cashtags, and a median pairwise structural similarity of 45% with
-# 50 of 50 distinct opening lines, so "the same message or nearly identical
-# ones repeatedly" does not describe them either. Their rules explicitly
-# welcome bots that are "data feeds".
+# published rule -- measured across the 53 recorded posts: no links, no
+# promotion, no irrelevant cashtags, and a median pairwise structural
+# similarity of 45% with 50 of 50 distinct opening lines, so "the same message
+# or nearly identical ones repeatedly" does not describe them either. Their
+# rules explicitly welcome bots that are "data feeds". THE CAUSE OF THE
+# SUSPENSION IS NOT KNOWN.
 #
-# What did happen: on 2026-08-24 the generator RAN TWICE, at 18:08 and 19:10,
-# and put out 20 posts across 19 cashtags in 62 minutes from an account that
-# was four days old. record_posts is idempotent per FILING, so the second run
-# posted no duplicates -- it simply took the next ten of the sixty candidates
-# that had cleared the bar. The guard stopped repeats; nothing stopped a
-# second batch.
+# SOCIAL_POSTS RECORDS WHAT WE GENERATED, NOT WHAT WE PUBLISHED. external_id
+# is NULL on every row; there is no posting API here, a human copies the file
+# to Stocktwits. On 2026-08-24 the generator ran twice, at 18:08 and 19:10,
+# and recorded 20 posts -- but only 10 were ever published. record_posts is
+# idempotent per FILING, so the second run wrote no duplicates; it took the
+# next ten of the sixty candidates that had cleared the bar.
+#
+# So the cap below is NOT a fix for the suspension, and must not be described
+# as one. It fixes a real defect of its own: a second run silently doubles the
+# day's recorded intent, and every downstream reader treats those rows as
+# things we told people. ref_price freezes a claim we may never have made, the
+# repeat guard suppresses a ticker we never actually posted, and any "30 days
+# ago we flagged this" scorecard cites a call nobody saw.
 
 #: Hard ceiling per CALENDAR DAY, counted against social_posts rather than
 #: against this process, so a second invocation is a no-op instead of a

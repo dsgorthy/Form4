@@ -1,4 +1,4 @@
-"""Two invocations on one day must not be two batches of posts.
+"""Two invocations on one day must not record two batches of posts.
 
 WHAT WENT WRONG
 
@@ -9,12 +9,19 @@ irrelevant cashtags, and a median pairwise structural similarity of 45% with
 repeatedly" did not describe them either. Their rules explicitly welcome bots
 that are "data feeds".
 
-What happened is that on 2026-08-24 the generator RAN TWICE, at 18:08 and
-19:10, and put out 20 posts across 19 cashtags in 62 minutes from an account
-four days old. `record_posts` is idempotent per FILING, so the second run
-posted no duplicates — it took the next ten of the sixty candidates that had
-cleared the notability bar. The repeat guard did its job. Nothing objected to
-a second batch, because nothing was counting the day.
+THE CAUSE OF THE SUSPENSION IS NOT KNOWN, and these caps do not claim to be a
+fix for it.
+
+What they DO fix: social_posts records what we GENERATED, not what we
+PUBLISHED. external_id is NULL on every row, there is no posting API here, and
+a human copies the file to Stocktwits by hand. On 2026-08-24 the generator ran
+twice, at 18:08 and 19:10, and RECORDED 20 posts where only 10 were ever
+published. `record_posts` is idempotent per FILING so the second run wrote no
+duplicates; it took the next ten candidates that had cleared the bar. Nothing
+was counting the day, and every downstream reader treats those extra rows as
+things we told people — ref_price freezes a claim we never made, the repeat
+guard suppresses a ticker we never posted, and a "30 days ago we flagged this"
+scorecard cites a call nobody saw.
 
 THE TWO PROPERTIES
 
@@ -56,8 +63,8 @@ def _const(name: str):
 def test_a_daily_cap_exists():
     cap = _const("MAX_POSTS_PER_DAY")
     assert isinstance(cap, int) and 1 <= cap <= 10, (
-        f"MAX_POSTS_PER_DAY is {cap!r}. The account was suspended after 20 posts "
-        "in 62 minutes; this is the ceiling that prevents it."
+        f"MAX_POSTS_PER_DAY is {cap!r}. This bounds both what we generate and "
+        "what a human is handed to publish."
     )
 
 
