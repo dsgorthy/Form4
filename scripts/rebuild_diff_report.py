@@ -49,19 +49,21 @@ def after_snapshot(conn) -> dict:
     r = conn.execute("SELECT COUNT(*) AS a, COUNT(DISTINCT accession) AS b FROM trades").fetchone()
     out["trades_rows"], out["trades_filings"] = _n(r[0]), _n(r[1])
     out["career_grade_dist"] = {
-        r[0]: _n(r[1]) for r in conn.execute(
-            """SELECT COALESCE(career_grade,'(null)') g, COUNT(*) FROM trades
+        r["g"]: _n(r["n"]) for r in conn.execute(
+            """SELECT COALESCE(career_grade,'(null)') g, COUNT(*) AS n FROM trades
                 WHERE filing_date >= '2016' GROUP BY 1""").fetchall()}
     out["pit_grade_dist"] = {
-        r[0]: _n(r[1]) for r in conn.execute(
-            """SELECT COALESCE(pit_grade,'(null)') g, COUNT(*) FROM trades
+        r["g"]: _n(r["n"]) for r in conn.execute(
+            """SELECT COALESCE(pit_grade,'(null)') g, COUNT(*) AS n FROM trades
                 WHERE filing_date >= '2016' GROUP BY 1""").fetchall()}
     out["books"] = [
-        {"strategy": r[0], "positions": _n(r[1]), "closed": _n(r[2]),
-         "avg_pnl_pct": float(r[3]) if r[3] is not None else None}
+        {"strategy": r["s"], "positions": _n(r["n"]), "closed": _n(r["closed"]),
+         "avg_pnl_pct": float(r["avg_pnl"]) if r["avg_pnl"] is not None else None}
         for r in conn.execute(
-            """SELECT strategy, COUNT(*), COUNT(*) FILTER (WHERE exit_date IS NOT NULL),
-                      ROUND(AVG(pnl_pct)::numeric, 3)
+            """SELECT strategy AS s,
+                      COUNT(*) AS n,
+                      COUNT(*) FILTER (WHERE exit_date IS NOT NULL) AS closed,
+                      ROUND(AVG(pnl_pct)::numeric, 3) AS avg_pnl
                  FROM strategy_portfolio
                 WHERE execution_source IN ('simulated','alert')
                 GROUP BY 1 ORDER BY 1""").fetchall()]
