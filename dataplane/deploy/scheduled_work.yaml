@@ -1,0 +1,162 @@
+# EVERY UNIT OF SCHEDULED WORK ON STUDIO, AND WHERE IT RUNS.
+#
+# Dagster owns scheduling. launchd is legacy and is being retired. This file is
+# the single place that says which is which, and `scripts/check_scheduled_work.py`
+# fails if reality disagrees with it.
+#
+# It exists because on 2026-08-26 nobody could answer "what is still on cron?"
+# without SSHing in and reading plists out of four different directories, and
+# because the migration stalled for nine days without that being visible
+# anywhere.
+#
+# status:
+#   dagster  — runs as a Dagster asset/job. The launchd plist MUST be gone.
+#              A loaded plist for one of these means the work RUNS TWICE.
+#   pending  — still on launchd, must move. Every one of these is debt.
+#   exempt   — deliberately not in Dagster. A `reason` is REQUIRED, and it has
+#              to be an argument, not a shrug.
+#
+# Adding scheduled work? It goes in Dagster and it goes in this file. If you
+# think you need a new plist, you almost certainly do not — see the exempt
+# reasons below for the only shapes that qualify.
+
+dagster:
+  - name: form4_pipeline
+    schedule: "30 17 * * 1-5"
+    replaced: [daily-prices, backfill-returns, refresh-features, compute-signals]
+    note: >
+      The derived chain as real edges instead of four crons ordered by the
+      clock. On 2026-07-28 prices went stale and all three downstream jobs ran
+      anyway on stale input and exited 0 for 18 days. Each asset now asserts
+      upstream freshness before computing.
+  - name: form4_weekly
+    schedule: "0 9 * * 0"
+    replaced: [refresh-ticker-metadata]
+  - name: form4_alerts
+    schedule: "0 7 * * *"
+  - name: dbt_marts
+    schedule: "0 5 * * * (UTC)"
+  - name: daily_signals
+    schedule: "04:30 UTC, partitioned"
+  - name: insider_filings_shadow
+    schedule: "sensor 5min + settle 23:30 weekdays"
+    note: >
+      Shadow of the launchd insider ingest, measuring parity nightly into
+      pyrrho_data_dev.parity_history. It has recorded only_in_b = 0 every day
+      since 2026-08-10 — the plane has everything the cron path has — while
+      only_in_a runs 4-11%, i.e. the CRON path is the one missing filings.
+      That is the same loss found independently against EDGAR on 2026-08-26.
+
+pending:
+  # Ordered by what it costs to leave alone.
+  - name: insider-fetch
+    runs: strategies/insider_catalog/fetch_latest.py
+    schedule: "every 5m"
+    why_it_matters: >
+      The core Form 4 ingestion. Its silent failures lost ~12% of filings for
+      five months. The parity gate for moving it has been green since
+      2026-08-11 and the cutover simply never happened.
+  - name: form4-notifications
+    runs: pipelines/notification_scanner.py
+    schedule: "every 5m"
+    why_it_matters: >
+      Found only because check_scheduled_work.py flagged it as unregistered.
+      Its plist FILE is com.openclaw.insideredge-notifications.plist while its
+      LABEL is com.openclaw.form4-notifications, left over from the old Insider
+      Edge naming — so any audit that enumerates plist filenames misses it, and
+      mine did. Enumerate `launchctl list`, never the directory.
+  - name: enrich-narratives
+    schedule: "every 5m"
+  - name: strategy-intraday
+    schedule: "every 10m"
+  - name: refresh-open-position-prices
+    schedule: "every 15m"
+  - name: breaking-signal
+    schedule: "every 30m"
+  - name: trial-emails
+    schedule: "every 6h"
+  - name: rebuild-insider-companies
+    schedule: "05:30"
+  - name: form4-seed-positions
+    schedule: "06:25"
+  - name: parity-record
+    schedule: "06:30"
+    why_it_matters: >
+      This is the job that has been writing the evidence of the ingestion loss
+      to parity_history every morning since 2026-08-10. Nothing read it. When it
+      moves, the threshold check moves with it.
+  - name: paper-reset-phase2
+    schedule: "06:32"
+  - name: monday-paper-monitor
+    schedule: "07:30"
+  - name: strategy-simulator
+    schedule: "07:00"
+  - name: ceowatcher-reader
+    schedule: "08:30"
+  - name: alpaca-reconcile
+    schedule: "13:30 weekdays"
+  - name: thesis-monitor
+    schedule: "13:30 weekdays"
+  - name: post-deploy-audit
+    schedule: "14:00 weekdays"
+  - name: daily-summary
+    schedule: "14:30 weekdays"
+  - name: daily-content
+    schedule: "17:00"
+  - name: strategy-health
+    schedule: "17:00"
+  - name: pit-shadow
+    schedule: "18:00"
+  - name: quality-notrend
+    schedule: "long-lived daemon"
+    note: "Unloaded 2026-08-26 for the SEC reload. Resume before migrating."
+  - name: quality-momentum
+    schedule: "long-lived daemon"
+    note: "Unloaded 2026-08-26 for the SEC reload. Resume before migrating."
+  - name: reversal-dip
+    schedule: "long-lived daemon"
+    note: "Unloaded 2026-08-26 for the SEC reload. Resume before migrating."
+
+exempt:
+  - name: dagster-daemon
+    reason: >
+      This IS the scheduler. You cannot schedule it with itself; something
+      outside Dagster has to start and keep Dagster alive.
+  - name: dagster-webserver
+    reason: >
+      Same — the UI process that would display the run. If it were a Dagster
+      job, a Dagster outage would take away the only view of the outage.
+  - name: form4-uptime
+    reason: >
+      KeepAlive uptime monitor, 1-minute. Its entire job is to notice that
+      production is down, which includes Dagster being down. Inside Dagster it
+      would go quiet exactly when it is needed.
+  - name: form4-error-tail
+    reason: "KeepAlive log tail, not scheduled work. Nothing to schedule."
+  - name: heartbeat-probe
+    reason: >
+      Watches whether the pipeline's heartbeat is advancing. Running the
+      watchdog inside the thing it watches is the failure mode it exists to
+      catch — see feedback_liveness_is_not_health, where a fresh heartbeat
+      proved the loop turned while A-List's runner was dead for five days.
+  - name: freshness-probe
+    reason: "Same argument as heartbeat-probe: it must survive the plane."
+  - name: alert-canary
+    reason: >
+      End-to-end canary for the alert path. A canary that shares infrastructure
+      with the system under test is not a canary.
+  - name: candidate-count-probe
+    reason: "Same: detects 'the strategies found nothing again', independently."
+  - name: pg-backup
+    reason: >
+      Nightly verified pg_dump of form4, pyrrho_data_dev, pyrrho_prod AND
+      dagster_runs, rsynced off-box. It backs up Dagster's own database. A
+      backup that depends on the thing it is protecting is not a backup.
+  - name: pyrrho-desk
+    reason: "A long-lived web server on :3031, not scheduled work."
+  - name: position-rules-test
+    reason: "KeepAlive process, not a schedule."
+  - name: tailorly-tunnel
+    reason: "Different project (Tailorly). Out of scope for this plane."
+  - name: tailorly-maintain
+    reason: "Different project (Tailorly). Out of scope for this plane."
