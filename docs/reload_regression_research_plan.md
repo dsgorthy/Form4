@@ -69,6 +69,76 @@ the old result was small-sample luck on a favourable subsample.
 `min_conviction` 2.0 dropped scored EXACTLY 1.5. A gate sitting on a mass point
 is unstable under any change to any input.
 
+## E2 — a size floor is NOT the fix (DONE, hypothesis REJECTED)
+
+On the book positions a floor looked promising (A-List +4.7% -> +8.6% at
+$100k). On the full corpus it evaporates. All discretionary buys 2016+,
+mean abnormal 90d by size:
+
+    <$10k +1.82  ·  $10-25k +1.62  ·  $25-50k +1.74  ·  $50-100k +3.22
+    $100-250k +0.64  ·  $250k-1M +3.27  ·  >$1M -0.27
+
+Flat and noisy, no monotonic relationship. Among A+/A insiders the LARGEST
+trades do worst (>$250k: +0.35%, 47.9% win). The book-level result was 26-30
+positions — noise. **H1 in its simple form is dead: small trades are not bad
+trades.** The size skew changed WHICH trades the signals select; size itself
+carries nothing.
+
+## E3 — the signals themselves (DONE, and this is the finding)
+
+Spread = mean abnormal 90d when the signal fires minus when it does not, all
+discretionary buys 2016+ on the corrected corpus.
+
+| signal | n | spread | win |
+|---|---|---|---|
+| dip_3mo <= -40% | 20,838 | **+10.60** | 48.0% |
+| is_rare_reversal | 3,980 | **+7.27** | 49.5% |
+| dip_3mo <= -25% | 47,832 | **+4.79** | 44.6% |
+| **career_grade A+ ONLY** | 4,019 | **+3.30** | **64.6%** |
+| is_largest_ever | 107,992 | +3.27 | 44.5% |
+| near 52w low | 99,588 | +1.80 | 42.2% |
+| cohen opportunistic | 240,305 | +1.28 | 43.3% |
+| consec_sells >= 10 | **210** | +1.28 | 49.5% |
+| above SMA200 | 69,795 | +0.95 | 45.1% |
+| C-suite | 79,331 | +0.92 | 42.7% |
+| career_grade B | 38,016 | -0.06 | 44.1% |
+| **career_grade A+/A** | 10,176 | **-0.35** | 51.9% |
+| **cluster >= 2** | 92,312 | **-1.18** | 43.5% |
+| **cluster >= 3** | 57,251 | **-1.24** | 44.4% |
+
+### Three defects this exposes
+
+**1. A+ works. A does not. The books gate on "A+/A".** A+ alone is +3.30 with a
+64.6% win rate — the best per-trade signal we have after the dip. Adding the A
+tier drags the combination to **-0.35**. A-List and Breakout both gate on
+A+/A, so they are diluting their single best input with a tier that carries
+nothing.
+
+**2. Cluster is INVERTED.** `pit_cluster_size >= 3` is -1.24. Cluster buying is
+worth up to **12 points** in `compute_trade_grade`, is a headline product
+feature, and on the corrected corpus it is a mild negative. It was plausibly
+always an artifact: with half the filings missing, a "cluster" was a company
+where we happened to hold several filings.
+
+**3. Dip Buys gates on the weak signal and ignores the strong one.** Its gate
+is `consecutive_sells_before >= 10`: n=210 across the whole corpus, spread
++1.28. Meanwhile `dip_3mo <= -40%` is +10.60 on 20,838 observations. The book
+named "Dip Buys" is not gating on the dip.
+
+`is_largest_ever` also deserves a second look: annotate_trade.py calls it "the
+weakest flag we publish" at +0.19% against a +0.05% baseline — measured on the
+OLD corpus. On the corrected one it is +3.27 over 107,992 observations.
+
+### Caveats that bound all of the above
+
+- `abnormal_90d` is transaction-date anchored and inflated. SPREADS on an
+  identical population and basis are informative; the LEVELS are not quotable
+  and must be redone filing-anchored before anything is published.
+- Counts are FILINGS, not insider+ticker episodes, so one conviction bet that
+  filed fourteen times is over-weighted. Re-run episode-grouped before acting.
+- No multiple-testing correction, and several signals overlap (the two dip
+  thresholds are nested).
+
 ## Experiments
 
 Ordered by decisiveness per unit of work.
