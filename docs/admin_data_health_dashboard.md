@@ -44,7 +44,7 @@ endpoint takes `user: UserContext = Depends(require_admin)`.
 | surface | what it covers |
 |---|---|
 | `/admin` | landing |
-| `/admin/jobs` | launchd job status |
+| `/admin/jobs` | launchd job status — **legacy; see the Dagster note below** |
 | `/admin/pipelines` | `pipeline_runs` — batch jobs wrapped in `pipeline_run()` |
 | `/admin/strategies`, `/admin/strategies/[name]` | per-strategy evaluations, freshness, positions |
 | `api/routers/admin_diagnostics.py` | 9 endpoints backing the above |
@@ -108,7 +108,7 @@ From `processed_filings`, now that it carries `status`:
 *Catches:* the original leak, on the day it started. This is the cheapest,
 highest-value panel after A.
 
-### E. Dagster runs
+### E. Dagster runs — and what is NOT yet in Dagster
 
 Run status, duration and failures per asset/job.
 
@@ -116,6 +116,14 @@ Run status, duration and failures per asset/job.
 launchd batch jobs — **not** Dagster. Dagster state lives in a **separate
 database** (`dagster_runs`, its own PG database on Studio), so this needs a
 second connection or a small sync. Do not assume `get_connection()` reaches it.
+
+**Dagster owns scheduling. launchd is legacy and is being retired.** This panel
+must therefore show BOTH, and make the remainder obvious: a count of scheduled
+work still on launchd, with the list, so the migration debt is visible on the
+page rather than in someone's memory. Audited 2026-08-26: 6 jobs on Dagster,
+~20 units of scheduled work still on launchd. See
+`reference_dagster_owns_scheduling` and the audit in
+`project_2026-08-26_launchd_to_dagster_audit`.
 
 ### F. Strategy operational metadata
 
