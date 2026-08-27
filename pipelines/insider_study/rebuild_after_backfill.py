@@ -92,12 +92,19 @@ STEPS = [
     # 261,589 rows lost a grade they previously had -- including insiders with
     # 46 buys and 38 returns, who are not short of history.
     #
-    # insider_ticker_scores is written by refresh_features_daily.sh, not by
-    # anything else in this list. It is the `form4_features` asset in the
-    # Dagster pipeline and it sits between returns and grades there too.
-    ("features",         ["/bin/bash",
-                          str(REPO / "strategies" / "insider_catalog"
-                              / "refresh_features_daily.sh")]),
+    # insider_ticker_scores is written by build_pit_scores.py. Do NOT reach for
+    # refresh_features_daily.sh here: that is the DAILY job and it passes
+    # `--start $(date -v-30d)`, so on a full reload it rewrites one as_of_date
+    # and leaves ten years of history scored against the old dataset. Run
+    # against the reload it moved 231 rows out of 388,290 and looked like it
+    # had worked.
+    #
+    # --clear because a walk-forward score is only meaningful if every
+    # as_of_date in the range is recomputed from the same corpus; leaving old
+    # rows behind would mix two datasets in one table.
+    ("pit_scores",       [PY, "-m", "strategies.insider_catalog.build_pit_scores",
+                          "--start", PRICE_START, "--end", "2026-12-31",
+                          "--clear", "--skip-migrate"]),
     ("pit_grades",       [PY, str(STUDY / "backfill_pit_grades.py")]),
     ("career_grades",    [PY, str(STUDY / "compute_career_grades.py"),
                           "--since", PRICE_START, "--rebuild"]),
