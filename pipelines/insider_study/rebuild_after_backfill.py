@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import subprocess
 import sys
 import time
@@ -54,6 +55,24 @@ logging.basicConfig(level=logging.INFO,
 logger = logging.getLogger(__name__)
 
 PY = sys.executable
+
+# EVERY wrapped script gets PYTHONPATH and PATH explicitly.
+#
+# compute_signals.py does `from config.database import get_connection` at
+# import time and has no sys.path bootstrap of its own. Run from a plist it
+# inherits PYTHONPATH from the plist; run from here with only cwd set, it dies
+# in 0s on ModuleNotFoundError. That is exactly the failure the dataplane notes
+# record against backfill_returns.py, and this driver walked into it on
+# 2026-08-27: `signals` failed instantly and `books` then rebuilt the three
+# published books against STALE trade_signals.
+#
+# cwd alone is not enough. CPython only puts the SCRIPT's directory on
+# sys.path, not the working directory.
+SCRIPT_ENV = {
+    **os.environ,
+    "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
+    "PYTHONPATH": str(REPO),
+}
 # Prices begin 2016-01-04; anything asking for a return or a dip is bounded
 # by that, not by how far the filing history now goes back.
 PRICE_START = "2016-01-01"
@@ -128,7 +147,8 @@ def main() -> int:
             continue
         logger.info("%-18s starting: %s", name, " ".join(cmd[1:]))
         t0 = time.monotonic()
-        proc = subprocess.run(cmd, cwd=str(REPO), capture_output=True, text=True)
+        proc = subprocess.run(cmd, cwd=str(REPO), env=SCRIPT_ENV,
+                              capture_output=True, text=True)
         secs = time.monotonic() - t0
         if proc.returncode == 0:
             logger.info("%-18s OK in %.0fs", name, secs)
