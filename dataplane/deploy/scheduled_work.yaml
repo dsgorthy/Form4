@@ -83,16 +83,12 @@ pending:
     schedule: "every 15m"
   - name: rebuild-insider-companies
     schedule: "05:30"
-  - name: form4-seed-positions
-    schedule: "06:25"
   - name: parity-record
     schedule: "06:30"
     why_it_matters: >
       This is the job that has been writing the evidence of the ingestion loss
       to parity_history every morning since 2026-08-10. Nothing read it. When it
       moves, the threshold check moves with it.
-  - name: paper-reset-phase2
-    schedule: "06:32"
   - name: strategy-simulator
     schedule: "07:00"
   - name: quality-notrend
@@ -104,6 +100,25 @@ pending:
   - name: reversal-dip
     schedule: "long-lived daemon"
     note: "Unloaded 2026-08-26 for the SEC reload. Resume before migrating."
+
+# Removed 2026-08-26, not migrated — both fired daily against a script that
+# does not exist, and neither has a single row in pipeline_runs.
+#
+#   paper-reset-phase2     ran /tmp/paper_reset_phase2.py. A one-off migration
+#                          script left on a schedule; /tmp was long since
+#                          cleared. Fired 06:32 every day into nothing.
+#   form4-seed-positions   ran scripts/seed_rebalanced_positions.py, which is
+#                          absent from the repo AND from Studio, and untracked
+#                          in git. It uses framework.observability.wrap, so
+#                          zero rows in pipeline_runs means it never got far
+#                          enough to record a start.
+#
+# Plists in ~/retired_plists/ if anyone ever wants to know what they were.
+deleted:
+  - name: paper-reset-phase2
+    reason: "ran /tmp/paper_reset_phase2.py — file gone, 0 recorded runs"
+  - name: form4-seed-positions
+    reason: "ran scripts/seed_rebalanced_positions.py — absent and untracked, 0 recorded runs"
 
 exempt:
   - name: dagster-daemon
