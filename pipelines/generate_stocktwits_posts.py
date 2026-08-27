@@ -318,6 +318,40 @@ REPOST_QUIET_DAYS = 10
 #: ...and that reason is either a materially bigger program, or a new insider.
 REPOST_GROWTH = 1.5
 
+# ── Rate limits. These exist because the account was banned. ───────────────
+#
+# Stocktwits suspended us on 2026-08-26. Nothing in the content broke a
+# published rule -- measured across the 53 posts: no links, no promotion, no
+# irrelevant cashtags, and a median pairwise structural similarity of 45% with
+# 50 of 50 distinct opening lines, so "the same message or nearly identical
+# ones repeatedly" does not describe them either. Their rules explicitly
+# welcome bots that are "data feeds".
+#
+# What did happen: on 2026-08-24 the generator RAN TWICE, at 18:08 and 19:10,
+# and put out 20 posts across 19 cashtags in 62 minutes from an account that
+# was four days old. record_posts is idempotent per FILING, so the second run
+# posted no duplicates -- it simply took the next ten of the sixty candidates
+# that had cleared the bar. The guard stopped repeats; nothing stopped a
+# second batch.
+
+#: Hard ceiling per CALENDAR DAY, counted against social_posts rather than
+#: against this process, so a second invocation is a no-op instead of a
+#: second batch.
+MAX_POSTS_PER_DAY = 5
+
+#: A ticker may not reappear inside this many days FOR ANY REASON. Distinct
+#: from REPOST_QUIET_DAYS, which asks whether the same STORY has moved on and
+#: has escape hatches (a new insider, a program 1.5x bigger). This one has
+#: none: it is a floor under how often a follower can see the same cashtag.
+#:
+#: 14 rather than 7 because it is free. Applied to the 53 posts we made, a
+#: 7-day cooldown would have blocked 5 and a 14-day cooldown also blocks 5 --
+#: the repeats were clustered within days of each other. And supply is not the
+#: constraint: ~156 distinct tickers carry a discretionary filing every day
+#: against 5 slots, so a fortnight of cooldown still leaves ~2,000 ticker-days
+#: of candidates for 70 slots.
+TICKER_COOLDOWN_DAYS = 14
+
 # The main query types these six predicates four times over (main WHERE plus
 # three cluster subqueries) and a comment there records what happened the one
 # time a subquery did not carry them: RBLX counted six cohen_routine sells
@@ -470,6 +504,35 @@ SELECT DISTINCT ON (s.ticker)
 """
 
 
+#: Tickers that are still inside the cooldown, whatever the story.
+CTX_COOLDOWN = """
+SELECT DISTINCT s.ticker
+  FROM social_posts s
+ WHERE s.platform = 'stocktwits'
+   AND s.ticker IS NOT NULL
+   AND s.posted_at::date > ?::date - ?
+   AND s.posted_at::date <= ?::date
+"""
+
+#: How many posts already went out on this calendar day.
+CTX_TODAY_COUNT = """
+SELECT COUNT(*) AS n
+  FROM social_posts
+ WHERE platform = 'stocktwits' AND posted_at::date = ?::date
+"""
+
+
+def tickers_in_cooldown(conn, day: str) -> set:
+    rows = conn.execute(
+        CTX_COOLDOWN, (day, TICKER_COOLDOWN_DAYS, day)).fetchall()
+    return {r[0] for r in rows}
+
+
+def posts_already_today(conn, day: str) -> int:
+    row = conn.execute(CTX_TODAY_COUNT, (day,)).fetchone()
+    return int(row[0]) if row else 0
+
+
 def _days_between(a: str | None, b: str | None) -> int:
     """Inclusive span in days between two ISO dates. 8/24→8/25 is two days."""
     if not a or not b:
@@ -585,6 +648,31 @@ def attach_context(conn, rows: list[dict], day: str) -> None:
             t["last_posted_name"] = lp["insider_name"]
 
 
+def is_distribution_program(t: dict) -> bool:
+    """Is this seller on a schedule rather than making a decision?
+
+    REPEAT FILING MEANS OPPOSITE THINGS ON THE TWO SIDES, and treating it
+    symmetrically inverted the whole feed the first time this ran. Buying
+    again three days after buying is conviction shown twice. SELLING again
+    three days after selling is how every executive diversifies, and it is
+    mechanical almost by definition.
+
+    Unfiltered, the 2026-08-25 batch led with CRWD's George Kurtz on his
+    TWELFTH disclosure in a month — $3.67M, $3.61M, $3.71M, $7.39M ... a
+    metronome, and none of it carrying is_routine or cohen_routine, because
+    those flags describe a filing and this is a property of the sequence.
+    BFST's 6 dribbles of $103K-$637K and MEDP's four came with it — and MEDP
+    leading the feed is the precise regression is_cluster_story was written to
+    stop (see its docstring).
+
+    Four or more selling disclosures inside the window is a program. Three or
+    fewer can still be a person getting out, which is why AUGO's Bruno Sousa
+    survives this: three filings, escalating, and 84% of the stake gone.
+    """
+    return (t.get("signal_class") == "discretionary_sell"
+            and (t.get("prog_n_filings") or 0) >= 4)
+
+
 def is_repeat_worth_posting(t: dict, day: str) -> bool:
     """Have we already said this? If so, has it materially moved on?
 
@@ -641,16 +729,23 @@ def hooks(t: dict) -> list[str]:
     if is_cluster_story(t) and (t.get("day_cluster_value") or 0) >= 1_000_000:
         found.append("cluster")
 
-    # Somebody buying again, three days after buying, is the most legible
-    # signal there is and the old query could not see it. Counted in filings,
-    # so a purchase that filled in five lots is still one decision.
-    if (t.get("prog_n_filings") or 0) >= 2:
-        found.append("repeat filer")
+    # Accumulation. BUY SIDE ONLY — see is_distribution_program for why the
+    # mirror image is noise. Counted in filings, so a purchase that filled in
+    # five lots is still one decision.
+    if is_buy and (t.get("prog_n_filings") or 0) >= 2:
+        found.append("repeat buyer")
 
     # A cluster that forms across the week rather than inside one day. TTMI and
     # AMR each had a second insider buy the following session and neither
     # registered, because day_cluster_n resets at midnight.
-    if (t.get("win_cluster_n") or 0) >= 2 and (t.get("win_cluster_value") or 0) >= 1_000_000:
+    #
+    # The thresholds are not symmetric either. Three people buying $2M between
+    # them is a decision; three people selling $2M over a month is a vesting
+    # calendar, so the sell side has to clear four people and $5M before it
+    # counts as anything. Without that, AMRZ posted on seven insiders splitting
+    # $1.02M — a payroll event.
+    n_win, v_win = (t.get("win_cluster_n") or 0), (t.get("win_cluster_value") or 0)
+    if (n_win >= 3 and v_win >= 2_000_000) if is_buy else (n_win >= 4 and v_win >= 5_000_000):
         found.append("multi-day cluster")
 
     if is_buy:
@@ -658,11 +753,20 @@ def hooks(t: dict) -> list[str]:
         # whole of the BABA story and none of it was expressible before.
         if t.get("is_first_on_record"):
             found.append("first buy on record")
-        if (t.get("career_grade") or "") in ("A+", "A", "B"):
+        # The grade is the one component validated out of sample, so it stays
+        # the strongest hook — but it cannot be the ONLY thing carrying a
+        # trade this small. HYNE ($26K) and HKHC ($54K) both reached the feed
+        # on a B and nothing else. $100K is not a claim about significance,
+        # just a floor under what a stranger is asked to read about.
+        if (t.get("career_grade") or "") in ("A+", "A", "B") and (t.get("value") or 0) >= 100_000:
             found.append("graded insider")
         if t.get("is_first_ever"):
             found.append("first ever purchase")
-        if t.get("is_largest_ever"):
+        # Same floor as the grade, and for a stronger reason: annotate_trade
+        # measures largest-ever at +0.19% against a +0.05% routine baseline,
+        # so it is the weakest flag we publish. It kept HKHC's $54K purchase
+        # in the feed on its own.
+        if t.get("is_largest_ever") and (t.get("value") or 0) >= 100_000:
             found.append("largest ever purchase")
         if t.get("is_rare_reversal"):
             found.append("reversal")
@@ -729,9 +833,23 @@ def score(t: dict) -> float:
     # event. The bonus only applies once the day clears seven figures.
     others = max(others, (t.get("win_cluster_n") or 1) - 1)
     cluster = min(others * 5, 20) if story_value >= 1_000_000 else 0
-    # A repeat filer outranks a one-off of the same size: conviction shown
-    # twice is worth more than conviction shown once.
-    cluster += min(((t.get("prog_n_filings") or 1) - 1) * 6, 18)
+    # BEING NEAR A BIG CLUSTER IS NOT THE SAME AS BEING THE STORY.
+    #
+    # story_value above is the cluster's total, which is right for ordering the
+    # story but hands the same score to every filer standing in it. GEF's
+    # $110K and CXW's $255K were ranked on $8.6M and $13.2M of other people's
+    # selling and outranked AUGO's Bruno Sousa, who sold $54.9M of his own and
+    # is 76% out. A filer contributing under a tenth of the cluster is a
+    # supporting detail in it.
+    win_v = t.get("win_cluster_value") or 0
+    if (t.get("win_cluster_n") or 0) >= 2 and (t.get("value") or 0) < 0.10 * win_v:
+        cluster -= 10
+    # A repeat BUYER outranks a one-off of the same size: conviction shown
+    # twice is worth more than conviction shown once. Gated on the same
+    # seven-figure floor as the cluster bonus — HKHC's $54K purchase climbed
+    # into the feed on three insiders splitting $66K.
+    if t["signal_class"] == "discretionary_buy" and story_value >= 1_000_000:
+        cluster += min(((t.get("prog_n_filings") or 1) - 1) * 6, 18)
 
     # A fund vehicle trimming 1% is a worse representative of the day than a
     # sitting officer, and PBF picked the fund over four selling executives.
@@ -747,7 +865,18 @@ def score(t: dict) -> float:
         # across seven partnerships reports a near-zero balance on the last
         # line, which is what used to earn this bonus.
         pc = position_change(t.get("lots") or [t], is_buy=False)
-        exiting = 12 if (pc is not None and pc.is_full_exit) else 0
+        # A stake cut in half is the same story as an exit, told earlier, and
+        # scoring only the literal full exit buried AUGO's Bruno Sousa — $54.9M
+        # across three filings with 76% of the position gone — beneath a GEF
+        # filer who sold $110K and happened to stand near a big cluster.
+        if pc is None:
+            exiting = 0
+        elif pc.is_full_exit:
+            exiting = 12
+        elif (pc.fraction or 0) >= 0.5:
+            exiting = 8
+        else:
+            exiting = 0
         return size * 1.6 + own + cluster + exiting
     return float(GRADE_WEIGHT.get(t.get("career_grade") or "", 5)) + size + own + cluster
 
@@ -756,6 +885,36 @@ def _amount(val: float) -> str:
     # Switch at the point where the K form would ROUND to four digits, not at
     # the million. $999,600 is "$1.0M", never "$1000K".
     return f"${val / 1_000_000:.1f}M" if val >= 999_500 else f"${val / 1_000:.0f}K"
+
+
+def headline_mode(t: dict) -> str:
+    """Which story does this post lead with — "cluster", "program" or "single"?
+
+    Split out of render() so record_posts can store the figure we actually
+    PUBLISHED. It stored t["value"] regardless, so BABA went into social_posts
+    at $10.4M under a headline that said $20.7M. That number is not decoration:
+    is_repeat_worth_posting compares tomorrow's program against it, so an
+    understated baseline quietly makes the repeat guard too permissive, and any
+    later "30 days ago we flagged this" would cite a smaller call than the one
+    we made.
+    """
+    val = t.get("value") or 0
+    win_n, win_v = (t.get("win_cluster_n") or 0), (t.get("win_cluster_value") or 0)
+    if win_n >= 3 and win_v >= 3 * max(t.get("prog_value") or 0, val):
+        return "cluster"
+    if (t.get("prog_n_filings") or 0) >= 2:
+        return "program"
+    return "single"
+
+
+def headline_value(t: dict) -> float:
+    """The figure the headline actually states."""
+    mode = headline_mode(t)
+    if mode == "cluster":
+        return t.get("win_cluster_value") or 0
+    if mode == "program":
+        return t.get("prog_value") or t.get("value") or 0
+    return t.get("value") or 0
 
 
 def render(t: dict) -> str:
@@ -775,7 +934,20 @@ def render(t: dict) -> str:
     others = max((t.get("day_cluster_events") or t.get("day_cluster_n") or 1) - 1, 0)
     noun = "buying" if verb == "bought" else "selling"
     lines: list[str] = []
-    if (t.get("prog_n_filings") or 0) >= 2:
+    past = "bought" if is_buy else "sold"
+    mode = headline_mode(t)
+    win_n, win_v = (t.get("win_cluster_n") or 0), (t.get("win_cluster_value") or 0)
+    if mode == "cluster":
+        # The company is the story and today's filer is a bit part in it. GEF
+        # led with "has sold $211K over 16 days" while the bullet underneath
+        # said a colleague sold $3.70M and seven of them had sold $8.65M. When
+        # the cluster is more than triple the individual, say so first.
+        t["_cluster_led"] = True
+        lines = [f"${t['ticker']} — {win_n} insiders have {past} {_amount(win_v)} "
+                 f"here in {span_phrase(t.get('win_cluster_span_days') or 30)}", ""]
+        lines.append(f"· {who} {verb} {_amount(val)} of it.")
+        lines += [f"· {a}" for a in annotate(t, max_lines=2)]
+    elif mode == "program":
         # The headline is the whole run. "bought $10.4M" and "has bought $20.7M
         # over two days" are the same filing described at two different
         # altitudes, and only one of them is news on the second day.
@@ -818,7 +990,13 @@ def render(t: dict) -> str:
     # earlier phrasing ("our top tier has beaten the S&P by ~2%") was a
     # performance claim advertising the service. The grade itself is analysis,
     # which the rules explicitly allow, so keep the grade and drop the sell.
-    grade = t.get("career_grade")
+    # BUYS ONLY. compute_career_grades scores an insider on how their own
+    # PURCHASES worked out, so the letter says nothing whatsoever about their
+    # selling — but "Insider grade: A" printed under "sold $57.3M" reads as a
+    # rated sell recommendation. (The docstring on score() claims a sell can
+    # never carry a grade; it is stale, the column is stamped on every row of
+    # the insider's, which is exactly how this reached a rendered post.)
+    grade = t.get("career_grade") if is_buy else None
     if grade:
         lines += ["", f"Insider grade: {grade} (from their own prior trades)"]
 
@@ -862,7 +1040,7 @@ def record_posts(conn, picked: list[dict], bodies: list[str]) -> int:
                     t.get("filing_date"),
                     "buy" if t.get("signal_class") == "discretionary_buy" else "sell",
                     t.get("insider_name"),
-                    t.get("value"),
+                    headline_value(t),
                     body,
                 ),
             )
@@ -884,7 +1062,7 @@ def main() -> int:
                     help="Exact number of posts (overrides --min/--max)")
     ap.add_argument("--min-count", type=int, default=3,
                     help="Always post at least this many, even on a thin day")
-    ap.add_argument("--max-count", type=int, default=10)
+    ap.add_argument("--max-count", type=int, default=MAX_POSTS_PER_DAY)
     ap.add_argument("--write", action="store_true", help="Also write to data/content/")
     ap.add_argument("--no-record", action="store_true",
                     help="Skip writing to social_posts (dry run)")
@@ -899,16 +1077,53 @@ def main() -> int:
 
     attach_context(conn, rows, day)
     before = len(rows)
+    rows = [r for r in rows if not is_distribution_program(r)]
+    if before != len(rows):
+        logger.info("dropped %d seller(s) on a disclosure schedule",
+                    before - len(rows))
+    before = len(rows)
     rows = [r for r in rows if is_repeat_worth_posting(r, day)]
     if before != len(rows):
         logger.info("repeat guard dropped %d candidate(s) already posted",
                     before - len(rows))
+
+    # A ticker inside the cooldown is out, whatever the story says. This runs
+    # AFTER is_repeat_worth_posting on purpose: that one can wave a candidate
+    # through on a new insider or a bigger programme, and this is the floor
+    # underneath it that nothing gets to argue with.
+    cooling = tickers_in_cooldown(conn, day)
+    if cooling:
+        before = len(rows)
+        rows = [r for r in rows if r["ticker"] not in cooling]
+        if before != len(rows):
+            logger.info("cooldown (%dd) dropped %d candidate(s) on %d recent ticker(s)",
+                        TICKER_COOLDOWN_DAYS, before - len(rows), len(cooling))
+    if not rows:
+        logger.info("every candidate for %s is inside the %d-day ticker cooldown",
+                    day, TICKER_COOLDOWN_DAYS)
+        return 0
 
     # How many posts today is a property of the day, not a constant. A day
     # with eleven genuinely notable filings should produce eleven posts; a
     # quiet one should not be padded to five with whatever ranked fifth.
     lo = args.count or args.min_count
     hi = args.count or args.max_count
+
+    # THE CALENDAR-DAY BUDGET, counted against what is already recorded rather
+    # than against this process. Running the generator twice on 2026-08-24 is
+    # what got the account suspended: the second run was not a duplicate, it
+    # was simply the next ten candidates, and nothing in the code objected.
+    already = posts_already_today(conn, day)
+    budget = MAX_POSTS_PER_DAY - already
+    if budget <= 0:
+        logger.info("%d post(s) already recorded for %s and the daily cap is %d "
+                    "— nothing to do", already, day, MAX_POSTS_PER_DAY)
+        return 0
+    if already:
+        logger.info("%d post(s) already recorded for %s; topping up to the cap of %d",
+                    already, day, MAX_POSTS_PER_DAY)
+    hi = min(hi, budget)
+    lo = min(lo, hi)
 
     notable = [r for r in rows if hooks(r)]
     filler = [r for r in rows if not hooks(r)]
