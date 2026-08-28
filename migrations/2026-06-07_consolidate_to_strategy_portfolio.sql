@@ -36,6 +36,10 @@
 -- of rows that still live in strategy_portfolio. No new data lost.
 
 BEGIN;
+-- Blocking DDL queues at the head of the lock queue and stalls every later
+-- read on the table (form4.app outage, 2026-08-27). Abort instead of queueing.
+SET lock_timeout = '3s';
+
 
 DROP TABLE IF EXISTS strategy_drift_audit;
 DROP TABLE IF EXISTS sim_portfolio;

@@ -67,6 +67,10 @@ COMMENT ON FUNCTION form4_entry_before_publication(BIGINT, TEXT) IS
 -- ---------------------------------------------------------------------------
 -- 2. The column.
 -- ---------------------------------------------------------------------------
+-- Blocking DDL queues at the head of the lock queue and stalls every later
+-- read on the table (form4.app outage, 2026-08-27). Abort instead of queueing.
+SET lock_timeout = '3s';
+
 ALTER TABLE strategy_portfolio
     ADD COLUMN IF NOT EXISTS entry_before_publication BOOLEAN;
 

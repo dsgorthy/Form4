@@ -31,6 +31,10 @@ CREATE TABLE IF NOT EXISTS ticker_metadata (
 );
 CREATE INDEX IF NOT EXISTS idx_ticker_metadata_sector   ON ticker_metadata (sector);
 CREATE INDEX IF NOT EXISTS idx_ticker_metadata_industry ON ticker_metadata (industry);
+-- Blocking DDL queues at the head of the lock queue and stalls every later
+-- read on the table (form4.app outage, 2026-08-27). Abort instead of queueing.
+SET lock_timeout = '3s';
+
 
 ALTER TABLE trades ADD COLUMN IF NOT EXISTS net_buyer_flow_90d   DOUBLE PRECISION;
 ALTER TABLE trades ADD COLUMN IF NOT EXISTS industry_buy_pct_90d DOUBLE PRECISION;

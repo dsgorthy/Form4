@@ -15,6 +15,10 @@
 -- vacuum from competing with the 5-minute ingest.
 --
 -- Applied via: psql -d form4 -f migrations/2026-08-14_trades_autovacuum.sql
+-- Blocking DDL queues at the head of the lock queue and stalls every later
+-- read on the table (form4.app outage, 2026-08-27). Abort instead of queueing.
+SET lock_timeout = '3s';
+
 
 ALTER TABLE trades SET (
     autovacuum_vacuum_scale_factor  = 0.02,

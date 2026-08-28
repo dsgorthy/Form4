@@ -71,8 +71,14 @@ def after_snapshot(conn) -> dict:
                    ("trade_returns", "trade_returns"),
                    ("trade_signals", "trade_signals")):
         out[k] = _n(conn.execute(f"SELECT COUNT(*) AS n FROM {sql}").fetchone()[0])
+    # insider_id, NOT effective_insider_id. The latter is an ALIAS POINTER set
+    # only when two insider records were merged, so it is NULL on ~98% of rows
+    # by design. Counting it here reported "graded insiders 565 -> 568, +0.5%"
+    # after a reload that added 83,506 insiders; the real figure was 64,539.
+    # The metric was not flat, it was measuring a column that is almost always
+    # NULL. Resolve through effective_insider_id, never count it.
     out["graded_insiders"] = _n(conn.execute(
-        """SELECT COUNT(DISTINCT effective_insider_id) AS n FROM trades
+        """SELECT COUNT(DISTINCT insider_id) AS n FROM trades
             WHERE career_grade IS NOT NULL""").fetchone()[0])
     return out
 

@@ -45,6 +45,10 @@
 --
 -- Applied via: psql -d form4 -f migrations/2026-08-17_returns_from_filing.sql
 -- Then backfilled by: pipelines/insider_study/backfill_returns_from_filing.py
+-- Blocking DDL queues at the head of the lock queue and stalls every later
+-- read on the table (form4.app outage, 2026-08-27). Abort instead of queueing.
+SET lock_timeout = '3s';
+
 
 ALTER TABLE trade_returns
     ADD COLUMN IF NOT EXISTS abnormal_3td_from_filing  DOUBLE PRECISION,

@@ -24,6 +24,10 @@
 -- Applied via: psql -d form4 -f migrations/2026-08-15_trades_ingested_at.sql
 
 -- Instant in PG11+: a nullable add with no default rewrites nothing.
+-- Blocking DDL queues at the head of the lock queue and stalls every later
+-- read on the table (form4.app outage, 2026-08-27). Abort instead of queueing.
+SET lock_timeout = '3s';
+
 ALTER TABLE trades ADD COLUMN IF NOT EXISTS ingested_at TIMESTAMPTZ;
 
 -- Backfill in batches so the table is never locked for long. created_at is

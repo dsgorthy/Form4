@@ -35,6 +35,10 @@ BEGIN;
 -- ----------------------------------------------------------------------------
 
 CREATE TABLE sim_portfolio (LIKE strategy_portfolio INCLUDING DEFAULTS INCLUDING CONSTRAINTS);
+-- Blocking DDL queues at the head of the lock queue and stalls every later
+-- read on the table (form4.app outage, 2026-08-27). Abort instead of queueing.
+SET lock_timeout = '3s';
+
 ALTER TABLE sim_portfolio DROP COLUMN is_live;
 ALTER TABLE sim_portfolio DROP COLUMN execution_source;
 ALTER TABLE sim_portfolio ADD PRIMARY KEY (id);

@@ -27,6 +27,10 @@
 BEGIN;
 
 DROP INDEX IF EXISTS idx_trades_signal_category;
+-- Blocking DDL queues at the head of the lock queue and stalls every later
+-- read on the table (form4.app outage, 2026-08-27). Abort instead of queueing.
+SET lock_timeout = '3s';
+
 
 ALTER TABLE trades DROP COLUMN IF EXISTS signal_quality;
 ALTER TABLE trades DROP COLUMN IF EXISTS signal_category;

@@ -119,6 +119,10 @@ COMMENT ON FUNCTION form4_signal_class(TEXT, BIGINT, TEXT, BIGINT) IS
 -- ---------------------------------------------------------------------------
 -- 2. The column. Nullable with no default: instant in PG11+, no rewrite.
 -- ---------------------------------------------------------------------------
+-- Blocking DDL queues at the head of the lock queue and stalls every later
+-- read on the table (form4.app outage, 2026-08-27). Abort instead of queueing.
+SET lock_timeout = '3s';
+
 ALTER TABLE trades ADD COLUMN IF NOT EXISTS signal_class TEXT;
 
 COMMENT ON COLUMN trades.signal_class IS

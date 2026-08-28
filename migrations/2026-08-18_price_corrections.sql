@@ -28,6 +28,10 @@
 -- fix.
 --
 -- Applied via: psql -d form4 -f migrations/2026-08-18_price_corrections.sql
+-- Blocking DDL queues at the head of the lock queue and stalls every later
+-- read on the table (form4.app outage, 2026-08-27). Abort instead of queueing.
+SET lock_timeout = '3s';
+
 
 ALTER TABLE trades ADD COLUMN IF NOT EXISTS price_as_filed    DOUBLE PRECISION;
 ALTER TABLE trades ADD COLUMN IF NOT EXISTS value_as_filed    DOUBLE PRECISION;
