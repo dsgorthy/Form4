@@ -24,8 +24,19 @@ REBUILDABLE = {"simulated"}
 
 
 def _deletes():
+    """Every DELETE the simulator issues, however the table is named.
+
+    The target became a variable on 2026-08-28 (--table, so a parameter sweep
+    writes to a sandbox and can never overwrite a published book), so this
+    matches the interpolated form too. Matching only the literal string made
+    this test pass vacuously the moment the table stopped being hard-coded --
+    it found zero DELETEs and the `assert stmts` line is the only reason that
+    surfaced rather than silently reporting green.
+    """
     src = SIM.read_text()
-    return re.findall(r"DELETE FROM strategy_portfolio(.{0,220})", src, flags=re.S)
+    return re.findall(
+        r"DELETE FROM (?:strategy_portfolio|\{_valid_table\(OUTPUT_TABLE\)\})(.{0,220})",
+        src, flags=re.S)
 
 
 def test_every_delete_scopes_to_a_rebuildable_source():

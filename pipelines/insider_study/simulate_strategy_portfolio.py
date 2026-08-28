@@ -43,6 +43,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 import sys
 import time
 from collections import defaultdict
@@ -108,6 +109,20 @@ STRATEGY_CONFIG = {
 #: copy of a published grade is its own drift risk. Recreate one per experiment
 #: rather than leaving it lying around.
 GRADE_COLUMN = "career_grade"
+
+#: Table the run writes to. --table points experiments at a sandbox so a
+#: parameter sweep can never be mistaken for, or overwrite, a published book.
+#: The 2026-08-27 reload published 14.3/28.9/0.1 CAGR to live subscribers
+#: because a re-simulation wrote straight into the table the site reads.
+OUTPUT_TABLE = "strategy_portfolio"
+
+
+def _valid_table(name: str) -> str:
+    """Identifier guard — this value is interpolated into SQL."""
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name or ""):
+        raise ValueError(f"unsafe table name: {name!r}")
+    return name
+
 
 STARTING_CAPITAL = 100_000.0
 def resolve_stop_pct(config: dict) -> Optional[float]:
@@ -663,7 +678,7 @@ def wipe_strategy(conn, strategy_name: str) -> int:
     scoped correctly; this one was not.
     """
     n = conn.execute(
-        "DELETE FROM strategy_portfolio "
+        f"DELETE FROM {_valid_table(OUTPUT_TABLE)} "
         "WHERE strategy = ? AND execution_source = 'simulated'",
         (strategy_name,),
     ).rowcount
@@ -713,7 +728,7 @@ def persist_positions(
             "is_rare_reversal": c.is_rare_reversal,
         }, default=str)
         conn.execute(
-            """INSERT INTO strategy_portfolio (
+            f"""INSERT INTO {_valid_table(OUTPUT_TABLE)} (
                   strategy, portfolio_id, trade_id, ticker, trade_type, direction,
                   entry_date, entry_price, exit_date, exit_price,
                   hold_days, target_hold, stop_pct, stop_hit,
@@ -768,7 +783,7 @@ def persist_positions(
             "is_rare_reversal": o.is_rare_reversal,
         }, default=str)
         conn.execute(
-            """INSERT INTO strategy_portfolio (
+            f"""INSERT INTO {_valid_table(OUTPUT_TABLE)} (
                   strategy, portfolio_id, trade_id, ticker, trade_type, direction,
                   entry_date, entry_price, target_hold, stop_pct,
                   position_size, dollar_amount, portfolio_value,
@@ -830,7 +845,7 @@ def run(strategy_name: str, mode: str, end_date: str) -> Dict[str, int]:
         # accumulation (audited 2026-05-22). Full wipe costs ~30s/strategy
         # which is fine for a daily job.
         n_deleted = conn.execute(
-            """DELETE FROM strategy_portfolio
+            f"""DELETE FROM {_valid_table(OUTPUT_TABLE)}
                WHERE strategy = ? AND execution_source = 'simulated'""",
             (strategy_name,),
         ).rowcount
@@ -874,9 +889,30 @@ def main():
                    help="Wipe + re-simulate from scratch (one-shot)")
     p.add_argument("--extend", action="store_true",
                    help="Daily incremental: wipe all simulated rows for the strategy and re-run from start_date")
+    p.add_argument("--config", default=None,
+                   help="yaml to read instead of the strategy's shipped one "
+                        "(parameter sweeps; requires --table to be a sandbox)")
+    p.add_argument("--table", default="strategy_portfolio",
+                   help="write to this table instead of strategy_portfolio "
+                        "(experiments MUST use a sandbox)")
+    p.add_argument("--start", default=None,
+                   help="override every strategy's start_date")
     p.add_argument("--end", default=None,
                    help="End date (default: today)")
     args = p.parse_args()
+    global OUTPUT_TABLE
+    OUTPUT_TABLE = _valid_table(args.table)
+    if args.config:
+        # A variant config must never be written into a published book -- that
+        # is how an experiment becomes a live number by accident.
+        if OUTPUT_TABLE == "strategy_portfolio":
+            p.error("--config requires --table to point at a sandbox, "
+                    "not the published strategy_portfolio")
+        for _sc in STRATEGY_CONFIG.values():
+            _sc["yaml"] = Path(args.config)
+    if args.start:
+        for _sc in STRATEGY_CONFIG.values():
+            _sc['start_date'] = args.start
 
     if not args.rebuild and not args.extend:
         p.error("specify --rebuild or --extend")
