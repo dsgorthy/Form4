@@ -92,7 +92,7 @@ def folds(start: str, end: str, n: int):
 
 
 def run_one(strategy: str, yaml_path: Path, table: str,
-            start: str, end: str) -> dict | None:
+            start: str, end: str, cfg_slots: int | None = None) -> dict | None:
     """One simulation. Returns the summary line's numbers."""
     cmd = [sys.executable, str(SIM), "--strategy", strategy, "--rebuild",
            "--table", table, "--start", start, "--end", end,
@@ -111,8 +111,47 @@ def run_one(strategy: str, yaml_path: Path, table: str,
     if not m:
         return None
     closed, open_, eq = int(m.group(1)), int(m.group(2)), float(m.group(3).replace(",", ""))
-    return {"closed": closed, "open": open_, "final_equity": eq,
-            "total_return_pct": round(100.0 * (eq / 100_000.0 - 1), 2)}
+    slots = int(cfg_slots or 3)
+    years = max((date.fromisoformat(end) - date.fromisoformat(start)).days / 365.25, 0.01)
+    row = {"closed": closed, "open": open_, "final_equity": eq,
+           "total_return_pct": round(100.0 * (eq / 100_000.0 - 1), 2),
+           "cagr_gross_pct": round(100.0 * ((eq / 100_000.0) ** (1 / years) - 1), 2)}
+    row.update(cost_adjusted(eq / 100_000.0, closed, slots, years))
+    return row
+
+
+def cost_adjusted(growth: float, n_trades: int, slots: int, years: float) -> dict:
+    """CAGR after a round-trip cost charged once per closed position.
+
+    THE SIMULATOR MODELS NO TRANSACTION COSTS, and without this a sweep will
+    happily recommend the config with the most turnover. On A-List over
+    2016-2026 the gross table says hold_days=10 returns 1167% against 516% for
+    the shipped 42 -- but 10 does 430 trades to 42's 161, and once a round trip
+    is charged the ranking INVERTS:
+
+        hold   @0%     @1%     @2%
+          10   26.9%   11.1%   -2.8%
+          42   18.6%   12.9%   +7.5%
+
+    Acting on the gross number would have tripled turnover to destroy the book.
+    Insider strategies trade small caps, where a 1% round trip is optimistic.
+
+    The model charges one round trip per closed position against a fully
+    committed slot, so it OVERSTATES drag to the extent the book sits in cash --
+    A-List runs roughly 40% idle. Treat the @1% column as a floor, not a point
+    estimate.
+    """
+    out = {}
+    per_slot = max(n_trades / max(slots, 1), 1e-9)
+    if growth <= 0 or n_trades <= 0:
+        return {f"cagr_at_{int(c*1000)}bp_pct": None for c in (0.005, 0.01, 0.02)}
+    g = growth ** (1.0 / per_slot)
+    for c in (0.005, 0.01, 0.02):
+        net = g - c
+        out[f"cagr_at_{int(c*1000)}bp_pct"] = (
+            round(100.0 * (net ** per_slot) ** (1 / years) - 100.0, 2)
+            if net > 0 else None)
+    return out
 
 
 def main() -> int:
@@ -152,11 +191,14 @@ def main() -> int:
 
             row = {"config": ", ".join(label) or "(base)", "folds": []}
             for a, b in windows:
-                r = run_one(args.strategy, ypath, args.table, a, b)
+                r = run_one(args.strategy, ypath, args.table, a, b,
+                            cfg.get('max_concurrent'))
                 row["folds"].append({"start": a, "end": b, **(r or {})})
             results.append(row)
             fs = " | ".join(
-                f"{f.get('closed','--'):>4}tr {f.get('total_return_pct','--'):>8}%"
+                f"{f.get('closed','--'):>4}tr "
+                f"{f.get('cagr_gross_pct','--'):>7}%g "
+                f"{f.get('cagr_at_10bp_pct','--'):>7}%@1%"
                 for f in row["folds"])
             logger.info("  %-46s %s", row["config"], fs)
 
