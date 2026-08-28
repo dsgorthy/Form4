@@ -46,7 +46,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from api.ownership import position_change  # noqa: E402
 from api.titles import TITLE_FIXUPS, TITLE_UNKNOWN, clean_title  # noqa: E402
 
-__all__ = ["annotate", "headline", "clean_title"]
+__all__ = ["annotate", "context_lines", "headline", "clean_title"]
 
 
 def _shares(v: float) -> str:
@@ -97,6 +97,105 @@ def headline(t: dict) -> str:
     return f"{who} at {t.get('ticker')} {side} {_money(t.get('value'))}"
 
 
+def _md(iso: Optional[str]) -> str:
+    """8/24 — the form a reader scans, not 2026-08-24."""
+    if not iso:
+        return ""
+    y, m, d = iso[:10].split("-")
+    return f"{int(m)}/{int(d)}"
+
+
+def _ordinal(n: int) -> str:
+    return {2: "Second", 3: "Third", 4: "Fourth", 5: "Fifth"}.get(n, f"{n}th")
+
+
+def context_lines(t: dict) -> list[str]:
+    """The multi-day facts, strongest first.
+
+    These are deliberately separate from the single-filing annotations below.
+    Everything below describes ONE Form 4; everything here describes the run it
+    belongs to, and on 2026-08-25 the run was the story on four of nine posts.
+
+    Every line is guarded on a field the caller may simply not have. A caller
+    that does not fetch context gets the old one-day behaviour rather than a
+    fabricated program — see attach_context in generate_stocktwits_posts.py.
+    """
+    out: list[str] = []
+    is_buy = t.get("signal_class") == "discretionary_buy"
+
+    # --- FIRST, ALWAYS: the sale that is really an option cash-out.
+    #
+    # This has to outrank every flattering line beneath it. CPAY led the
+    # 2026-08-25 feed as "CEO sold $49.3M / Largest sale they've ever made"
+    # when 450,000 options had been exercised four days earlier and ~75% of
+    # what he sold came straight out of that. The exercise_and_sell tag spans
+    # three days and this tranche was four days out, so nothing caught it.
+    # Disclosing it is better than suppressing it: the sale is real, and the
+    # exercise is the context that makes it readable.
+    if not is_buy and t.get("mech_date"):
+        qty = t.get("mech_qty") or 0
+        if qty:
+            out.append(f"Follows a {_shares(qty)}-share option exercise "
+                       f"on {_md(t['mech_date'])}.")
+        else:
+            out.append(f"Follows a stock grant on {_md(t['mech_date'])}.")
+
+    # --- The run this filing belongs to, broken out leg by leg. The headline
+    # carries the total; this is where a reader sees it was two decisions on
+    # two days rather than one big one.
+    legs = t.get("prog_legs") or []
+    n = t.get("prog_n_filings") or 0
+    if n >= 2 and legs:
+        if len(legs) == 2:
+            (d1, v1), (d2, v2) = legs[0], legs[1]
+            out.append(f"{_money(v1)} on {_md(d1)}, then another "
+                       f"{_money(v2)} on {_md(d2)}.")
+        elif len(legs) <= 4:
+            amounts = ", ".join(_money(v) for _, v in legs[:-1])
+            out.append(f"{_ordinal(len(legs))} disclosure since "
+                       f"{_md(legs[0][0])}: {amounts}, then {_money(legs[-1][1])}.")
+        else:
+            # Past four, the list stops being a fact and becomes a wall.
+            # CRWD rendered twelve amounts in one bullet -- "$3.67M, $3.61M,
+            # $3.71M, $7.39M, $4.23M, ..." -- which nobody reads and which
+            # tells the reader nothing the range does not.
+            vals = [v for _, v in legs]
+            out.append(f"{_ordinal(len(legs))} disclosure since "
+                       f"{_md(legs[0][0])}, {_money(min(vals))} to "
+                       f"{_money(max(vals))} a time.")
+
+    # --- Anyone else at the same company doing the same thing this week.
+    # day_cluster_n only ever saw inside one filing date, so a second insider
+    # buying the next session was invisible.
+    if (t.get("win_cluster_n") or 0) >= 2:
+        peer, peer_val = t.get("peer_name"), t.get("peer_value")
+        side = "bought" if is_buy else "sold"
+        if peer and peer_val:
+            who = clean_title(t.get("peer_title"))
+            named = f"{who} {peer}" if peer.lower() not in who.lower() else who
+            out.append(f"{named} {side} {_money(peer_val)} alongside them.")
+        # Skipped when the caller already led with this exact count, the same
+        # way the same-day cluster line is skipped below. Saying it twice on
+        # one post is how the day-cluster version read before it was guarded.
+        if not t.get("_cluster_led"):
+            n_ins = t["win_cluster_n"]
+            out.append(f"{n_ins} insiders have {side} {_money(t.get('win_cluster_value'))} "
+                       f"here in the last {t.get('win_cluster_span_days', 30)} days.")
+
+    # --- Regime. A purchase where the record holds nothing but exercises and
+    # sales is a different event from a purchase in a company that is always
+    # being bought. Only stated when the ticker is demonstrably covered —
+    # is_first_on_record already requires prior activity on the other side, so
+    # this cannot fire on a company we simply have no history for.
+    if is_buy and t.get("is_first_on_record"):
+        out.append("First insider purchase on record at this company.")
+    if is_buy and (t.get("opp_n") or 0) >= 3:
+        out.append(f"Insiders sold {_money(t.get('opp_value'))} here "
+                   f"over the prior 90 days.")
+
+    return out
+
+
 def annotate(t: dict, max_lines: int = 4) -> list[str]:
     """Plain-English context for one filing, strongest signal first.
 
@@ -104,7 +203,7 @@ def annotate(t: dict, max_lines: int = 4) -> list[str]:
     is optional — a missing one drops its line rather than guessing, because a
     fabricated annotation is worse than a short one.
     """
-    out: list[str] = []
+    out: list[str] = context_lines(t)
     is_buy = t.get("signal_class") == "discretionary_buy"
 
     # --- Role. Highest-measured single spread on filers with no history:
@@ -222,7 +321,7 @@ def annotate(t: dict, max_lines: int = 4) -> list[str]:
     # otherwise the post says it twice. pit_cluster_size is the fallback and
     # is deliberately backward-looking, so it undercounts a day that is still
     # in progress — fine as colour, wrong as a headline.
-    if (t.get("day_cluster_n") or 1) - 1 < 2:
+    if (t.get("day_cluster_n") or 1) - 1 < 2 and (t.get("win_cluster_n") or 0) < 2:
         cluster = t.get("pit_cluster_size") or 0
         if cluster >= 2:
             verb = "buying" if is_buy else "selling"

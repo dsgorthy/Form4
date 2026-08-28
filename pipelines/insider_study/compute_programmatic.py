@@ -42,6 +42,10 @@ DDL = [
     "ALTER TABLE trades ADD COLUMN IF NOT EXISTS prog_cv_interval DOUBLE PRECISION",
     "ALTER TABLE trades ADD COLUMN IF NOT EXISTS prog_cv_value DOUBLE PRECISION",
     "ALTER TABLE trades ADD COLUMN IF NOT EXISTS prog_n_filings INTEGER",
+    # FREQUENCY, which is a different question from regularity: "sells every
+    # quarter" holds even when the amounts are erratic, and that case is
+    # deliberately NOT programmatic.
+    "ALTER TABLE trades ADD COLUMN IF NOT EXISTS prog_median_interval_days DOUBLE PRECISION",
     "CREATE INDEX IF NOT EXISTS idx_trades_programmatic ON trades (is_programmatic)",
 ]
 
@@ -95,7 +99,8 @@ def main() -> int:
                 continue
             s = score_sequence([(x[0], x[1]) for x in items[: i + 1]])
             updates.append((s["is_programmatic"], s["cv_interval"],
-                            s["cv_value"], s["n_filings"], fk))
+                            s["cv_value"], s["n_filings"],
+                            s["median_interval_days"], fk))
         seq_done += 1
         if seq_done % 200_000 == 0:
             logger.info("  %d sequences scored...", seq_done)
@@ -112,7 +117,8 @@ def main() -> int:
         conn.execute("""
             UPDATE trades
                SET is_programmatic = ?, prog_cv_interval = ?,
-                   prog_cv_value = ?, prog_n_filings = ?
+                   prog_cv_value = ?, prog_n_filings = ?,
+                   prog_median_interval_days = ?
              WHERE COALESCE(filing_key, accession) = ?
         """, u)
         written += 1

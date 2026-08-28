@@ -394,16 +394,63 @@ def migrate_schema(conn: sqlite3.Connection):
     logger.info("Schema migration complete")
 
 
+def normalize_cik(cik) -> str | None:
+    """CIK with leading zeros stripped, or None.
+
+    The SEC assigns one CIK per filer and it is the only stable identity we
+    get -- names change, titles change, the CIK does not. But EDGAR renders it
+    BOTH zero-padded to ten digits ("0002014440") and bare ("2014440")
+    depending on which endpoint you read, and comparing the two as raw strings
+    says they are different people.
+
+    That is how Woodrow D. Anderson became insider_id 128655 AND 213762, and
+    how a 2026-08-27 Stocktwits post came to say he bought "$54K alongside
+    them" -- alongside himself -- while doubling one $54,420 purchase into
+    "$108K from 2 insiders". Across the table it split 1,557 CIKs over 4,007
+    insider rows carrying 244,300 trades.
+    """
+    if cik is None:
+        return None
+    c = str(cik).strip()
+    if not c or not c.isdigit():
+        return c or None
+    return c.lstrip("0") or "0"
+
+
 def get_or_create_insider(conn: sqlite3.Connection, name: str, cik: str = None) -> int:
-    """Get existing insider_id or create new insider. Returns insider_id."""
+    """Get existing insider_id or create new insider. Returns insider_id.
+
+    CIK IS MATCHED FIRST AND ON ITS NORMALIZED FORM. It is the authoritative
+    identifier; name is only a fallback for filers we have no CIK for. The
+    previous version required name AND cik to agree and compared cik as a raw
+    string, so any padding difference minted a duplicate person.
+    """
     name_norm = normalize_name(name)
     if not name_norm:
         name_norm = "unknown"
 
-    # Try exact match first
+    cik_norm = normalize_cik(cik)
+
+    # 1. CIK match, ignoring zero-padding on both sides. Authoritative.
+    if cik_norm:
+        row = conn.execute(
+            "SELECT insider_id FROM insiders "
+            " WHERE cik IS NOT NULL AND cik <> '' "
+            "   AND ltrim(cik, '0') = ? "
+            " ORDER BY insider_id LIMIT 1",
+            (cik_norm,),
+        ).fetchone()
+        if row:
+            return row[0]
+
+    # 2. No CIK, or a CIK we have never seen: fall back to name, but only
+    #    against rows that have no CIK of their own -- otherwise a namesake
+    #    with a known, different CIK would absorb this filer.
     row = conn.execute(
-        "SELECT insider_id FROM insiders WHERE name_normalized = ? AND (cik = ? OR cik IS NULL OR ? IS NULL)",
-        (name_norm, cik, cik),
+        "SELECT insider_id FROM insiders "
+        " WHERE name_normalized = ? AND (cik IS NULL OR cik = '') "
+        " ORDER BY insider_id LIMIT 1",
+        (name_norm,),
     ).fetchone()
 
     if row:

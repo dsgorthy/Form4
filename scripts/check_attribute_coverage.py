@@ -60,10 +60,29 @@ DEFAULT_MIN_COVERAGE = 70.0
 # Scored on these but absent from the freshness contracts, which is part of how
 # this went unseen: the labels are in trade_returns, and nothing declared them.
 LABEL_COLUMNS = {
-    "trade_returns.abnormal_7td_from_filing":  "tradeable 7td label",
-    "trade_returns.abnormal_21td_from_filing": "tradeable 21td label",
-    "trade_returns.abnormal_42td_from_filing": "tradeable 42td label",
+    # RESEARCH labels -- filing-anchored, what a subscriber could actually
+    # trade. Used to fit and validate models. NOT read by the simulator and NOT
+    # read by the grade scorer.
+    "trade_returns.abnormal_7td_from_filing":  "tradeable 7td label (research)",
+    "trade_returns.abnormal_21td_from_filing": "tradeable 21td label (research)",
+    "trade_returns.abnormal_42td_from_filing": "tradeable 42td label (research)",
+    # GRADE inputs -- transaction-anchored. strategies/insider_catalog/
+    # pit_scoring.py builds `col = f"abnormal_{window}"` at 7/30/90 weighted
+    # 40/35/25, and career_grade gates entry on all three published books.
+    #
+    # These were missing from this gate on its first pass, which is how it
+    # reported the label hole as "the defect that produced the 14.3/28.9/0.1
+    # books" when the columns the books actually depend on were fine all along.
+    # A gate that omits the inputs that gate money is not a gate.
+    "trade_returns.abnormal_7d":  "grade input, 40% weight",
+    "trade_returns.abnormal_30d": "grade input, 35% weight",
+    "trade_returns.abnormal_90d": "grade input, 25% weight",
 }
+
+# abnormal_90d cannot exist for a filing younger than ~90 days, so the current
+# year is exempt rather than permanently failing. Same for the shorter windows
+# near the boundary.
+IMMATURE_CURRENT_YEAR = {"trade_returns.abnormal_90d", "trade_returns.abnormal_30d"}
 
 ELIGIBLE = """
     t.signal_class = 'discretionary_buy'
@@ -158,7 +177,10 @@ def main() -> int:
         for yr, eligible, populated in rows:
             pct = 100.0 * populated / max(eligible, 1)
             flag = ""
-            if yr >= TRADING_WINDOW_START and pct < spec["min_coverage"]:
+            immature = (key in IMMATURE_CURRENT_YEAR
+                        and yr == max(r[0] for r in rows))
+            if (yr >= TRADING_WINDOW_START and pct < spec["min_coverage"]
+                    and not immature):
                 flag = " <<"
                 if pct < worst_pct:
                     worst_yr, worst_pct = yr, pct
