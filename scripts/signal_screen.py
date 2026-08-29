@@ -103,6 +103,14 @@ def _clustered_t(hi_c, lo_c, reps: int = BOOTSTRAP_REPS) -> float:
 
 # (column, kind) — 'num' splits at the median, 'flag' splits on 0/1.
 SIGNALS = [
+    # Built 2026-08-28, never screened before this run.
+    ("pct_of_prior_holding",     "num"),   # insider grew their OWN stake
+    ("pct_off_52w_high",         "num"),   # literature's top feature (36% importance)
+    ("value_pct_of_adv",         "num"),   # size normalised by liquidity
+    ("ret_20d_pre_filing",       "num"),   # momentum into disclosure
+    ("ret_60d_pre_filing",       "num"),
+    ("ret_trade_to_filing",      "num"),   # the move the insider saw, we ignored
+    ("filing_lag_days",          "num"),   # disclosure delay
     ("industry_buy_pct_90d",     "num"),
     ("net_buyer_flow_90d",       "num"),
     ("pit_cluster_size",         "num"),

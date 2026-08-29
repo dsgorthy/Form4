@@ -55,6 +55,58 @@ def evaluate_filters(thesis_filters: dict, trade: Any) -> Tuple[bool, list]:
         if v is None or v > threshold:
             failures.append(f"dip_1mo={v} > {threshold}")
 
+    # ── Signals added 2026-08-29 ───────────────────────────────────────────
+    #
+    # min_value_pct_of_adv — trade size as a multiple of 20-day dollar volume.
+    # Nearly monotone by decile on graded episodes: bottom two deciles return
+    # 0.25-0.36%, the top 5.09%. RAW dollar value does not do this (t=1.90 vs
+    # t=3.99), because a $100k purchase means something different in a name
+    # trading $50k a day than in one trading $50m.
+    if "min_value_pct_of_adv" in thesis_filters:
+        v = _get(trade, "value_pct_of_adv")
+        threshold = float(thesis_filters["min_value_pct_of_adv"])
+        if v is None or v < threshold:
+            failures.append(f"value_pct_of_adv={v} < {threshold}")
+
+    # min_filing_lag_days — days between transaction and disclosure. The SEC
+    # allows two; filings past twenty are unusual and, in this corpus, strongly
+    # predictive: 466 episodes across 357 tickers, mean +13.1%, MEDIAN +7.7%,
+    # 76% win rate, and it survives dropping the twenty best (+9.5%).
+    #
+    # Checked for the obvious confounds and it is none of them: it holds inside
+    # every liquidity quintile (+7.4 to +16.4pp over prompt filings) and late
+    # filers are not penny stocks (median price $13.32 against $13.25 prompt,
+    # 24.0% under $5 against 23.8%).
+    #
+    # TREAT WITH CAUTION ANYWAY. A signal this large on a population this small
+    # is exactly the shape of a data artefact, and it has not yet been through
+    # the simulator. It is exposed as a filter so it CAN be, not because it is
+    # settled.
+    if "min_filing_lag_days" in thesis_filters:
+        v = _get(trade, "filing_lag_days")
+        threshold = int(thesis_filters["min_filing_lag_days"])
+        if v is None or v < threshold:
+            failures.append(f"filing_lag_days={v} < {threshold}")
+
+    # max_pct_off_52w_high — how far BELOW the 52-week high, as a negative
+    # fraction. -0.30 means "at least 30% off the high".
+    #
+    # This is the contrarian half of an interaction, not a standalone trend
+    # filter. Split by both, graded episodes:
+    #
+    #                    near high   -10..-30%   deep (<-30%)
+    #   below SMA50        1.06%       1.04%        2.49%
+    #   above SMA50        1.85%       2.31%        4.61%
+    #
+    # The best cell is SHORT-TERM STRENGTH INSIDE A LONG-TERM DRAWDOWN, which
+    # is why above_sma50 reads positive and pct_off_52w_high reads negative in
+    # the same screen. They are not in conflict; they are one setup.
+    if "max_pct_off_52w_high" in thesis_filters:
+        v = _get(trade, "pct_off_52w_high")
+        threshold = float(thesis_filters["max_pct_off_52w_high"])
+        if v is None or v > threshold:
+            failures.append(f"pct_off_52w_high={v} > {threshold}")
+
     if thesis_filters.get("above_sma50") and _get(trade, "above_sma50") != 1:
         failures.append("above_sma50 != 1")
 

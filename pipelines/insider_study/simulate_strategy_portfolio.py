@@ -355,6 +355,9 @@ def simulate_one_strategy(
                   t.is_rare_reversal, t.consecutive_sells_before,
                   t.dip_1mo, t.dip_3mo,
                   t.above_sma50, t.above_sma200, t.is_largest_ever,
+                  -- Added 2026-08-29 with the new filters. PIT-safe: every one
+                  -- is computed from data at or before filing_date.
+                  t.value_pct_of_adv, t.filing_lag_days, t.pct_off_52w_high,
                   t.is_10b5_1, t.is_recurring, t.is_tax_sale, t.cohen_routine,
                   t.pit_grade,
                   -- Which grade column the run reads. Set by GRADE_COLUMN so

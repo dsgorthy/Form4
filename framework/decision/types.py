@@ -36,6 +36,13 @@ class CandidateFact:
     above_sma50: bool = False
     above_sma200: bool = False
     is_largest_ever: bool = False
+    # Added 2026-08-29. Screened at episode level with ticker-clustered SEs on
+    # 11,274 graded episodes: value_pct_of_adv +1.63pp t=+3.99 (survives
+    # Bonferroni at 19 signals), filing_lag_days +1.20pp t=+2.72,
+    # pct_off_52w_high -1.03pp t=-2.20 (negative: near the high is WORSE).
+    value_pct_of_adv: Optional[float] = None
+    filing_lag_days: Optional[int] = None
+    pct_off_52w_high: Optional[float] = None
     is_10b5_1: bool = False
     is_recurring: bool = False
     is_tax_sale: bool = False
