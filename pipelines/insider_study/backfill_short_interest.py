@@ -7,7 +7,9 @@ SOURCE
 
 Tested live: HTTP 200 with NO authentication. FINRA Rule 4560 requires member
 firms to report short positions twice a month, so this is bi-monthly, not daily,
-with archives back to roughly 2014.
+with archives back to 2017-12-29 (measured after a full pull;
+FINRA's site advertises 2014 but the consolidated feed does not
+reach back that far).
 
 Fields used: symbolCode, settlementDate, currentShortPositionQuantity,
 daysToCoverQuantity, averageDailyVolumeQuantity.
@@ -63,7 +65,10 @@ MAX_SHORT = 50_000_000_000
 def fetch_page(offset: int, limit: int, since: str | None) -> list[dict]:
     params = {"limit": limit, "offset": offset}
     if since:
-        # FINRA's filter syntax; if it is rejected we fall back to client-side.
+        # ACCEPTED AND SILENTLY IGNORED. Verified live: a GTE 2024-01-01 filter
+        # returns rows from 2020-04-15, byte-identical to unfiltered. It is sent
+        # anyway in case FINRA starts honouring it, but --since only ever
+        # filters client-side, so a narrow window does NOT reduce the download.
         params["compareFilters"] = json.dumps(
             [{"fieldName": "settlementDate", "fieldValue": since,
               "compareType": "GTE"}])
