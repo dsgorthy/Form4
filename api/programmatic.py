@@ -17,6 +17,20 @@ this module and none of them agreed:
                           compute_trade_grade still deducts 5 points for it.
                           Replaced by this.
 
+TWO QUESTIONS, NOT ONE
+
+  FREQUENCY   how often does this insider do this? A quarterly seller against
+              a once-a-decade one. Answered by `median_interval_days` and
+              `n_filings`, and it holds even when the amounts are erratic.
+  REGULARITY  is it a metronome — same cadence AND same size? Answered by
+              `is_programmatic`, which is a strict subset of the above.
+
+These are different and both are worth having. Neither is the same as
+`is_10b5_1`, which is a DISCLOSURE MECHANISM: plenty of people sell every
+quarter with no plan on file, and plenty of plans fire irregularly.
+`signal_class` is different again — it classifies the FILING (comp grant,
+scheduled, discretionary), not the insider's habit.
+
 WHAT MAKES A PROGRAMME
 
 A programme is regular in BOTH cadence and size. Either alone is ordinary:
@@ -67,6 +81,14 @@ def coefficient_of_variation(values: list[float]) -> float | None:
     return pstdev(values) / abs(m)
 
 
+def _median(xs: list[float]) -> float | None:
+    if not xs:
+        return None
+    ys = sorted(xs)
+    n = len(ys)
+    return ys[n // 2] if n % 2 else (ys[n // 2 - 1] + ys[n // 2]) / 2
+
+
 def score_sequence(
     dates_and_values: list[tuple],
     min_filings: int = MIN_FILINGS,
@@ -80,21 +102,52 @@ def score_sequence(
     """
     rows = sorted(dates_and_values, key=lambda x: x[0])
     n = len(rows)
-    if n < min_filings:
+    if n < 2:
         return {"n_filings": n, "cv_interval": None, "cv_value": None,
-                "is_programmatic": 0}
+                "median_interval_days": None, "is_programmatic": 0}
 
     gaps = [(rows[i][0] - rows[i - 1][0]).days for i in range(1, n)]
     values = [float(v) for _, v in rows if v]
-    cv_i = coefficient_of_variation([float(g) for g in gaps])
-    cv_v = coefficient_of_variation(values)
+
+    # REGULARITY NEEDS ENOUGH FILINGS TO JUDGE; FREQUENCY DOES NOT.
+    #
+    # The n >= 2 gate above exists so a median gap can be reported from a
+    # single interval -- "this insider files about quarterly" is meaningful
+    # from two filings. A COEFFICIENT OF VARIATION IS NOT. One gap has zero
+    # dispersion by construction, and two equal values give cv_value = 0.0,
+    # which reads as "perfectly regular sizes" from two data points -- the
+    # exact opposite of what two data points tell you.
+    #
+    # Loosening the gate without re-guarding these is precisely what happened:
+    # score_sequence(2 filings) returned cv_value 0.0, and the test that would
+    # have caught it was silenced into `assert ... or True` rather than fixed.
+    # compute_programmatic.py persists prog_cv_value, so a future reader
+    # thresholding the stored column would have read two-filing insiders as
+    # metronomes.
+    judgeable = n >= min_filings
+    cv_i = coefficient_of_variation([float(g) for g in gaps]) if judgeable else None
+    cv_v = coefficient_of_variation(values) if judgeable else None
+
+    # FREQUENCY IS A SEPARATE QUESTION FROM REGULARITY, and both are useful.
+    #
+    # "Does this insider sell every quarter or once a decade" is answered by
+    # the median gap, and it holds for someone whose amounts are lumpy — which
+    # is_programmatic deliberately excludes. A quarterly seller with erratic
+    # sizes is routine in the plain sense and not a metronome. Exposing the
+    # cadence rather than only the boolean lets a caller ask either question
+    # without re-deriving it, which is how five definitions of "routine"
+    # happened the first time.
+    #
+    #   ~30 days  monthly      ~90 days  quarterly     ~365 days  annual
+    med_gap = _median([float(g) for g in gaps])
 
     programmatic = int(
-        cv_i is not None and cv_v is not None
+        n >= min_filings
+        and cv_i is not None and cv_v is not None
         and cv_i <= MAX_CV_INTERVAL and cv_v <= MAX_CV_VALUE
     )
     return {"n_filings": n, "cv_interval": cv_i, "cv_value": cv_v,
-            "is_programmatic": programmatic}
+            "median_interval_days": med_gap, "is_programmatic": programmatic}
 
 
 def is_programmatic(cv_interval: float | None, cv_value: float | None,

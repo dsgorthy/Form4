@@ -217,10 +217,18 @@ def compute_trade_grade(item: dict) -> dict:
         score -= 8
         factors.append({"name": "Pre-Planned", "points": -8, "description": "10b5-1 pre-planned trade"})
 
-    # --- 7. Routine pattern ---
-    if item.get("is_routine") == 1:
-        score -= 5
-        factors.append({"name": "Routine Pattern", "points": -5, "description": "Frequent routine trader"})
+    # --- 7. Routine pattern --- REMOVED 2026-08-27
+    #
+    # This deducted 5 points on `is_routine`, a column NOTHING has ever
+    # written. It was ~47% populated with residue predating any current
+    # writer and NULL on everything the SEC reload brought in, so the same
+    # filing scored differently depending on when it was ingested.
+    #
+    # Its two jobs have owners now: signal_class / is_discretionary() says
+    # whether the filing was a decision, and api/programmatic.py says whether
+    # the insider is on a schedule (is_programmatic) and how often
+    # (prog_median_interval_days). Re-add a factor here only against one of
+    # those, and only with a measured spread behind it.
 
     # --- 8. Rare reversal — BUYS ONLY ---
     # The flag literally means "persistent seller now BUYING", and its own

@@ -114,7 +114,6 @@ DIRECTION_NEUTRAL = {
     "Opportunistic": {"cohen_routine": 0},
     "Routine": {"cohen_routine": 1},
     "Pre-Planned": {"is_10b5_1": 1},
-    "Routine Pattern": {"is_routine": 1},
     "Largest Trade": {"is_largest_ever": 1},
 }
 
@@ -142,3 +141,25 @@ def test_the_eose_filing_no_longer_scores_on_a_purchase_thesis():
     assert "Cluster" in names, "co-selling is still a real fact about the filing"
     assert out["score"] == 55, out["factors"]      # was 65
     assert out["rating"] == "Modest", out["rating"]  # was "Notable"
+
+
+def test_the_dead_is_routine_factor_stays_gone():
+    """It deducted 5 points on a column nothing ever wrote.
+
+    is_routine was ~47% populated with residue predating any current writer
+    and NULL on everything the SEC reload brought in, so the same filing
+    scored differently depending on when it was ingested. Dropped 2026-08-27
+    along with the column.
+
+    Its jobs have owners: signal_class / is_discretionary() for "was this a
+    decision", and api/programmatic.py for "is this insider on a schedule"
+    (is_programmatic) and "how often" (prog_median_interval_days).
+    """
+    for side in ("buy", "sell"):
+        names = {f["name"] for f in
+                 compute_trade_grade({"trade_type": side, "is_routine": 1})["factors"]}
+        assert "Routine Pattern" not in names, (
+            "the Routine Pattern factor is back. If you want a routine factor, "
+            "build it on is_programmatic and bring a measured spread — the old "
+            "one scored filings differently based on ingestion date."
+        )

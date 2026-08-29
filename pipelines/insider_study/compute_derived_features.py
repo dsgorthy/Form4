@@ -72,8 +72,17 @@ MAX_FILING_LAG_DAYS = 365
 # Cheap, no price data needed. One statement for the whole range.
 SQL_SIMPLE = """
 UPDATE trades t SET
+    -- BUYS ONLY, and the direction matters arithmetically. qty is unsigned
+    -- in this DB, so for a buy prior = shares_owned_after - qty, but for a
+    -- SALE prior = shares_owned_after + qty. Using the buy formula on a
+    -- disposal computes prior - 2*qty, a quantity that means nothing and goes
+    -- negative or near-zero, giving an unbounded ratio.
+    --
+    -- Gated on signal_class rather than trade_type: 184k comp grants and 221k
+    -- option exercises carry trade_type='buy'.
     pct_of_prior_holding = CASE
-        WHEN t.qty > 0 AND t.shares_owned_after IS NOT NULL
+        WHEN t.signal_class = 'discretionary_buy'
+             AND t.qty > 0 AND t.shares_owned_after IS NOT NULL
              AND (t.shares_owned_after - t.qty) > 0
         THEN t.qty::float8 / (t.shares_owned_after - t.qty)
         ELSE NULL END,

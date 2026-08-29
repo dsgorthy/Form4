@@ -136,10 +136,27 @@ def cost_adjusted(growth: float, n_trades: int, slots: int, years: float) -> dic
     Acting on the gross number would have tripled turnover to destroy the book.
     Insider strategies trade small caps, where a 1% round trip is optimistic.
 
-    The model charges one round trip per closed position against a fully
-    committed slot, so it OVERSTATES drag to the extent the book sits in cash --
-    A-List runs roughly 40% idle. Treat the @1% column as a floor, not a point
-    estimate.
+    THE DIRECTION OF THE ERROR IS THE OPPOSITE OF WHAT THIS ONCE CLAIMED.
+
+    An earlier version said the model overstates drag because the book sits
+    ~40% in cash, and to read @1% as a floor. That is wrong. Positions are
+    sized as a fixed fraction of equity and position_size_pct x max_concurrent
+    = 1.0 on all three books, so per-slot capital compounds as
+    C_{j+1} = C_j(p_j - c) -- exactly what is computed here. Idle time is
+    already captured by the measured trade COUNT; it does not reduce the cost
+    of the trades that did happen. The model is exact when idle cash earns
+    nothing, and when idle cash earns something (the books overlay SPY) the
+    per-trade gross factor p is smaller than the g derived from total growth,
+    so c/p > c/g and the model UNDERSTATES the drag.
+
+    Read @1% as a CEILING on net performance, not a floor.
+
+    One more caveat: the result depends on `slots`. The hold=42 over hold=10
+    inversion above is computed at slots=3 (A-List). At slots=5 (Insider
+    Breakout) the same growth and trade counts give hold=10 at 17.3% against
+    hold=42 at 15.0% -- the inversion REVERSES. Do not quote one book's table
+    for another. Positions still open at --end are also excluded from
+    n_trades, so every fold understates cost slightly.
     """
     out = {}
     per_slot = max(n_trades / max(slots, 1), 1e-9)

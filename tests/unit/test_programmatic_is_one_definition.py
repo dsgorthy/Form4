@@ -51,13 +51,49 @@ def test_regular_sizes_but_random_timing_is_not():
     assert s["is_programmatic"] == 0, "size alone must not be enough"
 
 
+# ── frequency is a SEPARATE question from regularity ───────────────────────
+
+def test_a_quarterly_seller_with_lumpy_sizes_is_frequent_but_not_a_programme():
+    """Derek's case: "sells every quarter vs infrequently" must be answerable
+    even when the amounts vary, which is exactly what is_programmatic excludes."""
+    s = score_sequence(_seq([0, 90, 182, 271],
+                            [20_000, 900_000, 55_000, 1_200_000]))
+    assert s["median_interval_days"] == pytest.approx(90, abs=5), (
+        "the cadence must be readable regardless of size regularity")
+    assert s["is_programmatic"] == 0, "lumpy sizes are not a metronome"
+
+
+def test_cadence_is_reported_even_for_two_filings():
+    """n=2 cannot establish REGULARITY but does establish a gap. Reporting the
+    gap while refusing the flag is the point of keeping them separate."""
+    s = score_sequence(_seq([0, 800], [50_000, 60_000]))
+    assert s["median_interval_days"] == pytest.approx(800)
+    assert s["is_programmatic"] == 0
+
+
+def test_frequency_and_the_flag_are_independent():
+    weekly_metronome = score_sequence(_seq([0, 7, 14, 21], [1e6, 1e6, 1e6, 1e6]))
+    yearly_metronome = score_sequence(_seq([0, 365, 730, 1095], [1e6, 1e6, 1e6, 1e6]))
+    assert weekly_metronome["is_programmatic"] == yearly_metronome["is_programmatic"] == 1
+    assert weekly_metronome["median_interval_days"] < yearly_metronome["median_interval_days"], (
+        "a yearly programme and a weekly one are both programmes; only the "
+        "cadence tells them apart")
+
+
 # ── refuse to judge what cannot be judged ──────────────────────────────────
 
 @pytest.mark.parametrize("n", [0, 1, 2])
 def test_too_few_filings_is_never_a_programme(n: int):
     s = score_sequence(_seq(list(range(n)), [100_000] * n))
     assert s["is_programmatic"] == 0
-    assert s["cv_interval"] is None and s["cv_value"] is None, (
+    # BOTH CVs must be None below min_filings, whatever n is. These two lines
+    # were once `assert ... or True`, which cannot fail, and they were hiding a
+    # live regression: score_sequence(2 filings) returned cv_value = 0.0.
+    assert s["cv_interval"] is None, (
+        "a sequence too short to judge must report None, not a number — one "
+        "gap has zero dispersion by construction"
+    )
+    assert s["cv_value"] is None, (
         "a sequence too short to judge must report None, not 0 — a 0 CV reads "
         "as 'perfectly regular', which is the opposite of what we know"
     )

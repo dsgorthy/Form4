@@ -113,13 +113,34 @@ def test_degenerate_inputs_do_not_raise():
         ca(growth, n, SLOTS, YEARS)      # must not raise
 
 
-def test_the_cost_model_documents_that_it_overstates_drag():
-    """It charges a full round trip against a fully committed slot, but A-List
-    sits ~40% in cash. A reader must not take @1% as a point estimate."""
+def test_the_cost_model_states_the_right_error_direction():
+    """The model UNDERSTATES drag, and the docstring must say so.
+
+    It once claimed the opposite -- that idle cash made it overstate drag and
+    @1% should be read as a floor. Positions are sized as a fixed fraction of
+    equity with position_size_pct x max_concurrent = 1.0, so per-slot capital
+    compounds as C(p - c) exactly as modelled; idle time is already captured by
+    the trade COUNT. When idle cash earns a return the per-trade gross factor
+    is smaller than the one derived from total growth, so the real drag is
+    larger. @1% is a CEILING.
+
+    This test greps, so it is careful: an earlier version asserted the word
+    "overstates" appeared, and a correction saying "this once claimed it
+    overstates, which is wrong" satisfied it. Assert the conclusion, not a word
+    that can appear inside its own refutation.
+    """
     src = SRC.read_text(encoding="utf-8")
     body = src[src.index("def cost_adjusted"):]
     body = body[:body.index("\n    out = {}")]
-    assert "OVERSTATES" in body or "overstates" in body, (
-        "the docstring no longer warns that the model is a floor rather than a "
-        "point estimate"
+    assert "UNDERSTATES" in body, (
+        "the docstring no longer states that the model understates drag"
     )
+    assert "CEILING" in body, (
+        "the docstring must tell a reader @1% is a ceiling on net performance, "
+        "not a floor"
+    )
+    # No "the word 'floor' must not appear" check. The docstring names the
+    # retracted claim in order to refute it, and an earlier version of THIS
+    # test failed on its own refutation -- the same grep-fragility it was
+    # written to warn about. UNDERSTATES and CEILING assert the conclusion
+    # directly, which is what matters.

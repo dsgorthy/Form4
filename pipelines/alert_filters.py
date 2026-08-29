@@ -47,7 +47,12 @@ FIELDS: dict[str, dict[str, Any]] = {
     "trans_code":       {"kind": "text",   "coverage": 100.0, "label": "Transaction code"},
     "trade_type":       {"kind": "text",   "coverage": 100.0, "label": "Buy or sell"},
     "is_recurring":     {"kind": "bool",   "coverage": 100.0, "label": "Recurring trade"},
-    "is_tax_sale":      {"kind": "bool",   "coverage": 100.0, "label": "Tax sale"},
+    # COVERAGE IS NOT 100%. is_tax_sale is set on 2,025 rows against 470,417
+    # actual tax withholdings, and never on a discretionary_buy at all -- so
+    # any buy-side filter using it is a no-op. signal_class='tax_withholding'
+    # is the complete, 100%-populated answer. Left here because the filter is
+    # user-visible, with the real number stated.
+    "is_tax_sale":      {"kind": "bool",   "coverage": 0.4,   "label": "Tax sale (legacy; prefer signal_class)"},
     "is_10b5_1":        {"kind": "bool",   "coverage": 100.0, "label": "10b5-1 plan"},
     "is_rare_reversal": {"kind": "bool",   "coverage": 100.0, "label": "Rare reversal"},
     "above_sma50":      {"kind": "bool",   "coverage": 78.7,  "label": "Above 50-day average"},

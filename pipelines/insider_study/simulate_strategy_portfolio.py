@@ -121,7 +121,13 @@ def _valid_table(name: str) -> str:
     """Identifier guard — this value is interpolated into SQL."""
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name or ""):
         raise ValueError(f"unsafe table name: {name!r}")
-    return name
+    # LOWERCASED. Unquoted Postgres identifiers fold to lower case, so
+    # "Strategy_Portfolio" and "strategy_portfolio" are the SAME relation --
+    # but a case-sensitive Python comparison against the published name says
+    # they are different. --table Strategy_Portfolio therefore passed the
+    # sandbox guard below and then issued DELETE FROM Strategy_Portfolio
+    # against the live book, reproducing the incident the guard exists to stop.
+    return name.lower()
 
 
 STARTING_CAPITAL = 100_000.0

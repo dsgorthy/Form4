@@ -1,3 +1,12 @@
+-- \set ON_ERROR_STOP on
+--
+-- Without this, psql -f runs every statement, prints the errors, and EXITS 0.
+-- On 2026-08-28 the lock_timeout guard below correctly aborted every ALTER in
+-- this file while a Dagster run held AccessShareLock on trades -- and the
+-- migration reported success. Half-applied schema that claims to be applied is
+-- worse than a failure.
+\set ON_ERROR_STOP on
+
 -- Shares outstanding, and the long-horizon return labels.
 --
 -- Blocking DDL queues at the head of the lock queue and stalls every later
@@ -12,7 +21,7 @@ SET lock_timeout = '3s';
 --
 -- TWO DATES, AND THE DIFFERENCE MATTERS. `as_of_date` is what the count is a
 -- count of; `filed_date` is when the filing carrying it appeared. They differ
--- by months -- TSLA's 2026-01-23 figure was filed 2026-04-30. Every PIT join
+-- by months -- the lag runs to 98 days. Every PIT join
 -- must use filed_date <= filing_date. Joining on as_of_date is a look-ahead of
 -- exactly the class that put 37 look-ahead entries in the books when filed_at
 -- was read as UTC.

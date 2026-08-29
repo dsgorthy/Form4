@@ -43,7 +43,22 @@ logger = logging.getLogger(__name__)
 # That is immaturity, not missing data; check_attribute_coverage exempts the
 # current year for windows that cannot have matured.
 HORIZONS = (3, 5, 7, 10, 21, 42, 63, 126, 189, 252)
-WINSOR = 1.0
+#: Winsorisation is per-horizon. A flat +/-1.0 was calibrated where it binds on
+#: 2% of rows, but returns fan out with time: at 12 months 6.72% of raw 365d
+#: returns exceed +100% while ZERO fall below -100% (a stock can lose 100% and
+#: gain 500%). Clamping symmetrically at 1.0 cuts the 12-month mean from +14.97%
+#: to +4.58% -- a 69% haircut applied entirely to the right tail.
+#:
+#: That matters because the whole point of the 252td label is to test whether
+#: 3+ insider clusters predict above-market TWELVE-MONTH returns, a hypothesis
+#: about the right tail. The old constant would have flattened the thing being
+#: measured and the test would have come back null for arithmetic reasons.
+#:
+#: The floor stays near -1.0 because abnormal return is stock minus SPY and a
+#: stock cannot fall below -100%; the ceiling scales with the horizon.
+WINSOR_BY_HORIZON = {3: 1.0, 5: 1.0, 7: 1.0, 10: 1.0, 21: 1.0, 42: 1.0,
+                     63: 1.5, 126: 2.5, 189: 3.0, 252: 4.0}
+WINSOR = 1.0          # retained for the floor and for horizons not listed
 
 # One statement per batch. The lateral joins walk the SPY calendar, so every
 # horizon is in trading days; a long weekend cannot shorten a hold.
@@ -60,9 +75,28 @@ WITH cal AS (
     SELECT t.trade_id, t.ticker,
            (SELECT MIN(c.d) FROM cal c
              WHERE c.date >= CASE
-                 WHEN COALESCE(
-                        (t.filed_at::timestamptz AT TIME ZONE 'America/New_York')::time
-                        < TIME '16:00', FALSE)
+                 -- NO TIMEZONE CONVERSION. filed_at is TEXT holding naive
+                 -- EASTERN wall time and entry_timing.py:42 says in terms:
+                 -- "DO NOT apply a timezone conversion when reading it".
+                 --
+                 -- This previously did
+                 --   (filed_at::timestamptz AT TIME ZONE 'America/New_York')::time
+                 -- which reinterprets the naive string in the SESSION timezone
+                 -- and then converts. The result depends on who is connected:
+                 --   Studio (PT):  +3h, pushing 11.9% of filings a session LATE
+                 --   UTC (Docker,  -5h, giving 71.3% of filings a same-session
+                 --   Dagster)      close they did not exist for -- look-ahead,
+                 --                 the identical class to the filed_at-as-UTC
+                 --                 bug that put 37 entries a session early.
+                 -- insider-fetch is next in the launchd->Dagster migration, so
+                 -- the dormant half was about to become the live half.
+                 --
+                 -- Lexicographic compare on the HH:MM substring, matching
+                 -- entry_timing._parse exactly. A missing or short filed_at
+                 -- yields NULL -> COALESCE FALSE -> next session, which is the
+                 -- conservative direction.
+                 WHEN COALESCE(substring(t.filed_at from 12 for 5) < '16:00',
+                               FALSE)
                      THEN t.filing_date
                  ELSE to_char(t.filing_date::date + 1, 'YYYY-MM-DD')
              END) AS ed
@@ -91,7 +125,8 @@ def build_sql() -> str:
     for k in HORIZONS:
         sets.append(
             f"abnormal_{k}td_from_filing = GREATEST(LEAST("
-            f"(x{k}.close / b.ep - 1) - (c{k}.spy / b.es - 1), {WINSOR}), -{WINSOR})"
+            f"(x{k}.close / b.ep - 1) - (c{k}.spy / b.es - 1), "
+            f"{WINSOR_BY_HORIZON.get(k, WINSOR)}), -{WINSOR})"
         )
         joins.append(
             f"LEFT JOIN cal c{k} ON c{k}.d = b.ed + {k} "

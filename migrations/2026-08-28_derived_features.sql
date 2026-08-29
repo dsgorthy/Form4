@@ -1,3 +1,12 @@
+-- \set ON_ERROR_STOP on
+--
+-- Without this, psql -f runs every statement, prints the errors, and EXITS 0.
+-- On 2026-08-28 the lock_timeout guard below correctly aborted every ALTER in
+-- this file while a Dagster run held AccessShareLock on trades -- and the
+-- migration reported success. Half-applied schema that claims to be applied is
+-- worse than a failure.
+\set ON_ERROR_STOP on
+
 -- Derived trade features. All computable from data we already hold.
 --
 -- Blocking DDL queues at the head of the lock queue and stalls every later

@@ -13,13 +13,19 @@ observations back to 2009-06-27.
 THE PIT RULE, WHICH IS THE WHOLE POINT
 
 Each observation carries `end` (what the count is a count of) and `filed` (when
-the filing carrying it appeared). They differ, often by months -- TSLA's
-2026-01-23 count was not filed until 2026-04-30.
+the filing carrying it appeared). They differ -- across TSLA's 67 observations
+the lag is a median of 7 days and a maximum of 98.
 
     JOIN ON filed_date <= filing_date.  NEVER ON as_of_date.
 
-Joining on as_of_date would let a trade in February use a share count nobody
-could read until April. That is the same class of look-ahead as reading
+(An earlier version of this note claimed TSLA's 2026-01-23 count was not filed
+until 2026-04-30. That was a misread: it was filed 2026-01-29, and the April row
+is a 10-K/A RESTATING the identical value. Amendments are why the same
+(cik, as_of_date) can appear more than once -- 1,144 such pairs exist -- so a
+reader taking the latest row must ORDER BY filed_date DESC, never as_of_date.)
+
+Joining on as_of_date would let a trade read a share count published weeks
+after it. That is the same class of look-ahead as reading
 filed_at as UTC, which put 37 entries a session early into the books.
 
 Both dates are stored so the mistake is at least visible.
@@ -136,6 +142,16 @@ def main() -> int:
                               AND s.status IN {skip})
          ORDER BY 1
     """).fetchall()
+    # RELEASE THE READ LOCK BEFORE ANY NETWORK I/O.
+    #
+    # config/database.py opens connections in a transaction, so the seeding
+    # SELECT above holds AccessShareLock on `trades` until something commits.
+    # Without this the lock is held across hundreds of HTTP round trips --
+    # minutes -- and any ALTER TABLE on `trades` queues behind it, which then
+    # blocks every later read on the table because Postgres grants lock
+    # requests in order. That is precisely the shape of the 2026-08-27 outage,
+    # and it is what refused the derived-features migration today.
+    conn.commit()
     if args.limit:
         rows = rows[:args.limit]
     logger.info("%d issuer CIK(s) to fetch", len(rows))

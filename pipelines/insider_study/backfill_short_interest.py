@@ -102,18 +102,40 @@ def main() -> int:
          WHERE ticker IS NOT NULL AND ticker <> 'NONE'
            AND signal_class IN ('discretionary_buy','discretionary_sell')
     """).fetchall()}
+    # RELEASE THE READ LOCK BEFORE ANY NETWORK I/O.
+    #
+    # config/database.py opens connections in a transaction, so the seeding
+    # SELECT above holds AccessShareLock on `trades` until something commits.
+    # Without this the lock is held across hundreds of HTTP round trips --
+    # minutes -- and any ALTER TABLE on `trades` queues behind it, which then
+    # blocks every later read on the table because Postgres grants lock
+    # requests in order. That is precisely the shape of the 2026-08-27 outage,
+    # and it is what refused the derived-features migration today.
+    conn.commit()
     logger.info("%d tickers of interest", len(ours))
 
     offset, kept, seen, pages = 0, 0, 0, 0
+    server_filter = True
     t0 = time.time()
     while pages < args.max_pages:
         try:
-            rows = fetch_page(offset, PAGE, args.since)
+            rows = fetch_page(offset, PAGE,
+                              args.since if server_filter else None)
         except urllib.error.HTTPError as e:
-            if pages == 0 and e.code in (400, 403):
-                logger.warning("filtered request rejected (HTTP %s); "
-                               "retrying unfiltered", e.code)
-                args.since = None
+            # The server ACCEPTS compareFilters and then ignores it -- verified
+            # live: a GTE 2024-01-01 filter returns rows from 2020-04-15,
+            # byte-identical to unfiltered. So this branch is unreachable in
+            # practice and `--since` only ever filters client-side.
+            #
+            # It is kept for the day FINRA starts validating, but the original
+            # `continue` skipped both `pages += 1` and the sleep while leaving
+            # `pages == 0` true: a tight, un-backed-off retry loop hammering
+            # FINRA forever. One attempt only, and it sleeps.
+            if pages == 0 and server_filter and e.code in (400, 403):
+                logger.warning("server rejected the date filter (HTTP %s); "
+                               "falling back to client-side filtering", e.code)
+                server_filter = False
+                time.sleep(SLEEP)
                 continue
             raise
         if not rows:
@@ -159,6 +181,11 @@ def main() -> int:
 
     if not args.dry_run:
         conn.commit()
+    if pages >= args.max_pages:
+        logger.warning("STOPPED AT THE PAGE CAP (%d pages x %d). The feed is "
+                       "larger than this run covered, so coverage is TRUNCATED, "
+                       "not complete. Re-run with a higher --max-pages.",
+                       args.max_pages, PAGE)
     logger.info("Done in %.0fs: %d feed rows scanned, %d kept for our tickers",
                 time.time() - t0, seen, kept)
     return 0
