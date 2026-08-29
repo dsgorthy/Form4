@@ -30,7 +30,19 @@ from config.database import get_connection  # noqa: E402
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-HORIZONS = (3, 5, 7, 10, 21, 42)
+# 3wk .. 12mo. 63/126/189/252 trading days are roughly 3/6/9/12 months.
+#
+# EXTENDED 2026-08-28. It stopped at 42td (~2 months), which made the cluster
+# question unanswerable: we measure cluster HARM at 21d (+3.25% for a solo
+# buyer against -0.08% at six or more) while the literature ties 3+ insider
+# clusters to above-market TWELVE-MONTH returns. Both can be true -- a crowd
+# may signal slow-burn value while a lone buyer signals near-term news -- and
+# without a 252td label there is no way to tell.
+#
+# The most recent ~12 months of filings hold NULL at 252td BY CONSTRUCTION.
+# That is immaturity, not missing data; check_attribute_coverage exempts the
+# current year for windows that cannot have matured.
+HORIZONS = (3, 5, 7, 10, 21, 42, 63, 126, 189, 252)
 WINSOR = 1.0
 
 # One statement per batch. The lateral joins walk the SPY calendar, so every
@@ -139,14 +151,18 @@ def main() -> int:
     cov = conn.execute("""
         SELECT count(*) AS eligible,
                count(tr.abnormal_7td_from_filing) AS have_7td,
-               count(tr.abnormal_42td_from_filing) AS have_42td
+               count(tr.abnormal_42td_from_filing) AS have_42td,
+               count(tr.abnormal_252td_from_filing) AS have_252td
           FROM trades t JOIN trade_returns tr ON tr.trade_id = t.trade_id
          WHERE t.signal_class IN ('discretionary_buy','discretionary_sell')
            AND NOT COALESCE(t.value_suspect, FALSE)
     """).fetchone()
-    logger.info("Coverage: %d eligible, %d with 7td (%.1f%%), %d with 42td (%.1f%%)",
+    logger.info("Coverage: %d eligible, %d with 7td (%.1f%%), %d with 42td "
+                "(%.1f%%), %d with 252td (%.1f%%, immature for the last year "
+                "by construction)",
                 cov[0], cov[1], 100.0 * cov[1] / max(cov[0], 1),
-                cov[2], 100.0 * cov[2] / max(cov[0], 1))
+                cov[2], 100.0 * cov[2] / max(cov[0], 1),
+                cov[3], 100.0 * cov[3] / max(cov[0], 1))
     return 0
 
 
