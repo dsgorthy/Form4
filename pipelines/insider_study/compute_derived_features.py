@@ -69,6 +69,30 @@ logger = logging.getLogger(__name__)
 
 MAX_FILING_LAG_DAYS = 365
 
+# ── Denominator floors and caps ────────────────────────────────────────────
+#
+# Both ratio features have a denominator that can approach zero, and the raw
+# output is arithmetically correct and useless:
+#
+#   pct_of_prior_holding   p50 0.014   p99 8.3   p99.9 75,672   max 67,333,011
+#   value_pct_of_adv       p50 0.018   p99 6.5   p99.9   113.4  max    533,491
+#
+# The pct_of_prior_holding tail is 1,199 filings where the insider held FEWER
+# THAN TEN SHARES beforehand. Going from 3 shares to 50,000 is not a 16,000x
+# increase in conviction, it is a first purchase with a rounding error in the
+# denominator. A feature whose 99.9th percentile is 9,000x its 99th will
+# dominate any model it enters, on 0.1% of the rows.
+#
+# So: require a denominator large enough to mean something, then cap. The cap
+# is a real value, not a sentinel -- "increased the stake tenfold or more" and
+# "traded a hundred days of volume or more" are both meaningful states, and
+# both are rare.
+MIN_PRIOR_SHARES = 100          # below this the ratio is denominator noise
+MAX_HOLDING_RATIO = 10.0        # >10x reads as a new position, not an increase
+MIN_ADV_DOLLARS = 10_000.0      # a name trading less than this has no usable ADV
+MAX_ADV_MULTIPLE = 100.0        # 100 days of volume is already "cannot exit"
+MAX_PRE_RETURN = 5.0            # +500% over 20-60 sessions; above is a split artefact
+
 # Cheap, no price data needed. One statement for the whole range.
 SQL_SIMPLE = """
 UPDATE trades t SET
@@ -83,8 +107,8 @@ UPDATE trades t SET
     pct_of_prior_holding = CASE
         WHEN t.signal_class = 'discretionary_buy'
              AND t.qty > 0 AND t.shares_owned_after IS NOT NULL
-             AND (t.shares_owned_after - t.qty) > 0
-        THEN t.qty::float8 / (t.shares_owned_after - t.qty)
+             AND (t.shares_owned_after - t.qty) >= %s
+        THEN LEAST(t.qty::float8 / (t.shares_owned_after - t.qty), %s)
         ELSE NULL END,
     filing_lag_days = CASE
         WHEN (t.filing_date::date - t.trade_date::date) BETWEEN 0 AND %s
@@ -94,47 +118,70 @@ UPDATE trades t SET
 """
 
 # Price-dependent. Every window ends at the filing and looks backwards.
+#
+# PERFORMANCE. The first version issued six CORRELATED SUBQUERIES per event --
+# spot price, t-20, t-60, trade-date, a 252-session MAX and a 20-session AVG --
+# so the 52-week high was rescanned once per filing rather than once per ticker.
+# It ran at ~10 minutes a quarter, ~7 hours for 2016-2026.
+#
+# Instead the price series is decorated ONCE with window aggregates into a temp
+# table, and each event then does four indexed lookups against it. Same
+# semantics, same PIT boundaries, one pass over prices instead of ~318,000.
+PX_FEATURES = """
+CREATE TEMP TABLE px_feat AS
+WITH cal AS (
+    SELECT date, row_number() OVER (ORDER BY date) AS d
+      FROM prices.daily_prices WHERE ticker = 'SPY'
+)
+SELECT p.ticker, c.d, p.close,
+       -- 52-week high INCLUSIVE of the current session and looking only back.
+       MAX(p.close) OVER (PARTITION BY p.ticker ORDER BY c.d
+                          ROWS BETWEEN 252 PRECEDING AND CURRENT ROW) AS hi_52w,
+       -- 20-session average DOLLAR volume, same boundary.
+       AVG(p.close * NULLIF(p.volume, 0)) OVER (
+           PARTITION BY p.ticker ORDER BY c.d
+           ROWS BETWEEN 20 PRECEDING AND CURRENT ROW) AS adv_20
+  FROM prices.daily_prices p
+  JOIN cal c ON c.date = p.date
+ WHERE p.close > 0
+"""
+
+PX_INDEX = "CREATE INDEX ON px_feat (ticker, d)"
+
 SQL_PRICES = """
 WITH cal AS (
     SELECT date, row_number() OVER (ORDER BY date) AS d
       FROM prices.daily_prices WHERE ticker = 'SPY'
 ), ev AS (
-    SELECT t.trade_id, t.ticker, t.value, t.trade_date,
-           -- First session at or after the filing: the earliest observable point.
+    SELECT t.trade_id, t.ticker, t.value,
+           -- First session at or after the filing: the earliest observable
+           -- point, and the right anchor because filing_date is when we learn
+           -- of the trade. Anchoring to trade_date would use a price nobody
+           -- could act on.
            (SELECT MIN(c.d) FROM cal c WHERE c.date >= t.filing_date) AS fd,
            (SELECT MIN(c.d) FROM cal c WHERE c.date >= t.trade_date)  AS td
       FROM trades t
      WHERE t.filing_date >= %s AND t.filing_date < %s
        AND t.ticker IS NOT NULL AND t.ticker <> 'NONE'
-), px AS (
-    SELECT ev.*,
-           (SELECT p.close FROM prices.daily_prices p JOIN cal c ON c.date = p.date
-             WHERE p.ticker = ev.ticker AND c.d = ev.fd AND p.close > 0) AS p_now,
-           (SELECT p.close FROM prices.daily_prices p JOIN cal c ON c.date = p.date
-             WHERE p.ticker = ev.ticker AND c.d = ev.fd - 20 AND p.close > 0) AS p_20,
-           (SELECT p.close FROM prices.daily_prices p JOIN cal c ON c.date = p.date
-             WHERE p.ticker = ev.ticker AND c.d = ev.fd - 60 AND p.close > 0) AS p_60,
-           (SELECT p.close FROM prices.daily_prices p JOIN cal c ON c.date = p.date
-             WHERE p.ticker = ev.ticker AND c.d = ev.td AND p.close > 0) AS p_trade,
-           -- 52-week high STRICTLY at or before the filing session.
-           (SELECT MAX(p.close) FROM prices.daily_prices p JOIN cal c ON c.date = p.date
-             WHERE p.ticker = ev.ticker AND c.d BETWEEN ev.fd - 252 AND ev.fd
-               AND p.close > 0) AS hi_52w,
-           -- 20-session average DOLLAR volume ending at the filing session.
-           (SELECT AVG(p.close * p.volume) FROM prices.daily_prices p
-              JOIN cal c ON c.date = p.date
-             WHERE p.ticker = ev.ticker AND c.d BETWEEN ev.fd - 20 AND ev.fd
-               AND p.close > 0 AND p.volume > 0) AS adv
-      FROM ev WHERE ev.fd IS NOT NULL
 )
 UPDATE trades t SET
-    ret_20d_pre_filing  = CASE WHEN px.p_20   > 0 THEN px.p_now / px.p_20 - 1 END,
-    ret_60d_pre_filing  = CASE WHEN px.p_60   > 0 THEN px.p_now / px.p_60 - 1 END,
-    ret_trade_to_filing = CASE WHEN px.p_trade> 0 THEN px.p_now / px.p_trade - 1 END,
-    pct_off_52w_high    = CASE WHEN px.hi_52w > 0 THEN px.p_now / px.hi_52w - 1 END,
-    value_pct_of_adv    = CASE WHEN px.adv    > 0 THEN t.value / px.adv END
-  FROM px
- WHERE px.trade_id = t.trade_id AND px.p_now IS NOT NULL
+    ret_20d_pre_filing  = CASE WHEN p20.close > 0
+        THEN LEAST(now_.close / p20.close - 1, %s) END,
+    ret_60d_pre_filing  = CASE WHEN p60.close > 0
+        THEN LEAST(now_.close / p60.close - 1, %s) END,
+    ret_trade_to_filing = CASE WHEN ptr.close > 0
+        THEN LEAST(now_.close / ptr.close - 1, %s) END,
+    -- No cap: bounded in [-1, 0] by construction, and the invariant is tested.
+    pct_off_52w_high    = CASE WHEN now_.hi_52w > 0
+        THEN now_.close / now_.hi_52w - 1 END,
+    value_pct_of_adv    = CASE WHEN now_.adv_20 >= %s
+        THEN LEAST(t.value / now_.adv_20, %s) END
+  FROM ev
+  JOIN px_feat now_ ON now_.ticker = ev.ticker AND now_.d = ev.fd
+  LEFT JOIN px_feat p20 ON p20.ticker = ev.ticker AND p20.d = ev.fd - 20
+  LEFT JOIN px_feat p60 ON p60.ticker = ev.ticker AND p60.d = ev.fd - 60
+  LEFT JOIN px_feat ptr ON ptr.ticker = ev.ticker AND ptr.d = ev.td
+ WHERE ev.trade_id = t.trade_id
 """
 
 
@@ -170,16 +217,45 @@ def main() -> int:
             logger.info("  would process %s .. %s", lo, hi)
         return 0
 
+    # A SESSION-LIFETIME temp table, NOT ON COMMIT DROP.
+    #
+    # ON COMMIT DROP forces every quarter into one transaction with the build,
+    # which means ~90 minutes holding RowExclusive on `trades` and no visible
+    # progress until the very end. That is the long-transaction pattern behind
+    # the 2026-08-27 outage, and it also made the run impossible to check --
+    # a separate connection reads pre-update values throughout, which briefly
+    # looked like the caps were not being applied.
+    #
+    # A plain TEMP table lives for the SESSION, so each quarter can commit on
+    # its own and the lock is released between them.
+    logger.info("decorating the price series (one pass, all tickers)...")
+    tb = time.time()
+    conn.execute(PX_FEATURES)
+    conn.execute(PX_INDEX)
+    logger.info("  px_feat built in %.0fs", time.time() - tb)
+
     t0, n_simple, n_px = time.time(), 0, 0
     for lo, hi in wins:
-        cur = conn.execute(SQL_SIMPLE, (MAX_FILING_LAG_DAYS, lo, hi))
+        # ORDER MATTERS: psycopg2 substitutes %s positionally in the order
+        # they appear in the SQL TEXT. lo/hi are in the ev CTE, which precedes
+        # the SET clause, so the dates come FIRST.
+        cur = conn.execute(SQL_PRICES,
+                           (lo, hi,
+                            MAX_PRE_RETURN, MAX_PRE_RETURN, MAX_PRE_RETURN,
+                            MIN_ADV_DOLLARS, MAX_ADV_MULTIPLE))
+        n_px += cur.rowcount or 0
+        conn.commit()      # release the row locks between quarters
+        logger.info("  price %s .. %s : %d rows (%.0fs)",
+                    lo, hi, n_px, time.time() - t0)
+    conn.execute("DROP TABLE IF EXISTS px_feat")
+    conn.commit()
+
+    for lo, hi in wins:
+        cur = conn.execute(SQL_SIMPLE, (MIN_PRIOR_SHARES, MAX_HOLDING_RATIO,
+                                MAX_FILING_LAG_DAYS, lo, hi))
         n_simple += cur.rowcount or 0
         conn.commit()
-        cur = conn.execute(SQL_PRICES, (lo, hi))
-        n_px += cur.rowcount or 0
-        conn.commit()
-        logger.info("  %s .. %s : simple=%d price=%d (%.0fs)",
-                    lo, hi, n_simple, n_px, time.time() - t0)
+    logger.info("  simple features: %d rows", n_simple)
 
     logger.info("Done in %.0fs. simple=%d rows, price-derived=%d rows",
                 time.time() - t0, n_simple, n_px)
