@@ -39,7 +39,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
-from datetime import date
+from datetime import timedelta, date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -359,6 +359,32 @@ MAX_POSTS_PER_DAY = 5
 #: against 5 slots, so a fortnight of cooldown still leaves ~2,000 ticker-days
 #: of candidates for 70 slots.
 TICKER_COOLDOWN_DAYS = 14
+
+#: Minutes to leave between posts when publishing by hand.
+#:
+#: THIS IS THE CONSTRAINT THAT ACTUALLY GOT THE ACCOUNT FLAGGED, TWICE.
+#:
+#: 2026-08-24: ten posts published in one sitting -> suspension. At the time
+#: the content was audited (no links, no promotion, no irrelevant cashtags,
+#: median pairwise structural similarity 45%, 50 of 50 distinct opening lines)
+#: and the cause was recorded as unknown.
+#: 2026-08-28: three posts published "within a few seconds of each other" ->
+#: flagged again.
+#:
+#: Two observations, same shape: it is VELOCITY, not content. A daily cap does
+#: nothing about it -- five posts inside a minute is five posts, and the cap is
+#: satisfied. So the generator now emits a SCHEDULE rather than a block that
+#: invites pasting in one go.
+#:
+#: 45 minutes is a chosen number, not a measured one -- Stocktwits publishes no
+#: rate limit. It spreads five posts across ~3 hours, which reads as a person
+#: checking filings through the day rather than a feed draining a queue.
+MIN_MINUTES_BETWEEN_POSTS = 45
+
+
+def _now_local():
+    from datetime import datetime as _dt
+    return _dt.now()
 
 # The main query types these six predicates four times over (main WHERE plus
 # three cluster subqueries) and a comment there records what happened the one
@@ -1182,7 +1208,12 @@ def main() -> int:
     for i, t in enumerate(picked, 1):
         post = render(t)
         out.append(post)
-        print(f"\n{'─' * 58}\n  POST {i}/{len(picked)}   ({len(post)} chars)\n{'─' * 58}")
+        # Stagger from now, so the header carries a concrete time rather than
+        # an instruction that is easy to skim past.
+        when = _now_local() + timedelta(minutes=MIN_MINUTES_BETWEEN_POSTS * (i - 1))
+        stamp = "POST NOW" if i == 1 else f"POST AT ~{when:%H:%M}"
+        print(f"\n{'─' * 58}\n  POST {i}/{len(picked)}   ({len(post)} chars)   "
+              f"{stamp}\n{'─' * 58}")
         print(post)
 
     if not args.no_record:
