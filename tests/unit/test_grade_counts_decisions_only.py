@@ -78,7 +78,20 @@ def test_the_pit_guards_survive():
     """Both PIT constraints must stay: known AND observable."""
     sql = _returns_query()
     assert "t.trade_date <= ?" in sql, "observability lag guard is gone"
-    assert "t.filing_date <= ?" in sql, "knowledge guard is gone — late filings would leak"
+    # STRICT. This asserted "t.filing_date <= ?" until 2026-08-30, when the
+    # non-strict form turned out to admit the trade being graded into its own
+    # track record: the score is stamped as_of that trade's filing_date, so the
+    # comparison held with EQUALITY. A trade's own 90d abnormal return, by the
+    # grade it received, was 36.59% for A+/A/B against -6.94% for C/D on
+    # late-filed rows — a 43.53pp gap where clean rows show -0.96pp.
+    #
+    # `<` is strictly stronger than `<=`, so the knowledge guard this test was
+    # written to protect is intact; it just no longer lets a trade grade itself.
+    assert "t.filing_date < ?" in sql, "knowledge guard is gone — late filings would leak"
+    assert "t.filing_date <= ?" not in sql, (
+        "the non-strict knowledge guard is back; a trade filed long after "
+        "execution will grade itself again"
+    )
     assert "GROUP BY t.ticker" in sql, "observations must be one row per filing"
 
 
