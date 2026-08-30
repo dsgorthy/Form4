@@ -559,7 +559,29 @@ def compute_insider_ticker_score(
               AND t.is_derivative = 0
               AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
               AND t.trade_date <= ?
-              AND t.filing_date <= ?
+              -- STRICTLY BEFORE as_of_date, not <=.
+              --
+              -- `<=` let a trade enter its OWN grade. The score is stamped
+              -- as_of the trade's filing_date, and the only other guard is
+              -- trade_date <= as_of_date - lag. For a PROMPT filing that
+              -- excludes it (trade_date is 2 days back, the 7d cutoff is 10),
+              -- but a filing lodged 124 days after execution clears every
+              -- cutoff and grades itself.
+              --
+              -- Measured: a trade's own 90d abnormal return, by the grade that
+              -- trade received --
+              --     clean (lag <= 100d)   A+/A/B  0.69%   C/D  1.65%   gap -0.96pp
+              --     late  (lag >  100d)   A+/A/B 36.59%   C/D -6.94%   gap +43.53pp
+              --
+              -- The grade was reading the outcome it was supposed to predict.
+              -- 5.4% of graded buys are affected, and they are precisely the
+              -- rows that made min_filing_lag_days=21 backtest at 100%+ CAGR
+              -- and turn $100k into $146.7M.
+              --
+              -- Strict `<` also drops same-day siblings, which is correct: a
+              -- filing published the same session cannot inform the score used
+              -- to judge a candidate arriving in that session.
+              AND t.filing_date < ?
               AND tr.{col} IS NOT NULL
         """
         params = [insider_id_val, *MEANINGFUL_BUY_CLASSES, cutoff, as_of_date]
