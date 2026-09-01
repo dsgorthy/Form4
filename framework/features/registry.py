@@ -189,6 +189,35 @@ RAW: tuple[Feature, ...] = (
             "px.vol_20 / NULLIF(px.vol_60, 0)",
             "Short-horizon vol over long-horizon vol; >1 means vol is rising",
             rankable_by=("sector",)),
+    # ── Earnings timing ────────────────────────────────────────────────
+    #
+    # An insider buying three days before results is a categorically different
+    # act from one buying mid-quarter, and the literature's routine/opportunistic
+    # split is partly a proxy for exactly this. Source is EDGAR 8-K Item 2.02,
+    # "Results of Operations and Financial Condition" -- the release itself.
+    #
+    # ONLY BACKWARD-LOOKING FORMS ARE DECLARED. `days_to_NEXT_earnings` is the
+    # feature everyone wants and it is not safe: it reads a date in the future.
+    # Companies usually pre-announce the date, so it is ARGUABLY known at filing
+    # time -- but we cannot verify WHEN it was announced, and "arguably known"
+    # is how four look-aheads got in this week. The cadence-based estimate below
+    # uses only announcements that had already happened, and answers nearly the
+    # same question.
+    Feature("days_since_last_earnings",
+            "(t.filing_date::date - e.last_announce::date)",
+            "Days since the most recent earnings release before the filing",
+            anchor="none",
+            rankable_by=("sector",)),
+    Feature("earnings_cadence_days",
+            "e.median_gap",
+            "This issuer's median gap between releases, from prior ones only",
+            anchor="none"),
+    Feature("pct_through_earnings_cycle",
+            "(t.filing_date::date - e.last_announce::date) / NULLIF(e.median_gap, 0)",
+            "Position in the cycle: 0 just after results, ~1 just before the "
+            "next. Derived from PAST cadence, so it never reads a future date.",
+            anchor="none",
+            rankable_by=("sector",)),
     Feature("value",
             "t.value",
             "Raw dollar value of the purchase",

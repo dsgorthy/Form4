@@ -90,28 +90,76 @@ WINDOW w20  AS (PARTITION BY s.ticker ORDER BY s.d ROWS BETWEEN  20 PRECEDING AN
        w252 AS (PARTITION BY s.ticker ORDER BY s.d ROWS BETWEEN 252 PRECEDING AND CURRENT ROW)
 """
 
-RAW_SQL = """
+# The event anchor, materialised ONCE.
+#
+# The first version inlined the observation-anchor subqueries into every
+# feature's INSERT, so `(SELECT MAX(c.d) FROM cal c WHERE c.date <= filing_date)`
+# was re-evaluated per row PER FEATURE -- 467 seconds for the first of eleven.
+# The anchor does not depend on the feature, so it is computed once and joined.
+# Same lesson as px_feat, one layer up.
+EV_FEAT = """
+CREATE TEMP TABLE ev_feat AS
 WITH cal AS (
     SELECT date, row_number() OVER (ORDER BY date) AS d
       FROM prices.daily_prices WHERE ticker = 'SPY'
-), ev AS (
-    SELECT t.trade_id, t.ticker, t.value, t.qty, t.shares_owned_after,
-           t.filing_date, t.trade_date, t.insider_id,
-           {obs} AS obs_d,
-           (SELECT MIN(c.d) FROM cal c WHERE c.date >= t.trade_date) AS trade_d
-      FROM trades t
-     WHERE t.signal_class = 'discretionary_buy'
-       AND NOT COALESCE(t.value_suspect, FALSE)
-       AND t.filing_date >= %s AND t.filing_date < %s
-), j AS (
+)
+SELECT t.trade_id, t.ticker, t.value, t.qty, t.shares_owned_after,
+       t.filing_date, t.trade_date, t.insider_id, t.issuer_cik,
+       {obs} AS obs_d,
+       (SELECT MIN(c.d) FROM cal c WHERE c.date >= t.trade_date) AS trade_d
+  FROM trades t
+ WHERE t.signal_class = 'discretionary_buy'
+   AND NOT COALESCE(t.value_suspect, FALSE)
+   AND t.filing_date >= %s AND t.filing_date < %s
+"""
+
+# Earnings context per trade, from PRIOR announcements only.
+#
+# `last_announce` is the most recent 8-K Item 2.02 STRICTLY BEFORE the filing.
+# `median_gap` is this issuer's typical cycle length, computed from gaps between
+# announcements that had already happened -- so "how far through the cycle is
+# this filing" can be answered without ever reading a future date.
+#
+# Gaps are bounded to 30..200 days: a shorter gap is a restatement or an
+# 8-K/A, a longer one a reporting hole, and either would drag the median away
+# from the ~91-day quarter that makes the ratio meaningful.
+EARN_FEAT = """
+CREATE TEMP TABLE earn_feat AS
+SELECT ev.trade_id, la.announce_date AS last_announce, mg.median_gap
+  FROM ev_feat ev
+  LEFT JOIN LATERAL (
+      SELECT e.announce_date
+        FROM issuer_earnings e
+       WHERE e.cik = ev.issuer_cik AND e.source = 'edgar_8k_202'
+         AND e.announce_date < ev.filing_date
+       ORDER BY e.announce_date DESC LIMIT 1
+  ) la ON TRUE
+  LEFT JOIN LATERAL (
+      SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY g.gap) AS median_gap
+        FROM (
+          SELECT e.announce_date::date
+                 - LAG(e.announce_date::date) OVER (ORDER BY e.announce_date) AS gap
+            FROM issuer_earnings e
+           WHERE e.cik = ev.issuer_cik AND e.source = 'edgar_8k_202'
+             AND e.announce_date < ev.filing_date
+        ) g
+       WHERE g.gap BETWEEN 30 AND 200
+  ) mg ON TRUE
+ WHERE ev.issuer_cik IS NOT NULL
+"""
+
+RAW_SQL = """
+WITH j AS (
     SELECT ev.*, now_.close, now_.hi_52w, now_.adv_20,
            now_.vol_20, now_.vol_60,
+           ef.last_announce, ef.median_gap,
            p20.close AS close_20, p60.close AS close_60, ptr.close AS close_trade
-      FROM ev
+      FROM ev_feat ev
       LEFT JOIN px_feat now_ ON now_.ticker = ev.ticker AND now_.d = ev.obs_d
       LEFT JOIN px_feat p20  ON p20.ticker  = ev.ticker AND p20.d  = ev.obs_d - 20
       LEFT JOIN px_feat p60  ON p60.ticker  = ev.ticker AND p60.d  = ev.obs_d - 60
       LEFT JOIN px_feat ptr  ON ptr.ticker  = ev.ticker AND ptr.d  = ev.trade_d
+      LEFT JOIN earn_feat ef ON ef.trade_id = ev.trade_id
 )
 INSERT INTO trade_features (trade_id, feature, value)
 SELECT j.trade_id, %s, ({expr})
@@ -125,6 +173,7 @@ SELECT j.trade_id, %s, ({expr})
   CROSS JOIN LATERAL (SELECT j.close, j.hi_52w, j.adv_20, j.close_20,
                              j.close_60, j.close_trade,
                              j.vol_20, j.vol_60) AS px
+  CROSS JOIN LATERAL (SELECT j.last_announce, j.median_gap) AS e
  WHERE ({expr}) IS NOT NULL
     ON CONFLICT (trade_id, feature)
     DO UPDATE SET value = EXCLUDED.value, computed_at = NOW()
@@ -184,15 +233,26 @@ def main() -> int:
     conn.execute("CREATE INDEX ON px_feat (ticker, d)")
     logger.info("  px_feat built in %.0fs", time.time() - t0)
 
+    conn.execute(EV_FEAT.format(obs=observation_session_sql()),
+                 (args.since, until))
+    conn.execute("CREATE INDEX ON ev_feat (trade_id)")
+    conn.execute("CREATE INDEX ON ev_feat (ticker, obs_d)")
+    logger.info("  ev_feat (anchors) built in %.0fs", time.time() - t0)
+
+    conn.execute(EARN_FEAT)
+    conn.execute("CREATE INDEX ON earn_feat (trade_id)")
+    logger.info("  earn_feat built in %.0fs", time.time() - t0)
+
     for f in raws:
-        sql = RAW_SQL.format(obs=observation_session_sql(), expr=f.expr)
-        cur = conn.execute(sql, (args.since, until, f.name))
+        cur = conn.execute(RAW_SQL.format(expr=f.expr), (f.name,))
         n = cur.rowcount or 0
         conn.commit()
         total += n
         logger.info("  raw %-32s %d rows (%.0fs)", f.name, n, time.time() - t0)
 
     conn.execute("DROP TABLE IF EXISTS px_feat")
+    conn.execute("DROP TABLE IF EXISTS ev_feat")
+    conn.execute("DROP TABLE IF EXISTS earn_feat")
     conn.commit()
 
     conn.execute("""
