@@ -170,6 +170,25 @@ RAW: tuple[Feature, ...] = (
             f"LEAST(px.close / NULLIF(px.close_trade, 0) - 1, {MAX_PRE_RETURN})",
             "Move between execution and disclosure",
             rankable_by=("sector",)),
+    # ── Volatility ─────────────────────────────────────────────────────
+    #
+    # Not just features: the reason to build them is that our LABEL is raw
+    # abnormal return, so both outcome tails are dominated by volatile names
+    # and the top and bottom deciles came out indistinguishable on everything
+    # except above_sma50. vol_ratio tests a second thing -- whether volatility
+    # was RISING into the filing, which is a different claim from its level.
+    Feature("realized_vol_20d",
+            "px.vol_20",
+            "Annualised realised volatility, 20 sessions to the anchor",
+            rankable_by=("sector", "mktcap_bin")),
+    Feature("realized_vol_60d",
+            "px.vol_60",
+            "Annualised realised volatility, 60 sessions to the anchor",
+            rankable_by=("sector", "mktcap_bin")),
+    Feature("vol_ratio_20_60",
+            "px.vol_20 / NULLIF(px.vol_60, 0)",
+            "Short-horizon vol over long-horizon vol; >1 means vol is rising",
+            rankable_by=("sector",)),
     Feature("value",
             "t.value",
             "Raw dollar value of the purchase",

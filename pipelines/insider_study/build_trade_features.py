@@ -61,16 +61,33 @@ CREATE TEMP TABLE px_feat AS
 WITH cal AS (
     SELECT date, row_number() OVER (ORDER BY date) AS d
       FROM prices.daily_prices WHERE ticker = 'SPY'
+), s AS (
+    SELECT p.ticker, c.d, p.close, p.volume,
+           ln(p.close / NULLIF(LAG(p.close) OVER (PARTITION BY p.ticker
+                                                  ORDER BY c.d), 0)) AS r
+      FROM prices.daily_prices p
+      JOIN cal c ON c.date = p.date
+     WHERE p.close > 0
 )
-SELECT p.ticker, c.d, p.close,
-       MAX(p.close) OVER (PARTITION BY p.ticker ORDER BY c.d
-                          ROWS BETWEEN 252 PRECEDING AND CURRENT ROW) AS hi_52w,
-       AVG(p.close * NULLIF(p.volume, 0)) OVER (
-           PARTITION BY p.ticker ORDER BY c.d
-           ROWS BETWEEN 20 PRECEDING AND CURRENT ROW) AS adv_20
-  FROM prices.daily_prices p
-  JOIN cal c ON c.date = p.date
- WHERE p.close > 0
+SELECT s.ticker, s.d, s.close,
+       MAX(s.close) OVER w252 AS hi_52w,
+       AVG(s.close * NULLIF(s.volume, 0)) OVER w20 AS adv_20,
+       -- Realised volatility, annualised, ending at this session and looking
+       -- only backwards. sqrt(252) because r is a daily log return.
+       --
+       -- WHY THIS EXISTS. Our label is RAW abnormal return, so a +/-40% move in
+       -- a 60%-vol microcap and the same move in a 20%-vol large cap count
+       -- identically. That makes both outcome tails mostly a list of volatile
+       -- names, which is exactly what we observed: the top and bottom deciles
+       -- were indistinguishable on every feature we had except above_sma50.
+       -- If the deciles separate under a vol-ADJUSTED label and not under the
+       -- raw one, the signal was there and we were measuring through noise.
+       STDDEV_SAMP(s.r) OVER w20  * sqrt(252) AS vol_20,
+       STDDEV_SAMP(s.r) OVER w60  * sqrt(252) AS vol_60
+  FROM s
+WINDOW w20  AS (PARTITION BY s.ticker ORDER BY s.d ROWS BETWEEN  20 PRECEDING AND CURRENT ROW),
+       w60  AS (PARTITION BY s.ticker ORDER BY s.d ROWS BETWEEN  60 PRECEDING AND CURRENT ROW),
+       w252 AS (PARTITION BY s.ticker ORDER BY s.d ROWS BETWEEN 252 PRECEDING AND CURRENT ROW)
 """
 
 RAW_SQL = """
@@ -88,6 +105,7 @@ WITH cal AS (
        AND t.filing_date >= %s AND t.filing_date < %s
 ), j AS (
     SELECT ev.*, now_.close, now_.hi_52w, now_.adv_20,
+           now_.vol_20, now_.vol_60,
            p20.close AS close_20, p60.close AS close_60, ptr.close AS close_trade
       FROM ev
       LEFT JOIN px_feat now_ ON now_.ticker = ev.ticker AND now_.d = ev.obs_d
@@ -105,7 +123,8 @@ SELECT j.trade_id, %s, ({expr})
                              j.filing_date, j.trade_date, j.insider_id,
                              j.ticker) AS t
   CROSS JOIN LATERAL (SELECT j.close, j.hi_52w, j.adv_20, j.close_20,
-                             j.close_60, j.close_trade) AS px
+                             j.close_60, j.close_trade,
+                             j.vol_20, j.vol_60) AS px
  WHERE ({expr}) IS NOT NULL
     ON CONFLICT (trade_id, feature)
     DO UPDATE SET value = EXCLUDED.value, computed_at = NOW()
