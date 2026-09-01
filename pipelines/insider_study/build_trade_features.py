@@ -180,6 +180,64 @@ SELECT j.trade_id, %s, ({expr})
 """
 
 
+# Percentile of a raw feature within a grouping, against a TRAILING snapshot.
+#
+# The naive form is one line and wrong on every row:
+#
+#     PERCENT_RANK() OVER (PARTITION BY sector ORDER BY value)
+#
+# That ranks a 2016 filing against 2026 ones -- it uses the future to rank the
+# past. So each trade is placed against boundaries derived ONLY from strictly
+# earlier months of its own group, within a trailing window.
+#
+# Monthly granularity, not per-row. An exact per-row rank is O(n x window) and
+# the extra precision buys nothing for clustering, while a monthly snapshot is
+# a single aggregate and is obviously correct to read -- which matters more,
+# given that four look-aheads this week came from clever code nobody re-read.
+#
+# A group-month with fewer than MIN_PRIOR_OBS prior observations yields no row
+# at all. Ranking against a handful of values manufactures precision, and NULL
+# is honest about not knowing.
+PCT_SQL = """
+WITH base AS (
+    SELECT ev.trade_id,
+           {grp} AS grp,
+           to_char(ev.filing_date::date, 'YYYY-MM') AS mon,
+           f.value AS v
+      FROM ev_feat ev
+      JOIN trade_features f ON f.trade_id = ev.trade_id AND f.feature = %s
+      LEFT JOIN trades t     ON t.trade_id = ev.trade_id
+      LEFT JOIN ticker_metadata m ON m.ticker = ev.ticker
+     WHERE f.value IS NOT NULL
+), months AS (
+    SELECT DISTINCT grp, mon FROM base WHERE grp IS NOT NULL
+), bounds AS (
+    SELECT m.grp, m.mon,
+           count(b.v) AS n_prior,
+           percentile_cont(ARRAY[0.05,0.10,0.15,0.20,0.25,0.30,0.35,0.40,0.45,
+                                 0.50,0.55,0.60,0.65,0.70,0.75,0.80,0.85,0.90,
+                                 0.95])
+             WITHIN GROUP (ORDER BY b.v) AS q
+      FROM months m
+      JOIN base b
+        ON b.grp = m.grp
+       AND b.mon < m.mon                                    -- STRICTLY earlier
+       AND b.mon >= to_char(((m.mon || '-01')::date
+                             - (%s || ' days')::interval), 'YYYY-MM')
+     GROUP BY m.grp, m.mon
+)
+INSERT INTO trade_features (trade_id, feature, value)
+SELECT base.trade_id, %s,
+       (SELECT count(*) FROM unnest(bounds.q) AS qq WHERE qq <= base.v)::float8
+       / GREATEST(array_length(bounds.q, 1), 1)
+  FROM base
+  JOIN bounds ON bounds.grp = base.grp AND bounds.mon = base.mon
+ WHERE bounds.n_prior >= {min_obs}
+    ON CONFLICT (trade_id, feature)
+    DO UPDATE SET value = EXCLUDED.value, computed_at = NOW()
+"""
+
+
 def git_sha() -> str:
     try:
         return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"],
@@ -249,6 +307,32 @@ def main() -> int:
         conn.commit()
         total += n
         logger.info("  raw %-32s %d rows (%.0fs)", f.name, n, time.time() - t0)
+
+    for f in pcts:
+        base = f.generated_from
+        grp_key = f.name.rsplit("_pctile_by_", 1)[1]
+        grp_expr = GROUPINGS.get(grp_key)
+        if grp_expr is None:
+            logger.warning("  skip %s: unknown grouping %r", f.name, grp_key)
+            continue
+        # mktcap_bin needs a market-cap column the store does not carry yet.
+        if "f.market_cap" in grp_expr:
+            logger.info("  skip %-32s (needs market_cap, not yet materialised)",
+                        f.name)
+            continue
+        try:
+            cur = conn.execute(
+                PCT_SQL.format(grp=grp_expr, min_obs=MIN_PRIOR_OBS),
+                (base, str(f.window_days), f.name))
+            n = cur.rowcount or 0
+            conn.commit()
+            total += n
+            logger.info("  pct %-32s %d rows (%.0fs)", f.name, n,
+                        time.time() - t0)
+        except Exception as exc:
+            conn.rollback()
+            logger.warning("  pct %-32s FAILED: %s", f.name,
+                           str(exc).replace("\n", " ")[:110])
 
     conn.execute("DROP TABLE IF EXISTS px_feat")
     conn.execute("DROP TABLE IF EXISTS ev_feat")
