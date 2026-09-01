@@ -17,7 +17,7 @@ WHAT AND WHY
                          730,485 days, which are errors, not slow filers.
 
   ret_20d_pre_filing     Price change over the 20 and 60 TRADING days ending at
-  ret_60d_pre_filing     the filing. The strongest signal in our own screen is
+  ret_60d_pre_filing     the last session CLOSED when the filing appeared. The strongest signal in our own screen is
                          above_sma50 (t=+9.53) and the microcap study puts
                          distance-from-52-week-high at 36% of feature
                          importance, with purchases disclosed INTO STRENGTH
@@ -40,8 +40,13 @@ WHAT AND WHY
 
 THE PIT RULE
 
-Every window ENDS AT filing_date and looks only backwards. Not trade_date:
-filing_date is when we learn of the trade and the earliest anyone could act.
+Every window ends at the last session that had CLOSED when the filing was
+ACCEPTED, and looks only backwards.
+
+Not trade_date: the filing is when we learn of the trade. And not filing_DATE
+either -- a filing accepted at 10:00 ET is public before that day's close, so
+using the close reads six hours into the future. 27.3% of buys are accepted
+intraday, so the date-only anchor leaked on a quarter of the corpus.
 A window centred on or extending past the filing would be a look-ahead of the
 same class as reading filed_at as UTC, which put 37 entries a session early.
 
@@ -154,11 +159,33 @@ WITH cal AS (
       FROM prices.daily_prices WHERE ticker = 'SPY'
 ), ev AS (
     SELECT t.trade_id, t.ticker, t.value,
-           -- First session at or after the filing: the earliest observable
-           -- point, and the right anchor because filing_date is when we learn
-           -- of the trade. Anchoring to trade_date would use a price nobody
-           -- could act on.
-           (SELECT MIN(c.d) FROM cal c WHERE c.date >= t.filing_date) AS fd,
+           -- ANCHOR ON THE ACCEPTANCE TIMESTAMP, NOT THE DATE.
+           --
+           -- The first version used the first session at or after filing_date.
+           -- For a filing accepted INTRADAY that reads the same day's CLOSE --
+           -- a price up to six hours in the future relative to the moment the
+           -- filing became public. 27.3% of discretionary buys are accepted
+           -- between 09:30 and 16:00 ET (86,701 of 317,901), so this was a
+           -- look-ahead on roughly a quarter of the corpus.
+           --
+           -- The correct anchor is the last session that had CLOSED when the
+           -- filing appeared:
+           --     accepted at/after 16:00 ET  ->  that session's close
+           --     accepted before 16:00 ET    ->  the PREVIOUS session's close
+           --
+           -- That is the mirror of the entry rule in entry_timing.py, which
+           -- fills an after-bell filing at the next session's open. Features
+           -- describe the state the market was in when the filing landed;
+           -- entry happens at the first price you could actually pay.
+           --
+           -- No timezone conversion: filed_at is TEXT holding naive EASTERN
+           -- wall time and entry_timing.py:42 forbids casting it. A missing or
+           -- short filed_at resolves to the conservative branch.
+           CASE WHEN COALESCE(substring(t.filed_at from 12 for 5) >= '16:00',
+                              TRUE)
+                THEN (SELECT MAX(c.d) FROM cal c WHERE c.date <= t.filing_date)
+                ELSE (SELECT MAX(c.d) FROM cal c WHERE c.date <  t.filing_date)
+           END AS fd,
            (SELECT MIN(c.d) FROM cal c WHERE c.date >= t.trade_date)  AS td
       FROM trades t
      WHERE t.filing_date >= %s AND t.filing_date < %s
