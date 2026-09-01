@@ -179,3 +179,57 @@ this is a floor to remove noise, not a ranking signal.
 Every feature must clear `scripts/check_attribute_coverage.py` per-year before
 it is used in a book, and be screened with `scripts/signal_screen.py` at episode
 level before it is believed.
+
+---
+
+## Result: the volatility test (2026-09-01)
+
+**The hypothesis was right about the diagnosis and wrong about the cure.**
+
+The raw label IS dominated by volatility. Realised 20-session vol by decile of
+raw 21td abnormal return, 96,268 episodes:
+
+| raw decile | n | mean return | avg vol |
+|---|---|---|---|
+| 1 (worst) | 9,627 | −25.0% | **1.004** |
+| 5 (middle) | 9,627 | −1.5% | **0.435** |
+| 10 (best) | 9,626 | +41.8% | **0.947** |
+
+Both tails carry roughly **2.3× the volatility of the middle**. The extremes of
+our outcome measure were substantially a list of volatile names, exactly as
+suspected.
+
+But vol-adjusting does not reveal hidden signal. Under `abnormal / realised_vol`:
+
+| | bottom 10% | top 10% |
+|---|---|---|
+| mean vol-adj outcome | −0.55 | +1.09 |
+| % largest ever | 45.7 | 47.9 |
+| avg cluster size | 1.64 | 1.77 |
+| **% above SMA50** | **34.9** | **35.7** |
+| avg off 52w high | −0.247 | −0.298 |
+| median ADV multiple | 0.0148 | 0.0245 |
+| median value | $32,699 | $34,279 |
+
+Still indistinguishable. **And `above_sma50` — the only feature that separated
+deciles under the raw label (19.8% vs 28.1%) — separates by 0.8 points here.**
+Its apparent power was itself a volatility effect.
+
+### What this means
+
+Two readings were on the table. This is evidence for the harder one: we are
+near the information limit of Form 4 metadata, and better weighting of these
+features will not produce a tradeable edge.
+
+It also retires the last standing trade-level signal. `above_sma50` was the one
+thing that survived the decile test; it does not survive vol adjustment.
+
+The remaining places to look, in order of expected value:
+
+1. **Insider-level persistence** (step 4). A different axis entirely, and the
+   one thing the literature reports as durable out-of-sample.
+2. **Information we do not have** — earnings proximity (step 5), options flow,
+   13F overlap, short-interest changes. Not a reweighting of what we hold.
+3. **Interactions**, which remain the only place a real effect appeared
+   (above_sma50 × deep drawdown). Worth a supervised model rather than more
+   marginal t-tests — but the prior should now be low.
