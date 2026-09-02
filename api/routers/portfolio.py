@@ -295,6 +295,56 @@ def get_portfolio(
             ORDER BY exit_date
         """, (strategy,)).fetchall()
 
+        # DAILY mark-to-market curve.
+        #
+        # The exit-sampled curve below produces one point per closed trade, so
+        # Insider Dip Buys rendered as a SEVEN point step function against an
+        # 830-point daily SPY line. That is the "wonky" chart: the shapes are
+        # not comparable, and a reader cannot see what the book did between
+        # exits because the line simply does not go there.
+        #
+        # This marks open positions to market every session, so equity moves
+        # while a position is held rather than jumping at the exit. For Dip
+        # Buys it turns 7 points into 483.
+        #
+        # It also changes the drawdown, and honestly: exit-sampling only ever
+        # observes equity at moments a trade closed, so it cannot see a peak or
+        # trough in between. Dip Buys publishes 5.2% and the daily curve says
+        # 9.1%. CLAUDE.md documents the same gap on Insider Breakout -- 31.5%
+        # published against 49.9% daily -- and notes the daily figure "is what
+        # a holder experiences".
+        #
+        # trade_points is returned separately and still carries per-exit
+        # markers, so nothing is lost by making the LINE daily.
+        daily_curve = conn.execute("""
+            WITH pos AS (
+                SELECT ticker, entry_date, exit_date, shares, entry_price, pnl_dollar
+                  FROM strategy_portfolio
+                 WHERE strategy = ? AND COALESCE(is_live, false) = false
+                   AND execution_source = 'simulated'
+                   AND NOT COALESCE(entry_before_publication, false)
+                   AND shares IS NOT NULL AND entry_price > 0
+            ), span AS (
+                SELECT MIN(entry_date) AS d0,
+                       MAX(COALESCE(exit_date, entry_date)) AS d1 FROM pos
+            ), cal AS (
+                SELECT p.date FROM prices.daily_prices p, span
+                 WHERE p.ticker = 'SPY' AND p.date >= span.d0 AND p.date <= span.d1
+            )
+            SELECT c.date,
+                   COALESCE((SELECT SUM(p.pnl_dollar) FROM pos p
+                              WHERE p.exit_date IS NOT NULL
+                                AND p.exit_date <= c.date), 0) AS realized,
+                   COALESCE((SELECT SUM(p.shares * (dp.close - p.entry_price))
+                               FROM pos p
+                               JOIN prices.daily_prices dp
+                                 ON dp.ticker = p.ticker AND dp.date = c.date
+                              WHERE p.entry_date <= c.date
+                                AND (p.exit_date IS NULL OR p.exit_date > c.date)),
+                            0) AS unrealized
+              FROM cal c ORDER BY c.date
+        """, (strategy,)).fetchall()
+
         # Earliest activity date (open or closed) — anchor point for the curve
         anchor_row = conn.execute("""
             SELECT MIN(entry_date) AS earliest
@@ -648,16 +698,32 @@ def get_portfolio(
             "first_trade": summary["first_trade"],
             "last_trade": summary["last_trade"],
         },
-        "equity_curve": [
-            {
-                "date": r["exit_date"],
-                "equity": r["equity_after"],
-                "pnl": round(r["pnl_dollar"], 2) if r["pnl_dollar"] else 0,
-                "ticker": r["ticker"],
-                "exit_reason": r["exit_reason"],
-            }
-            for r in curve
-        ],
+        # Daily when we can build it, exit-sampled as a fallback. The
+        # fallback keeps a book with no `shares` recorded from rendering an
+        # empty chart.
+        "equity_curve": (
+            [
+                {
+                    "date": r["date"],
+                    "equity": round(starting * scale
+                                    + (r["realized"] or 0) * scale
+                                    + (r["unrealized"] or 0) * scale, 2),
+                    "pnl": None,
+                    "ticker": None,
+                    "exit_reason": None,
+                }
+                for r in daily_curve
+            ] if daily_curve else [
+                {
+                    "date": r["exit_date"],
+                    "equity": r["equity_after"],
+                    "pnl": round(r["pnl_dollar"], 2) if r["pnl_dollar"] else 0,
+                    "ticker": r["ticker"],
+                    "exit_reason": r["exit_reason"],
+                }
+                for r in curve
+            ]
+        ),
         "spy_benchmark": spy_benchmark,
         "return_distribution": return_distribution,
         "trade_points": trade_points,
