@@ -69,16 +69,34 @@ logger = logging.getLogger(__name__)
 
 # ── Strategy registry ───────────────────────────────────────────────────
 
+#: START DATE MOVED 2023-01-01 -> 2016-01-01 on 2026-09-02.
+#:
+#: 2023 was never a choice, it was the limit of the data. Grade inputs
+#: (abnormal_7d/30d/90d) are 80-92% populated back to 2016, so the books can be
+#: measured over a full cycle instead of three and a half years.
+#:
+#: It roughly triples the evidence and changes the answer:
+#:
+#:                 3.6y window          10.6y window        trades
+#:   A-List          13.8% CAGR           18.6% CAGR        52 -> 161
+#:   Breakout        28.2% CAGR           17.0% CAGR       105 -> 288
+#:   SPY             19.4% (2023-26)      13.45%
+#:
+#: Breakout READS WORSE and is far better supported. Its 28.2% covered a stretch
+#: where SPY itself did 19.4%, so the excess was smaller than the headline
+#: implied; over the full cycle both books beat SPY on three times the trades.
+#: The two books also INVERT between windows, which is the clearest evidence
+#: that 3.6 years was noise-dominated.
 STRATEGY_CONFIG = {
     "quality_momentum": {
         "yaml": REPO / "strategies/cw_strategies/configs/quality_momentum.yaml",
-        "start_date": "2023-01-01",
+        "start_date": "2016-01-01",
     },
     # Runs alongside quality_momentum with the trend filter removed, to build
     # a forward record on the one question a backtest cannot settle.
     "quality_notrend": {
         "yaml": REPO / "strategies/cw_strategies/configs/quality_notrend.yaml",
-        "start_date": "2023-01-01",
+        "start_date": "2016-01-01",
     },
     # Same signals as quality_momentum at 2x gross, with margin interest
     # charged daily on the borrowed half. Published as its own book so the
@@ -86,11 +104,11 @@ STRATEGY_CONFIG = {
     # unlevered one.
     "quality_momentum_2x": {
         "yaml": REPO / "strategies/cw_strategies/configs/quality_momentum_2x.yaml",
-        "start_date": "2023-01-01",
+        "start_date": "2016-01-01",
     },
     "reversal_dip": {
         "yaml": REPO / "strategies/cw_strategies/configs/reversal_dip.yaml",
-        "start_date": "2023-01-01",
+        "start_date": "2016-01-01",
     },
     # tenb51_surprise retired 2026-08-18 — the nightly rebuild no longer runs
     # it, so its ~200 simulated rows are frozen where they stand. The yaml and
