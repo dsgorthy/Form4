@@ -171,17 +171,37 @@ def compute_trade_grade(item: dict) -> dict:
     # 47% drawdown, the page tagged the filing Opportunistic (bearish), and
     # then listed "+8 Cluster: 3 insiders buying together" underneath as a
     # reason it scored 65. Nobody bought anything.
+    # SCORES ZERO. The points were exactly inverted.
+    #
+    # This awarded +12/+8/+4 for a cluster of 4+/3/2. Measured episode-level on
+    # graded buys, with late-filed rows excluded, that is precisely backwards:
+    #
+    #     awarded +12   2,334 episodes   mean +0.21%   win 46.4%
+    #     awarded  +8     917 episodes   mean +0.70%   win 45.0%
+    #     awarded  +4   1,490 episodes   mean +1.90%   win 49.5%
+    #     awarded   0   8,370 episodes   mean +2.26%   win 48.3%
+    #
+    # Monotone across every bucket: the filings given the most points return
+    # the least. Solo buyers do best. It reached 45.2% of published filings,
+    # 23.8% of them at the maximum.
+    #
+    # The documented basis was "4+ insiders + CEO cluster: 57% WR, +6.1% avg"
+    # (conviction_score.py). That cohort measures 48.2% WR and +0.79% today,
+    # against a +1.65% baseline -- less than half the return of taking no view.
+    #
+    # WHY ZERO RATHER THAN INVERTED. The effect is confounded by liquidity and
+    # REVERSES in the top ADV quintile (solo +2.01% against 6+ at +3.13%), and
+    # solo buyers write checks 2.6x larger, so part of it is the size effect
+    # relabelled. Penalising clusters would be as unfounded as rewarding them.
+    # Zero is what the evidence supports: we do not know which way this cuts.
+    #
+    # The DESCRIPTION stays. "3 insiders buying together" is a true and useful
+    # thing for a reader to see; it just must not move a score.
     cluster = item.get("cluster_size_pit") or 0
     together = "buying together" if is_buy else "selling together"
-    if cluster >= 4:
-        score += 12
-        factors.append({"name": "Cluster", "points": 12, "description": f"{cluster} insiders {together}"})
-    elif cluster >= 3:
-        score += 8
-        factors.append({"name": "Cluster", "points": 8, "description": f"{cluster} insiders {together}"})
-    elif cluster >= 2:
-        score += 4
-        factors.append({"name": "Cluster", "points": 4, "description": f"{cluster} insiders {together}"})
+    if cluster >= 2:
+        factors.append({"name": "Cluster", "points": 0,
+                        "description": f"{cluster} insiders {together}"})
 
     # --- 4. Dip depth — BUYS ONLY ---
     # The whole content of this factor is "they bought weakness". Pointed the

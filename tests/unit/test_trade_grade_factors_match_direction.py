@@ -65,10 +65,27 @@ def test_the_cluster_factor_still_fires_on_both_sides():
 
 @pytest.mark.parametrize("n,pts", [(2, 4), (3, 8), (4, 12), (9, 12)])
 def test_every_cluster_band_is_covered(n: int, pts: int):
-    """All three bands carried the same hardcoded string; all three need the fix."""
+    """The direction wording is per-band, and the POINTS are now zero.
+
+    This asserted +12/+8/+4 until 2026-09-02. Measured episode-level on graded
+    buys, those points were exactly inverted:
+
+        awarded +12   2,334 episodes   mean +0.21%   win 46.4%
+        awarded   0   8,370 episodes   mean +2.26%   win 48.3%
+
+    Monotone across every bucket -- the filings given the most points return
+    the least, and it reached 45.2% of published filings. `pts` is retained as
+    a parameter so the bands are still enumerated; what is asserted now is that
+    none of them scores.
+    """
     f = [x for x in compute_trade_grade(dict(CLUSTERED_SELL, cluster_size_pit=n))["factors"]
          if x["name"] == "Cluster"]
-    assert f and f[0]["points"] == pts
+    assert f, "the Cluster factor should still DESCRIBE the cluster"
+    assert f[0]["points"] == 0, (
+        f"Cluster scored {f[0]['points']} for {n} insiders. The points were "
+        "inverted -- the most-rewarded cohort returns least. It may describe, "
+        "it may not score."
+    )
     assert "selling together" in f[0]["description"]
 
 
@@ -139,8 +156,18 @@ def test_the_eose_filing_no_longer_scores_on_a_purchase_thesis():
     assert "Deep Dip" not in names
     assert "Insider Grade" not in names
     assert "Cluster" in names, "co-selling is still a real fact about the filing"
-    assert out["score"] == 55, out["factors"]      # was 65
-    assert out["rating"] == "Modest", out["rating"]  # was "Notable"
+    # 65 -> 55 when the buy-only factors stopped scoring sells
+    # (2026-08-XX), then 55 -> 47 when the Cluster factor stopped
+    # scoring at all (2026-09-02). EOSE gets +8 no longer: three
+    # officers filing 10b5-1 sales into a 47% drawdown is a real
+    # fact about the filing and still shown, but the points were
+    # inverted -- the most-clustered cohort returns +0.21% against
+    # +2.26% for solo filers.
+    assert out["score"] == 47, out["factors"]
+    # Notable -> Modest (buy-only factors gated off sells) -> Weak
+    # (Cluster stopped scoring). Three officers selling 10b5-1 into a
+    # 47% drawdown now reads as Weak, which is what it is.
+    assert out["rating"] == "Weak", out["rating"]
 
 
 def test_the_dead_is_routine_factor_stays_gone():
