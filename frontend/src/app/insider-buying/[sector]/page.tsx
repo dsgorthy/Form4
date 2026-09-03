@@ -128,7 +128,9 @@ export default async function SectorPage(
                       key={h}
                       className={`px-2 py-2 text-[10px] font-medium uppercase tracking-wider text-[#81819A] sm:px-4 ${
                         i >= 2 ? "text-right" : "text-left"
-                      } ${i >= 3 ? "hidden md:table-cell" : ""}`}
+                      } ${i === 1 ? "hidden sm:table-cell" : ""} ${
+                        i >= 3 ? "hidden md:table-cell" : ""
+                      }`}
                     >
                       {h}
                     </th>
@@ -143,12 +145,18 @@ export default async function SectorPage(
                         {b.ticker}
                       </Link>
                       {b.company && (
-                        <div className="max-w-[8rem] truncate text-xs text-[#8888A0] sm:max-w-[220px]">
+                        <div className="max-w-[11rem] truncate text-xs text-[#8888A0] sm:max-w-[220px]">
                           {b.company}
                         </div>
                       )}
+                      {/* The insider, folded in below sm where its own column
+                          does not fit. */}
+                      <div className="max-w-[11rem] truncate text-xs text-[#81819A] sm:hidden">
+                        {b.insider_name || "Unknown"}
+                        {b.title ? ` · ${b.title}` : ""}
+                      </div>
                     </td>
-                    <td className="px-2 py-2 sm:px-4">
+                    <td className="hidden px-2 py-2 sm:table-cell sm:px-4">
                       <div className="max-w-[8rem] truncate sm:max-w-[220px]">
                         {b.insider_id ? (
                           <Link href={`/insider/${b.insider_slug || b.insider_id}`} className="text-blue-400 hover:text-blue-300">
