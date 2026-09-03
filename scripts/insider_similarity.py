@@ -369,9 +369,11 @@ def main() -> int:
     cur.execute(f"INSERT INTO insider_similarity ({cols}) SELECT {cols} FROM sim_new")
     cur.execute("DROP TABLE sim_new")
     conn.commit()
-    cur.execute("SELECT count(*), count(DISTINCT insider_id) FROM insider_similarity")
-    n, ni = cur.fetchone()
-    logger.info("wrote %d edges covering %d insiders", n, ni)
+    cur.execute("SELECT count(*) AS n, count(DISTINCT insider_id) AS ni "
+                "FROM insider_similarity")
+    # The compat layer hands back a Row, not a tuple; index it by name.
+    row = cur.fetchone()
+    logger.info("wrote %d edges covering %d insiders", row["n"], row["ni"])
     conn.close()
     return 0
 

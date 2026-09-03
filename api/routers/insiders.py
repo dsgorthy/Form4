@@ -857,6 +857,77 @@ def get_insider_companies(identifier: str, user: UserContext = Depends(get_curre
     return {"companies": [dict(r) for r in rows]}
 
 
+RELATED_SQL = """
+SELECT s.related_insider_id AS insider_id,
+       s.rank, s.score, s.co_investment, s.sector_overlap, s.profile_sim,
+       s.shared_tickers, s.shared_ticker_list,
+       COALESCE(i.display_name, i.name) AS name,
+       i.slug,
+       COALESCE(i.is_entity, 0)         AS is_entity,
+       -- NO GRADE ON THESE CARDS, deliberately. A rating rendered beside the
+       -- word "related" reads as a ranking, which is the one thing this list
+       -- is not: the clustering underneath does not predict returns. The card
+       -- says who they are and why they are here, and the grade is one click
+       -- away on their own page where it has its context.
+       (SELECT count(DISTINCT COALESCE(t.filing_key, t.accession))
+          FROM trades t
+         WHERE t.insider_id = s.related_insider_id
+           AND t.signal_class IN ('discretionary_buy','discretionary_sell')
+       ) AS filing_count
+  FROM insider_similarity s
+  JOIN insiders i ON i.insider_id = s.related_insider_id
+ WHERE s.insider_id = ?
+ ORDER BY s.rank
+ LIMIT ?
+"""
+
+
+@router.get("/{identifier}/related")
+def get_related_insiders(
+    identifier: str,
+    limit: int = Query(8, ge=1, le=12),
+    user: UserContext = Depends(get_current_user),
+) -> dict:
+    """Insiders similar to this one.
+
+    DELIBERATELY UNGATED. It is a navigation aid on the surfaces that carry
+    the most organic traffic, and the entire point of it is to give a visitor
+    who arrived from search somewhere to go next. Gating a set of internal
+    links would defeat both halves of that.
+
+    THIS IS SIMILARITY AND NOT A RANKING. The behavioural clustering
+    underneath was tested against forward returns and failed (permutation
+    p=0.208), so nothing here may be rendered as "better" or "top" insiders.
+    `reason` exists so the UI states the actual relation instead of implying
+    one; see scripts/insider_similarity.py.
+    """
+    with get_db() as conn:
+        decoded_id = resolve_insider_id(conn, identifier)
+        if decoded_id is None:
+            raise HTTPException(status_code=404, detail="Insider not found")
+        rows = conn.execute(RELATED_SQL, (decoded_id, limit)).fetchall()
+
+    out = []
+    for r in rows:
+        d = dict(r)
+        shared = d.get("shared_tickers") or 0
+        tickers = [t for t in (d.get("shared_ticker_list") or "").split(",") if t]
+        if shared:
+            d["reason"] = "co_investment"
+            d["reason_tickers"] = tickers
+        else:
+            d["reason"] = "similar_profile"
+            d["reason_tickers"] = []
+        # The score decomposition is for our own auditing, not for a card.
+        for k in ("score", "co_investment", "sector_overlap", "profile_sim",
+                  "shared_ticker_list"):
+            d.pop(k, None)
+        d["insider_id"] = encode_insider_id(d["insider_id"])
+        out.append(d)
+
+    return {"related": out}
+
+
 # Bin edges in percent: ..., -20, -15, -10, -5, 0, 5, 10, 15, 20, ...
 _BIN_EDGES = [-20, -15, -10, -5, 0, 5, 10, 15, 20]
 

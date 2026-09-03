@@ -242,6 +242,26 @@ def ops_runner_reversal_dip(context: AssetExecutionContext) -> Output:
     return _runner(context, "reversal_dip")
 
 
+# ── weekly ─────────────────────────────────────────────────────────────────
+
+@asset(group_name=GROUP, compute_kind="python",
+       description="Rebuild the related-insiders similarity graph "
+                   "(insider_similarity). New in 2026-09-03; never had a plist.")
+def ops_insider_similarity(context: AssetExecutionContext) -> Output:
+    # WEEKLY, NOT DAILY, on purpose. The inputs are an insider's whole filing
+    # history and their ticker set; neither moves meaningfully in a day, and a
+    # single new filing cannot reorder a neighbour list. The run TRUNCATEs and
+    # reloads 747k rows inside one transaction, so the cost of running it more
+    # often is real and the benefit is nil.
+    #
+    # Sunday 04:00 PT: after Saturday's returns backfill, well clear of the
+    # weekday 05:30 ingestion window, and on the day the site is quietest —
+    # the swap takes a brief ACCESS EXCLUSIVE on insider_similarity and the
+    # insider page reads it.
+    return _run(context, [BREW, f"{REPO}/scripts/insider_similarity.py"],
+                timeout=1800)
+
+
 form4_ops_assets = [
     ops_enrich_narratives, ops_breaking_signal, ops_trial_emails,
     ops_ceowatcher_reader, ops_monday_paper_monitor, ops_alpaca_reconcile,
@@ -249,6 +269,7 @@ form4_ops_assets = [
     ops_daily_content, ops_strategy_health, ops_pit_shadow,
     ops_runner_quality_notrend, ops_runner_quality_momentum,
     ops_runner_reversal_dip,
+    ops_insider_similarity,
 ]
 
 PT = "America/Los_Angeles"
@@ -283,4 +304,5 @@ form4_ops_schedules = [
     _sched("ops_evening_daily",     [ops_daily_content,
                                      ops_strategy_health],       "0 17 * * *"),
     _sched("ops_pit_shadow_daily",  [ops_pit_shadow],            "0 18 * * *"),
+    _sched("ops_similarity_weekly", [ops_insider_similarity],    "0 4 * * 0"),
 ]

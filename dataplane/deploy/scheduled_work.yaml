@@ -21,6 +21,19 @@
 # reasons below for the only shapes that qualify.
 
 dagster:
+  - name: insider-similarity
+    schedule: "0 4 * * 0"
+    replaced: []
+    note: >
+      NEW WORK, NOT A MIGRATION — it never had a plist and by the standing rule
+      it never will. Rebuilds insider_similarity, the related-insiders
+      neighbour list on /insider/*. Weekly because the inputs are an insider's
+      whole filing history and their ticker set: neither moves meaningfully in
+      a day, and one new filing cannot reorder a neighbour list. Sunday 04:00
+      PT is after Saturday's returns backfill, clear of the weekday ingestion
+      window, and on the quietest day — the reload TRUNCATEs and re-inserts
+      747k rows in one transaction and the insider page reads that table.
+
   - name: quality-notrend
     schedule: "*/10 6-13 * * 1-5"
     replaced: [com.openclaw.quality-notrend]

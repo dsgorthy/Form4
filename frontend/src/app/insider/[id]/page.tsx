@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { RelatedInsiders, type RelatedInsider } from "@/components/related-insiders";
 import { fetchAPI } from "@/lib/api";
 import { fetchAPIAuth } from "@/lib/auth";
 import { formatCurrency, formatPercent } from "@/lib/format";
@@ -118,6 +119,9 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
     avg_return_pct?: number;
     global_avg_pct?: number;
   } | null = null;
+  // Best-effort: the section is a navigation aid, so a failure here must
+  // never cost the reader the profile they actually asked for.
+  let related: { related: RelatedInsider[] } | null = null;
 
   try {
     [profile, companies, trades] = await Promise.all([
@@ -127,6 +131,9 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
     ]);
     try {
       returnDist = await fetchAPIAuth(`/insiders/${id}/return-distribution`, { window: "7d" });
+    } catch {}
+    try {
+      related = await fetchAPIAuth(`/insiders/${id}/related`);
     } catch {}
   } catch (e: any) {
     if (e.message?.includes("403")) {
@@ -876,6 +883,8 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
         initialData={trades}
         volumeByType={profile.volume_by_type}
       />
+
+      <RelatedInsiders items={related?.related ?? []} />
     </div>
   );
 }
