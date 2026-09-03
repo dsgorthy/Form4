@@ -83,10 +83,12 @@ function Meter({ label, value, domain }: { label: string; value: number | null |
   const half = Math.abs(v) / domain / 2; // fraction of the FULL track
   const neg = v < 0;
   return (
-    <div className="grid grid-cols-[2.6rem_1fr_4.5rem] items-center gap-3">
+    <div className="grid grid-cols-[2.2rem_minmax(0,17rem)_4rem] items-center gap-3">
       <span className="font-mono text-[11px] text-[#8A8A9E]">{label}</span>
-      <span className="relative block h-[5px] rounded-full bg-[#23232E]">
-        <span className="absolute -top-[3px] -bottom-[3px] left-1/2 w-px bg-[#35354A]" aria-hidden="true" />
+      <span className="relative block h-[6px] rounded-full bg-[#23232E]">
+        {/* The zero line, and it has to be VISIBLE — a signed bar with no
+            baseline is just a bar. */}
+        <span className="absolute -top-[4px] -bottom-[4px] left-1/2 w-px bg-[#4A4A5C]" aria-hidden="true" />
         {has && (
           <span
             className={`absolute top-0 bottom-0 rounded-full ${neg ? "bg-[#ED6A70]" : "bg-[#46CC8D]"}`}
@@ -135,7 +137,7 @@ export function InsiderVerdict({
 
   return (
     <div className="mb-10">
-      <p className="mb-8 max-w-[60ch] border-l-2 border-[#D9A441] pl-5 font-serif text-[21px] leading-[1.5] text-[#CFCFD8]">
+      <p className="mb-8 max-w-[58ch] border-l-2 border-[#D9A441] pl-4 font-serif text-[18px] leading-[1.5] text-[#CFCFD8] sm:pl-5 sm:text-[21px]">
         {firstClause}{" "}
         {d ? (
           <>
@@ -161,18 +163,18 @@ export function InsiderVerdict({
       </p>
 
       {alphas.length > 0 && (
-        <div className="flex flex-wrap items-start gap-x-10 gap-y-6">
+        <div className="grid gap-x-8 gap-y-5 sm:grid-cols-[auto_1fr] sm:items-start">
           {grade && (
-            <div className="border-r border-[#24242F] pr-10">
-              <div className="font-serif text-[62px] font-semibold leading-[0.92] text-[#D9A441]">
+            <div className="flex items-baseline gap-3 sm:block">
+              <div className="font-serif text-[44px] font-semibold leading-[0.92] text-[#D9A441] sm:text-[56px]">
                 {grade}
               </div>
-              <div className="mt-2 font-mono text-[9.5px] uppercase tracking-[0.15em] text-[#63636F]">
+              <div className="font-mono text-[9.5px] uppercase tracking-[0.15em] text-[#63636F] sm:mt-2">
                 Insider rating
               </div>
             </div>
           )}
-          <div className="min-w-[260px] flex-1">
+          <div className={grade ? "sm:border-l sm:border-[#24242F] sm:pl-8" : ""}>
             <div className="mb-3 font-mono text-[10px] uppercase tracking-[0.14em] text-[#63636F]">
               Alpha vs SPY after a buy
             </div>
@@ -181,9 +183,9 @@ export function InsiderVerdict({
               <Meter label="30d" value={s.buy_avg_abnormal_30d} domain={domain} />
               <Meter label="90d" value={s.buy_avg_abnormal_90d} domain={domain} />
             </div>
-            <p className="mt-4 font-mono text-[11px] text-[#63636F]">
-              {s.buy_scored_filings_7d ?? 0} scored purchases · one row per filing,
-              never per execution lot · discretionary only
+            <p className="mt-4 max-w-[38ch] font-mono text-[10.5px] leading-[1.5] text-[#63636F]">
+              {s.buy_scored_filings_7d ?? 0} scored purchases · one row per
+              filing · discretionary only
             </p>
           </div>
         </div>

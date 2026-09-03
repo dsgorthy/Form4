@@ -292,11 +292,14 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
         grade={(profile as any).best_career_grade}
       />
 
-      {/* Entity Relationships */}
+      {/* Entity relationships. One short fact — who else this filer is — so
+          it reads as one row. It was a block with a hanging left rule,
+          floating between the meters and the tables with nothing tying it to
+          either. */}
       {profile.entity_group && (
-        <div className="mb-6 border-l-2 border-[#24242F] py-1 pl-4">
-          <div className="mb-2 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-[#63636F]">
-            Entity Group
+        <div className="mb-8 flex flex-wrap items-baseline gap-x-3 gap-y-2 border-t border-[#24242F] pt-4">
+          <div className="font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-[#63636F]">
+            Also files as
           </div>
           <div className="text-sm text-[#8888A0]">
             {profile.is_entity ? (
@@ -440,35 +443,13 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
       })()}
 
       {/* Score */}
-      {tr && (() => {
-        const fc = profile.filing_counts;
-        const buyCount = fc?.buy ?? tr.buy_count;
-        const sellCount = fc?.sell ?? tr.sell_count;
-        return (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-            {/* "Track Record 3.00 / 100th percentile" was itr.score and
-                itr.percentile — the insider_track_records family, recomputed
-                over the entire history on every refresh and a documented PIT
-                violation. It also sat directly beside the Insider Rating,
-                giving the same person two scores on two scales, which is the
-                thing the rating taxonomy exists to stop. Removed 2026-08-19;
-                the rating in the header is the answer.
-
-                Best Window stays, gated: it names a holding period, not a
-                score, and a StatBox reading "\u2014" for an anonymous visitor
-                says we have no data on this person, which is the opposite of
-                the pitch. */}
-            {!isGated && <StatBox label="Best Window" value={tr.best_window || "\u2014"} />}
-
-            <StatBox label="Tickers Traded" value={String(tr.n_tickers)} />
-            <StatBox
-              label="Total Filings"
-              value={String(buyCount + sellCount)}
-              sub={`${buyCount} buys, ${sellCount} sells`}
-            />
-          </div>
-        );
-      })()}
+      {/* NO STAT STRIP HERE. It held Best Window, Tickers Traded and Total
+          Filings; the first reads a column stale since February 2026, the
+          second showed 5 under a summary saying 6 (both correct -- one counts
+          discretionary tickers, the other every company filed on -- which is
+          worse than a plain error because the reader cannot tell), and the
+          third restated the verdict sentence verbatim 400px below it. The
+          Companies list names all six with values. */}
 
       {/* Grade by Ticker */}
       {(profile as any).ticker_grades?.length > 0 && (
