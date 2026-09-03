@@ -349,7 +349,7 @@ def main() -> int:
 
     logger.info("writing insider_similarity...")
     cur.execute("SET lock_timeout = '5s'")
-    cur.execute("CREATE TEMP TABLE sim_new (LIKE insider_similarity)")
+    cur.execute("CREATE TEMP TABLE sim_new (LIKE insider_similarity INCLUDING DEFAULTS)")
 
     def lit(v):
         if v is None:
