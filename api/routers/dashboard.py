@@ -523,63 +523,63 @@ def dashboard_inflections(
 
 @router.get("/filing-delays")
 def filing_delays() -> dict:
-    """Distribution of days between trade_date and filing_date."""
+    """Distribution of days between trade_date and filing_date.
+
+    BINNED IN SQL, NOT IN PYTHON.
+
+    This used to SELECT one row per trade with no LIMIT, fetchall() the result
+    -- millions of rows across the wire -- and then walk the list SEVEN times
+    in Python, once per bin. It took 16 seconds and was the only endpoint
+    failing the deploy smoke test.
+
+    The whole answer is seven integers and three statistics. Counting belongs
+    in the database: one pass, one row returned, nothing materialised.
+    """
     with get_db() as conn:
-        rows = conn.execute(
+        row = conn.execute(
             """
-            SELECT CAST(julianday(filing_date) - julianday(trade_date) AS INTEGER) AS delay_days
-            FROM trades
-            WHERE filing_date IS NOT NULL AND trade_date IS NOT NULL
-              AND superseded_by IS NULL
-              AND is_derivative = 0
-              AND """ + _PS_FILTER_BARE + """
+            SELECT
+                COUNT(*)                                        AS total,
+                COUNT(*) FILTER (WHERE d = 0)                   AS b0,
+                COUNT(*) FILTER (WHERE d = 1)                   AS b1,
+                COUNT(*) FILTER (WHERE d = 2)                   AS b2,
+                COUNT(*) FILTER (WHERE d BETWEEN 3 AND 5)       AS b3_5,
+                COUNT(*) FILTER (WHERE d BETWEEN 6 AND 10)      AS b6_10,
+                COUNT(*) FILTER (WHERE d BETWEEN 11 AND 30)     AS b11_30,
+                COUNT(*) FILTER (WHERE d >= 31)                 AS b31,
+                AVG(d)                                          AS avg_delay,
+                PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY d)  AS median_delay,
+                COUNT(*) FILTER (WHERE d <= 2)                  AS within_2d
+            FROM (
+                SELECT (filing_date::date - trade_date::date) AS d
+                  FROM trades
+                 WHERE filing_date IS NOT NULL AND trade_date IS NOT NULL
+                   AND superseded_by IS NULL
+                   AND is_derivative = 0
+                   AND """ + _PS_FILTER_BARE + """
+            ) x
+            WHERE d IS NOT NULL
             """,
-        ).fetchall()
+        ).fetchone()
 
-    delays = [r["delay_days"] for r in rows]
+    total = row["total"] or 0
+    if not total:
+        return {"bins": [],
+                "stats": {"avg_delay": 0, "median_delay": 0,
+                          "pct_within_2d": 0, "total": 0}}
 
-    if not delays:
-        return {
-            "bins": [],
-            "stats": {"avg_delay": 0, "median_delay": 0, "pct_within_2d": 0, "total": 0},
-        }
-
-    total = len(delays)
-
-    # Bin definitions: (label, min_inclusive, max_inclusive)
-    bin_defs = [
-        ("0", 0, 0),
-        ("1", 1, 1),
-        ("2", 2, 2),
-        ("3-5", 3, 5),
-        ("6-10", 6, 10),
-        ("11-30", 11, 30),
-        ("30+", 31, None),
+    bins = [
+        {"label": lbl, "count": row[col] or 0,
+         "pct": round((row[col] or 0) / total * 100, 1)}
+        for lbl, col in (("0", "b0"), ("1", "b1"), ("2", "b2"), ("3-5", "b3_5"),
+                         ("6-10", "b6_10"), ("11-30", "b11_30"), ("30+", "b31"))
     ]
-
-    bins = []
-    for label, lo, hi in bin_defs:
-        if hi is None:
-            count = sum(1 for d in delays if d >= lo)
-        else:
-            count = sum(1 for d in delays if lo <= d <= hi)
-        bins.append({
-            "label": label,
-            "count": count,
-            "pct": round(count / total * 100, 1),
-        })
-
-    avg_delay = round(sum(delays) / total, 1)
-    median_delay = round(statistics.median(delays), 1)
-    within_2d = sum(1 for d in delays if d <= 2)
-    pct_within_2d = round(within_2d / total * 100, 1)
-
     return {
         "bins": bins,
         "stats": {
-            "avg_delay": avg_delay,
-            "median_delay": median_delay,
-            "pct_within_2d": pct_within_2d,
+            "avg_delay": round(float(row["avg_delay"] or 0), 1),
+            "median_delay": round(float(row["median_delay"] or 0), 1),
+            "pct_within_2d": round((row["within_2d"] or 0) / total * 100, 1),
             "total": total,
         },
     }
