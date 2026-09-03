@@ -195,15 +195,18 @@ def main() -> int:
     tick: dict[int, set] = defaultdict(set)
     sect: dict[int, set] = defaultdict(set)
     by_ticker: dict[str, list] = defaultdict(list)
-    keep = set(int(i) for i in ids)
+    # Deliberately NOT restricted to insiders who cleared MIN_FILINGS. A
+    # co-investment edge needs only a shared ticker, so someone with two
+    # filings can still be told who else files on their company -- and 58,042
+    # insiders sit below the profile floor. Gating this on the profile would
+    # leave every one of those pages with an empty section.
     for iid, tk, sc in cur.fetchall():
-        if iid not in keep:
-            continue
         tick[iid].add(tk)
         by_ticker[tk].append(iid)
         if sc:
             sect[iid].add(sc)
-    logger.info("  %d insiders with tickers, %d tickers", len(tick), len(by_ticker))
+    logger.info("  %d insiders with tickers (%d of them profiled), %d tickers",
+                len(tick), len(set(tick) & set(int(i) for i in ids)), len(by_ticker))
 
     cur.execute(NAMES_SQL)
     names = {int(i): (n or "").strip().upper() for i, n in cur.fetchall()}
@@ -254,8 +257,8 @@ def main() -> int:
     # ── score ──────────────────────────────────────────────────────────────
     logger.info("scoring...")
     out = []
-    for a in ids:
-        a = int(a)
+    universe = sorted(set(cand) | set(prof_cand))
+    for a in universe:
         seen = set()
         scored_co, scored_pf = [], []
         for b in list(cand.get(a, ())) + prof_cand.get(a, []):
@@ -268,8 +271,11 @@ def main() -> int:
             ta, tb = tick.get(a, set()), tick.get(b, set())
             co = jaccard(ta, tb)
             sec = jaccard(sect.get(a, set()), sect.get(b, set()))
-            d = float(np.linalg.norm(X[pos[a]] - X[pos[b]]))
-            pf = 1.0 / (1.0 + d)
+            if a in pos and b in pos:
+                d = float(np.linalg.norm(X[pos[a]] - X[pos[b]]))
+                pf = 1.0 / (1.0 + d)
+            else:
+                pf = 0.0  # below the filing floor: co-investment carries it
             score = W_CO * co + W_SECTOR * sec + W_PROFILE * pf
             shared = sorted(ta & tb)
             rec = (b, score, co, sec, pf, len(shared), ",".join(shared[:3]) or None)
@@ -277,6 +283,12 @@ def main() -> int:
 
         scored_co.sort(key=lambda r: -r[1])
         scored_pf.sort(key=lambda r: -r[1])
+        # Prefer same-sector behavioural neighbours; fall back to the rest only
+        # if there are not enough, so coverage never collapses on the insiders
+        # whose tickers we have no sector for.
+        same_sec = [r for r in scored_pf if r[3] > 0]
+        if len(same_sec) >= N_PROFILE:
+            scored_pf = same_sec
         # Co-investment first, capped, then behavioural fills the rest. The cap
         # is what stops a large company's roster from being the entire list.
         picked = scored_co[:N_CO] + scored_pf[:max(N_PROFILE, TOP_K - min(len(scored_co), N_CO))]
