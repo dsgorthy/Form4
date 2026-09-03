@@ -183,7 +183,7 @@ export function InsiderVerdict({
               <Meter label="30d" value={s.buy_avg_abnormal_30d} domain={domain} />
               <Meter label="90d" value={s.buy_avg_abnormal_90d} domain={domain} />
             </div>
-            <p className="mt-4 max-w-[38ch] font-mono text-[10.5px] leading-[1.5] text-[#63636F]">
+            <p className="mt-4 max-w-[38ch] font-mono text-[10.5px] leading-[1.5] text-[#63636F] sm:max-w-none">
               {s.buy_scored_filings_7d ?? 0} scored purchases · one row per
               filing · discretionary only
             </p>
