@@ -21,6 +21,7 @@ import { InsiderSummary } from "@/components/entity-summary";
 import { FollowCta } from "@/components/follow-cta";
 import { PendingFollow } from "@/components/pending-follow";
 import { GATED_CLASS, insiderJsonLd, jsonLdScript } from "@/lib/structured-data";
+import { SectionLabel } from "@/components/ui/section-label";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
@@ -91,18 +92,6 @@ function StatBox({
   );
 }
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    // <h2>, not a styled <div>. These label the real content sections of an
-    // indexed page — "Insider Roster", "Recent Insider Trades" — and as divs
-    // they carried no structure at all: every SEO surface rendered exactly one
-    // heading, the H1, with nothing beneath it. Tailwind's preflight zeroes
-    // heading margins so this is visually identical.
-    <h2 className="mb-3 border-b border-[#24242F] pb-2 font-mono text-[10.5px] font-medium uppercase tracking-[0.15em] text-[#63636F]">
-      {children}
-    </h2>
-  );
-}
 
 export default async function InsiderPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;

@@ -7,6 +7,7 @@ import { formatCurrency } from "@/lib/format";
 import { InsiderRoster } from "@/components/insider-roster";
 import { PrivateTradesTable } from "@/components/private-trades-table";
 import type { Filing, PaginatedResponse } from "@/lib/types";
+import { SectionLabel } from "@/components/ui/section-label";
 
 interface PrivateCompanyOverview {
   company: string;
@@ -33,18 +34,6 @@ interface PrivateCompanyOverview {
   }[];
 }
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    // <h2>, not a styled <div>. These label the real content sections of an
-    // indexed page — "Insider Roster", "Recent Insider Trades" — and as divs
-    // they carried no structure at all: every SEO surface rendered exactly one
-    // heading, the H1, with nothing beneath it. Tailwind's preflight zeroes
-    // heading margins so this is visually identical.
-    <h2 className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A] mb-3">
-      {children}
-    </h2>
-  );
-}
 
 const TRADES_LIMIT = 25;
 

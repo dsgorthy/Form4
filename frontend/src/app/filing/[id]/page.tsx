@@ -20,6 +20,7 @@ import { WhatIfSimulator } from "@/components/what-if-simulator";
 import { TradeGradeDetail } from "@/components/trade-grade-badge";
 import type { Filing } from "@/lib/types";
 import { insiderPath } from "@/lib/insider-url";
+import { SectionLabel } from "@/components/ui/section-label";
 
 interface Lot {
   trade_id: string;
@@ -114,18 +115,6 @@ function ReturnRow({ label, value, tradeType }: { label: string; value?: number 
   );
 }
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    // <h2>, not a styled <div>. These label the real content sections of an
-    // indexed page — "Insider Roster", "Recent Insider Trades" — and as divs
-    // they carried no structure at all: every SEO surface rendered exactly one
-    // heading, the H1, with nothing beneath it. Tailwind's preflight zeroes
-    // heading margins so this is visually identical.
-    <h2 className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A] mb-3">
-      {children}
-    </h2>
-  );
-}
 
 export default async function FilingPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -387,7 +376,7 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
 
       {/* Trade Context */}
       {filing.context && filing.context.length > 0 && (
-        <div className="mb-6 rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/50 p-5">
+        <div className="mb-6">
           <SectionLabel>Trade Context</SectionLabel>
           <ContextFacts context={filing.context} limit={5} />
         </div>
@@ -396,7 +385,7 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
       {/* Main content grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
         {/* Filing Info */}
-        <div className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/50 p-5">
+        <div className="mb-6">
           <SectionLabel>Filing Info</SectionLabel>
           <InfoRow label="Filed">{filing.filing_date}</InfoRow>
           <InfoRow label="Traded">{filing.trade_date}</InfoRow>
@@ -417,7 +406,7 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
         </div>
 
         {/* Insider */}
-        <div className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/50 p-5">
+        <div className="mb-6">
           <SectionLabel>Insider</SectionLabel>
           <InfoRow label="Name">
             <Link
@@ -444,7 +433,7 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
         </div>
 
         {/* Trade Details */}
-        <div className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/50 p-5">
+        <div className="mb-6">
           <SectionLabel>Trade Details</SectionLabel>
           {filing.lots && filing.lots.length > 0 ? (
             <>
@@ -479,7 +468,7 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
 
         {/* Outcomes */}
         {hasReturns && (
-          <div className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/50 p-5">
+          <div className="mb-6">
             <SectionLabel>Outcomes</SectionLabel>
             <ReturnRow label="7d Stock" value={filing.return_7d} tradeType={filing.trade_type} />
             <ReturnRow label="30d Stock" value={filing.return_30d} tradeType={filing.trade_type} />
@@ -495,7 +484,7 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
           </div>
         )}
         {allReturnsUnavailable && (
-          <div className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/50 p-5">
+          <div className="mb-6">
             <SectionLabel>Outcomes</SectionLabel>
             <div className="text-xs text-[#81819A]">
               {unavailableReason((filing as any).price_data_end)}

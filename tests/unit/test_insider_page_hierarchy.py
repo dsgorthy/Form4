@@ -29,6 +29,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 PAGE_PATH = REPO / "frontend" / "src" / "app" / "insider" / "[id]" / "page.tsx"
 PAGE = PAGE_PATH.read_text(encoding="utf-8")
+FILING = (REPO / "frontend" / "src" / "app" / "filing" / "[id]" / "page.tsx").read_text(encoding="utf-8")
+LABEL = REPO / "frontend" / "src" / "components" / "ui" / "section-label.tsx"
 VERDICT = (REPO / "frontend" / "src" / "components" / "insider-verdict.tsx").read_text(encoding="utf-8")
 LAYOUT = (REPO / "frontend" / "src" / "app" / "layout.tsx").read_text(encoding="utf-8")
 
@@ -46,13 +48,42 @@ def test_the_page_is_not_a_wall_of_identical_boxes():
     )
 
 
+def test_the_filing_page_is_not_a_wall_of_boxes_either():
+    """It is the MOST crawled surface — 2,263 Googlebot requests in 7 days
+    against 508 for insider pages — and carried the same ten containers."""
+    n = FILING.count(BOX)
+    assert n <= 5, (
+        f"{n} containers on the filing page. It was 10. The ones that may "
+        "keep a border are scrollable table wrappers and buttons; content "
+        "panels are separated by SectionLabel's rule."
+    )
+
+
 def test_section_headings_carry_a_rule():
     """SectionLabel is the separator now, so it has to actually separate."""
-    i = PAGE.index("function SectionLabel(")
-    block = PAGE[i:PAGE.index("\n}", i)]
-    assert "border-b" in block, (
+    assert LABEL.exists(), "the shared SectionLabel is gone"
+    assert "border-b" in LABEL.read_text(encoding="utf-8"), (
         "SectionLabel lost its rule. It is what replaced thirteen borders; "
-        "without it the sections run together."
+        "without it the de-boxed sections run together."
+    )
+
+
+def test_section_label_has_exactly_one_definition():
+    """There were EIGHT copies — five pages and three components — already
+    drifting on margin, and restyling the insider page made a ninth. A
+    separator that means different things on different pages is not a
+    separator."""
+    src = REPO / "frontend" / "src"
+    dupes = [
+        p.relative_to(src).as_posix()
+        for p in src.rglob("*.tsx")
+        if ".next" not in p.parts
+        and p != LABEL                       # the canonical one, obviously
+        and "function SectionLabel(" in p.read_text(encoding="utf-8")
+    ]
+    assert dupes == [], (
+        "SectionLabel is defined locally again in: " + ", ".join(dupes) +
+        ". Import it from @/components/ui/section-label instead."
     )
 
 

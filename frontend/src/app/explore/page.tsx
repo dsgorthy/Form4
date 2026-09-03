@@ -23,6 +23,7 @@ import { CongressTable } from "@/components/congress-table";
 import { InsiderRoster } from "@/components/insider-roster";
 import { SignInTeaser } from "@/components/signin-teaser";
 import type { Filing, PaginatedResponse } from "@/lib/types";
+import { SectionLabel } from "@/components/ui/section-label";
 
 interface CompanyOverview {
   company: string;
@@ -49,13 +50,6 @@ interface CompanyOverview {
   }[];
 }
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A] mb-3">
-      {children}
-    </div>
-  );
-}
 
 interface Props {
   searchParams: Promise<{

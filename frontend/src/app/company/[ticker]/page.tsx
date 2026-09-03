@@ -15,6 +15,7 @@ import { CompanySummary } from "@/components/entity-summary";
 import { companyJsonLd, jsonLdScript } from "@/lib/structured-data";
 import { InsiderRoster } from "@/components/insider-roster";
 import type { Filing, PaginatedResponse } from "@/lib/types";
+import { SectionLabel } from "@/components/ui/section-label";
 
 interface CompanyOverview {
   company: string;
@@ -87,18 +88,6 @@ export async function generateMetadata({ params }: { params: Promise<{ ticker: s
   }
 }
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    // <h2>, not a styled <div>. These label the real content sections of an
-    // indexed page — "Insider Roster", "Recent Insider Trades" — and as divs
-    // they carried no structure at all: every SEO surface rendered exactly one
-    // heading, the H1, with nothing beneath it. Tailwind's preflight zeroes
-    // heading margins so this is visually identical.
-    <h2 className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A] mb-3">
-      {children}
-    </h2>
-  );
-}
 
 const TRADES_LIMIT = 25;
 const CONGRESS_LIMIT = 10;

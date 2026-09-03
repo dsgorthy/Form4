@@ -7,19 +7,13 @@ import { InsiderGradeBadge } from "@/components/insider-grade-badge";
 import { formatCurrency, formatPercent } from "@/lib/format";
 import { TickerDisplay, companyHref } from "@/components/ui/ticker-display";
 import type { Filing } from "@/lib/types";
+import { SectionLabel } from "@/components/ui/section-label";
 
 interface FilingDetailPanelProps {
   filing: Filing | null;
   onClose: () => void;
 }
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A] mb-2">
-      {children}
-    </div>
-  );
-}
 
 function InfoRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (

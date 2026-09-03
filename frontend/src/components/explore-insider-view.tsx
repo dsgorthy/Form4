@@ -4,6 +4,7 @@ import { InsiderGradeBadge } from "@/components/insider-grade-badge";
 import { InsiderTradesTable } from "@/components/insider-trades-table";
 import { insiderPath } from "@/lib/insider-url";
 import type { Filing, PaginatedResponse } from "@/lib/types";
+import { SectionLabel } from "@/components/ui/section-label";
 
 /**
  * The insider half of /explore.
@@ -42,13 +43,6 @@ export interface InsiderCompanyRow {
   last_trade: string;
 }
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-[#81819A]">
-      {children}
-    </div>
-  );
-}
 
 export function ExploreInsiderView({
   profile,

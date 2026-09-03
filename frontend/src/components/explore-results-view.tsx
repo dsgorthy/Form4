@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { InsiderGradeBadge } from "@/components/insider-grade-badge";
 import { formatCurrency } from "@/lib/format";
+import { SectionLabel } from "@/components/ui/section-label";
 
 /**
  * Full results for a search term — tier 2 of the search.
@@ -35,13 +36,6 @@ export interface ResultsInsider {
   primary_ticker: string | null;
 }
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-[#81819A]">
-      {children}
-    </div>
-  );
-}
 
 export function ExploreResultsView({
   term,
