@@ -124,12 +124,13 @@ HAVING count(*) >= %s
 """
 
 TICKERS_SQL = """
-SELECT DISTINCT t.insider_id, t.ticker, m.sector
+SELECT t.insider_id, t.ticker, m.sector, count(*) AS n
   FROM trades t
   LEFT JOIN ticker_metadata m ON m.ticker = t.ticker
  WHERE t.signal_class IN ('discretionary_buy','discretionary_sell')
    AND t.ticker IS NOT NULL AND t.ticker <> 'NONE'
    AND t.insider_id IS NOT NULL
+ GROUP BY 1,2,3
 """
 
 NAMES_SQL = "SELECT insider_id, COALESCE(name,'') FROM insiders"
@@ -200,11 +201,21 @@ def main() -> int:
     # filings can still be told who else files on their company -- and 58,042
     # insiders sit below the profile floor. Gating this on the profile would
     # leave every one of those pages with an empty section.
-    for iid, tk, sc in cur.fetchall():
+    sector_weight: dict[int, dict] = defaultdict(lambda: defaultdict(int))
+    for iid, tk, sc, n in cur.fetchall():
         tick[iid].add(tk)
         by_ticker[tk].append(iid)
         if sc:
             sect[iid].add(sc)
+            sector_weight[iid][sc] += n
+    # The sector an insider actually operates in, by filing count. A
+    # multi-sector investor's SET is wide enough that "shares a sector" is
+    # nearly free -- Chimovits holds one financials name, which qualified a
+    # small-town bank director as his behavioural neighbour. The primary is
+    # the one that describes them.
+    primary: dict[int, str] = {
+        i: max(w.items(), key=lambda kv: kv[1])[0] for i, w in sector_weight.items()
+    }
     logger.info("  %d insiders with tickers (%d of them profiled), %d tickers",
                 len(tick), len(set(tick) & set(int(i) for i in ids)), len(by_ticker))
 
@@ -286,7 +297,8 @@ def main() -> int:
         # Prefer same-sector behavioural neighbours; fall back to the rest only
         # if there are not enough, so coverage never collapses on the insiders
         # whose tickers we have no sector for.
-        same_sec = [r for r in scored_pf if r[3] > 0]
+        pa = primary.get(a)
+        same_sec = [r for r in scored_pf if pa and primary.get(r[0]) == pa]
         if len(same_sec) >= N_PROFILE:
             scored_pf = same_sec
         # Co-investment first, capped, then behavioural fills the rest. The cap
