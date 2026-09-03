@@ -351,19 +351,19 @@ def main() -> int:
     cur.execute("SET lock_timeout = '5s'")
     cur.execute("CREATE TEMP TABLE sim_new (LIKE insider_similarity INCLUDING DEFAULTS)")
 
-    def lit(v):
-        if v is None:
-            return "NULL"
-        if isinstance(v, str):
-            return "'" + v.replace("'", "''") + "'"
-        return repr(float(v)) if isinstance(v, float) else str(int(v))
-
+    # PARAMETERISED, NOT INTERPOLATED. The first version built literal SQL
+    # and died on real data: tickers in `trades` carry stray quote characters
+    # from EDGAR parsing -- 'LTRX, ''NHPR'', "AFNG", ?HFRO? are all live
+    # values -- and hand-escaping them into a multi-row VALUES list is both
+    # fragile and an injection shape nobody should be writing.
     cols = ("insider_id, related_insider_id, rank, score, co_investment, "
             "sector_overlap, profile_sim, shared_tickers, shared_ticker_list")
-    for lo in range(0, len(out), 5000):
-        chunk = out[lo:lo + 5000]
-        vals = ",".join("(" + ",".join(lit(v) for v in r) + ")" for r in chunk)
-        cur.execute(f"INSERT INTO sim_new ({cols}) VALUES {vals}")
+    row_ph = "(" + ",".join(["?"] * 9) + ")"
+    for lo in range(0, len(out), 2000):
+        chunk = out[lo:lo + 2000]
+        ph = ",".join([row_ph] * len(chunk))
+        flat = [v for r in chunk for v in r]
+        cur.execute(f"INSERT INTO sim_new ({cols}) VALUES {ph}", flat)
     # Swap inside one transaction so a reader never sees a half-built list.
     cur.execute("TRUNCATE insider_similarity")
     cur.execute(f"INSERT INTO insider_similarity ({cols}) SELECT {cols} FROM sim_new")
