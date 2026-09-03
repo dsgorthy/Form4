@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import statistics
+import threading
 from typing import List
 
 from fastapi import APIRouter, Depends, Query
@@ -48,7 +49,6 @@ def warm_aggregates() -> None:
     Warming on a background thread means the cost lands before any user
     arrives, and readiness is not delayed waiting for it.
     """
-    import threading
 
     def _run():
         try:
@@ -59,16 +59,56 @@ def warm_aggregates() -> None:
     threading.Thread(target=_run, daemon=True, name="warm-aggregates").start()
 
 
+# One lock per key. Without it every concurrent cold request runs its own copy
+# of a 16-second whole-history scan: the warm thread, plus each visitor, plus
+# the deploy smoke test, all against the same rows at the same time.
+_agg_locks: dict[str, threading.Lock] = {}
+_agg_locks_guard = threading.Lock()
+
+
+def _lock_for(key: str) -> threading.Lock:
+    with _agg_locks_guard:
+        return _agg_locks.setdefault(key, threading.Lock())
+
+
 def _cached_agg(key: str, compute):
-    """Memoise a whole-history aggregate for _AGG_TTL_S seconds."""
+    """Memoise a whole-history aggregate for _AGG_TTL_S seconds.
+
+    SINGLE-FLIGHT, AND A COLD READ NEVER BLOCKS.
+
+    The window this closes is the ~16 s after a deploy, before the startup warm
+    thread has finished. Previously every request arriving in that window ran
+    the full scan itself, so a restart turned one expensive query into as many
+    as there were visitors — and the deploy smoke test, which allows 10 s,
+    failed on it (`dashboard-filing-delays: HTTP 000`, 2026-09-03).
+
+    A caller that finds the computation already in flight gets None
+    immediately. Every endpoint using this already renders an empty shape for a
+    falsy result, so the reader sees an empty panel for a few seconds instead
+    of a spinner that outlasts their patience. Serving stale-but-expired data
+    would be better still; there is none to serve on a cold start, which is
+    exactly the case this handles.
+    """
     import time as _time
     now = _time.monotonic()
     hit = _agg_cache.get(key)
     if hit is not None and now - hit[0] < _AGG_TTL_S:
         return hit[1]
-    val = compute()
-    _agg_cache[key] = (now, val)
-    return val
+
+    lock = _lock_for(key)
+    if not lock.acquire(blocking=False):
+        # Someone is computing it. Do not queue behind them.
+        return hit[1] if hit is not None else None
+    try:
+        hit = _agg_cache.get(key)          # it may have landed while we waited
+        now = _time.monotonic()
+        if hit is not None and now - hit[0] < _AGG_TTL_S:
+            return hit[1]
+        val = compute()
+        _agg_cache[key] = (now, val)
+        return val
+    finally:
+        lock.release()
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 
