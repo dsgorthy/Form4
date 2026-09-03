@@ -146,3 +146,37 @@ def test_the_meters_have_a_floored_domain():
     assert re.search(r"Math\.max\(0\.2", VERDICT), (
         "the meter domain floor is gone"
     )
+
+
+# ── the top of the page states each fact once ──────────────────────────────
+
+def test_the_grade_is_not_rendered_twice():
+    """It was: an InsiderGradeBadge beside the H1 and a 62px glyph in the
+    verdict block 200px below, the same claim on two scales. That is the exact
+    thing InsiderGradeBadge's own "one rating" note exists to prevent, and it
+    was reintroduced by adding the verdict without removing the badge."""
+    header = PAGE[PAGE.index("{/* Header"):PAGE.index("<InsiderVerdict")]
+    assert "<InsiderGradeBadge" not in header, (
+        "the grade badge is back beside the H1 while the verdict block still "
+        "renders the rating glyph. Keep one — the glyph, which is captioned "
+        "and sits with the meters it summarises."
+    )
+
+
+def test_the_role_is_not_repeated_under_the_summary():
+    """InsiderSummary already renders 'X is Director & 10% Owner at BiomX
+    Inc. (PHGE)'. A fragment repeating it directly below was three of the same
+    facts on one screen."""
+    header = PAGE[PAGE.index("{/* Header"):PAGE.index("<InsiderVerdict")]
+    assert "skipTitle" not in header, (
+        "the standalone title line is back under the summary sentence, which "
+        "already contains the role and the primary company"
+    )
+
+
+def test_the_company_count_appears_once_above_the_fold():
+    header = PAGE[PAGE.index("{/* Header"):PAGE.index("<InsiderVerdict")]
+    assert header.count('"company" : "companies"') == 0, (
+        "the company count is being rendered as a fragment again; "
+        "InsiderSummary already says 'across N companies'"
+    )

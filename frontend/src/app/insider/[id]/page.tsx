@@ -206,42 +206,18 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
         <span className="text-[#E8E8ED]">{profile.name}</span>
       </nav>
 
-      {/* Header */}
-      <div className="flex items-center gap-4 mb-2 flex-wrap">
-        <h1 className="font-serif text-[40px] font-medium leading-[1.05] tracking-[-0.02em] text-[#F2F2F6]">
-          {profile.name}
-        </h1>
-        {/* One rating. This drew a "Career" badge and a "Form" badge side by
-            side — two scores of the same person on two scales, and Recent Form
-            is not a scale we publish any more. See api/ratings.py. */}
-        <InsiderGradeBadge
-          grade={(profile as any).best_career_grade}
-          bestTicker={(profile as any).best_career_ticker}
-          tickerCount={(profile as any).n_scored_tickers}
-          showLabel
-        />
-      </div>
-      {/* Why an active filer can still be Unrated. Before 2026-08-25 the grade
-          was built from every row with trade_type='buy' — 42% compensation
-          grants and 39% option exercises. It now counts open-market purchases
-          only, so plenty of people with a long filing history have nothing to
-          grade. Saying so beats letting the reader assume we have no data. */}
-      {!(profile as any).best_career_grade && (
-        <p className="text-sm text-[#8888A0] mb-3 max-w-2xl">
-          <span className="text-[#E8E8ED]">Unrated.</span>{" "}
-          We grade insiders only on stock they chose to buy on the open market.
-          Grants, option exercises and vesting say nothing about timing, so they
-          don&apos;t count — which is why someone can file often and still have
-          no grade. It isn&apos;t a bad sign: unrated buys beat every graded
-          tier below A.
-        </p>
-      )}
+      {/* Header. NO GRADE BADGE HERE — the verdict block below renders the
+          rating as a 62px glyph beside the meters it summarises. Having both
+          put the same claim on the page twice, 200px apart, which is what the
+          "one rating" note on InsiderGradeBadge exists to prevent. */}
+      <h1 className="mb-2 font-serif text-[40px] font-medium leading-[1.05] tracking-[-0.02em] text-[#F2F2F6]">
+        {profile.name}
+      </h1>
       {(() => {
         const cos = companies.companies;
         const primary = primaryCompany;
         const title = primaryTitle;
         const otherCount = cos.length > 1 ? cos.length - 1 : 0;
-        const skipTitle = !title;
         const totalTrades = (tr?.buy_count ?? 0) + (tr?.sell_count ?? 0);
         const lastTrade = cos.length
           ? [...cos].sort((a, b) => (b.last_trade > a.last_trade ? 1 : -1))[0].last_trade
@@ -264,35 +240,31 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
               lastTrade={lastTrade}
               firstTrade={firstTrade}
             />
-            {!skipTitle && (
-              <p className="text-sm text-[#8888A0] mb-1">
-                {title}
-                {primary && primary.ticker !== "NONE" && (
-                  <>
-                    {" at "}
-                    <Link
-                      href={`/company/${primary.ticker}`}
-                      className="text-blue-400 hover:text-blue-300"
-                    >
-                      {primary.ticker}
-                    </Link>
-                  </>
-                )}
-                {otherCount > 0 && (
-                  <span className="text-[#81819A]">
-                    {" "}(+{otherCount} {otherCount === 1 ? "company" : "companies"})
-                  </span>
-                )}
-              </p>
+            {/* CIK only. The company count was here, in the title line above
+                it, and inside the summary sentence above that — three times on
+                one screen. */}
+            {profile.cik && (
+              <p className="mb-8 font-mono text-xs text-[#63636F]">CIK {profile.cik}</p>
             )}
-            <p className="text-xs text-[#81819A] mb-8">
-              {profile.cik && `CIK: ${profile.cik}`}
-              {profile.cik && tr && " · "}
-              {tr && `${tr.n_tickers} ${tr.n_tickers === 1 ? "company" : "companies"} traded`}
-            </p>
           </>
         );
       })()}
+
+      {/* Why an active filer can still be Unrated. Before 2026-08-25 the grade
+          was built from every row with trade_type='buy' — 42% compensation
+          grants and 39% option exercises. It now counts open-market purchases
+          only, so plenty of people with a long filing history have nothing to
+          grade. Saying so beats letting the reader assume we have no data. */}
+      {!(profile as any).best_career_grade && (
+        <p className="text-sm text-[#8888A0] mb-3 max-w-2xl">
+          <span className="text-[#E8E8ED]">Unrated.</span>{" "}
+          We grade insiders only on stock they chose to buy on the open market.
+          Grants, option exercises and vesting say nothing about timing, so they
+          don&apos;t count — which is why someone can file often and still have
+          no grade. It isn&apos;t a bad sign: unrated buys beat every graded
+          tier below A.
+        </p>
+      )}
 
       {/* The opening: a written verdict, then the same three numbers as signed
           meters. Summary before detail — the tables below still carry every
