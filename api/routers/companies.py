@@ -447,6 +447,45 @@ def get_chart_data(
     return result
 
 
+RELATED_COMPANIES_SQL = """
+SELECT c.related_ticker AS ticker, c.rank, c.reason,
+       c.shared_insiders, c.same_sector, c.recent_buys,
+       m.sector,
+       -- ticker_metadata carries no company name; insider_companies does, and
+       -- a DISTINCT ON over six tickers is 3ms.
+       (SELECT ic.company FROM insider_companies ic
+         WHERE ic.ticker = c.related_ticker AND ic.company IS NOT NULL
+         LIMIT 1) AS company
+  FROM company_similarity c
+  LEFT JOIN ticker_metadata m ON m.ticker = c.related_ticker
+ WHERE c.ticker = ?
+ ORDER BY c.rank
+ LIMIT ?
+"""
+
+
+@router.get("/{ticker}/related")
+def get_related_companies(ticker: str, limit: int = Query(6, ge=1, le=12)) -> dict:
+    """Companies related to this one.
+
+    UNGATED, like the insider equivalent. Company pages are the second-most
+    crawled surface on the site -- 1,482 Googlebot requests in 7 days against
+    508 for insider pages -- and until now they carried twenty outbound links
+    to insiders and NOT ONE to another company. No topical navigation for a
+    reader, no sector signal for a crawler.
+
+    Two relations, and the card says which:
+      shared_insiders  people file on both companies. Countable.
+      sector_peer      same sector, ranked by recent insider buying.
+
+    NOT a correlation, a comparison, or a trading signal. Two companies sharing
+    a director tells you about a person's calendar, not about their stocks.
+    """
+    with get_db() as conn:
+        rows = conn.execute(RELATED_COMPANIES_SQL, (ticker.upper(), limit)).fetchall()
+    return {"related": [dict(r) for r in rows]}
+
+
 @router.get("/{ticker}/insiders")
 def company_insiders(ticker: str, limit: int = Query(default=50, le=200)):
     """Everyone who has filed on this ticker, most recent first.
