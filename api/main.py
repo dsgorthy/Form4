@@ -35,6 +35,7 @@ from api.routers import (
     signals,
     sitemap,
     webhooks,
+    sectors,
 )
 
 ERROR_CODES = {
@@ -219,6 +220,7 @@ app.include_router(paper_trading.router)
 app.include_router(admin_diagnostics.router)
 app.include_router(portfolio.router)
 app.include_router(private_companies.router)
+app.include_router(sectors.router)
 app.include_router(sitemap.router)
 
 

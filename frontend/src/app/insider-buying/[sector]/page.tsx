@@ -1,0 +1,236 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { fetchAPI } from "@/lib/api";
+import { formatCurrency } from "@/lib/format";
+
+/** One sector's insider buying. See ../page.tsx for why these pages exist. */
+export const revalidate = 3600;
+
+interface SectorDetail {
+  sector: string;
+  slug: string;
+  window_days: number;
+  summary: { buy_filings: number; tickers: number; insiders: number; total_value: number | null };
+  top_buys: {
+    trade_id: string; ticker: string; company: string | null;
+    insider_id: string | null; insider_name: string | null; insider_slug: string | null;
+    title: string | null; value: number | null; qty: number | null; price: number | null;
+    filing_date: string; trade_date: string;
+  }[];
+  top_companies: {
+    ticker: string; company: string | null; buy_filings: number;
+    insiders: number; total_value: number | null;
+  }[];
+  top_insiders: {
+    insider_id: string; name: string | null; slug: string | null; is_entity: number;
+    buy_filings: number; tickers: number; total_value: number | null;
+  }[];
+  all_sectors: { sector: string; slug: string; buy_filings: number }[];
+}
+
+async function load(slug: string): Promise<SectorDetail | null> {
+  try {
+    return await fetchAPI<SectorDetail>(`/sectors/${slug}`);
+  } catch {
+    return null;
+  }
+}
+
+export async function generateMetadata(
+  { params }: { params: Promise<{ sector: string }> },
+): Promise<Metadata> {
+  const { sector } = await params;
+  const d = await load(sector);
+  if (!d) return { title: "Sector Not Found", robots: { index: false, follow: true } };
+  const url = `https://form4.app/insider-buying/${d.slug}`;
+  return {
+    title: `${d.sector} Insider Buying — ${d.summary.tickers} Companies`,
+    // The description carries the numbers on purpose: it is what shows in the
+    // result, and a count is the one thing a competing scraper page cannot
+    // claim without having done the work.
+    description:
+      `Open-market insider buying in ${d.sector}: ${d.summary.buy_filings} discretionary ` +
+      `purchase filings by ${d.summary.insiders} insiders across ${d.summary.tickers} ` +
+      `companies in the last ${d.window_days} days, from SEC Form 4 data.`,
+    alternates: { canonical: url },
+    openGraph: { title: `${d.sector} Insider Buying`, url, type: "website" },
+  };
+}
+
+function Section({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="mb-10">
+      <h2 className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A] mb-3">
+        {label}
+      </h2>
+      {children}
+    </div>
+  );
+}
+
+export default async function SectorPage(
+  { params }: { params: Promise<{ sector: string }> },
+) {
+  const { sector } = await params;
+  const d = await load(sector);
+  if (!d) notFound();
+
+  const s = d.summary;
+
+  return (
+    <div className="mx-auto max-w-5xl px-4 py-8">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "CollectionPage",
+            name: `${d.sector} Insider Buying`,
+            url: `https://form4.app/insider-buying/${d.slug}`,
+            description:
+              `${s.buy_filings} discretionary insider purchase filings in ${d.sector} ` +
+              `over the last ${d.window_days} days.`,
+          }),
+        }}
+      />
+
+      <nav className="flex items-center gap-2 text-sm text-[#81819A] mb-6">
+        <Link href="/" className="hover:text-[#8888A0] transition-colors">Dashboard</Link>
+        <span>/</span>
+        <Link href="/insider-buying" className="hover:text-[#8888A0] transition-colors">
+          Insider Buying
+        </Link>
+        <span>/</span>
+        <span className="text-[#E8E8ED]">{d.sector}</span>
+      </nav>
+
+      <h1 className="text-3xl font-bold text-[#E8E8ED] mb-3">
+        {d.sector} Insider Buying
+      </h1>
+      <p className="text-[#8888A0] max-w-3xl mb-6">
+        {s.buy_filings.toLocaleString()} discretionary purchase{" "}
+        {s.buy_filings === 1 ? "filing" : "filings"} by{" "}
+        {s.insiders.toLocaleString()} insiders across{" "}
+        {s.tickers.toLocaleString()} {d.sector} companies in the last{" "}
+        {d.window_days} days, totalling {formatCurrency(s.total_value)}.
+        Scheduled 10b5-1 plan buys, compensation grants and option exercises
+        are excluded.
+      </p>
+
+      {d.top_buys.length > 0 && (
+        <Section label={`Largest ${d.sector} Insider Buys`}>
+          <div className="overflow-x-auto rounded-lg border border-[#2A2A3A]">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[#2A2A3A] bg-[#12121A]">
+                  {["Company", "Insider", "Value", "Traded", "Filed"].map((h, i) => (
+                    <th key={h} className={`px-4 py-2 text-[10px] font-medium uppercase tracking-wider text-[#81819A] ${i >= 2 ? "text-right" : "text-left"}`}>
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {d.top_buys.map((b) => (
+                  <tr key={b.trade_id} className="border-b border-[#2A2A3A]/40 last:border-0">
+                    <td className="px-4 py-2">
+                      <Link href={`/company/${b.ticker}`} className="font-mono font-semibold text-[#E8E8ED] hover:text-blue-400">
+                        {b.ticker}
+                      </Link>
+                      {b.company && (
+                        <div className="text-xs text-[#8888A0] truncate max-w-[220px]">{b.company}</div>
+                      )}
+                    </td>
+                    <td className="px-4 py-2">
+                      {b.insider_id ? (
+                        <Link href={`/insider/${b.insider_slug || b.insider_id}`} className="text-blue-400 hover:text-blue-300">
+                          {b.insider_name || "Unknown"}
+                        </Link>
+                      ) : (
+                        <span className="text-[#8888A0]">{b.insider_name || "Unknown"}</span>
+                      )}
+                      {b.title && <div className="text-xs text-[#81819A] truncate max-w-[200px]">{b.title}</div>}
+                    </td>
+                    <td className="px-4 py-2 text-right font-mono text-[#22C55E]">
+                      <Link href={`/filing/${b.trade_id}`} className="hover:underline">
+                        {formatCurrency(b.value)}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-2 text-right font-mono text-[#81819A]">{b.trade_date}</td>
+                    <td className="px-4 py-2 text-right font-mono text-[#81819A]">{b.filing_date}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Section>
+      )}
+
+      {d.top_companies.length > 0 && (
+        <Section label={`Most-Bought ${d.sector} Companies`}>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {d.top_companies.map((c) => (
+              <Link key={c.ticker} href={`/company/${c.ticker}`}
+                className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/50 p-4 hover:bg-[#2A2A3A]/40 transition-colors">
+                <div className="flex items-baseline justify-between mb-1">
+                  <span className="font-mono font-semibold text-[#E8E8ED]">{c.ticker}</span>
+                  <span className="font-mono text-xs text-[#22C55E]">{formatCurrency(c.total_value)}</span>
+                </div>
+                {c.company && <div className="text-xs text-[#8888A0] truncate">{c.company}</div>}
+                <div className="text-[11px] text-[#81819A] mt-1">
+                  {c.buy_filings} buy {c.buy_filings === 1 ? "filing" : "filings"} · {c.insiders}{" "}
+                  {c.insiders === 1 ? "insider" : "insiders"}
+                </div>
+              </Link>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {d.top_insiders.length > 0 && (
+        <Section label={`Most Active ${d.sector} Buyers`}>
+          {/* Ranked by how much they bought, NOT by how well it worked. A list
+              of people ordered by past returns under a "buying" headline is a
+              tip sheet, and our grades do not predict forward returns. Each
+              insider's accuracy is on their own page with its denominator. */}
+          <p className="text-xs text-[#81819A] mb-3">
+            Ranked by value purchased in the window, not by past performance.
+            Each insider&rsquo;s track record is on their profile.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {d.top_insiders.map((p) => (
+              <Link key={p.insider_id} href={`/insider/${p.slug || p.insider_id}`}
+                className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/50 p-4 hover:bg-[#2A2A3A]/40 transition-colors">
+                <div className="flex items-center gap-2 mb-1 min-w-0">
+                  <span className="text-sm font-medium text-[#E8E8ED] truncate">{p.name || "Unknown"}</span>
+                  {p.is_entity === 1 && (
+                    <span className="shrink-0 rounded px-1 py-0.5 text-[10px] border border-[#81819A]/30 bg-[#81819A]/10 text-[#8888A0]">
+                      Entity
+                    </span>
+                  )}
+                </div>
+                <div className="text-xs text-[#8888A0]">{formatCurrency(p.total_value)} bought</div>
+                <div className="text-[11px] text-[#81819A] mt-1">
+                  {p.buy_filings} buy {p.buy_filings === 1 ? "filing" : "filings"} · {p.tickers}{" "}
+                  {p.tickers === 1 ? "company" : "companies"}
+                </div>
+              </Link>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      <Section label="Other Sectors">
+        <div className="flex flex-wrap gap-2">
+          {d.all_sectors.filter((o) => o.slug !== d.slug).map((o) => (
+            <Link key={o.slug} href={`/insider-buying/${o.slug}`}
+              className="rounded-full border border-[#2A2A3A] bg-[#1A1A26]/50 px-3 py-1.5 text-xs text-[#8888A0] hover:bg-[#2A2A3A]/40 hover:text-[#E8E8ED] transition-colors">
+              {o.sector} <span className="text-[#81819A]">({o.buy_filings})</span>
+            </Link>
+          ))}
+        </div>
+      </Section>
+    </div>
+  );
+}

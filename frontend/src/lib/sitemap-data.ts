@@ -114,3 +114,24 @@ export function renderIndex(sections: string[], lastmod: string): string {
 }
 
 export { BASE };
+
+
+/**
+ * The sector hub children, sourced live rather than hard-coded.
+ *
+ * A sector with no insider buying in the window has no page worth submitting,
+ * and the slug is defined once on the API side (api/routers/sectors.slugify)
+ * so a second copy here could drift into 404s in the sitemap.
+ */
+export async function getSectorPaths(): Promise<string[]> {
+  try {
+    const res = await fetch(`${API}/sectors`, { next: { revalidate: 3600 } });
+    if (!res.ok) return [];
+    const data = (await res.json()) as { sectors?: { slug: string }[] };
+    return (data.sectors || [])
+      .filter((s) => s && s.slug)
+      .map((s) => `${BASE}/insider-buying/${s.slug}`);
+  } catch {
+    return [];
+  }
+}

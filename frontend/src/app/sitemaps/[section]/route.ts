@@ -8,6 +8,7 @@ import {
   isPublishableTicker,
   renderUrlset,
   type SitemapEntry,
+  getSectorPaths,
 } from "@/lib/sitemap-data";
 
 export const revalidate = 3600;
@@ -15,6 +16,12 @@ export const revalidate = 3600;
 const STATIC_PATHS = [
   "/", "/feed", "/leaderboard", "/clusters", "/congress",
   "/explore", "/pricing",
+  // The sector hubs. These are the only static URLs on the site that target
+  // an informational query rather than a product or policy page, so they are
+  // the ones with something to rank for. The eleven children are appended
+  // below from the live sector list rather than typed here, because a sector
+  // that stops having insider buying should stop being submitted.
+  "/insider-buying",
   "/research",
   ...RESEARCH_TYPES.map((t) => `/research/${t}`),
   "/privacy", "/terms", "/disclaimer", "/performance",
@@ -50,6 +57,12 @@ export async function GET(
         lastmod: today,
         changefreq: p === "/" ? "daily" : "weekly",
         priority: p === "/" ? 1.0 : 0.7,
+      })),
+      ...(await getSectorPaths()).map((loc) => ({
+        loc,
+        lastmod: today,
+        changefreq: "daily",
+        priority: 0.8,
       })),
       ...getAllResearch().map((p) => ({
         loc: `${BASE}${p.url}`,
