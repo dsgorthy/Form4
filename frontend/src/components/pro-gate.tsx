@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect } from "react";
+import { posthog } from "@/lib/posthog";
 import { useUser, useAuth } from "@clerk/nextjs";
 import { isPro } from "@/lib/subscription";
 import { GATED_CLASS } from "@/lib/structured-data";
@@ -58,6 +60,37 @@ export function ProGate({
   // the crawler with no accompanying declaration, which is the exact shape the
   // paywall markup exists to distinguish from cloaking. Serving it and marking
   // it is Google's sanctioned pattern; serving it silently is not.
+  // INSTRUMENTED 2026-09-03.
+  //
+  // PostHog captures pageviews, autocapture and `checkout_started` -- but
+  // checkout_started fires ONLY on /pricing, and 2 of 179 visitors reached
+  // /pricing in 90 days. The funnel therefore showed arrivals and (zero)
+  // purchases with nothing in between, and there was no way to tell whether
+  // gates never render or render and get ignored. Those need opposite fixes:
+  // one is placement, the other is the offer.
+  //
+  // THE HOOK IS CALLED UNCONDITIONALLY, above every early return. A first
+  // attempt placed it after `if (cleared) return` / `if (compact) return`,
+  // which violates the rules of hooks -- the call order changes between
+  // renders as a user's auth state resolves. The CONDITION lives inside the
+  // effect instead, which is where it belongs.
+  useEffect(() => {
+    if (!isLoaded) return;              // auth unresolved: not an impression
+    if (requires === "auth" ? !!isSignedIn : isPro(user)) return;  // not gated
+    posthog?.capture?.("gate_shown", {
+      gate: "pro_gate",
+      requires,
+      compact: !!compact,
+      signed_in: !!isSignedIn,
+      watch_entity: watch ?? null,
+      label: label ?? null,
+      path: typeof window !== "undefined" ? window.location.pathname : null,
+    });
+    // Fires once auth has resolved and the gate is genuinely blurring
+    // something. Re-renders from unrelated state are not new impressions.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoaded, isSignedIn]);
+
   if (!isLoaded) {
     return <div className={`${GATED_CLASS} relative`}>{children}</div>;
   }
@@ -107,6 +140,19 @@ export function ProGate({
           </div>
           <Link
             href={ctaHref}
+            onClick={() =>
+              posthog?.capture?.("gate_cta_clicked", {
+                gate: "pro_gate",
+                requires,
+                signed_in: !!isSignedIn,
+                destination: ctaHref,
+                watch_entity: watch ?? null,
+                path:
+                  typeof window !== "undefined"
+                    ? window.location.pathname
+                    : null,
+              })
+            }
             className="inline-flex items-center gap-2 rounded-lg bg-[#3B82F6] px-4 py-2 text-sm font-medium text-white hover:bg-[#2563EB] transition-colors"
           >
             {ctaLabel}
