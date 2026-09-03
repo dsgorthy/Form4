@@ -353,8 +353,14 @@ def main() -> int:
                                 and sect[int(x)] & sect[int(y)]) else 0.0
                         for x, y in sample])
         logger.info("DIAGNOSTIC sector agreement among UNFILTERED behavioural "
-                    "candidates %.1f%% vs random pairs %.1f%% -- the profile "
-                    "space is not noise", hit * 100, base * 100)
+                    "candidates %.1f%% vs random pairs %.1f%% (ratio %.2fx)",
+                    hit * 100, base * 100, (hit / base) if base else 0.0)
+        # MEASURED HONESTLY THIS IS A WEAK EFFECT: 21.0% against a 17.4% base.
+        # An earlier run of this line reported 55.2% and was quoted as "the
+        # profile space is not noise" -- that number came off a partly-filtered
+        # set and overstated it. The co-investment half of the insider list is
+        # strong and countable; the behavioural half is a tie-breaker, which is
+        # why it is capped at N_PROFILE slots and filtered to one sector.
 
     if args.inspect:
         tgt = args.inspect
@@ -400,13 +406,34 @@ def main() -> int:
     crows = []
     for tk in by_ticker:
         picked, seen = [], {tk}
-        for b, n, same in sorted(by_company.get(tk, []), key=lambda r: (-r[1], r[0])):
+        # ONE SCALE FOR BOTH RELATIONS, so a strong sector peer can outrank a
+        # weak co-filer. The first version sorted shared-insider peers first by
+        # count and then ALPHABETICALLY, and since sharing exactly one insider
+        # is extremely common the result for AAPL was ADES, ADSK, AI, AMRS,
+        # AMZN -- an alphabet, three of them with no insider filing in a year.
+        #
+        # Two people on two boards is a real link. ONE person on two boards is
+        # a director with a second seat, which is weaker evidence than "same
+        # sector and actively being bought", so it competes rather than wins.
+        def activity(t):
+            return min(0.15, recent_buys.get(t, 0) / 100.0)
+
+        cands = []
+        for b, n, same in by_company.get(tk, []):
+            if n >= 2:
+                sc_ = 0.60 + min(0.25, n / 20.0) + (0.05 if same else 0.0)
+            else:
+                sc_ = 0.30 + (0.10 if same else 0.0) + activity(b)
+            cands.append((b, sc_, "shared_insiders", n, same, recent_buys.get(b, 0)))
+        for b, sc_, reason, n, same, rb in sorted(cands, key=lambda r: (-r[1], r[0])):
             if b in seen:
                 continue
+            # A peer with one shared insider and no filings in a year is a dead
+            # link wearing a reason.
+            if n < 2 and not rb:
+                continue
             seen.add(b)
-            # Shared insiders dominate; the sector bonus only orders ties.
-            picked.append((b, min(1.0, n / 5.0) * 0.9 + (0.1 if same else 0.0),
-                           "shared_insiders", n, same, recent_buys.get(b, 0)))
+            picked.append((b, sc_, reason, n, same, rb))
             if len(picked) >= COMPANY_TOP_K:
                 break
         # Fill the rest with sector peers that are actually being bought. A
@@ -417,7 +444,8 @@ def main() -> int:
                 if b in seen or not recent_buys.get(b):
                     continue
                 seen.add(b)
-                picked.append((b, 0.05, "sector_peer", 0, True, recent_buys.get(b, 0)))
+                picked.append((b, 0.10 + activity(b), "sector_peer", 0, True,
+                               recent_buys.get(b, 0)))
                 if len(picked) >= COMPANY_TOP_K:
                     break
         for rank, r in enumerate(picked, 1):
