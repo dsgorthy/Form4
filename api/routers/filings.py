@@ -47,9 +47,6 @@ router = APIRouter(prefix="/api/v1/filings", tags=["filings"])
 #: page count costs a reader nothing.
 _COUNT_TTL_S = 900
 
-#: Stop counting past this many groups and report it as a floor. Exact totals
-#: on a 7.1M-row table are expensive and nobody pages to result 40,000.
-COUNT_CAP = 5000
 _COUNT_CACHE_MAX = 256
 _count_cache: dict[str, tuple[float, int]] = {}
 
@@ -322,10 +319,18 @@ def list_filings(
                 # this and the ORDER BY:
                 #   idx_trades_effective_ts_meaningful
                 #
-                # The cap is belt and braces: a caller who supplies a date
-                # filter gets `date_window` empty, and counting ten years of
-                # groups to render one page is never worth it. Past the cap the
-                # UI says "5,000+", which is what every large product does.
+                # NO INNER LIMIT. A `LIMIT 5000` was added here as belt and
+                # braces and made this 660x SLOWER: 8,262ms against 12.5ms.
+                #
+                # The limit made an ordered index scan look attractive to the
+                # planner -- it could stop early -- so it chose
+                # idx_trades_ticker to get pre-sorted output for the GROUP BY,
+                # at an estimated cost of 20.7M, instead of a bitmap scan on
+                # the date index. Removing it restores the Parallel Bitmap Heap
+                # Scan on idx_trades_effective_ts_meaningful.
+                #
+                # A cap is unnecessary anyway now the count is windowed: the
+                # 14-day window yields ~1,832 groups, which counts in 12ms.
                 row = conn.execute(
                     f"""
                     SELECT COUNT(*) AS cnt FROM (
@@ -335,7 +340,6 @@ def list_filings(
                         WHERE {where_clause}
                         {date_window}
                         GROUP BY COALESCE(t.txn_group_id::text, t.accession), t.ticker, t.trade_type
-                        LIMIT {COUNT_CAP}
                     ) s
                     """,
                     params,
