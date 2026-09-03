@@ -9,6 +9,7 @@ import { formatCurrency, formatPercent, isReturnUnavailable, unavailableReason }
 import { InsiderGradeBadge } from "@/components/insider-grade-badge";
 import { FilingSummary } from "@/components/entity-summary";
 import { FollowCta } from "@/components/follow-cta";
+import { PendingFollow } from "@/components/pending-follow";
 import { filingJsonLd, jsonLdScript } from "@/lib/structured-data";
 import { Badge } from "@/components/ui/badge";
 import { TickerDisplay, companyHref } from "@/components/ui/ticker-display";
@@ -691,10 +692,12 @@ export default async function FilingPage({ params }: { params: Promise<{ id: str
           free and must stay true. Filing pages are the long-tail search entry
           points, so this is where most first visits land and the only place
           many of them see an ask at all. */}
+      <PendingFollow />
       <FollowCta
         entity={filing.ticker}
         detail={`Every new ${filing.ticker} Form 4, within minutes of it hitting EDGAR`}
         marksGate={false}
+        follow={{ kind: "ticker", id: filing.ticker }}
       />
     </div>
   );

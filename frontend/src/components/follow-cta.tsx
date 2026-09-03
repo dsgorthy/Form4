@@ -1,6 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect } from "react";
+import { usePathname } from "next/navigation";
+import { posthog } from "@/lib/posthog";
 import { useAuth, useUser } from "@clerk/nextjs";
 import { isPro } from "@/lib/subscription";
 import { GATED_CLASS } from "@/lib/structured-data";
@@ -33,6 +36,7 @@ export function FollowCta({
   entity,
   detail,
   marksGate = true,
+  follow,
 }: {
   /** What is being followed, as it should read in a sentence: "NVDA", "Tim Cook". */
   entity: string;
@@ -48,18 +52,61 @@ export function FollowCta({
    * does not exist.
    */
   marksGate?: boolean;
+  /**
+   * The thing to actually follow, as a stable identifier — NOT the display
+   * name in `entity`.
+   *
+   * Without this the CTA is a promise it cannot keep. A visitor arriving from
+   * search reads "get alerted the next time Erez Chimovits files", clicks,
+   * creates an account, and lands in onboarding with the insider discarded:
+   * they asked for one specific thing and received a form. Whatever the
+   * sign-up rate, that account's retention value is near zero, because the
+   * reason it was created was never acted on.
+   *
+   * Carried through sign-up as `?follow=insider:1234` and completed on return.
+   */
+  follow?: { kind: "insider" | "ticker"; id: string | number };
 }) {
   const { isSignedIn, isLoaded } = useAuth();
   const { user } = useUser();
+  const pathname = usePathname();
+
+  const pro = isPro(user);
+  const token = follow ? `${follow.kind}:${follow.id}` : null;
+
+  // HOOK FIRST, unconditionally, above every early return. The condition lives
+  // inside. Placing it after `if (!isLoaded || isPro(user)) return null` would
+  // change hook order between renders as Clerk resolves — the same rules-of-
+  // hooks mistake made in pro-gate the same day.
+  useEffect(() => {
+    if (!isLoaded || pro) return;
+    posthog?.capture?.("follow_cta_shown", {
+      entity,
+      signed_in: !!isSignedIn,
+      has_follow_target: !!token,
+      path: pathname ?? null,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoaded, isSignedIn, pro]);
 
   // Render nothing until Clerk resolves. Flashing an upsell at a paying
   // subscriber for a beat is worse than showing the CTA a beat late.
-  if (!isLoaded || isPro(user)) return null;
+  if (!isLoaded || pro) return null;
 
-  const href = isSignedIn ? "/pricing" : "/sign-up";
-  const cta = isSignedIn ? "See the full track record" : `Follow ${entity}`;
+  // A signed-in free account is NOT asked for money here. They already have
+  // following; selling them what they have is noise, and the relationship is
+  // too thin to pitch Pro on an entity page. Pro is pitched later, by email,
+  // to someone already receiving something useful.
+  const href = isSignedIn
+    ? (token ? `${pathname}?follow=${encodeURIComponent(token)}` : "/pricing")
+    : token
+      ? `/sign-up?follow=${encodeURIComponent(token)}&next=${encodeURIComponent(pathname ?? "/")}`
+      : "/sign-up";
+  const cta = isSignedIn
+    ? (token ? `Follow ${entity}` : "See the full track record")
+    : `Follow ${entity}`;
   const headline = isSignedIn
-    ? `Go deeper on ${entity}`
+    ? (token ? `Get alerted the next time ${entity} files` : `Go deeper on ${entity}`)
     : `Get alerted the next time ${entity} files`;
   const sub = isSignedIn
     ? `${detail ? `${detail}. ` : ""}Following ${entity} is already included with your account.`
@@ -75,6 +122,15 @@ export function FollowCta({
       </div>
       <Link
         href={href}
+        onClick={() =>
+          posthog?.capture?.("follow_cta_clicked", {
+            entity,
+            signed_in: !!isSignedIn,
+            follow_target: token,
+            destination: href,
+            path: pathname ?? null,
+          })
+        }
         className="inline-flex shrink-0 items-center justify-center rounded-lg bg-[#3B82F6] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#2563EB]"
       >
         {cta}

@@ -17,6 +17,7 @@ import type { InsiderProfile, InsiderCompany, Filing, PaginatedResponse } from "
 import { insiderPath, idFromSlug } from "@/lib/insider-url";
 import { InsiderSummary } from "@/components/entity-summary";
 import { FollowCta } from "@/components/follow-cta";
+import { PendingFollow } from "@/components/pending-follow";
 import { GATED_CLASS, insiderJsonLd, jsonLdScript } from "@/lib/structured-data";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
@@ -591,9 +592,11 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
               SPY over the same windows.
             </p>
           </div>
+          <PendingFollow />
           <FollowCta
             entity={profile.name}
             detail="Win rate, average move and alpha across 7/30/90-day windows"
+            follow={{ kind: "insider", id }}
           />
         </div>
       )}
