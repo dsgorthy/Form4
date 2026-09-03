@@ -297,10 +297,14 @@ def main() -> int:
         # Prefer same-sector behavioural neighbours; fall back to the rest only
         # if there are not enough, so coverage never collapses on the insiders
         # whose tickers we have no sector for.
+        # NO FALLBACK. An earlier version padded up to N_PROFILE when too
+        # few same-sector neighbours existed, and the padding is exactly what
+        # produced the bad rows -- a small-town bank director as the eighth
+        # "related insider" on a biotech investor's page. TOP_K is a maximum,
+        # not a quota; a five-row list that is all defensible is worth more
+        # than an eight-row list a reader stops trusting at row eight.
         pa = primary.get(a)
-        same_sec = [r for r in scored_pf if pa and primary.get(r[0]) == pa]
-        if len(same_sec) >= N_PROFILE:
-            scored_pf = same_sec
+        scored_pf = [r for r in scored_pf if pa and primary.get(r[0]) == pa]
         # Co-investment first, capped, then behavioural fills the rest. The cap
         # is what stops a large company's roster from being the entire list.
         picked = scored_co[:N_CO] + scored_pf[:max(N_PROFILE, TOP_K - min(len(scored_co), N_CO))]
