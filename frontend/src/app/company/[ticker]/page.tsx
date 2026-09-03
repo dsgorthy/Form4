@@ -5,6 +5,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { fetchAPI } from "@/lib/api";
 import { fetchAPIAuth } from "@/lib/auth";
+import { RelatedCompanies, type RelatedCompany } from "@/components/related-companies";
 import { ProGate } from "@/components/pro-gate";
 import { FollowCta } from "@/components/follow-cta";
 import { formatCurrency } from "@/lib/format";
@@ -112,6 +113,7 @@ export default async function CompanyPage({ params }: { params: Promise<{ ticker
   let overview: CompanyOverview;
   let trades: PaginatedResponse<Filing>;
 
+  let related: { related: RelatedCompany[] } | null = null;
   try {
     [overview, trades] = await Promise.all([
       fetchAPIAuth<CompanyOverview>(`/companies/${ticker}`),
@@ -124,6 +126,12 @@ export default async function CompanyPage({ params }: { params: Promise<{ ticker
   // Fetch congress trades (non-blocking — page still renders if this fails)
   let congressData: { ticker: string; trades: unknown[]; total: number; limit: number; offset: number } | null = null;
   try {
+    // Best effort: a navigation section must never cost the reader the page.
+    try {
+      related = await fetchAPIAuth<{ related: RelatedCompany[] }>(
+        `/companies/${ticker}/related`,
+      );
+    } catch {}
     congressData = await fetchAPIAuth<{
       ticker: string;
       trades: unknown[];
@@ -300,6 +308,8 @@ export default async function CompanyPage({ params }: { params: Promise<{ ticker
           </Link>
         )}
       </div>
+
+      <RelatedCompanies items={related?.related ?? []} ticker={overview.ticker} />
     </div>
   );
 }

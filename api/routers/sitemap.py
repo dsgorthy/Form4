@@ -15,7 +15,7 @@ router = APIRouter(prefix="/api/v1/sitemap", tags=["sitemap"])
 
 @router.get("/urls")
 def sitemap_urls(
-    limit_insiders: int = Query(default=10000, ge=100, le=50000),
+    limit_insiders: int = Query(default=45000, ge=100, le=50000),
     filing_days: int = Query(default=90, ge=7, le=365),
 ) -> dict:
     """Return tickers, insider IDs, and recent filing IDs for sitemap generation.
@@ -75,6 +75,19 @@ def sitemap_urls(
                  -- buy_count before insider_id so the unscored insiders we do
                  -- include are the most active ones rather than the
                  -- lowest-numbered.
+                 -- RAISED 10,000 -> 45,000 on 2026-09-03. 42,195 insiders
+                 -- have two or more discretionary buy FILINGS, so the old cap
+                 -- submitted 24% of the pages that qualify under our own rule
+                 -- and the ordering decided the rest. It was not a staleness
+                 -- problem: measured the same day, only 4 qualifying insiders
+                 -- were missing from insider_track_records entirely, so the
+                 -- table is being refreshed -- the cap was simply the binding
+                 -- constraint.
+                 --
+                 -- Still under the 50,000-URL sitemap limit, and the client
+                 -- chunks at CHUNK anyway. Deliberately not unbounded: the
+                 -- buy_count >= 2 floor is what keeps single-filing stubs out,
+                 -- and that floor matters more than the ceiling.
                  ORDER BY tr.score DESC NULLS LAST, tr.buy_count DESC, tr.insider_id
                  LIMIT ?
             """, (limit_insiders,)).fetchall()

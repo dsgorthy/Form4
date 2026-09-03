@@ -58,7 +58,7 @@ interface SitemapData {
 export async function fetchSitemapData(): Promise<SitemapData> {
   try {
     const resp = await fetch(
-      `${API}/sitemap/urls?limit_insiders=10000&filing_days=90`,
+      `${API}/sitemap/urls?limit_insiders=45000&filing_days=90`,
       { next: { revalidate: 3600 } },
     );
     if (resp.ok) return await resp.json();
