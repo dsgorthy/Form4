@@ -110,3 +110,31 @@ def test_signed_in_free_accounts_are_not_sent_to_pricing_when_they_can_follow():
         "the signed-in branch ignores the follow target and sends every free "
         "account to /pricing"
     )
+
+
+def test_the_follow_endpoint_accepts_the_identifier_a_page_actually_has():
+    """Numeric insider ids are deliberately kept off the wire.
+
+    api/id_encoding.py rewrites them, so /insider/erez-chimovits knows the slug
+    and the API returns the encoded "pcnjzz". Neither is an integer. The
+    endpoint was `insider_id: int`, which made the whole follow-from-a-landing
+    flow impossible to complete -- the client sent the only identifier it had
+    and FastAPI rejected it.
+    """
+    src = (REPO / "api/routers/notifications.py").read_text(encoding="utf-8")
+    model = src[src.index("class InsiderFollow"):]
+    model = model[:model.index("@router")]
+    assert "str" in model, (
+        "InsiderFollow rejects strings again. A page holds a slug or an "
+        "encoded id, never the integer."
+    )
+    assert "resolve_insider_id" in src, \
+        "the endpoint no longer resolves slugs/encoded ids to a numeric id"
+
+
+def test_the_client_does_not_coerce_the_identifier_to_a_number():
+    src = PENDING.read_text(encoding="utf-8")
+    assert "Number(id)" not in src, (
+        "Number() on a slug or encoded id is NaN, and the follow fails "
+        "silently -- the visitor is told nothing went wrong"
+    )

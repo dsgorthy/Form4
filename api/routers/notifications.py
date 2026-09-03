@@ -372,7 +372,22 @@ def unsubscribe(user_id: str = Query(...), token: str = Query(...)) -> dict:
 
 
 class InsiderFollow(BaseModel):
-    insider_id: int
+    """The insider to follow, by whatever identifier the caller has.
+
+    ACCEPTS A STRING, NOT AN int. Numeric insider ids are deliberately kept off
+    the wire -- api/id_encoding.py rewrites them, so a page at
+    /insider/erez-chimovits knows the slug "erez-chimovits" and the API returns
+    the encoded "pcnjzz". Neither is an integer.
+
+    This was `insider_id: int`, which made the follow-from-a-landing-page flow
+    impossible to complete: the client sent the only identifier it had, FastAPI
+    rejected it, and the visitor who asked to be alerted got nothing. Caught
+    while writing the manual test steps, before anyone hit it.
+
+    Resolution reuses resolve_insider_id from the insiders router, which is the
+    one place that knows how slugs, encoded ids and raw ids relate.
+    """
+    insider_id: str | int
 
 
 @router.get("/watchlist/insiders")
@@ -408,10 +423,15 @@ def follow_insider(
     user: UserContext = Depends(require_auth),
 ) -> dict:
     """Follow an insider. Alerts default to meaningful filings only."""
+    from api.routers.insiders import resolve_insider_id
+
     with get_db() as iconn:
+        resolved = resolve_insider_id(iconn, str(body.insider_id))
+        if resolved is None:
+            raise HTTPException(status_code=404, detail="Insider not found")
         row = iconn.execute(
             "SELECT COALESCE(display_name, name) AS name FROM insiders "
-            "WHERE insider_id = ?", (body.insider_id,),
+            "WHERE insider_id = ?", (resolved,),
         ).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Insider not found")
@@ -438,10 +458,10 @@ def follow_insider(
         _ensure_preferences(conn, user.user_id)
         conn.execute(
             "INSERT OR IGNORE INTO watchlist (user_id, insider_id) VALUES (?, ?)",
-            (user.user_id, body.insider_id),
+            (user.user_id, resolved),
         )
         conn.commit()
-    return {"ok": True, "insider_id": body.insider_id, "name": row["name"]}
+    return {"ok": True, "insider_id": resolved, "name": row["name"]}
 
 
 @router.delete("/watchlist/insiders/{insider_id}")

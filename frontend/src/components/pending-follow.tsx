@@ -65,8 +65,13 @@ export function PendingFollow() {
               "Content-Type": "application/json",
               ...(jwt ? { Authorization: `Bearer ${jwt}` } : {}),
             },
+            // Sent AS-IS, never Number(). Numeric insider ids are kept off
+            // the wire on purpose (api/id_encoding.py), so what a page holds
+            // is a slug like "erez-chimovits" or an encoded "pcnjzz" --
+            // Number() on either is NaN, and the follow silently fails. The
+            // endpoint resolves whichever form arrives.
             body: JSON.stringify(
-              kind === "insider" ? { insider_id: Number(id) } : { ticker: id },
+              kind === "insider" ? { insider_id: id } : { ticker: id },
             ),
           },
         );
