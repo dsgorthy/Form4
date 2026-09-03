@@ -21,6 +21,28 @@
 # reasons below for the only shapes that qualify.
 
 dagster:
+  - name: quality-notrend
+    schedule: "*/10 6-13 * * 1-5"
+    replaced: [com.openclaw.quality-notrend]
+    note: >
+      Was a long-lived daemon, which is why it outlasted every other
+      migration: Dagster schedules jobs, it does not host a process that
+      sleeps. Two things made it convertible without a rewrite. cw_runner
+      already had --once, and dedup is DB-backed (used_trade_ids from
+      strategy_portfolio, held_tickers from open positions), so a scan is
+      idempotent across process boundaries and cannot re-alert on something it
+      already alerted on.
+
+      The daemon shape also hid an outage: all three were unloaded 2026-08-26
+      for the SEC reload and nobody noticed for SEVEN DAYS, because a daemon
+      that is gone looks exactly like a daemon that is idle. A schedule that
+      stops firing is visible in Dagster.
+  - name: quality-momentum
+    schedule: "*/10 6-13 * * 1-5"
+    replaced: [com.openclaw.quality-momentum]
+  - name: reversal-dip
+    schedule: "*/10 6-13 * * 1-5"
+    replaced: [com.openclaw.reversal-dip]
   - name: form4_pipeline
     schedule: "30 17 * * 1-5"
     replaced: [daily-prices, backfill-returns, refresh-features, compute-signals]
@@ -91,15 +113,7 @@ pending:
       moves, the threshold check moves with it.
   - name: strategy-simulator
     schedule: "07:00"
-  - name: quality-notrend
-    schedule: "long-lived daemon"
-    note: "Unloaded 2026-08-26 for the SEC reload. Resume before migrating."
-  - name: quality-momentum
-    schedule: "long-lived daemon"
-    note: "Unloaded 2026-08-26 for the SEC reload. Resume before migrating."
-  - name: reversal-dip
-    schedule: "long-lived daemon"
-    note: "Unloaded 2026-08-26 for the SEC reload. Resume before migrating."
+
 
 # Removed 2026-08-26, not migrated — both fired daily against a script that
 # does not exist, and neither has a single row in pipeline_runs.

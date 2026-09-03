@@ -188,11 +188,67 @@ def ops_pit_shadow(context: AssetExecutionContext) -> Output:
 # Times are the plists' times, unchanged. Moving the clock and the scheduler in
 # one step would make a regression impossible to attribute.
 
+# ── Strategy runners ───────────────────────────────────────────────────────
+#
+# These were the last three launchd daemons, and the reason they were never
+# migrated is that they are DAEMONS, not crons: cw_runner's main path is a
+# `while True` with adaptive sleeps (60s/300s/1800s/3600s by market state).
+# Dagster schedules jobs; it does not host a process that sleeps.
+#
+# Two things make the conversion safe rather than a rewrite:
+#
+#   1. cw_runner ALREADY has --once, which runs one cycle through run_daily()
+#      and exits. No refactor of the loop was needed.
+#   2. Dedup is DB-BACKED, not in-memory:
+#           used_trade_ids = SELECT trade_id FROM strategy_portfolio
+#                             WHERE strategy = ?
+#      plus held_tickers from open positions. A scan is therefore idempotent
+#      ACROSS PROCESS BOUNDARIES -- running it fresh every few minutes reaches
+#      the same decisions a daemon would, and cannot re-alert on something it
+#      already alerted on. Had dedup lived in process memory this migration
+#      would have double-alerted on every tick.
+#
+# Scheduled on market hours only. The daemon spent nights and weekends asleep
+# in a loop; a schedule simply does not fire, which is the same behaviour
+# without a process to die quietly. That matters: these three were unloaded on
+# 2026-08-26 for the SEC reload and nobody noticed for SEVEN DAYS, because a
+# daemon that is gone looks exactly like a daemon that is idle.
+
+_STRATS = "/Users/derekg/trading-framework/strategies/cw_strategies/configs"
+
+
+def _runner(context: AssetExecutionContext, name: str) -> Output:
+    return _run(context, _wrapped(f"cw_runner_{name}", BREW,
+                                  f"{REPO}/strategies/cw_strategies/cw_runner.py",
+                                  "--config", f"{_STRATS}/{name}.yaml",
+                                  "--once"), timeout=900)
+
+
+@asset(group_name=GROUP, compute_kind="python",
+       description="A-List Buys scan (was com.openclaw.quality-notrend, a daemon).")
+def ops_runner_quality_notrend(context: AssetExecutionContext) -> Output:
+    return _runner(context, "quality_notrend")
+
+
+@asset(group_name=GROUP, compute_kind="python",
+       description="Insider Breakout scan (was com.openclaw.quality-momentum, a daemon).")
+def ops_runner_quality_momentum(context: AssetExecutionContext) -> Output:
+    return _runner(context, "quality_momentum")
+
+
+@asset(group_name=GROUP, compute_kind="python",
+       description="Insider Dip Buys scan (was com.openclaw.reversal-dip, a daemon).")
+def ops_runner_reversal_dip(context: AssetExecutionContext) -> Output:
+    return _runner(context, "reversal_dip")
+
+
 form4_ops_assets = [
     ops_enrich_narratives, ops_breaking_signal, ops_trial_emails,
     ops_ceowatcher_reader, ops_monday_paper_monitor, ops_alpaca_reconcile,
     ops_thesis_monitor, ops_post_deploy_audit, ops_daily_summary,
     ops_daily_content, ops_strategy_health, ops_pit_shadow,
+    ops_runner_quality_notrend, ops_runner_quality_momentum,
+    ops_runner_reversal_dip,
 ]
 
 PT = "America/Los_Angeles"
@@ -209,6 +265,12 @@ def _sched(name: str, assets: list, cron: str) -> ScheduleDefinition:
 
 
 form4_ops_schedules = [
+    # Every 10 minutes, market hours, weekdays only. The daemon polled at
+    # 60s-3600s depending on state; 10 minutes is inside the tightest of those
+    # and cheap, because a scan that finds nothing new exits in seconds.
+    _sched("ops_runner_notrend",    [ops_runner_quality_notrend],  "*/10 6-13 * * 1-5"),
+    _sched("ops_runner_momentum",   [ops_runner_quality_momentum], "*/10 6-13 * * 1-5"),
+    _sched("ops_runner_dip",        [ops_runner_reversal_dip],     "*/10 6-13 * * 1-5"),
     _sched("ops_narratives_5min",   [ops_enrich_narratives],     "*/5 * * * *"),
     _sched("ops_breaking_30min",    [ops_breaking_signal],       "*/30 * * * *"),
     _sched("ops_trial_emails_6h",   [ops_trial_emails],          "0 */6 * * *"),
