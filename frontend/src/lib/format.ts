@@ -1,11 +1,15 @@
 export function formatCurrency(value: number | null | undefined): string {
   if (value == null) return "\u2014";
+  // The minus goes OUTSIDE the currency symbol. Interpolating a negative
+  // number straight after "$" produced "$-715" on the filing page's P&L
+  // column — not a format anyone writes.
   const abs = Math.abs(value);
-  if (abs >= 1_000_000_000_000) return `$${(value / 1_000_000_000_000).toFixed(1)}T`;
-  if (abs >= 1_000_000_000) return `$${(value / 1_000_000_000).toFixed(1)}B`;
-  if (abs >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
-  if (abs >= 1_000) return `$${(value / 1_000).toFixed(0)}K`;
-  return `$${value.toFixed(0)}`;
+  const sign = value < 0 ? "-" : "";
+  if (abs >= 1_000_000_000_000) return `${sign}$${(abs / 1_000_000_000_000).toFixed(1)}T`;
+  if (abs >= 1_000_000_000) return `${sign}$${(abs / 1_000_000_000).toFixed(1)}B`;
+  if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(1)}M`;
+  if (abs >= 1_000) return `${sign}$${(abs / 1_000).toFixed(0)}K`;
+  return `${sign}$${abs.toFixed(0)}`;
 }
 
 export function formatPercent(value: number | null | undefined, decimals = 1): string {

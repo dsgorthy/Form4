@@ -124,7 +124,12 @@ export default async function SectorPage(
               <thead>
                 <tr className="border-b border-[#2A2A3A] bg-[#12121A]">
                   {["Company", "Insider", "Value", "Traded", "Filed"].map((h, i) => (
-                    <th key={h} className={`px-4 py-2 text-[10px] font-medium uppercase tracking-wider text-[#81819A] ${i >= 2 ? "text-right" : "text-left"}`}>
+                    <th
+                      key={h}
+                      className={`px-2 py-2 text-[10px] font-medium uppercase tracking-wider text-[#81819A] sm:px-4 ${
+                        i >= 2 ? "text-right" : "text-left"
+                      } ${i >= 3 ? "hidden md:table-cell" : ""}`}
+                    >
                       {h}
                     </th>
                   ))}
@@ -133,31 +138,39 @@ export default async function SectorPage(
               <tbody>
                 {d.top_buys.map((b) => (
                   <tr key={b.trade_id} className="border-b border-[#2A2A3A]/40 last:border-0">
-                    <td className="px-4 py-2">
+                    <td className="px-2 py-2 sm:px-4">
                       <Link href={`/company/${b.ticker}`} className="font-mono font-semibold text-[#E8E8ED] hover:text-blue-400">
                         {b.ticker}
                       </Link>
                       {b.company && (
-                        <div className="text-xs text-[#8888A0] truncate max-w-[220px]">{b.company}</div>
+                        <div className="max-w-[8rem] truncate text-xs text-[#8888A0] sm:max-w-[220px]">
+                          {b.company}
+                        </div>
                       )}
                     </td>
-                    <td className="px-4 py-2">
-                      {b.insider_id ? (
-                        <Link href={`/insider/${b.insider_slug || b.insider_id}`} className="text-blue-400 hover:text-blue-300">
-                          {b.insider_name || "Unknown"}
-                        </Link>
-                      ) : (
-                        <span className="text-[#8888A0]">{b.insider_name || "Unknown"}</span>
+                    <td className="px-2 py-2 sm:px-4">
+                      <div className="max-w-[8rem] truncate sm:max-w-[220px]">
+                        {b.insider_id ? (
+                          <Link href={`/insider/${b.insider_slug || b.insider_id}`} className="text-blue-400 hover:text-blue-300">
+                            {b.insider_name || "Unknown"}
+                          </Link>
+                        ) : (
+                          <span className="text-[#8888A0]">{b.insider_name || "Unknown"}</span>
+                        )}
+                      </div>
+                      {b.title && (
+                        <div className="max-w-[8rem] truncate text-xs text-[#81819A] sm:max-w-[200px]">
+                          {b.title}
+                        </div>
                       )}
-                      {b.title && <div className="text-xs text-[#81819A] truncate max-w-[200px]">{b.title}</div>}
                     </td>
-                    <td className="px-4 py-2 text-right font-mono text-[#22C55E]">
+                    <td className="whitespace-nowrap px-2 py-2 text-right font-mono text-[#22C55E] sm:px-4">
                       <Link href={`/filing/${b.trade_id}`} className="hover:underline">
                         {formatCurrency(b.value)}
                       </Link>
                     </td>
-                    <td className="px-4 py-2 text-right font-mono text-[#81819A]">{b.trade_date}</td>
-                    <td className="px-4 py-2 text-right font-mono text-[#81819A]">{b.filing_date}</td>
+                    <td className="hidden px-4 py-2 text-right font-mono text-[#81819A] md:table-cell">{b.trade_date}</td>
+                    <td className="hidden px-4 py-2 text-right font-mono text-[#81819A] md:table-cell">{b.filing_date}</td>
                   </tr>
                 ))}
               </tbody>

@@ -91,7 +91,7 @@ export default async function InsiderBuyingHub() {
                 <span className="text-lg font-semibold text-[#E8E8ED]">
                   {s.sector}
                 </span>
-                <span className="font-mono text-sm text-[#22C55E]">
+                <span className="font-mono text-sm text-[#8A8A9E]">
                   {formatCurrency(s.total_value)}
                 </span>
               </div>

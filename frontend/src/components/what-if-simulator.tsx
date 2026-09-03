@@ -61,7 +61,7 @@ export function WhatIfSimulator({ tradeId }: { tradeId: string }) {
   return (
     <div className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/50 p-5">
       <div className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A] mb-2">
-        What If You Followed This Trade?
+        {isSell ? "What If You Had Bought Instead?" : "What If You Followed This Trade?"}
       </div>
       <div className="text-xs text-[#8888A0] mb-4">
         Entry at market open on the first trading day after the SEC filing became public.
@@ -79,7 +79,11 @@ export function WhatIfSimulator({ tradeId }: { tradeId: string }) {
       </div>
 
       {/* Stock performance table */}
-      <div className="text-xs text-[#81819A] mb-2">Stock Performance (hypothetical $10K position)</div>
+      <div className="text-xs text-[#81819A] mb-2">
+        {isSell
+          ? "Stock performance for a $10K position bought when they sold"
+          : "Stock performance (hypothetical $10K position)"}
+      </div>
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
@@ -106,7 +110,9 @@ export function WhatIfSimulator({ tradeId }: { tradeId: string }) {
                   <td className={`text-right py-1.5 px-2 ${h.alpha != null ? (isSell ? (h.alpha < 0 ? "text-[#22C55E]" : "text-[#EF4444]") : (h.alpha > 0 ? "text-[#22C55E]" : "text-[#EF4444]")) : "text-[#81819A]"}`}>
                     {h.alpha != null ? `${h.alpha > 0 ? "+" : ""}${h.alpha}%` : "\u2014"}
                   </td>
-                  <td className={`text-right py-1.5 pl-2 ${isGood ? "text-[#22C55E]" : "text-[#EF4444]"}`}>
+                  {/* Coloured by its own SIGN, never by isGood. Money lost is
+                      red even when the insider was right to sell. */}
+                  <td className={`text-right py-1.5 pl-2 ${h.pnl_10k >= 0 ? "text-[#22C55E]" : "text-[#EF4444]"}`}>
                     {h.pnl_10k > 0 ? "+" : ""}{formatCurrency(h.pnl_10k)}
                   </td>
                 </tr>

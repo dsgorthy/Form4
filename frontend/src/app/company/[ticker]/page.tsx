@@ -237,7 +237,7 @@ export default async function CompanyPage({ params }: { params: Promise<{ ticker
       {/* Insider Roster — names + grades are the most valuable indexable
           content on the page, so it stays. */}
       <div className="mb-8">
-        <SectionLabel>Insider Roster ({overview.insiders.length})</SectionLabel>
+        <SectionLabel>Insider Roster — {overview.insiders.length} filers</SectionLabel>
         {/* Names, titles, trade counts and dollar values are public: they are
             the indexable substance of this page and what every competitor
             publishes freely. Only the scoring is gated, and the top insider's
