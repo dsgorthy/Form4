@@ -280,7 +280,26 @@ def list_filings(
         date_window = ""
     elif not has_date_filter and rows_needed <= 1000:
         days_needed = max((rows_needed // 4) + 7, 14)
-        date_window = f"AND COALESCE(t.filed_at, t.filing_date) >= date('now', '-{days_needed} days')"
+        # WRITTEN AS AN OR, NOT A COALESCE, SO IT CAN USE AN INDEX.
+        #
+        # `COALESCE(t.filed_at, t.filing_date) >= X` is the obvious form and it
+        # is unindexable in practice. Postgres estimated 705,719 rows for the
+        # 14-day window when the true count is 6,069 -- a 116x overestimate --
+        # so a bitmap scan looked worse than a sequential one and it scanned
+        # 1,653,440 buffers to return 25 rows. An expression index on exactly
+        # that COALESCE, with statistics raised to 2000, did not shift the
+        # estimate; forcing enable_seqscan=off proved the index would have cost
+        # 4,492 buffers, so the plan was wrong rather than the index missing.
+        #
+        # Split into a disjunction on the two underlying columns and both
+        # branches are ordinary indexable predicates. filed_at is populated on
+        # ~98% of rows, so the second branch is tiny. Semantically identical to
+        # the COALESCE; 6,525 buffers instead of 1,653,440.
+        date_window = (
+            f"AND (t.filed_at >= date('now', '-{days_needed} days') "
+            f"OR (t.filed_at IS NULL "
+            f"AND t.filing_date >= date('now', '-{days_needed} days')))"
+        )
     else:
         date_window = ""
 
