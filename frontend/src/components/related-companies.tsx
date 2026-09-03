@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { SectionLabel } from "@/components/ui/section-label";
 
 /**
  * "Related companies" — topical navigation for the second-most-crawled surface.
@@ -49,39 +50,38 @@ export function RelatedCompanies({
 
   return (
     <div className="mt-10">
-      <div className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A] mb-2">
-        Related Companies
-      </div>
-      <p className="text-xs text-[#81819A] mb-4">
+      {/* A ruled list, matching related-insiders. These two sit at the bottom
+          of sibling pages and should not be two different shapes. */}
+      <SectionLabel>Related Companies</SectionLabel>
+      <p className="mb-1 max-w-[62ch] text-xs text-[#63636F]">
         Companies that share insiders with {ticker}, and sector peers with
         recent insider buying. Related by who files, not by how the stocks move.
       </p>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+      <ul className="m-0 list-none p-0">
         {items.map((r) => (
-          <Link
-            key={r.ticker}
-            href={`/company/${r.ticker}`}
-            className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/50 p-4 hover:bg-[#2A2A3A]/40 transition-colors"
-          >
-            <div className="flex items-center justify-between gap-2 mb-1 min-w-0">
-              <span className="font-mono font-semibold text-[#E8E8ED]">
+          <li key={r.ticker} className="border-b border-[#1D1D26] last:border-0">
+            <Link
+              href={`/company/${r.ticker}`}
+              className="flex items-baseline gap-4 py-3 transition-colors hover:bg-[#14141C]/60"
+            >
+              <span className="w-[4.5rem] shrink-0 font-mono font-semibold text-[#E8E8ED]">
                 {r.ticker}
               </span>
-              <span className="text-[11px] text-[#81819A] shrink-0">
+              <span className="min-w-0 flex-1 truncate text-[13.5px] text-[#8A8A9E]">
+                {r.company || "\u2014"}
+              </span>
+              <span className="hidden shrink-0 text-[13px] text-[#8A8A9E] sm:block">
                 {reasonLine(r)}
               </span>
-            </div>
-            {r.company && (
-              <div className="text-xs text-[#8888A0] truncate">{r.company}</div>
-            )}
-            <div className="text-[11px] text-[#81819A] mt-1">
-              {r.recent_buys > 0
-                ? `${r.recent_buys} insider ${r.recent_buys === 1 ? "buy" : "buys"} in the last year`
-                : "No insider buys in the last year"}
-            </div>
-          </Link>
+              <span className="w-[8rem] shrink-0 text-right font-mono text-[12px] text-[#63636F]">
+                {r.recent_buys > 0
+                  ? `${r.recent_buys} ${r.recent_buys === 1 ? "buy" : "buys"} / yr`
+                  : "no recent buys"}
+              </span>
+            </Link>
+          </li>
         ))}
-      </div>
+      </ul>
     </div>
   );
 }

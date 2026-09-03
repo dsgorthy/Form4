@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { fetchAPI } from "@/lib/api";
 import { formatCurrency } from "@/lib/format";
+import { SectionLabel } from "@/components/ui/section-label";
 
 /** One sector's insider buying. See ../page.tsx for why these pages exist. */
 export const revalidate = 3600;
@@ -61,9 +62,7 @@ export async function generateMetadata(
 function Section({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="mb-10">
-      <h2 className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A] mb-3">
-        {label}
-      </h2>
+      <SectionLabel>{label}</SectionLabel>
       {children}
     </div>
   );
@@ -169,22 +168,24 @@ export default async function SectorPage(
 
       {d.top_companies.length > 0 && (
         <Section label={`Most-Bought ${d.sector} Companies`}>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          <ul className="m-0 list-none p-0">
             {d.top_companies.map((c) => (
-              <Link key={c.ticker} href={`/company/${c.ticker}`}
-                className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/50 p-4 hover:bg-[#2A2A3A]/40 transition-colors">
-                <div className="flex items-baseline justify-between mb-1">
-                  <span className="font-mono font-semibold text-[#E8E8ED]">{c.ticker}</span>
-                  <span className="font-mono text-xs text-[#22C55E]">{formatCurrency(c.total_value)}</span>
-                </div>
-                {c.company && <div className="text-xs text-[#8888A0] truncate">{c.company}</div>}
-                <div className="text-[11px] text-[#81819A] mt-1">
-                  {c.buy_filings} buy {c.buy_filings === 1 ? "filing" : "filings"} · {c.insiders}{" "}
-                  {c.insiders === 1 ? "insider" : "insiders"}
-                </div>
-              </Link>
+              <li key={c.ticker} className="border-b border-[#1D1D26] last:border-0">
+                <Link href={`/company/${c.ticker}`}
+                  className="flex items-baseline gap-4 py-3 transition-colors hover:bg-[#14141C]/60">
+                  <span className="w-[4.5rem] shrink-0 font-mono font-semibold text-[#E8E8ED]">{c.ticker}</span>
+                  <span className="min-w-0 flex-1 truncate text-[13.5px] text-[#8A8A9E]">{c.company}</span>
+                  <span className="shrink-0 font-mono text-[13.5px] tabular-nums text-[#46CC8D]">
+                    {formatCurrency(c.total_value)}
+                  </span>
+                  <span className="w-[7rem] shrink-0 text-right font-mono text-[12px] text-[#63636F]">
+                    {c.buy_filings} {c.buy_filings === 1 ? "buy" : "buys"} · {c.insiders}{" "}
+                    {c.insiders === 1 ? "insider" : "insiders"}
+                  </span>
+                </Link>
+              </li>
             ))}
-          </div>
+          </ul>
         </Section>
       )}
 
@@ -198,26 +199,30 @@ export default async function SectorPage(
             Ranked by value purchased in the window, not by past performance.
             Each insider&rsquo;s track record is on their profile.
           </p>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          <ul className="m-0 list-none p-0">
             {d.top_insiders.map((p) => (
-              <Link key={p.insider_id} href={`/insider/${p.slug || p.insider_id}`}
-                className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/50 p-4 hover:bg-[#2A2A3A]/40 transition-colors">
-                <div className="flex items-center gap-2 mb-1 min-w-0">
-                  <span className="text-sm font-medium text-[#E8E8ED] truncate">{p.name || "Unknown"}</span>
-                  {p.is_entity === 1 && (
-                    <span className="shrink-0 rounded px-1 py-0.5 text-[10px] border border-[#81819A]/30 bg-[#81819A]/10 text-[#8888A0]">
-                      Entity
-                    </span>
-                  )}
-                </div>
-                <div className="text-xs text-[#8888A0]">{formatCurrency(p.total_value)} bought</div>
-                <div className="text-[11px] text-[#81819A] mt-1">
-                  {p.buy_filings} buy {p.buy_filings === 1 ? "filing" : "filings"} · {p.tickers}{" "}
-                  {p.tickers === 1 ? "company" : "companies"}
-                </div>
-              </Link>
+              <li key={p.insider_id} className="border-b border-[#1D1D26] last:border-0">
+                <Link href={`/insider/${p.slug || p.insider_id}`}
+                  className="flex items-baseline gap-4 py-3 transition-colors hover:bg-[#14141C]/60">
+                  <span className="min-w-0 flex-1 truncate text-[14px] text-[#E8E8ED]">
+                    {p.name || "Unknown"}
+                    {p.is_entity === 1 && (
+                      <span className="ml-2 rounded-[2px] border border-[#63636F]/30 bg-[#63636F]/10 px-1 py-[1px] align-middle text-[10px] text-[#8A8A9E]">
+                        Entity
+                      </span>
+                    )}
+                  </span>
+                  <span className="shrink-0 font-mono text-[13.5px] tabular-nums text-[#46CC8D]">
+                    {formatCurrency(p.total_value)}
+                  </span>
+                  <span className="w-[7rem] shrink-0 text-right font-mono text-[12px] text-[#63636F]">
+                    {p.buy_filings} {p.buy_filings === 1 ? "buy" : "buys"} · {p.tickers}{" "}
+                    {p.tickers === 1 ? "co." : "cos."}
+                  </span>
+                </Link>
+              </li>
             ))}
-          </div>
+          </ul>
         </Section>
       )}
 
