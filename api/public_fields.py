@@ -4,7 +4,26 @@ Deliberately dependency-free — no FastAPI, no DB — so the invariant below ca
 tested without standing up the app. `api.gating` re-exports TRACK_RECORD_FIELDS
 so existing importers are unaffected.
 
-The split is one line: **volume is public, outcomes are not.**
+The split WAS one line: volume is public, outcomes are not. It is now two,
+because that line taken literally left an anonymous visitor with a name, a
+filing count and some dates -- which is what a free SEC scraper gives them, and
+nothing on the page said we had done any work.
+
+**Volume is public. One window of buy outcomes is public. Everything else is
+Pro.**
+
+The one public window is PROOF, not product: it exists so a stranger arriving
+from search can see that we compute something and that it is grounded, before
+being asked for anything. The depth -- all three windows, both sides, per-ticker
+grades, sell patterns, best window -- stays Pro, and that is still the great
+majority of the block.
+
+ALPHA STAYS PRO EVEN IN THE PUBLIC WINDOW, deliberately. Accuracy and average
+move are facts about what happened. Alpha reads as a claim about skill, and
+three separate experiments in September 2026 found our grades do not predict
+forward returns at all. Publishing history is honest; publishing it in a frame
+that implies forecast is not, and alpha is the number that most invites that
+reading.
 
   Public   what the insider DID — how many buys, how many sells, how many
            tickers, over what span, under what title. Every competitor
@@ -42,6 +61,20 @@ TRACK_RECORD_FIELDS = [
 ]
 
 # Survives on the insider profile for anonymous and free-tier viewers.
+#: The single window of ANALYSIS a stranger may see, on the buy side only.
+#:
+#: Chosen as 30d because 7d is noisy enough to look arbitrary and 90d is slow
+#: enough to feel unfalsifiable. `scored_filings` is not optional garnish -- it
+#: is the denominator, and an accuracy without one is the exact defect that put
+#: a rate over 154 lots under a header reading 19.
+#:
+#: buy_avg_abnormal_30d is NOT here. See the module docstring.
+PUBLIC_FILING_STAT_FIELDS = (
+    "buy_win_rate_30d",
+    "buy_avg_return_30d",
+    "buy_scored_filings_30d",
+)
+
 PUBLIC_VOLUME_FIELDS = (
     "buy_count",
     "sell_count",

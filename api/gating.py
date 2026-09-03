@@ -14,6 +14,7 @@ from api.public_fields import (  # noqa: E402
     PRO_ALERT_EVENTS,
     PRO_ALERT_FIELDS,
     PRO_ALERT_FILTERS,
+    PUBLIC_FILING_STAT_FIELDS,
     PUBLIC_VOLUME_FIELDS,
     TRACK_RECORD_FIELDS,
 )

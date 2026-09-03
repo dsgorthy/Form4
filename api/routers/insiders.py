@@ -12,7 +12,7 @@ from api.filters import (
     add_trans_code_filter,
     filing_group_by,
 )
-from api.gating import PUBLIC_VOLUME_FIELDS, require_pro
+from api.gating import PUBLIC_FILING_STAT_FIELDS, PUBLIC_VOLUME_FIELDS, require_pro
 from api.id_encoding import (
     decode_insider_id,
     encode_insider_id,
@@ -602,11 +602,26 @@ def get_insider(identifier: str, user: UserContext = Depends(get_current_user)) 
             {k: tr_full.get(k) for k in PUBLIC_VOLUME_FIELDS if k in tr_full}
             or None
         )
-        result["filing_stats"] = {}
+        # ONE WINDOW OF ANALYSIS SURVIVES, on the buy side. A visitor arriving
+        # from search saw a name, a filing count and some dates -- what a free
+        # SEC scraper gives them -- and nothing said we had done any work.
+        stats_full = result.get("filing_stats") or {}
+        result["filing_stats"] = {
+            k: stats_full.get(k) for k in PUBLIC_FILING_STAT_FIELDS
+            if k in stats_full
+        }
         result["sell_pattern"] = None
         result["ticker_grades"] = []
+        # THE RATING STAYS. It was popped here alongside the raw scores, but a
+        # grade is not a score -- it is the conclusion, and it is the one glyph
+        # that tells a stranger we have a view. The page renders
+        # <InsiderGradeBadge grade={best_career_grade}>, so removing it left
+        # the badge empty on precisely the pages we are trying to convert.
+        #
+        # The numeric scores behind it stay Pro: a grade is a claim, a
+        # percentile invites arithmetic we do not want done on a free tier.
         for f in ("score", "score_tier", "percentile", "best_career_score",
-                  "best_career_grade", "best_pit_score", "best_pit_grade"):
+                  "best_pit_score", "best_pit_grade"):
             result.pop(f, None)
         result["gated"] = True
     return result

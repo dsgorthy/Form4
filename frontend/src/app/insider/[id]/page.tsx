@@ -462,6 +462,25 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                 says we have no data on this person, which is the opposite of
                 the pitch. */}
             {!isGated && <StatBox label="Best Window" value={tr.best_window || "\u2014"} />}
+            {/* One window of analysis, public. Before this an anonymous
+                visitor saw a name, a filing count and some dates -- what a
+                free SEC scraper gives them, on the pages that carry the most
+                traffic. This is proof that we compute something, and it is
+                deliberately a teaser: all three windows, both sides,
+                per-ticker grades and sell patterns stay Pro.
+
+                Rendered only when a rate exists AND its denominator does. An
+                accuracy without its count is how a rate over 154 lots once
+                appeared under a header reading 19. */}
+            {isGated &&
+              profile.filing_stats?.buy_win_rate_30d != null &&
+              profile.filing_stats?.buy_scored_filings_30d != null && (
+                <StatBox
+                  label="30d Buy Accuracy"
+                  value={`${Math.round(profile.filing_stats.buy_win_rate_30d * 100)}%`}
+                  sub={`across ${profile.filing_stats.buy_scored_filings_30d} scored filings`}
+                />
+              )}
             <StatBox label="Tickers Traded" value={String(tr.n_tickers)} />
             <StatBox
               label="Total Filings"
