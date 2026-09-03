@@ -54,42 +54,42 @@ export function RelatedInsiders({ items }: { items: RelatedInsider[] }) {
 
   return (
     <div className="mt-10">
-      <div className="flex items-baseline justify-between mb-2">
-        <div className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A]">
-          Related Insiders
-        </div>
-      </div>
-      {/* Said plainly and once. The alternative is a reader assuming this is a
-          leaderboard, which is the single most likely misreading. */}
-      <p className="text-xs text-[#81819A] mb-4">
+      {/* Ruled list, not a card grid. The page's problem was thirteen
+          identical bordered boxes; adding a fourteenth grid of them was the
+          version this replaces. */}
+      <h2 className="mb-3 border-b border-[#24242F] pb-2 font-mono text-[10.5px] font-medium uppercase tracking-[0.15em] text-[#63636F]">
+        Related Insiders
+      </h2>
+      <p className="mb-1 max-w-[62ch] text-xs text-[#63636F]">
         Grouped by shared companies and similar filing behaviour. This is a
         similarity measure, not a ranking or a performance signal.
       </p>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+      <ul className="m-0 list-none p-0">
         {items.map((r) => (
-          <Link
-            key={r.insider_id}
-            href={`/insider/${r.slug || r.insider_id}`}
-            className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/50 p-4 hover:bg-[#2A2A3A]/40 transition-colors"
-          >
-            <div className="flex items-center gap-2 mb-1 min-w-0">
-              <span className="text-sm font-medium text-[#E8E8ED] truncate">
+          <li key={r.insider_id} className="border-b border-[#1D1D26] last:border-0">
+            <Link
+              href={`/insider/${r.slug || r.insider_id}`}
+              className="flex items-baseline gap-4 py-3 transition-colors hover:bg-[#14141C]/60"
+            >
+              <span className="min-w-0 flex-1 truncate text-[14px] text-[#E8E8ED]">
                 {r.name}
+                {r.is_entity === 1 && (
+                  <span className="ml-2 rounded-[2px] border border-[#63636F]/30 bg-[#63636F]/10 px-1 py-[1px] align-middle text-[10px] text-[#8A8A9E]">
+                    Entity
+                  </span>
+                )}
               </span>
-              {r.is_entity === 1 && (
-                <span className="shrink-0 rounded px-1 py-0.5 text-[10px] font-medium border border-[#81819A]/30 bg-[#81819A]/10 text-[#8888A0]">
-                  Entity
-                </span>
-              )}
-            </div>
-            <div className="text-xs text-[#8888A0] truncate">{reasonLine(r)}</div>
-            <div className="text-[11px] text-[#81819A] mt-1">
-              {r.filing_count.toLocaleString()}{" "}
-              {r.filing_count === 1 ? "filing" : "filings"}
-            </div>
-          </Link>
+              <span className="hidden shrink-0 text-[13px] text-[#8A8A9E] sm:block">
+                {reasonLine(r)}
+              </span>
+              <span className="w-[5.5rem] shrink-0 text-right font-mono text-[12px] tabular-nums text-[#63636F]">
+                {r.filing_count.toLocaleString()}{" "}
+                {r.filing_count === 1 ? "filing" : "filings"}
+              </span>
+            </Link>
+          </li>
         ))}
-      </div>
+      </ul>
     </div>
   );
 }

@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { RelatedInsiders, type RelatedInsider } from "@/components/related-insiders";
+import { InsiderVerdict } from "@/components/insider-verdict";
 import { fetchAPI } from "@/lib/api";
 import { fetchAPIAuth } from "@/lib/auth";
 import { formatCurrency, formatPercent } from "@/lib/format";
@@ -80,8 +81,8 @@ function StatBox({
   color?: string;
 }) {
   return (
-    <div className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/50 p-4">
-      <div className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A] mb-1">
+    <div className="border-t border-[#24242F] pt-3">
+      <div className="mb-1 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-[#63636F]">
         {label}
       </div>
       <div className={`text-xl font-mono font-bold ${color || "text-[#E8E8ED]"}`}>{value}</div>
@@ -97,7 +98,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
     // they carried no structure at all: every SEO surface rendered exactly one
     // heading, the H1, with nothing beneath it. Tailwind's preflight zeroes
     // heading margins so this is visually identical.
-    <h2 className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A] mb-3">
+    <h2 className="mb-3 border-b border-[#24242F] pb-2 font-mono text-[10.5px] font-medium uppercase tracking-[0.15em] text-[#63636F]">
       {children}
     </h2>
   );
@@ -218,7 +219,9 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
 
       {/* Header */}
       <div className="flex items-center gap-4 mb-2 flex-wrap">
-        <h1 className="text-2xl font-bold text-[#E8E8ED]">{profile.name}</h1>
+        <h1 className="font-serif text-[40px] font-medium leading-[1.05] tracking-[-0.02em] text-[#F2F2F6]">
+          {profile.name}
+        </h1>
         {/* One rating. This drew a "Career" badge and a "Form" badge side by
             side — two scores of the same person on two scales, and Recent Form
             is not a scale we publish any more. See api/ratings.py. */}
@@ -302,10 +305,36 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
         );
       })()}
 
+      {/* The opening: a written verdict, then the same three numbers as signed
+          meters. Summary before detail — the tables below still carry every
+          window and both sides; this states the conclusion first, which is
+          what a visitor arriving from search needs and what thirteen identical
+          boxes never gave them.
+
+          Every figure is from filing_stats, already allowlisted public and
+          already floored at MIN_SCORED_FILINGS upstream of gating, so this
+          shows a gated reader nothing new — it just stops making them
+          assemble it. */}
+      <InsiderVerdict
+        name={profile.name}
+        stats={profile.filing_stats}
+        buyCount={profile.filing_counts?.buy ?? tr?.buy_count ?? 0}
+        sellCount={profile.filing_counts?.sell ?? tr?.sell_count ?? 0}
+        // trans_code 'P' ONLY. volume_by_type also carries Award/Grant and
+        // option exercises, and a sentence that says "purchases totalling X"
+        // must not be summing stock a board handed them.
+        purchaseValue={
+          (profile.volume_by_type || []).find((v: any) => v.trans_code === "P")
+            ?.total_value ?? null
+        }
+        firstBuyYear={tr?.buy_first_date ? String(tr.buy_first_date).slice(0, 4) : null}
+        grade={(profile as any).best_career_grade}
+      />
+
       {/* Entity Relationships */}
       {profile.entity_group && (
-        <div className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/50 px-4 py-3 mb-6">
-          <div className="text-[10px] font-semibold uppercase tracking-widest text-[#81819A] mb-2">
+        <div className="mb-6 border-l-2 border-[#24242F] py-1 pl-4">
+          <div className="mb-2 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-[#63636F]">
             Entity Group
           </div>
           <div className="text-sm text-[#8888A0]">
@@ -370,9 +399,9 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
         const asOf = held.map((h) => h.as_of).filter(Boolean).sort().pop();
 
         return (
-          <div className="grid gap-4 md:grid-cols-2 mb-8">
+          <div className="mb-8 grid gap-6 md:grid-cols-2 md:gap-0 md:divide-x md:divide-[#1D1D26]">
             {held.length > 0 && (
-              <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] p-4">
+              <div className="md:pr-6">
                 <SectionLabel>Current Position</SectionLabel>
                 <table className="w-full text-sm">
                   <thead>
@@ -417,7 +446,7 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
             )}
 
             {ttmActive && (
-              <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] p-4">
+              <div className="md:pl-6">
                 <SectionLabel>Last 12 Months</SectionLabel>
                 <div className="grid grid-cols-2 gap-4">
                   {([["Bought", ttm!.buys, "text-emerald-400"],
@@ -482,8 +511,8 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
 
       {/* Grade by Ticker */}
       {(profile as any).ticker_grades?.length > 0 && (
-        <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] p-4 mb-8">
-          <h3 className="text-xs font-semibold uppercase tracking-widest text-[#81819A] mb-3">
+        <div className="mb-8 border-t border-[#24242F] pt-4">
+          <h3 className="mb-3 font-mono text-[10.5px] font-medium uppercase tracking-[0.15em] text-[#63636F]">
             Grade by Ticker
           </h3>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
@@ -576,7 +605,7 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
               the whole block, rather than nine repetitions of "Pro subscribers
               only" that a screen reader would read out one at a time and any
               copy-paste would pick up. */}
-          <div className="rounded-lg border border-[#2A2A3A] bg-[#12121A] p-5">
+          <div className="rounded-lg border border-[#24242F] bg-[#101017] p-5">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <caption className="sr-only">
@@ -708,10 +737,10 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
         const SELL_BASIS_NOTE =
           "Decision sells only \u2014 a first sale after buying the stock, or a sale by a fund or 10% owner. Ordinary sales by officers and directors show no relationship to what the stock does next, so they are counted but not scored.";
         return (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+        <div className="mb-8 grid grid-cols-1 gap-6 md:grid-cols-3 md:gap-0 md:divide-x md:divide-[#1D1D26]">
           {/* Buy Track Record */}
           {buyCount > 0 && (
-            <div className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/50 p-5">
+            <div className="md:pr-6">
               <SectionLabel>Buy Track Record</SectionLabel>
               <div className="text-sm">
                 <div className="flex justify-between mb-3">
@@ -776,7 +805,7 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
 
           {/* Sell Track Record */}
           {sellCount > 0 && (
-            <div className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/50 p-5">
+            <div className="md:px-6">
               <SectionLabel>Sell Track Record</SectionLabel>
               <div className="text-sm">
                 <div className="flex justify-between mb-3">
@@ -848,7 +877,7 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
 
           {/* Transaction Volume by Type */}
           {profile.volume_by_type && profile.volume_by_type.length > 0 && (
-            <div className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/50 p-5">
+            <div className="md:pl-6">
               <SectionLabel>Volume by Type</SectionLabel>
               <div className="space-y-2">
                 {profile.volume_by_type.map((v) => (
@@ -893,35 +922,43 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
       {companies.companies.length > 0 && (
         <div className="mb-8">
           <SectionLabel>Companies</SectionLabel>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          <ul className="m-0 list-none p-0">
             {companies.companies.map((c) => {
               const isPrivate = c.ticker === "NONE";
               const cardHref = isPrivate
                 ? `/company/private/${companyToSlug(c.company)}`
                 : `/company/${c.ticker}`;
+              const role = formatTitle((c as any).normalized_title || c.title);
+              const years =
+                c.first_trade && c.last_trade
+                  ? String(c.first_trade).slice(0, 4) === String(c.last_trade).slice(0, 4)
+                    ? String(c.first_trade).slice(0, 4)
+                    : `${String(c.first_trade).slice(0, 4)}\u2013${String(c.last_trade).slice(0, 4)}`
+                  : null;
               return (
-                <Link
-                  key={isPrivate ? c.company : c.ticker}
-                  href={cardHref}
-                  className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/50 p-4 hover:bg-[#2A2A3A]/40 transition-colors"
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <TickerDisplay ticker={c.ticker} company={c.company} href={null} />
-                    <span className="text-xs text-[#81819A]">{c.trade_count} trades</span>
-                  </div>
-                  {!isPrivate && (
-                    <div className="text-xs text-[#8888A0] truncate">{c.company}</div>
-                  )}
-                  <div className="text-xs text-[#81819A] mt-1">
-                    {(() => {
-                      const t = formatTitle((c as any).normalized_title || c.title);
-                      return t ? `${t} · ` : "";
-                    })()}{formatCurrency(c.total_value)}
-                  </div>
-                </Link>
+                <li key={isPrivate ? c.company : c.ticker} className="border-b border-[#1D1D26] last:border-0">
+                  <Link
+                    href={cardHref}
+                    className="flex items-baseline gap-4 py-3 transition-colors hover:bg-[#14141C]/60"
+                  >
+                    <span className="w-[4.5rem] shrink-0 font-mono font-semibold text-[#E8E8ED]">
+                      {isPrivate ? "\u2014" : c.ticker}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-[13.5px] text-[#8A8A9E]">
+                      {c.company}
+                      {role && <span className="text-[#63636F]"> · {role}</span>}
+                    </span>
+                    <span className="shrink-0 font-mono text-[13.5px] tabular-nums text-[#E8E8ED]">
+                      {formatCurrency(c.total_value)}
+                    </span>
+                    <span className="w-[5.5rem] shrink-0 text-right font-mono text-[12px] text-[#63636F]">
+                      {years || `${c.trade_count} filings`}
+                    </span>
+                  </Link>
+                </li>
               );
             })}
-          </div>
+          </ul>
         </div>
       )}
 

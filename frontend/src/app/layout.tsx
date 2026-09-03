@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
 import { dark } from "@clerk/themes";
-import { Inter, JetBrains_Mono } from "next/font/google";
+import { Inter, JetBrains_Mono, Newsreader } from "next/font/google";
 import { Nav } from "@/components/nav";
 import { TrialBanner } from "@/components/trial-banner";
 import { Footer } from "@/components/footer";
@@ -18,6 +18,17 @@ const inter = Inter({
 const jetbrainsMono = JetBrains_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
+});
+
+// A serif, used in exactly two places: an insider's name and the written
+// verdict beneath it. The insider page had four type sizes and no display
+// face, so nothing on it anchored the eye -- thirteen identical bordered
+// boxes and a 24px bold heading. A serif at 40px is the cheapest way to make
+// the top of the page read as the top of the page.
+const newsreader = Newsreader({
+  variable: "--font-serif",
+  subsets: ["latin"],
+  display: "swap",
 });
 
 const isSandbox = process.env.NEXT_PUBLIC_API_URL?.includes("sandbox");
@@ -159,7 +170,7 @@ export default function RootLayout({
     >
       <html lang="en">
         <body
-          className={`${inter.variable} ${jetbrainsMono.variable} antialiased font-sans`}
+          className={`${inter.variable} ${jetbrainsMono.variable} ${newsreader.variable} antialiased font-sans`}
         >
           <AnalyticsProvider>
             <TooltipProvider>
