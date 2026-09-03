@@ -135,6 +135,25 @@ SELECT t.insider_id, t.ticker, m.sector, count(*) AS n
 
 NAMES_SQL = "SELECT insider_id, COALESCE(name,'') FROM insiders"
 
+# Recent discretionary buying per ticker, for ranking sector peers. Counted by
+# FILING, like everything else -- a purchase filled in five tranches is one
+# decision, and ranking peers by lot count would just surface whoever's broker
+# splits orders the most.
+RECENT_BUYS_SQL = """
+SELECT ticker, count(DISTINCT COALESCE(filing_key, accession)) AS n
+  FROM trades
+ WHERE signal_class = 'discretionary_buy'
+   AND ticker IS NOT NULL AND ticker <> 'NONE'
+   AND filing_date >= (CURRENT_DATE - 365)::text
+ GROUP BY ticker
+"""
+
+# Beyond this an insider is a fund or a 10% holder spraying across a portfolio,
+# and "shares an insider" stops meaning the two companies are related. It also
+# bounds the pair count, which is quadratic in an insider's ticker set.
+MAX_TICKERS_FOR_COMPANY_PAIRS = 40
+COMPANY_TOP_K = 6
+
 FEATURES = ["n_filings", "n_tickers", "tenure_days", "pct_csuite",
             "buy_ratio", "median_value", "avg_dip", "pct_above_sma50"]
 # Heavy right tails; a raw count would let one 900-filing insider set the scale
@@ -201,8 +220,11 @@ def main() -> int:
     # filings can still be told who else files on their company -- and 58,042
     # insiders sit below the profile floor. Gating this on the profile would
     # leave every one of those pages with an empty section.
+    ticker_sector: dict[str, str] = {}
     sector_weight: dict[int, dict] = defaultdict(lambda: defaultdict(int))
     for iid, tk, sc, n in cur.fetchall():
+        if sc:
+            ticker_sector[tk] = sc
         tick[iid].add(tk)
         by_ticker[tk].append(iid)
         if sc:
@@ -343,6 +365,66 @@ def main() -> int:
                   f"co={r[4]:.2f} sec={r[5]:.2f} prof={r[6]:.2f} "
                   f"shared={r[7]} {r[8] or ''}")
 
+    # ── related COMPANIES, from the same load ──────────────────────────────
+    #
+    # Company pages are the second-most-crawled surface and had no
+    # company-to-company links at all. Precomputed because the live query does
+    # not bound: shared insiders on AAPL is 50ms, on OPK it is 6.9 SECONDS.
+    logger.info("computing company similarity...")
+    cur.execute(RECENT_BUYS_SQL)
+    recent_buys: dict[str, int] = {r["ticker"]: r["n"] for r in cur.fetchall()}
+
+    pair_shared: dict[tuple, int] = defaultdict(int)
+    for iid, tks in tick.items():
+        if len(tks) < 2 or len(tks) > MAX_TICKERS_FOR_COMPANY_PAIRS:
+            continue
+        ts = sorted(tks)
+        for i, a in enumerate(ts):
+            for b in ts[i + 1:]:
+                pair_shared[(a, b)] += 1
+
+    by_company: dict[str, list] = defaultdict(list)
+    for (a, b), n in pair_shared.items():
+        same = ticker_sector.get(a) is not None and ticker_sector.get(a) == ticker_sector.get(b)
+        by_company[a].append((b, n, same))
+        by_company[b].append((a, n, same))
+    logger.info("  %d tickers have a shared-insider peer", len(by_company))
+
+    sector_members: dict[str, list] = defaultdict(list)
+    for tk, sc in ticker_sector.items():
+        sector_members[sc].append(tk)
+    # Rank each sector once, not once per member.
+    for sc in sector_members:
+        sector_members[sc].sort(key=lambda t: (-recent_buys.get(t, 0), t))
+
+    crows = []
+    for tk in by_ticker:
+        picked, seen = [], {tk}
+        for b, n, same in sorted(by_company.get(tk, []), key=lambda r: (-r[1], r[0])):
+            if b in seen:
+                continue
+            seen.add(b)
+            # Shared insiders dominate; the sector bonus only orders ties.
+            picked.append((b, min(1.0, n / 5.0) * 0.9 + (0.1 if same else 0.0),
+                           "shared_insiders", n, same, recent_buys.get(b, 0)))
+            if len(picked) >= COMPANY_TOP_K:
+                break
+        # Fill the rest with sector peers that are actually being bought. A
+        # peer nobody has filed on in a year is a dead link.
+        sc = ticker_sector.get(tk)
+        if sc and len(picked) < COMPANY_TOP_K:
+            for b in sector_members.get(sc, ()):
+                if b in seen or not recent_buys.get(b):
+                    continue
+                seen.add(b)
+                picked.append((b, 0.05, "sector_peer", 0, True, recent_buys.get(b, 0)))
+                if len(picked) >= COMPANY_TOP_K:
+                    break
+        for rank, r in enumerate(picked, 1):
+            crows.append((tk, r[0], rank, r[1], r[2], r[3], r[4], r[5]))
+    logger.info("  %d company edges for %d tickers",
+                len(crows), len({r[0] for r in crows}))
+
     if args.dry_run:
         logger.info("dry run, nothing written")
         return 0
@@ -368,6 +450,19 @@ def main() -> int:
     cur.execute("TRUNCATE insider_similarity")
     cur.execute(f"INSERT INTO insider_similarity ({cols}) SELECT {cols} FROM sim_new")
     cur.execute("DROP TABLE sim_new")
+
+    ccols = ("ticker, related_ticker, rank, score, reason, shared_insiders, "
+             "same_sector, recent_buys")
+    crow_ph = "(" + ",".join(["?"] * 8) + ")"
+    cur.execute("CREATE TEMP TABLE csim_new (LIKE company_similarity INCLUDING DEFAULTS)")
+    for lo in range(0, len(crows), 2000):
+        chunk = crows[lo:lo + 2000]
+        cur.execute(f"INSERT INTO csim_new ({ccols}) VALUES "
+                    + ",".join([crow_ph] * len(chunk)),
+                    [v for r in chunk for v in r])
+    cur.execute("TRUNCATE company_similarity")
+    cur.execute(f"INSERT INTO company_similarity ({ccols}) SELECT {ccols} FROM csim_new")
+    cur.execute("DROP TABLE csim_new")
     conn.commit()
     cur.execute("SELECT count(*) AS n, count(DISTINCT insider_id) AS ni "
                 "FROM insider_similarity")
