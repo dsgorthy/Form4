@@ -37,7 +37,19 @@ router = APIRouter(prefix="/api/v1/filings", tags=["filings"])
 # Deliberately in-process rather than Redis: there is no shared cache in this
 # stack, each API worker warming its own copy is fine at this scale, and a
 # cache that can fail is a new failure mode for the site's busiest route.
-_COUNT_TTL_S = 120
+#: Pagination totals are memoised for this long.
+#:
+#: Was 120 s. The count behind it was a 17-second sequential scan, so roughly
+#: one visitor every two minutes paid 22 seconds to load the feed while the
+#: other 119 got a cached answer. The count is now windowed, indexed and
+#: capped, but a longer TTL is still right: a filing feed's total does not
+#: meaningfully change minute to minute, and being a few filings stale in a
+#: page count costs a reader nothing.
+_COUNT_TTL_S = 900
+
+#: Stop counting past this many groups and report it as a floor. Exact totals
+#: on a 7.1M-row table are expensive and nobody pages to result 40,000.
+COUNT_CAP = 5000
 _COUNT_CACHE_MAX = 256
 _count_cache: dict[str, tuple[float, int]] = {}
 
@@ -291,6 +303,29 @@ def list_filings(
             total = _cached_total(cache_key, _compute_total)
         else:
             def _compute_total():
+                # THE COUNT MUST USE THE SAME WINDOW AS THE DATA QUERY.
+                #
+                # It did not, and that was both a correctness bug and the
+                # slowest thing on the site. The data query is bounded to a
+                # ~14-day window (see `date_window` above) while this counted
+                # ALL of trades, so the reported page total described a result
+                # set the caller could never reach -- pagination promised
+                # thousands of pages of rows the data query would never return.
+                #
+                # It was also a full sequential scan of 2.5M rows and 1.65M
+                # buffer reads: 17 seconds, cached for only 120 s, so roughly
+                # one visitor every two minutes waited 22 seconds for the feed.
+                #
+                # COALESCE(filed_at, filing_date) cannot use an ordinary index,
+                # which is why even the windowed form scanned. A partial
+                # expression index on exactly that expression now backs both
+                # this and the ORDER BY:
+                #   idx_trades_effective_ts_meaningful
+                #
+                # The cap is belt and braces: a caller who supplies a date
+                # filter gets `date_window` empty, and counting ten years of
+                # groups to render one page is never worth it. Past the cap the
+                # UI says "5,000+", which is what every large product does.
                 row = conn.execute(
                     f"""
                     SELECT COUNT(*) AS cnt FROM (
@@ -298,8 +333,10 @@ def list_filings(
                         FROM trades t
                         {count_join}
                         WHERE {where_clause}
+                        {date_window}
                         GROUP BY COALESCE(t.txn_group_id::text, t.accession), t.ticker, t.trade_type
-                    )
+                        LIMIT {COUNT_CAP}
+                    ) s
                     """,
                     params,
                 ).fetchone()
