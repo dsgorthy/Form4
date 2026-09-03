@@ -534,14 +534,24 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
           em-dashes. The follow CTA takes their place: it states what is behind
           the wall instead of drawing an empty one. */}
       {isGated && (() => {
-        // Buys only, 30-day window, already floored at
-        // MIN_SCORED_FILINGS upstream. Null when the insider has
-        // too little history, in which case the bars stay.
+        // The BUY side in full: three metrics across three windows, the same
+        // grid the Pro block renders. Every figure here is an aggregate of
+        // numbers already served ungated on /insiders/{id}/trades — returns
+        // AND alpha, on every filing row below this table — so none of it was
+        // ever actually withheld, only made tedious. See public_fields.py.
+        //
+        // Already floored at MIN_SCORED_FILINGS upstream, per window. A window
+        // that did not clear the floor is null and keeps its placeholder bar,
+        // which is the honest rendering: too thin to publish, not withheld.
         const fs = profile.filing_stats || {};
-        const n30 = fs.buy_scored_filings_30d ?? null;
-        const pub30 = n30
-          ? { rate: fs.buy_win_rate_30d ?? null, move: fs.buy_avg_return_30d ?? null }
-          : { rate: null, move: null };
+        const rows: readonly (readonly [string, readonly (number | null | undefined)[]])[] = [
+          ["Win rate",     [fs.buy_win_rate_7d, fs.buy_win_rate_30d, fs.buy_win_rate_90d]],
+          ["Average move", [fs.buy_avg_return_7d, fs.buy_avg_return_30d, fs.buy_avg_return_90d]],
+          ["Alpha vs SPY", [fs.buy_avg_abnormal_7d, fs.buy_avg_abnormal_30d, fs.buy_avg_abnormal_90d]],
+        ];
+        const scored = [fs.buy_scored_filings_7d, fs.buy_scored_filings_30d, fs.buy_scored_filings_90d];
+        const basis = Math.max(0, ...scored.map((n) => n ?? 0));
+        const anyPublished = rows.some(([, vals]) => vals.some((v) => v != null));
         return (
         // GATED_CLASS goes on a SERVER-rendered element, not on the CTA inside
         // it. FollowCta is a client component that renders nothing until Clerk
@@ -570,9 +580,10 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <caption className="sr-only">
-                  Track record for {profile.name}. The 30-day buy figures are
-                  shown; the remaining windows and alpha are available to Pro
-                  subscribers.
+                  Buy-side track record for {profile.name}: win rate, average
+                  move and alpha against SPY, across 7-, 30- and 90-day
+                  windows. Sell-side figures and per-ticker grades are
+                  available to Pro subscribers.
                 </caption>
                 <thead>
                   <tr className="border-b border-[#2A2A3A]">
@@ -605,28 +616,24 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                       MIN_SCORED_FILINGS by apply_scoring_floor, upstream of
                       gating -- so the free tier can never show a number the
                       paid tier hides. */}
-                  {([
-                    ["Win rate", pub30.rate],
-                    ["Average move", pub30.move],
-                    ["Alpha vs SPY", null],
-                  ] as const).map(([metric, value]) => (
+                  {rows.map(([metric, vals]) => (
                     <tr key={metric} className="border-b border-[#2A2A3A]/40 last:border-0">
                       <th scope="row" className="py-3 text-left font-normal text-[#8888A0]">
                         {metric}
                       </th>
-                      {[0, 1, 2].map((i) => (
+                      {vals.map((value, i) => (
                         <td key={i} className="py-3 text-right">
-                          {i === 1 && value != null ? (
+                          {value != null ? (
                             <span
                               className={`font-mono ${
-                                metric === "Average move"
-                                  ? value >= 0
+                                metric === "Win rate"
+                                  ? "text-[#E8E8ED]"
+                                  : value >= 0
                                     ? "text-[#22C55E]"
                                     : "text-[#EF4444]"
-                                  : "text-[#E8E8ED]"
                               }`}
                             >
-                              {`${value >= 0 && metric === "Average move" ? "+" : ""}${(value * 100).toFixed(1)}%`}
+                              {`${metric !== "Win rate" && value >= 0 ? "+" : ""}${(value * 100).toFixed(1)}%`}
                             </span>
                           ) : (
                             <span
@@ -642,18 +649,18 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
               </table>
             </div>
             <p className="mt-4 text-sm text-[#8888A0]">
-              {pub30.rate != null ? (
+              {anyPublished ? (
                 <>
-                  The 30-day column is {profile.name}&rsquo;s real record across{" "}
-                  {n30} scored {n30 === 1 ? "purchase" : "purchases"} — one
-                  filing each, never one per execution lot. Pro adds the 7- and
-                  90-day windows, sells, and alpha against SPY.
+                  {profile.name}&rsquo;s buy record across {basis} scored{" "}
+                  {basis === 1 ? "purchase" : "purchases"} — one row per filing,
+                  never one per execution lot, and discretionary purchases only.
+                  Pro adds the sell side, per-ticker grades and alerts.
                 </>
               ) : (
                 <>
-                  Every purchase below already shows what the stock did
-                  afterwards. Pro is what they add up to for {profile.name},
-                  measured against SPY over the same windows.
+                  Too few scored purchases to publish a record for{" "}
+                  {profile.name}. Every filing below still shows what the stock
+                  did afterwards.
                 </>
               )}
             </p>
@@ -661,7 +668,7 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
           <PendingFollow />
           <FollowCta
             entity={profile.name}
-            detail="Win rate, average move and alpha across 7/30/90-day windows"
+            detail="Alerts when they file, plus the sell side and per-ticker grades"
             follow={{ kind: "insider", id }}
           />
         </div>

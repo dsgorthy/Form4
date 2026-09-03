@@ -43,26 +43,45 @@ from api.public_fields import (  # noqa: E402
 )
 
 
-def test_alpha_is_never_public():
-    """The one field whose framing we cannot stand behind."""
-    leaked = [f for f in PUBLIC_FILING_STAT_FIELDS if "abnormal" in f or "alpha" in f]
-    assert not leaked, (
-        f"{leaked} would publish alpha to anonymous visitors. Accuracy and "
-        "average move are facts about what happened; alpha reads as a claim "
-        "about skill, and our grades do not predict forward returns."
-    )
+def test_the_whole_buy_grid_is_public():
+    """REVERSED 2026-09-03, deliberately, and the reason is recorded.
+
+    This file previously asserted the opposite twice: alpha is never public,
+    and only one window ships. Both were written to protect a distinction that
+    does not exist on the page they were defending.
+
+    /insiders/{id}/trades serves return_7d/30d/90d AND abnormal_7d/30d/90d on
+    every filing row, ungated. The 3x3 aggregate is arithmetic over numbers
+    already printed below the table. Withholding it hid nothing from anyone
+    with a calculator and made the block read as broken to everyone else --
+    which is how it was reported, twice.
+
+    If the trades endpoint ever starts gating per-filing returns, this test is
+    the thing to revisit: the argument here rests entirely on those being
+    public.
+    """
+    for metric in ("win_rate", "avg_return", "avg_abnormal", "scored_filings"):
+        for window in ("7d", "30d", "90d"):
+            f = f"buy_{metric}_{window}"
+            assert f in PUBLIC_FILING_STAT_FIELDS, (
+                f"{f} is not public. The gated table renders a 3x3 grid and a "
+                "missing field there is a grey bar the reader cannot "
+                "distinguish from a data problem."
+            )
 
 
-def test_only_one_window_and_only_buys():
-    """Proof, not product. The depth is what Pro buys."""
-    assert all("30d" in f for f in PUBLIC_FILING_STAT_FIELDS), (
-        "more than one window is public; the public set is a teaser, not the "
-        "block"
-    )
-    assert all(f.startswith("buy_") for f in PUBLIC_FILING_STAT_FIELDS), (
-        "sell-side stats are public. Sells are scored on different terms and "
-        "are the more easily misread half."
-    )
+def test_the_sell_side_stays_pro():
+    """The line moved, it did not disappear.
+
+    Sell-side figures rest on `signal_class` — our decision-sell
+    classification, which is the work, not the arithmetic. Same for per-ticker
+    grades. This is what a subscription buys on this page.
+    """
+    for f in PUBLIC_FILING_STAT_FIELDS:
+        assert not f.startswith("sell_"), (
+            f"{f} publishes the sell side. Buys are arithmetic over visible "
+            "rows; sells rest on our classification."
+        )
 
 
 def test_the_denominator_is_published_with_the_rate():
@@ -134,15 +153,22 @@ def test_the_gated_track_record_renders_the_public_window():
         assert f in block, f"the gated block does not render {f}"
 
 
-def test_alpha_is_withheld_in_every_window_on_the_page():
-    """Alpha's row must stay bars. It is the number that most invites reading
-    history as forecast, and our grades do not predict forward returns."""
+def test_the_page_renders_all_three_windows_and_alpha():
+    """The complaint both times was a table that looked broken. Nine cells,
+    driven off one array, so a window can only be missing when its data is."""
     block = _gated_block()
-    i = block.index('"Alpha vs SPY"')
-    row = block[i:i + 120]
-    assert "null" in row, (
-        "the Alpha vs SPY row is no longer pinned to null in the gated table; "
-        "alpha stays Pro in all three windows by design"
+    for f in ("buy_win_rate_7d", "buy_win_rate_90d",
+              "buy_avg_abnormal_7d", "buy_avg_abnormal_30d", "buy_avg_abnormal_90d"):
+        assert f in block, f"the gated table does not render {f}"
+
+
+def test_an_unfloored_window_still_shows_a_placeholder():
+    """A window below MIN_SCORED_FILINGS is null and must render a bar, not a
+    zero. 'Too thin to publish' and '0%' are different claims."""
+    block = _gated_block()
+    assert "value != null ?" in block, (
+        "the cell no longer distinguishes a null window from a real figure; a "
+        "suppressed window would render as 0.0%"
     )
 
 
@@ -150,6 +176,9 @@ def test_the_denominator_is_rendered_beside_the_rate():
     """A rate without its count is how a figure over 154 lots once appeared
     under a header reading 19."""
     block = _gated_block()
-    assert "n30" in block and "scored" in block, (
-        "the scored-filing count is not rendered next to the public rate"
+    assert "basis" in block and "scored" in block, (
+        "the scored-filing count is not rendered next to the public rates"
+    )
+    assert "buy_scored_filings" in block, (
+        "the denominator no longer comes from the per-window scored counts"
     )

@@ -69,10 +69,47 @@ TRACK_RECORD_FIELDS = [
 #: a rate over 154 lots under a header reading 19.
 #:
 #: buy_avg_abnormal_30d is NOT here. See the module docstring.
+# THE WHOLE BUY SIDE, ALL THREE WINDOWS, ALPHA INCLUDED.
+#
+# This started as one window with alpha withheld, on the reasoning that a rate
+# is a fact but alpha reads as a claim about skill. That reasoning did not
+# survive looking at the page it was defending.
+#
+# /insiders/{id}/trades ALREADY SERVES return_7d, return_30d, return_90d,
+# abnormal_7d, abnormal_30d AND abnormal_90d on every filing row, ungated. On
+# Erez Chimovits' page all eight of his filings are listed with full returns
+# and full alpha. The 3x3 aggregate was therefore never withheld from anyone
+# who owned a calculator -- only from the reader who trusted the table to be
+# complete. Seven grey bars beside two figures does not read as a paywall; it
+# reads as a data problem, which is exactly how it was reported.
+#
+# Withholding an aggregate of published numbers is theatre. So the buy side of
+# an insider's own record is public in full, and the line moves to things that
+# are genuinely ours and genuinely not derivable from the visible table:
+#
+#   PRO, and not arithmetic over anything on the page:
+#     ticker_grades   per-ticker PIT scoring
+#     sell_pattern    our decision-sell classification
+#     best_window     ours
+#     score / percentile / best_pit_score
+#     the SELL half of this block, which rests on signal_class
+#
+# The floor still applies underneath all of it: apply_scoring_floor nulls every
+# figure in a window with fewer than MIN_SCORED_FILINGS, upstream of gating, so
+# no anonymous reader can ever see a number a subscriber cannot.
 PUBLIC_FILING_STAT_FIELDS = (
+    "buy_win_rate_7d",
     "buy_win_rate_30d",
+    "buy_win_rate_90d",
+    "buy_avg_return_7d",
     "buy_avg_return_30d",
+    "buy_avg_return_90d",
+    "buy_avg_abnormal_7d",
+    "buy_avg_abnormal_30d",
+    "buy_avg_abnormal_90d",
+    "buy_scored_filings_7d",
     "buy_scored_filings_30d",
+    "buy_scored_filings_90d",
 )
 
 PUBLIC_VOLUME_FIELDS = (
