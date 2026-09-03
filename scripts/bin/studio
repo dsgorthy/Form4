@@ -1,0 +1,502 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+STUDIO="${STUDIO_HOST:-derekg@100.78.9.66}"
+STUDIO_HOME="/Users/derekg"
+REMOTE_PG="/opt/homebrew/opt/postgresql@17/bin"
+
+MINI_FORM4="/Users/derekg/trading-framework"
+MINI_TAILORLY="/Users/derekg/job-search-project"
+MINI_DESIGNQUIZ="/Users/derekg/design-quiz-site"
+MINI_PYRRHO="/Users/derekg/build-a-portfolio"
+
+STUDIO_FORM4="$STUDIO_HOME/trading-framework"
+STUDIO_TAILORLY="$STUDIO_HOME/job-search-project"
+STUDIO_DESIGNQUIZ="$STUDIO_HOME/design-quiz-site"
+STUDIO_PYRRHO_STAGING="$STUDIO_HOME/pyrrho-staging"
+STUDIO_PYRRHO_PROD="$STUDIO_HOME/pyrrho-prod"
+
+red()   { printf "\033[31m%s\033[0m\n" "$*"; }
+green() { printf "\033[32m%s\033[0m\n" "$*"; }
+bold()  { printf "\033[1m%s\033[0m\n" "$*"; }
+
+check_health() {
+  local url="$1" name="$2"
+  if curl -sf -o /dev/null -w '' "$url" 2>/dev/null; then
+    green "  $name: healthy"
+  else
+    red "  $name: UNREACHABLE"
+  fi
+}
+
+# Fail if Studio-only launch agents exist on this machine. Prevents the
+# dual-run regression that triggered the 2026-04-19 cleanup (Form4 strategies
+# executing on Mini and Studio in parallel against the same Alpaca account).
+# Allowlist dev-safe plists; everything else under com.openclaw.* is flagged.
+guard_studio_only_plists() {
+  local dev_allowed=(
+    com.openclaw.claude-agent
+    com.openclaw.etsy-bot
+    com.openclaw.vistaposter-prospecting
+  )
+  shopt -s nullglob
+  local found=()
+  for plist in "$HOME/Library/LaunchAgents/"com.openclaw.*.plist; do
+    local label
+    label=$(basename "$plist" .plist)
+    local ok=false
+    for a in "${dev_allowed[@]}"; do
+      [ "$label" = "$a" ] && { ok=true; break; }
+    done
+    $ok || found+=("$label")
+  done
+  shopt -u nullglob
+  if [ "${#found[@]}" -gt 0 ]; then
+    red "ERROR: Studio-only launch agents present on this machine:"
+    for f in "${found[@]}"; do red "  - $f"; done
+    red ""
+    red "Remove them before deploying to prevent dual-running:"
+    for f in "${found[@]}"; do
+      echo "  launchctl bootout \"gui/\$(id -u)/${f}\" 2>/dev/null; rm \"\$HOME/Library/LaunchAgents/${f}.plist\""
+    done
+    exit 1
+  fi
+}
+
+# --- DEPLOY ---
+
+check_form4() {
+  bold "Pre-deploy check: running infra_audit on local repo..."
+  local audit="$MINI_FORM4/scripts/preflight/infra_audit.py"
+  if [ ! -x "$audit" ]; then
+    red "  audit script not found or not executable: $audit"
+    return 1
+  fi
+  if /opt/homebrew/bin/python3 "$audit"; then
+    green "  pre-deploy check: PASS"
+    return 0
+  else
+    red "  pre-deploy check: FAIL — fix findings above, or pass --skip-check"
+    return 1
+  fi
+}
+
+deploy_form4() {
+  guard_studio_only_plists
+  # Pre-deploy gate: catches the bug classes from the May 2026 Phase 1
+  # incomplete-deploy postmortem (legacy paths, wrong plist Python,
+  # missing freshness-writer wires, etc.). Pass --skip-check to bypass
+  # in genuine emergencies; expect to lose the safety net if you do.
+  if [[ "${1:-}" == "--skip-check" ]]; then
+    bold "Pre-deploy check SKIPPED (--skip-check flag)"
+  else
+    check_form4 || exit 1
+  fi
+  bold "Deploying Form4 to Studio..."
+  ssh "$STUDIO" "cd $STUDIO_FORM4 && \
+    export PATH=/opt/homebrew/bin:\$PATH && \
+    git pull origin main && \
+    ./deploy/deploy.sh --env prod"
+  # The Docker API/frontend are rebuilt above, but cw_runner runs as long-lived
+  # launchd daemons that import their module once at start — the git pull does
+  # NOT reach the running process. Restart them so code changes go live (the gap
+  # that left the 2026-06-22 alert-dedup fix inert until 2026-06-29). Non-fatal:
+  # a daemon hiccup must not fail an otherwise-green product deploy.
+  restart_strategies || red "  strategy daemon restart FAILED — run 'studio restart-strategies' manually"
+}
+
+deploy_tailorly() {
+  bold "Deploying Tailorly to Studio..."
+  ssh "$STUDIO" "cd $STUDIO_TAILORLY && \
+    export PATH=/opt/homebrew/bin:$REMOTE_PG:\$PATH && \
+    git pull origin main && \
+    .venv/bin/python scripts/init_db.py --db job_search_prod --yes 2>/dev/null || \
+    .venv/bin/python scripts/init_db.py --db job_search_prod && \
+    docker compose -f docker-compose.yml -f docker-compose.prod.yml build --no-cache && \
+    docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d"
+  echo ""
+  sleep 5
+  check_health "http://100.78.9.66:8080/api/v1/health" "Tailorly"
+}
+
+deploy_designquiz() {
+  bold "Deploying design-quiz-site to Studio..."
+  ssh "$STUDIO" "cd $STUDIO_DESIGNQUIZ && \
+    export PATH=/opt/homebrew/bin:$REMOTE_PG:\$PATH && \
+    git pull origin main && \
+    bash deploy.sh"
+  echo ""
+  sleep 2
+  check_health "http://100.78.9.66:8082/health" "DesignQuiz"
+}
+
+deploy_pyrrho() {
+  local env="${1:-staging}"
+  local dir
+  case "$env" in
+    staging) dir="$STUDIO_PYRRHO_STAGING" ;;
+    prod)    dir="$STUDIO_PYRRHO_PROD" ;;
+    *) red "Usage: studio deploy pyrrho [staging|prod]"; exit 1 ;;
+  esac
+  bold "Deploying Pyrrho ($env) on Studio..."
+  ssh -t "$STUDIO" "cd $dir && ./deploy/deploy.sh --env $env"
+}
+
+# Fast-forward prod from main on the local clone, push, then deploy prod on Studio.
+promote_pyrrho() {
+  bold "Promoting Pyrrho main -> prod..."
+  cd "$MINI_PYRRHO"
+  git fetch origin --prune
+  git checkout prod
+  if ! git merge --ff-only origin/main; then
+    red "Cannot fast-forward prod <- main. Open a PR to reconcile, or rebase prod onto main."
+    git checkout main
+    exit 1
+  fi
+  git push origin prod
+  git checkout main
+  green "  promoted; deploying prod..."
+  deploy_pyrrho prod
+}
+
+# --- STATUS ---
+
+status_all() {
+  status_form4
+  echo ""
+  status_tailorly
+  echo ""
+  status_designquiz
+}
+
+status_designquiz() {
+  bold "=== DesignQuiz ==="
+  ssh "$STUDIO" "export PATH=/opt/homebrew/bin:\$PATH && \
+    cd $STUDIO_DESIGNQUIZ && \
+    docker compose -f docker-compose.yml -f docker-compose.prod.yml ps 2>/dev/null || echo '  containers not running'"
+  check_health "http://100.78.9.66:8082/health" "DesignQuiz"
+}
+
+status_form4() {
+  bold "=== Form4 ==="
+  ssh "$STUDIO" "export PATH=/opt/homebrew/bin:\$PATH && \
+    cd $STUDIO_FORM4 && \
+    docker compose -f docker-compose.yml -f docker-compose.prod.yml ps 2>/dev/null || echo '  containers not running'"
+  check_health "https://form4.app/api/v1/health" "Form4"
+}
+
+status_tailorly() {
+  bold "=== Tailorly ==="
+  ssh "$STUDIO" "export PATH=/opt/homebrew/bin:\$PATH && \
+    cd $STUDIO_TAILORLY && \
+    docker compose -f docker-compose.yml -f docker-compose.prod.yml ps 2>/dev/null || echo '  containers not running'"
+  check_health "https://trytailorly.com" "Tailorly"
+}
+
+status_pyrrho() {
+  bold "=== Pyrrho ==="
+  ssh "$STUDIO" "/opt/homebrew/bin/docker ps --filter 'name=pyrrho-' --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'"
+  echo ""
+  check_health "http://100.78.9.66:3000/api/health" "Pyrrho staging"
+  check_health "https://pyrrho.markets/api/health" "Pyrrho prod"
+}
+
+# --- LOGS ---
+
+logs_form4() {
+  ssh -t "$STUDIO" "export PATH=/opt/homebrew/bin:\$PATH && \
+    cd $STUDIO_FORM4 && \
+    docker compose -f docker-compose.yml -f docker-compose.prod.yml logs --tail=50 -f"
+}
+
+logs_tailorly() {
+  ssh -t "$STUDIO" "export PATH=/opt/homebrew/bin:\$PATH && \
+    cd $STUDIO_TAILORLY && \
+    docker compose -f docker-compose.yml -f docker-compose.prod.yml logs --tail=50 -f"
+}
+
+logs_designquiz() {
+  ssh -t "$STUDIO" "export PATH=/opt/homebrew/bin:\$PATH && \
+    cd $STUDIO_DESIGNQUIZ && \
+    docker compose -f docker-compose.yml -f docker-compose.prod.yml logs --tail=50 -f"
+}
+
+logs_pyrrho() {
+  local env="${1:-staging}"
+  local dir
+  case "$env" in
+    staging) dir="$STUDIO_PYRRHO_STAGING" ;;
+    prod)    dir="$STUDIO_PYRRHO_PROD" ;;
+    *) red "Usage: studio logs pyrrho [staging|prod]"; exit 1 ;;
+  esac
+  ssh -t "$STUDIO" "cd $dir && ./deploy/deploy.sh --env $env --logs"
+}
+
+# --- DB MIGRATE ---
+
+db_migrate_form4() {
+  bold "Form4 applies schema on API startup. Restarting API..."
+  ssh "$STUDIO" "export PATH=/opt/homebrew/bin:\$PATH && docker restart trading-framework-api-1"
+  sleep 3
+  check_health "https://form4.app/api/v1/health" "Form4"
+}
+
+db_migrate_tailorly() {
+  bold "Applying Tailorly schema to job_search_prod..."
+  ssh "$STUDIO" "cd $STUDIO_TAILORLY && \
+    export PATH=/opt/homebrew/bin:$REMOTE_PG:\$PATH && \
+    .venv/bin/python scripts/init_db.py --db job_search_prod --yes 2>/dev/null || \
+    .venv/bin/python scripts/init_db.py --db job_search_prod"
+  green "  Schema applied."
+}
+
+db_migrate_designquiz() {
+  bold "Applying DesignQuiz schema to design_quiz_prod..."
+  ssh "$STUDIO" "cd $STUDIO_DESIGNQUIZ && \
+    export PATH=/opt/homebrew/bin:$REMOTE_PG:\$PATH && \
+    .venv/bin/python scripts/init_db.py --db design_quiz_prod --yes"
+  green "  Schema applied."
+}
+
+# --- HEALTH ---
+
+health_all() {
+  bold "Health checks:"
+  check_health "https://form4.app/api/v1/health" "Form4"
+  check_health "https://trytailorly.com" "Tailorly"
+  check_health "http://100.78.9.66:8082/health" "DesignQuiz"
+  echo -n "  Ollama: "
+  if ssh "$STUDIO" "curl -sf http://localhost:11434/api/tags >/dev/null 2>&1"; then
+    green "running"
+  else
+    red "UNREACHABLE"
+  fi
+}
+
+# --- DISPATCH ---
+
+usage() {
+  cat <<EOF
+Usage: studio <command> [project] [args...]
+
+Commands:
+  check [project]                Pre-deploy infrastructure audit
+  deploy <project> [args]        Deploy to Studio (runs check first for form4)
+  promote pyrrho                 Fast-forward main->prod, push, deploy prod
+  status [project]               Show service status
+  logs <project> [args]          Tail logs
+  db-migrate <project>           Apply schema changes
+  ssh                            SSH into Studio
+  health                         Check all endpoints
+  halt-trading <strategy>        Set TRADING_HALTED_<STRATEGY>=true; restart runner
+  resume-trading <strategy>      Clear TRADING_HALTED_<STRATEGY>; restart runner
+  trading-status                 Show current halt-state for all strategies
+  restart-strategies             Pull latest + restart all 3 strategy daemons (load new code)
+
+Projects: form4, tailorly, designquiz, pyrrho
+Strategies: quality_notrend, quality_momentum, reversal_dip, all
+
+Examples:
+  studio check form4             Run pre-deploy audit (no deploy)
+  studio deploy form4            Pre-check then full Form4 deploy
+  studio deploy form4 --skip-check    Emergency bypass of check
+  studio deploy pyrrho staging   Deploy Pyrrho main->staging on Studio
+  studio deploy pyrrho prod      Deploy Pyrrho prod-branch->prod on Studio
+  studio promote pyrrho          Ff-merge main into prod, push, deploy prod
+  studio logs pyrrho staging     Tail staging container logs
+  studio halt-trading quality_momentum
+  studio halt-trading all        Halt every cw_runner strategy
+  studio resume-trading quality_momentum
+  studio trading-status
+EOF
+}
+
+# ── Trading halt switch ─────────────────────────────────────────────────────
+
+declare -a CW_STRATEGIES=(quality_notrend quality_momentum reversal_dip)
+
+# Maps strategy name → launchd Label suffix (services use kebab-case, env
+# vars use snake_case_upper).
+strategy_label() {
+  local s="$1"
+  case "$s" in
+    quality_momentum) echo "quality-momentum" ;;
+    reversal_dip)     echo "reversal-dip" ;;
+    quality_notrend)  echo "quality-notrend" ;;
+    *) red "Unknown strategy: $s"; return 1 ;;
+  esac
+}
+
+halt_one() {
+  local s="$1"
+  local var="TRADING_HALTED_$(echo "$s" | tr '[:lower:]' '[:upper:]')"
+  local label
+  label=$(strategy_label "$s") || return 1
+  ssh "$STUDIO" "
+    cd /Users/derekg/trading-framework
+    # Drop any prior $var line, then append the new one. .env on Studio is
+    # the source-of-truth for runtime credentials + flags.
+    grep -v '^${var}=' .env > .env.tmp || true
+    echo '${var}=true' >> .env.tmp
+    mv .env.tmp .env
+    chmod 600 .env
+    launchctl kickstart -k gui/\$(id -u)/com.openclaw.${label}
+  " && green "  halted: $s"
+}
+
+resume_one() {
+  local s="$1"
+  local var="TRADING_HALTED_$(echo "$s" | tr '[:lower:]' '[:upper:]')"
+  local label
+  label=$(strategy_label "$s") || return 1
+  ssh "$STUDIO" "
+    cd /Users/derekg/trading-framework
+    grep -v '^${var}=' .env > .env.tmp || true
+    mv .env.tmp .env
+    chmod 600 .env
+    launchctl kickstart -k gui/\$(id -u)/com.openclaw.${label}
+  " && green "  resumed: $s"
+}
+
+halt_trading() {
+  local target="${1:-}"
+  [ -z "$target" ] && { red "Usage: studio halt-trading <strategy|all>"; exit 1; }
+  if [ "$target" = "all" ]; then
+    for s in "${CW_STRATEGIES[@]}"; do halt_one "$s"; done
+  else
+    halt_one "$target"
+  fi
+}
+
+resume_trading() {
+  local target="${1:-}"
+  [ -z "$target" ] && { red "Usage: studio resume-trading <strategy|all>"; exit 1; }
+  if [ "$target" = "all" ]; then
+    for s in "${CW_STRATEGIES[@]}"; do resume_one "$s"; done
+  else
+    resume_one "$target"
+  fi
+}
+
+trading_status() {
+  echo "Trading halt-state on Studio:"
+  ssh "$STUDIO" "
+    cd /Users/derekg/trading-framework
+    grep '^TRADING_HALTED' .env 2>/dev/null || echo '  (none — all running)'
+  "
+}
+
+# ── Reload strategy code into running daemons ────────────────────────────────
+# cw_runner runs as long-lived launchd daemons (a while-True loop) that import
+# the module ONCE at process start. A git pull updates files on disk but the
+# running process keeps executing the old code until restarted — and
+# `studio deploy form4` rebuilds only the Docker API/frontend, never these host
+# daemons. That gap left the 2026-06-22 alert-dedup fix inert until a manual
+# restart on 2026-06-29 (daemons had been up since Jun 8, running stale code).
+# This pulls latest main and kickstarts all three so changes actually go live.
+# It does NOT touch TRADING_HALTED_* flags — a halted strategy stays halted.
+#
+# THE THREE RUNNERS MOVED TO DAGSTER on 2026-08-26 and their plists were
+# archived, so every deploy since has printed three of these:
+#
+#   Could not find service "com.openclaw.quality-notrend" in domain ... 501
+#
+# and then, in green, "Strategy daemons now running current code." That claim
+# was false: nothing was restarted, because there is nothing here to restart.
+# A deploy step that reports success while doing nothing is the same shape as
+# the outage where every check said green for five trading days — so it now
+# reports what actually happened instead.
+#
+# The git pull still matters. The Dagster assets shell out to the checkout at
+# $STUDIO_FORM4, so a runner picks up new code on its next scheduled tick
+# without a restart — which is the whole reason the migration removed the
+# stale-code failure mode this function was written for.
+restart_strategies() {
+  bold "Reloading strategy code on Studio (git pull)..."
+  local s
+  local -a labels=()
+  for s in "${CW_STRATEGIES[@]}"; do labels+=("$(strategy_label "$s")"); done
+  local out
+  out=$(ssh "$STUDIO" "
+    set -e
+    cd $STUDIO_FORM4
+    export PATH=/opt/homebrew/bin:\$PATH
+    git pull --ff-only origin main >/dev/null && echo '  pulled: '\$(git rev-parse --short HEAD)
+    for label in ${labels[*]}; do
+      if launchctl print gui/\$(id -u)/com.openclaw.\$label >/dev/null 2>&1; then
+        launchctl kickstart -k gui/\$(id -u)/com.openclaw.\$label \
+          && echo \"  restarted plist: \$label\"
+      else
+        echo \"  dagster-scheduled: \$label (no plist; picks up code next tick)\"
+      fi
+    done
+  ") || { red "Strategy code reload FAILED — runners may be on stale code."; return 1; }
+  echo "$out"
+  green "Strategy code on Studio is current."
+}
+
+cmd="${1:-help}"
+project="${2:-}"
+
+case "$cmd" in
+  check)
+    case "${project:-form4}" in
+      form4)       check_form4 ;;
+      *)           red "check not implemented for: $project"; exit 1 ;;
+    esac
+    ;;
+  deploy)
+    [ -z "$project" ] && { red "Usage: studio deploy <form4|tailorly|designquiz> [services...]"; exit 1; }
+    case "$project" in
+      form4)       deploy_form4 "${@:3}" ;;
+      tailorly)    deploy_tailorly ;;
+      designquiz)  deploy_designquiz ;;
+      pyrrho)      deploy_pyrrho "${3:-staging}" ;;
+      *)           red "Unknown project: $project"; exit 1 ;;
+    esac
+    ;;
+  promote)
+    [ -z "$project" ] && { red "Usage: studio promote pyrrho"; exit 1; }
+    case "$project" in
+      pyrrho)      promote_pyrrho ;;
+      *)           red "promote not implemented for: $project"; exit 1 ;;
+    esac
+    ;;
+  status)
+    case "$project" in
+      "")          status_all ;;
+      form4)       status_form4 ;;
+      tailorly)    status_tailorly ;;
+      designquiz)  status_designquiz ;;
+      pyrrho)      status_pyrrho ;;
+      *)           red "Unknown project: $project"; exit 1 ;;
+    esac
+    ;;
+  logs)
+    [ -z "$project" ] && { red "Usage: studio logs <form4|tailorly|designquiz|pyrrho> [service|env]"; exit 1; }
+    case "$project" in
+      form4)       logs_form4 ;;
+      tailorly)    logs_tailorly ;;
+      designquiz)  logs_designquiz ;;
+      pyrrho)      logs_pyrrho "${3:-staging}" ;;
+      *)           red "Unknown project: $project"; exit 1 ;;
+    esac
+    ;;
+  db-migrate)
+    [ -z "$project" ] && { red "Usage: studio db-migrate <form4|tailorly|designquiz>"; exit 1; }
+    case "$project" in
+      form4)       db_migrate_form4 ;;
+      tailorly)    db_migrate_tailorly ;;
+      designquiz)  db_migrate_designquiz ;;
+      *)           red "Unknown project: $project"; exit 1 ;;
+    esac
+    ;;
+  ssh)    exec ssh "$STUDIO" ;;
+  health) health_all ;;
+  halt-trading)   halt_trading "${2:-}" ;;
+  resume-trading) resume_trading "${2:-}" ;;
+  trading-status) trading_status ;;
+  restart-strategies) restart_strategies ;;
+  help|--help|-h) usage ;;
+  *)      red "Unknown command: $cmd"; usage; exit 1 ;;
+esac
