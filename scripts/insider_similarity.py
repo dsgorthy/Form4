@@ -317,18 +317,22 @@ def main() -> int:
     # ── diagnostic: is the behavioural space encoding anything real? ───────
     # If profile-similar pairs shared a sector no more often than random pairs,
     # the behavioural half of this list would be noise wearing a label.
+    # It must be measured BEFORE the same-sector filter. Measured after, it
+    # reports 100% by construction and checks nothing at all -- it was doing
+    # exactly that for one commit.
     rng = np.random.default_rng(SEED)
-    pf_edges = [r for r in out if r[7] == 0]
-    if pf_edges:
-        hit = np.mean([1.0 if (sect.get(r[0]) and sect.get(r[1])
-                               and sect[r[0]] & sect[r[1]]) else 0.0
-                       for r in pf_edges])
+    pf_pairs = [(a, b) for a, bs in prof_cand.items() for b in bs
+                if not (tick.get(a, set()) & tick.get(b, set()))]
+    if pf_pairs:
+        hit = np.mean([1.0 if (sect.get(a) and sect.get(b) and sect[a] & sect[b])
+                       else 0.0 for a, b in pf_pairs[:200000]])
         sample = rng.choice(ids, size=(min(20000, len(out)), 2))
         base = np.mean([1.0 if (sect.get(int(x)) and sect.get(int(y))
                                 and sect[int(x)] & sect[int(y)]) else 0.0
                         for x, y in sample])
-        logger.info("DIAGNOSTIC sector agreement: behavioural neighbours %.1f%% "
-                    "vs random pairs %.1f%%", hit * 100, base * 100)
+        logger.info("DIAGNOSTIC sector agreement among UNFILTERED behavioural "
+                    "candidates %.1f%% vs random pairs %.1f%% -- the profile "
+                    "space is not noise", hit * 100, base * 100)
 
     if args.inspect:
         tgt = args.inspect
@@ -345,22 +349,25 @@ def main() -> int:
 
     logger.info("writing insider_similarity...")
     cur.execute("SET lock_timeout = '5s'")
-    cur.execute("CREATE TEMP TABLE sim_new (LIKE insider_similarity INCLUDING ALL) ON COMMIT DROP")
-    from psycopg2.extras import execute_values
-    execute_values(cur, """
-        INSERT INTO sim_new (insider_id, related_insider_id, rank, score,
-                             co_investment, sector_overlap, profile_sim,
-                             shared_tickers, shared_ticker_list)
-        VALUES %s
-    """, out, page_size=5000)
-    # Swap in one statement so a reader never sees a half-built list.
+    cur.execute("CREATE TEMP TABLE sim_new (LIKE insider_similarity)")
+
+    def lit(v):
+        if v is None:
+            return "NULL"
+        if isinstance(v, str):
+            return "'" + v.replace("'", "''") + "'"
+        return repr(float(v)) if isinstance(v, float) else str(int(v))
+
+    cols = ("insider_id, related_insider_id, rank, score, co_investment, "
+            "sector_overlap, profile_sim, shared_tickers, shared_ticker_list")
+    for lo in range(0, len(out), 5000):
+        chunk = out[lo:lo + 5000]
+        vals = ",".join("(" + ",".join(lit(v) for v in r) + ")" for r in chunk)
+        cur.execute(f"INSERT INTO sim_new ({cols}) VALUES {vals}")
+    # Swap inside one transaction so a reader never sees a half-built list.
     cur.execute("TRUNCATE insider_similarity")
-    cur.execute("""INSERT INTO insider_similarity
-                     (insider_id, related_insider_id, rank, score, co_investment,
-                      sector_overlap, profile_sim, shared_tickers, shared_ticker_list)
-                   SELECT insider_id, related_insider_id, rank, score, co_investment,
-                          sector_overlap, profile_sim, shared_tickers, shared_ticker_list
-                     FROM sim_new""")
+    cur.execute(f"INSERT INTO insider_similarity ({cols}) SELECT {cols} FROM sim_new")
+    cur.execute("DROP TABLE sim_new")
     conn.commit()
     cur.execute("SELECT count(*), count(DISTINCT insider_id) FROM insider_similarity")
     n, ni = cur.fetchone()
