@@ -191,6 +191,24 @@ app.include_router(insiders.router)
 app.include_router(companies.router)
 app.include_router(leaderboard.router)
 app.include_router(search.router)
+
+
+@app.on_event("startup")
+def _warm_dashboard_aggregates() -> None:
+    """Pre-compute the expensive whole-history dashboard aggregates.
+
+    filing-delays scans ~3.8M rows and cannot be indexed usefully. Each of the
+    four uvicorn workers holds its own in-process cache, so without this the
+    first request to each worker after a restart waits ~16 s -- including the
+    deploy smoke test, which is why it was the only endpoint failing it.
+
+    Runs on a daemon thread so startup is not blocked.
+    """
+    try:
+        from api.routers.dashboard import warm_aggregates
+        warm_aggregates()
+    except Exception:
+        pass
 app.include_router(signals.router)
 app.include_router(webhooks.router)
 app.include_router(api_keys.router)

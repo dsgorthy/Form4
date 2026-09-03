@@ -33,6 +33,32 @@ _AGG_TTL_S = 3600
 _agg_cache: dict[str, tuple[float, object]] = {}
 
 
+def warm_aggregates() -> None:
+    """Populate the whole-history caches in the background at startup.
+
+    The filing-delays scan takes ~16 s and there is no way around that: it
+    summarises ~3.8M rows with a predicate (trans_code IN ('P','S')) that is
+    not selective enough for any index to help.
+
+    Caching alone is not enough, for two reasons. Every deploy restarts the
+    container and empties the cache, and uvicorn runs FOUR workers, each with
+    its own process memory -- so after a restart the first request to each
+    worker pays the full 16 s, and the deploy smoke test hits one of them.
+
+    Warming on a background thread means the cost lands before any user
+    arrives, and readiness is not delayed waiting for it.
+    """
+    import threading
+
+    def _run():
+        try:
+            filing_delays()
+        except Exception:      # a cold cache is not worth failing startup for
+            pass
+
+    threading.Thread(target=_run, daemon=True, name="warm-aggregates").start()
+
+
 def _cached_agg(key: str, compute):
     """Memoise a whole-history aggregate for _AGG_TTL_S seconds."""
     import time as _time
