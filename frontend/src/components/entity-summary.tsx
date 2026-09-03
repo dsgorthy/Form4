@@ -94,7 +94,7 @@ export function InsiderSummary({
 }) {
   const year = firstTrade ? firstTrade.slice(0, 4) : null;
   return (
-    <p className="mb-6 max-w-[70ch] text-sm leading-relaxed text-[#8888A0]">
+    <p className="mb-7 max-w-[68ch] text-[13.5px] leading-[1.6] text-[#8A8A9E]">
       <Num>{name}</Num>
       {title && companyName ? (
         <> is <Num>{title}</Num> at <Num>{companyName}</Num>{ticker ? ` (${ticker})` : ""}</>

@@ -315,9 +315,7 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                   {profile.entity_group.members.find((m: any) => m.is_primary)?.name || "Unknown"}
                 </Link>
               </span>
-            ) : (
-              <span>Related entities:</span>
-            )}
+            ) : null}
             <div className="flex flex-wrap gap-2 mt-2">
               {profile.entity_group.members
                 .filter((m: any) => m.insider_id !== id)
