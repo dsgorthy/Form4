@@ -469,25 +469,7 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                 says we have no data on this person, which is the opposite of
                 the pitch. */}
             {!isGated && <StatBox label="Best Window" value={tr.best_window || "\u2014"} />}
-            {/* One window of analysis, public. Before this an anonymous
-                visitor saw a name, a filing count and some dates -- what a
-                free SEC scraper gives them, on the pages that carry the most
-                traffic. This is proof that we compute something, and it is
-                deliberately a teaser: all three windows, both sides,
-                per-ticker grades and sell patterns stay Pro.
 
-                Rendered only when a rate exists AND its denominator does. An
-                accuracy without its count is how a rate over 154 lots once
-                appeared under a header reading 19. */}
-            {isGated &&
-              profile.filing_stats?.buy_win_rate_30d != null &&
-              profile.filing_stats?.buy_scored_filings_30d != null && (
-                <StatBox
-                  label="30d Buy Accuracy"
-                  value={`${Math.round(profile.filing_stats.buy_win_rate_30d * 100)}%`}
-                  sub={`across ${profile.filing_stats.buy_scored_filings_30d} scored filings`}
-                />
-              )}
             <StatBox label="Tickers Traded" value={String(tr.n_tickers)} />
             <StatBox
               label="Total Filings"
@@ -551,7 +533,16 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
           Pro-only, so for an anonymous visitor they render as a full grid of
           em-dashes. The follow CTA takes their place: it states what is behind
           the wall instead of drawing an empty one. */}
-      {isGated && (
+      {isGated && (() => {
+        // Buys only, 30-day window, already floored at
+        // MIN_SCORED_FILINGS upstream. Null when the insider has
+        // too little history, in which case the bars stay.
+        const fs = profile.filing_stats || {};
+        const n30 = fs.buy_scored_filings_30d ?? null;
+        const pub30 = n30
+          ? { rate: fs.buy_win_rate_30d ?? null, move: fs.buy_avg_return_30d ?? null }
+          : { rate: null, move: null };
+        return (
         // GATED_CLASS goes on a SERVER-rendered element, not on the CTA inside
         // it. FollowCta is a client component that renders nothing until Clerk
         // resolves, so a crawler reading the delivered HTML would find the
@@ -579,7 +570,9 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <caption className="sr-only">
-                  Track record for {profile.name}. Available to Pro subscribers.
+                  Track record for {profile.name}. The 30-day buy figures are
+                  shown; the remaining windows and alpha are available to Pro
+                  subscribers.
                 </caption>
                 <thead>
                   <tr className="border-b border-[#2A2A3A]">
@@ -594,17 +587,53 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                   </tr>
                 </thead>
                 <tbody>
-                  {["Win rate", "Average move", "Alpha vs SPY"].map((metric) => (
+                  {/* THE 30-DAY COLUMN IS REAL. Nine placeholder bars proved we
+                      had a layout, not that we had an answer -- an anonymous
+                      visitor could not tell a withheld measurement from an
+                      absent one. Two live figures against seven bars is a much
+                      better argument than nine bars, and it is the honest one:
+                      the shape is the same, we are showing one column of it.
+
+                      Alpha stays withheld in every window ON PURPOSE, not for
+                      want of space. Win rate and average move are facts about
+                      what happened; alpha reads as a claim about skill, and
+                      three experiments this month could not show our grades
+                      predict forward returns. Publishing history is honest,
+                      publishing it in a frame that implies forecast is not.
+
+                      The figures are already suppressed below
+                      MIN_SCORED_FILINGS by apply_scoring_floor, upstream of
+                      gating -- so the free tier can never show a number the
+                      paid tier hides. */}
+                  {([
+                    ["Win rate", pub30.rate],
+                    ["Average move", pub30.move],
+                    ["Alpha vs SPY", null],
+                  ] as const).map(([metric, value]) => (
                     <tr key={metric} className="border-b border-[#2A2A3A]/40 last:border-0">
                       <th scope="row" className="py-3 text-left font-normal text-[#8888A0]">
                         {metric}
                       </th>
                       {[0, 1, 2].map((i) => (
                         <td key={i} className="py-3 text-right">
-                          <span
-                            className="inline-block h-3.5 w-12 rounded bg-[#2A2A3A]"
-                            aria-hidden="true"
-                          />
+                          {i === 1 && value != null ? (
+                            <span
+                              className={`font-mono ${
+                                metric === "Average move"
+                                  ? value >= 0
+                                    ? "text-[#22C55E]"
+                                    : "text-[#EF4444]"
+                                  : "text-[#E8E8ED]"
+                              }`}
+                            >
+                              {`${value >= 0 && metric === "Average move" ? "+" : ""}${(value * 100).toFixed(1)}%`}
+                            </span>
+                          ) : (
+                            <span
+                              className="inline-block h-3.5 w-12 rounded bg-[#2A2A3A]"
+                              aria-hidden="true"
+                            />
+                          )}
                         </td>
                       ))}
                     </tr>
@@ -613,9 +642,20 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
               </table>
             </div>
             <p className="mt-4 text-sm text-[#8888A0]">
-              Every purchase below already shows what the stock did afterwards.
-              Pro is what they add up to for {profile.name}, measured against
-              SPY over the same windows.
+              {pub30.rate != null ? (
+                <>
+                  The 30-day column is {profile.name}&rsquo;s real record across{" "}
+                  {n30} scored {n30 === 1 ? "purchase" : "purchases"} — one
+                  filing each, never one per execution lot. Pro adds the 7- and
+                  90-day windows, sells, and alpha against SPY.
+                </>
+              ) : (
+                <>
+                  Every purchase below already shows what the stock did
+                  afterwards. Pro is what they add up to for {profile.name},
+                  measured against SPY over the same windows.
+                </>
+              )}
             </p>
           </div>
           <PendingFollow />
@@ -625,7 +665,8 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
             follow={{ kind: "insider", id }}
           />
         </div>
-      )}
+        );
+      })()}
       {tr && !isGated && (() => {
         const fc = profile.filing_counts;
         const fs = profile.filing_stats;

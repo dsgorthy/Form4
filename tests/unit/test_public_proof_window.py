@@ -97,3 +97,59 @@ def test_volume_and_analysis_sets_do_not_overlap():
         "a field is in both allowlists; they answer different questions and "
         "are gated by different rules"
     )
+
+
+# ── the API making it public is not the same as the page showing it ────────
+
+PAGE = (Path(__file__).resolve().parents[2]
+        / "frontend" / "src" / "app" / "insider" / "[id]" / "page.tsx"
+       ).read_text(encoding="utf-8")
+
+
+def _gated_block() -> str:
+    """The branch an anonymous visitor actually renders."""
+    i = PAGE.index("{isGated && (")
+    j = PAGE.index("{tr && !isGated &&", i)
+    return PAGE[i:j]
+
+
+def test_the_gated_track_record_renders_the_public_window():
+    """WHAT WENT WRONG, 2026-09-03.
+
+    The allowlist shipped, the endpoint served
+    buy_win_rate_30d=0.2857 to anonymous visitors, and every test here
+    passed — while the page kept drawing nine placeholder bars, because the
+    gated block never read filing_stats at all. It was reported as working.
+
+    An allowlist is a permission, not a rendering. This asserts the page
+    actually consumes the fields the allowlist opens.
+    """
+    block = _gated_block()
+    assert "filing_stats" in block, (
+        "the gated Track Record block does not read filing_stats, so the "
+        "public 30-day window is allowed through the API and then thrown away "
+        "— the reader sees placeholder bars"
+    )
+    for f in ("buy_win_rate_30d", "buy_avg_return_30d", "buy_scored_filings_30d"):
+        assert f in block, f"the gated block does not render {f}"
+
+
+def test_alpha_is_withheld_in_every_window_on_the_page():
+    """Alpha's row must stay bars. It is the number that most invites reading
+    history as forecast, and our grades do not predict forward returns."""
+    block = _gated_block()
+    i = block.index('"Alpha vs SPY"')
+    row = block[i:i + 120]
+    assert "null" in row, (
+        "the Alpha vs SPY row is no longer pinned to null in the gated table; "
+        "alpha stays Pro in all three windows by design"
+    )
+
+
+def test_the_denominator_is_rendered_beside_the_rate():
+    """A rate without its count is how a figure over 154 lots once appeared
+    under a header reading 19."""
+    block = _gated_block()
+    assert "n30" in block and "scored" in block, (
+        "the scored-filing count is not rendered next to the public rate"
+    )
