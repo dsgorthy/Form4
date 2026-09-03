@@ -15,6 +15,35 @@ from api.id_encoding import encode_response_ids
 _PS_FILTER = "t.trans_code IN ('P', 'S')"
 _PS_FILTER_BARE = "trans_code IN ('P', 'S')"
 
+# ── Cache for whole-history aggregates ─────────────────────────────────────
+#
+# Some dashboard figures summarise the ENTIRE table with no date bound --
+# filing-delays bins ~3M rows of trans_code IN ('P','S') across ten years.
+# That is a full scan by construction: no index helps, because the predicate
+# is not selective and the answer genuinely depends on every row.
+#
+# Rewriting it to aggregate in SQL rather than in Python was still worth doing
+# (it stopped shipping millions of rows over the wire) but it did not move the
+# wall clock: 16s before, 16.8s after. The scan was always the cost.
+#
+# So it is cached. The shape of a ten-year filing-delay distribution does not
+# change hour to hour -- one new day of filings moves a bin by hundredths of a
+# percent -- and a dashboard chart being an hour stale costs a reader nothing.
+_AGG_TTL_S = 3600
+_agg_cache: dict[str, tuple[float, object]] = {}
+
+
+def _cached_agg(key: str, compute):
+    """Memoise a whole-history aggregate for _AGG_TTL_S seconds."""
+    import time as _time
+    now = _time.monotonic()
+    hit = _agg_cache.get(key)
+    if hit is not None and now - hit[0] < _AGG_TTL_S:
+        return hit[1]
+    val = compute()
+    _agg_cache[key] = (now, val)
+    return val
+
 router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 
 
@@ -535,7 +564,8 @@ def filing_delays() -> dict:
     The whole answer is seven integers and three statistics. Counting belongs
     in the database: one pass, one row returned, nothing materialised.
     """
-    with get_db() as conn:
+    def _compute():
+      with get_db() as conn:
         row = conn.execute(
             """
             SELECT
@@ -561,25 +591,27 @@ def filing_delays() -> dict:
             WHERE d IS NOT NULL
             """,
         ).fetchone()
+      return dict(row) if row else {}
 
-    total = row["total"] or 0
+    row = _cached_agg("filing_delays", _compute)
+    total = (row or {}).get("total") or 0
     if not total:
         return {"bins": [],
                 "stats": {"avg_delay": 0, "median_delay": 0,
                           "pct_within_2d": 0, "total": 0}}
 
     bins = [
-        {"label": lbl, "count": row[col] or 0,
-         "pct": round((row[col] or 0) / total * 100, 1)}
+        {"label": lbl, "count": row.get(col) or 0,
+         "pct": round((row.get(col) or 0) / total * 100, 1)}
         for lbl, col in (("0", "b0"), ("1", "b1"), ("2", "b2"), ("3-5", "b3_5"),
                          ("6-10", "b6_10"), ("11-30", "b11_30"), ("30+", "b31"))
     ]
     return {
         "bins": bins,
         "stats": {
-            "avg_delay": round(float(row["avg_delay"] or 0), 1),
-            "median_delay": round(float(row["median_delay"] or 0), 1),
-            "pct_within_2d": round((row["within_2d"] or 0) / total * 100, 1),
+            "avg_delay": round(float(row.get("avg_delay") or 0), 1),
+            "median_delay": round(float(row.get("median_delay") or 0), 1),
+            "pct_within_2d": round((row.get("within_2d") or 0) / total * 100, 1),
             "total": total,
         },
     }
