@@ -472,11 +472,14 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                 >
                   <div className="flex items-center gap-2 min-w-0">
                     {tg.career_grade && <InsiderGradeBadge grade={tg.career_grade} compact tooltip={`Career: ${tg.career_grade}`} />}
-                    {tg.grade && tg.grade !== tg.career_grade && (
-                      <span className="text-[9px] text-[#81819A] font-mono">
-                        Form&nbsp;<span style={{ color: "#8888A0" }}>{tg.grade}</span>
-                      </span>
-                    )}
+                    {/* NO "FORM" CHIP. It rendered tg.grade — the per-ticker
+                        PIT grade — as a second user-facing rating whenever it
+                        differed from the career grade, which for a null career
+                        grade meant every time. api/ratings.py is explicit that
+                        pit_grade must never be published as a rating, and
+                        CLAUDE.md records this exact badge being removed once
+                        already. It survived because it was Pro-only; opening
+                        ticker_grades put it in front of everyone. */}
                     <span className="text-sm font-mono text-[#E8E8ED] truncate">{tg.ticker}</span>
                   </div>
                   {/* Sample size behind the grade. A scored row with

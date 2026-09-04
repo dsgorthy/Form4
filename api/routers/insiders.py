@@ -642,6 +642,14 @@ def get_insider(identifier: str, user: UserContext = Depends(get_current_user)) 
             if k in stats_full
         }
 
+        # Same rule inside ticker_grades. Publishing the object put `score`
+        # and `career_score` — raw 0-1 scoring inputs — in a public payload.
+        # A grade is a published scale; the number behind it is not.
+        result["ticker_grades"] = [
+            {k: v for k, v in g.items() if k not in ("score", "career_score")}
+            for g in (result.get("ticker_grades") or [])
+        ]
+
         # STILL STRIPPED, and not as a paywall: the raw numeric scores. score /
         # percentile / best_pit_score are internal scoring inputs, and
         # api/ratings.py is explicit that pit_grade and conviction must never

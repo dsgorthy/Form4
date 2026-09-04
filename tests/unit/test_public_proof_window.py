@@ -207,3 +207,27 @@ def test_the_denominator_is_rendered_beside_the_rate():
         "the track record block no longer derives its denominator from the "
         "per-window scored counts"
     )
+
+
+# ── opening a payload publishes everything inside it ───────────────────────
+
+def test_ticker_grades_carry_no_raw_scores():
+    """Making ticker_grades public published `score` and `career_score` with
+    them — raw 0-1 scoring inputs. A grade is a published scale; the number
+    behind it is not, and api/ratings.py says so."""
+    router = (REPO / "api" / "routers" / "insiders.py").read_text(encoding="utf-8")
+    assert 'k not in ("score", "career_score")' in router, (
+        "ticker_grades ships its raw scores again"
+    )
+
+
+def test_the_retired_form_scale_is_not_rendered():
+    """The Grade-by-Ticker row drew `tg.grade` — the per-ticker PIT grade — as
+    a second rating labelled "Form" whenever it differed from the career grade,
+    which for a null career grade is always. CLAUDE.md records this badge being
+    removed once already; it survived because it was Pro-only, and opening
+    ticker_grades put it in front of everyone."""
+    assert "Form&nbsp;" not in PAGE, (
+        'the "Form" chip is back on the insider page. Recent Form is not a '
+        "published scale and pit_grade may never render as a rating."
+    )
