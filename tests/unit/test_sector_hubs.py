@@ -155,6 +155,20 @@ def test_something_actually_links_to_the_hubs():
     )
 
 
+def test_the_hub_links_are_server_rendered():
+    """The nav's More dropdown is a client component that mounts its list on
+    open, so /explore, /clusters, /research and /insider-buying appeared in NO
+    page's HTML. Putting the hub in that menu bought exactly nothing for
+    crawling. The footer is real markup on every page."""
+    footer = (REPO / "frontend" / "src" / "components" / "footer.tsx"
+              ).read_text(encoding="utf-8")
+    for href in ("/insider-buying", "/clusters", "/explore", "/research"):
+        assert f'"{href}"' in footer, (
+            f"{href} is not linked from the footer. The nav dropdown does not "
+            "render server-side, so the footer is what a crawler can follow."
+        )
+
+
 def test_the_company_page_links_to_its_sector_hub():
     """The strongest topical link available: a Healthcare company pointing at
     Healthcare Insider Buying, from the second-most-crawled surface."""
