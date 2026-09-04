@@ -8,7 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.auth import UserContext, get_current_user
 from api.db import get_db
-from api.filters import add_signal_class_filter, add_trans_code_filter, deduplicate_filers, filing_group_by
+from api.filters import (MEANINGFUL_CLASSES, add_signal_class_filter,
+                         add_trans_code_filter, deduplicate_filers, filing_group_by)
 from api.gating import get_free_cutoff_date, null_items_track_records, redact_gated_items
 from api.id_encoding import encode_response_ids
 from api.pit_helpers import get_ticker_pit_grade
@@ -16,6 +17,17 @@ from api.pit_helpers import get_ticker_pit_grade
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/companies", tags=["companies"])
+
+
+#: MEANINGFUL_CLASSES rendered as a SQL IN-list. Never type the class names —
+#: they are derived from KIND_META and test_meaningful_is_one_definition fails
+#: the build on drift. Queries below carry a {MEANINGFUL_IN} placeholder and
+#: call _meaningful() on the way to execute().
+_MEANINGFUL_IN = ", ".join(f"'{c}'" for c in MEANINGFUL_CLASSES)
+
+
+def _meaningful(sql: str) -> str:
+    return sql.replace("{MEANINGFUL_IN}", _MEANINGFUL_IN)
 
 
 @router.get("/{ticker}")
@@ -31,9 +43,21 @@ def get_company(ticker: str, user: UserContext = Depends(get_current_user)) -> d
     with get_db() as conn:
         # Get company name from most recent trade
         company_row = conn.execute(
-            """
+            _meaningful("""
+            -- ONE POPULATION, decided 2026-09-03: discretionary trades,
+            -- counted per FILING. Previously this counted rows with
+            -- trans_code IN ('P','S'), which is wider on both axes — it
+            -- admits 10b5-1 planned trades (a scheduled sale is not a
+            -- decision) and counts execution tranches rather than decisions.
+            --
+            -- The cost is real and was accepted deliberately: AAPL's headline
+            -- goes from "2,381 transactions by 38 insiders" to "261
+            -- open-market trades by 31 insiders". The old number is bigger in
+            -- a search snippet; this one is the number the rest of the product
+            -- means, and a page whose four counts disagree is worse than a
+            -- page with a smaller true one.
             SELECT MAX(company) AS company, ticker,
-                   COUNT(*) AS total_trades,
+                   COUNT(DISTINCT COALESCE(filing_key, accession)) AS total_trades,
                    SUM(value) AS total_value,
                    MIN(trade_date) AS first_trade,
                    MAX(trade_date) AS last_trade,
@@ -54,10 +78,10 @@ def get_company(ticker: str, user: UserContext = Depends(get_current_user)) -> d
             WHERE ticker = ?
               AND (is_duplicate = 0 OR is_duplicate IS NULL)
               AND superseded_by IS NULL
-              AND trans_code IN ('P', 'S')
+              AND signal_class IN ({MEANINGFUL_IN})
               AND is_derivative = 0
             GROUP BY ticker
-            """,
+            """),
             (six_months_ago, six_months_ago, ticker),
         ).fetchone()
 
@@ -66,7 +90,7 @@ def get_company(ticker: str, user: UserContext = Depends(get_current_user)) -> d
 
         # Insider roster for this company
         roster = conn.execute(
-            """
+            _meaningful("""
             SELECT
                 ic.insider_id, COALESCE(i.display_name, i.name) AS name, i.cik,
                 COALESCE(i.is_entity, 0) as is_entity,
@@ -80,8 +104,18 @@ def get_company(ticker: str, user: UserContext = Depends(get_current_user)) -> d
             FROM insider_companies ic
             JOIN insiders i ON ic.insider_id = i.insider_id
             WHERE ic.ticker = ?
+              -- Discretionary filers only. Unfiltered this listed every
+              -- officer who has ever received a grant, which is not "an
+              -- insider who trades this stock" — and it read 48 under a
+              -- sentence saying 38.
+              AND EXISTS (
+                    SELECT 1 FROM trades t
+                     WHERE t.insider_id = ic.insider_id
+                       AND t.ticker = ic.ticker
+                       AND t.signal_class IN ({MEANINGFUL_IN})
+              )
             ORDER BY ic.total_value DESC
-            """,
+            """),
             (ticker,),
         ).fetchall()
 
@@ -498,7 +532,7 @@ def company_insiders(ticker: str, limit: int = Query(default=50, le=200)):
     trades this stock".
     """
     with get_db() as conn:
-        rows = conn.execute("""
+        rows = conn.execute(_meaningful("""
             SELECT DISTINCT ON (t.insider_id)
                    t.insider_id,
                    COALESCE(i.display_name, i.name) AS name,
@@ -510,9 +544,9 @@ def company_insiders(ticker: str, limit: int = Query(default=50, le=200)):
               FROM trades t
               JOIN insiders i ON i.insider_id = t.insider_id
              WHERE t.ticker = ?
-               AND t.signal_class IN ('discretionary_buy', 'discretionary_sell')
+               AND t.signal_class IN ({MEANINGFUL_IN})
              ORDER BY t.insider_id, t.filing_date DESC, t.trade_id DESC
-        """, (ticker.upper(),)).fetchall()
+        """), (ticker.upper(),)).fetchall()
 
     items = sorted(
         (dict(r) for r in rows),

@@ -217,8 +217,16 @@ def get_insider(identifier: str, user: UserContext = Depends(get_current_user)) 
         if track_record is not None:
             counts = conn.execute("""
                 SELECT
-                  COUNT(*) FILTER (WHERE signal_class = 'discretionary_buy')  AS buys,
-                  COUNT(*) FILTER (WHERE signal_class = 'discretionary_sell') AS sells,
+                  -- FILINGS, NOT ROWS. COUNT(*) here counted execution
+                  -- tranches: Erez Chimovits showed 17 buys in this payload
+                  -- against 8 in filing_counts, from the same eight decisions
+                  -- filled in seventeen lots. A trade row is a tranche, a
+                  -- filing is a decision, and everything user-facing counts
+                  -- decisions. Same rule as pit_scoring and the track record.
+                  COUNT(DISTINCT COALESCE(filing_key, accession))
+                      FILTER (WHERE signal_class = 'discretionary_buy')  AS buys,
+                  COUNT(DISTINCT COALESCE(filing_key, accession))
+                      FILTER (WHERE signal_class = 'discretionary_sell') AS sells,
                   COUNT(DISTINCT ticker) FILTER (
                       WHERE signal_class IN ('discretionary_buy', 'discretionary_sell')
                   ) AS n_tickers

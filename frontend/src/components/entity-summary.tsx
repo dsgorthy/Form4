@@ -52,9 +52,13 @@ export function CompanySummary({
 
   return (
     <p className="mb-6 max-w-[70ch] text-sm leading-relaxed text-[#8888A0]">
+      {/* Open-market trades, per filing. Not "SEC Form 4 transactions",
+          which counted 10b5-1 plan trades and execution tranches and read
+          2,381 for AAPL where the decisions number 261. */}
       <Num>{name}</Num> ({ticker}) has{" "}
-      <Num>{totalTrades.toLocaleString()}</Num> SEC Form 4 insider transactions
-      reported by <Num>{distinctInsiders}</Num> insider
+      <Num>{totalTrades.toLocaleString()}</Num> open-market insider{" "}
+      {totalTrades === 1 ? "trade" : "trades"} by{" "}
+      <Num>{distinctInsiders}</Num> insider
       {distinctInsiders === 1 ? "" : "s"}
       {year ? <> since <Num>{year}</Num></> : null}.
       {netAbs > 0 && (
@@ -103,8 +107,13 @@ export function InsiderSummary({
       ) : null}
       . {totalTrades > 0 && (
         <>
-          They have reported <Num>{totalTrades.toLocaleString()}</Num> insider
-          transaction{totalTrades === 1 ? "" : "s"} across{" "}
+          {/* "Insider transactions" was vague enough to hide which population
+              it counted, and it counted the widest one. These are open-market
+              buys and sales, one row per filing. Grants, option exercises, tax
+              withholding and 10b5-1 plan trades are not decisions and are not
+              counted. */}
+          They have made <Num>{totalTrades.toLocaleString()}</Num> open-market{" "}
+          {totalTrades === 1 ? "trade" : "trades"} across{" "}
           <Num>{nCompanies}</Num> compan{nCompanies === 1 ? "y" : "ies"}
           {year ? <> since <Num>{year}</Num></> : null}
           {lastTrade ? <>, most recently <Num>{lastTrade}</Num></> : null}.

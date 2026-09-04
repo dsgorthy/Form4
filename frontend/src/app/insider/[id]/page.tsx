@@ -235,7 +235,10 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
               title={titleSummary(primaryTitle)}
               companyName={primary?.company}
               ticker={primary?.ticker}
-              nCompanies={cos.length}
+              // n_tickers, not cos.length: the companies list includes
+              // companies where the only filings were grants or exercises.
+              // 6 there against 5 discretionary was the visible contradiction.
+              nCompanies={tr?.n_tickers ?? cos.length}
               totalTrades={totalTrades}
               lastTrade={lastTrade}
               firstTrade={firstTrade}
