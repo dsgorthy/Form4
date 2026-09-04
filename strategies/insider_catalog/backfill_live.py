@@ -33,6 +33,8 @@ from __future__ import annotations
 
 import argparse
 import logging
+import datetime as dt
+import html
 import re
 import sys
 import time
@@ -222,8 +224,17 @@ def fetch_form4_filings_from_queue(limit: int = 100) -> List[dict]:
     Returns the same shape as fetch_form4_filings_from_index:
         {accession, cik, company, filing_date}
     """
+    # owner=only restricts the feed to OWNERSHIP forms, and it is the
+    # difference between a usable feed and a useless one. Measured 2026-09-04
+    # on the same 100-entry page:
+    #
+    #   owner=include   18 Form 4s, 52 minutes of coverage, 74 of the page
+    #                   was 424B2 prospectuses
+    #   owner=only     100 Form 4s, 4 HOURS of coverage
+    #
+    # Four hours per page against a five-minute poll is a 48x margin.
     url = ("https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent"
-           f"&type=4&company=&dateb=&owner=include&count={int(limit)}&output=atom")
+           f"&type=4&company=&dateb=&owner=only&count={int(limit)}&output=atom")
     try:
         resp = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=30)
         time.sleep(REQUEST_DELAY)
@@ -235,6 +246,7 @@ def fetch_form4_filings_from_queue(limit: int = 100) -> List[dict]:
         return []
 
     rows, seen = [], set()
+    oldest_seen = None
     for m in re.finditer(r"<entry>(.*?)</entry>", resp.text, re.S):
         block = m.group(1)
         href = re.search(r'href="([^"]+)"', block)
@@ -244,8 +256,16 @@ def fetch_form4_filings_from_queue(limit: int = 100) -> List[dict]:
         cik = re.search(r"/data/(\d+)/", href.group(1))
         title = re.search(r"<title>([^<]+)</title>", block)
         updated = re.search(r"<updated>(\d{4}-\d{2}-\d{2})", block)
+        full_ts = re.search(r"<updated>([^<]+)</updated>", block)
         if not (cik and updated):
             continue
+        if full_ts:
+            try:
+                ts = dt.datetime.fromisoformat(full_ts.group(1))
+                if oldest_seen is None or ts < oldest_seen:
+                    oldest_seen = ts
+            except ValueError:
+                pass
         # THE FORM TYPE MUST BE EXACTLY 4 OR 4/A.
         #
         # `&type=4` on getcurrent is a PREFIX match, not an equality test, so
@@ -264,6 +284,9 @@ def fetch_form4_filings_from_queue(limit: int = 100) -> List[dict]:
         name = raw_title
         name = re.sub(r"^4(?:/A)?\s*-\s*", "", name)
         name = re.sub(r"\s*\(\d{7,10}\)\s*\(.*?\)\s*$", "", name).strip()
+        # The feed is XML-escaped: "O&#39;Donnell Rory F." arrives with the
+        # entity intact and would be stored that way.
+        name = html.unescape(name)
         rows.append({
             "accession": acc.group(1),
             "cik": cik.group(1),
@@ -271,15 +294,21 @@ def fetch_form4_filings_from_queue(limit: int = 100) -> List[dict]:
             "filing_date": updated.group(1),
         })
 
-    # FAIL LOUD ON A FULL PAGE. The queue returns only the most recent `limit`,
-    # so a page that is entirely new means filings may have scrolled off
-    # between polls. Nothing is lost -- the nightly index catches them -- but
-    # silence here would hide a cadence that had stopped keeping up.
-    if len(rows) >= limit:
-        logger.warning(
-            "live queue returned a FULL page (%d); filings may have scrolled "
-            "off between polls. The nightly index run remains the backstop.",
-            len(rows))
+    # FAIL LOUD WHEN THE WINDOW STOPS COVERING THE GAP. A full page is normal
+    # under owner=only and spans hours, so "page is full" says nothing. What
+    # matters is how far back the OLDEST entry reaches: if the feed no longer
+    # extends past the previous poll, filings scrolled off in between.
+    #
+    # Nothing is lost when that happens -- the nightly index run is the
+    # completeness guarantee -- but silence would hide a feed that had stopped
+    # keeping up with EDGAR's rate.
+    if oldest_seen is not None:
+        age_min = (dt.datetime.now(dt.timezone.utc) - oldest_seen).total_seconds() / 60
+        if age_min < 15:
+            logger.warning(
+                "live queue only reaches back %.0f minutes; at a 5-minute poll "
+                "this is close to scrolling filings off between runs. The "
+                "nightly index run remains the backstop.", age_min)
     return rows
 
 
