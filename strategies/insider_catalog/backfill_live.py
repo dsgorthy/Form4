@@ -195,6 +195,81 @@ def search_form4_filings(
     return filings, total_hits
 
 
+def fetch_form4_filings_from_queue(limit: int = 100) -> List[dict]:
+    """Form 4s EDGAR has accepted in the last ~hour, from the LIVE QUEUE.
+
+    A LATENCY SUPPLEMENT, NOT A DISCOVERY SOURCE. Read the docstring on
+    fetch_form4_filings_from_index before touching this: the daily index is
+    the completeness guarantee, and replacing it with a feed that returns "the
+    most recent N" is how the historical backfill came to hold 48.6% of the
+    record. This function can drop filings and does not care; the nightly
+    index run picks up anything it missed.
+
+    WHY IT EXISTS
+
+    form.YYYYMMDD.idx is published once, after the close. insider-fetch polls
+    every five minutes -- 288 times a day -- and 287 of those runs re-read a
+    file that has not changed and correctly report "0 new". Meanwhile EDGAR
+    accepts Form 4s continuously: measured 2026-09-04 at 15:55 ET, 113 had
+    been accepted that day and the live queue was moving at ~2 a minute, while
+    our newest row was 16h39m old.
+
+    Roughly 19.4% of filings arrive between 06:00 and 15:59 ET, during the
+    session. Those are the ones where hours of latency cost a subscriber a
+    decision; the 80.6% filed after the bell are caught by the nightly run
+    anyway.
+
+    Returns the same shape as fetch_form4_filings_from_index:
+        {accession, cik, company, filing_date}
+    """
+    url = ("https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent"
+           f"&type=4&company=&dateb=&owner=include&count={int(limit)}&output=atom")
+    try:
+        resp = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=30)
+        time.sleep(REQUEST_DELAY)
+    except requests.RequestException as exc:
+        logger.warning("live queue unreachable: %s", exc)
+        return []
+    if resp.status_code != 200:
+        logger.warning("live queue returned HTTP %s", resp.status_code)
+        return []
+
+    rows, seen = [], set()
+    for m in re.finditer(r"<entry>(.*?)</entry>", resp.text, re.S):
+        block = m.group(1)
+        href = re.search(r'href="([^"]+)"', block)
+        acc = re.search(r"(\d{10}-\d{2}-\d{6})", href.group(1) if href else "")
+        if not acc or acc.group(1) in seen:
+            continue
+        cik = re.search(r"/data/(\d+)/", href.group(1))
+        title = re.search(r"<title>([^<]+)</title>", block)
+        updated = re.search(r"<updated>(\d{4}-\d{2}-\d{2})", block)
+        if not (cik and updated):
+            continue
+        seen.add(acc.group(1))
+        name = (title.group(1) if title else "").strip()
+        # "4 - COMPANY NAME (0001234567) (Issuer)" -> "COMPANY NAME"
+        name = re.sub(r"^4(?:/A)?\s*-\s*", "", name)
+        name = re.sub(r"\s*\(\d{7,10}\)\s*\(.*?\)\s*$", "", name).strip()
+        rows.append({
+            "accession": acc.group(1),
+            "cik": cik.group(1),
+            "company": name,
+            "filing_date": updated.group(1),
+        })
+
+    # FAIL LOUD ON A FULL PAGE. The queue returns only the most recent `limit`,
+    # so a page that is entirely new means filings may have scrolled off
+    # between polls. Nothing is lost -- the nightly index catches them -- but
+    # silence here would hide a cadence that had stopped keeping up.
+    if len(rows) >= limit:
+        logger.warning(
+            "live queue returned a FULL page (%d); filings may have scrolled "
+            "off between polls. The nightly index run remains the backstop.",
+            len(rows))
+    return rows
+
+
 def fetch_form4_filings_from_index(start_date: str, end_date: str) -> List[dict]:
     """Every Form 4 EDGAR published in [start_date, end_date], from the DAILY INDEX.
 

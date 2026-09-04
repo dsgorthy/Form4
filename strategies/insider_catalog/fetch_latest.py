@@ -33,6 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from config.database import get_connection
 from backfill_live import (
     fetch_form4_filings_from_index,
+    fetch_form4_filings_from_queue,
     fetch_form4_xml,
     insert_trades,
     parse_form4_xml,
@@ -364,6 +365,28 @@ def _run_fetch_inner(start_date: str, end_date: str, dry_run: bool) -> dict:
     # run down with it.
     t0 = time.monotonic()
     filings = fetch_form4_filings_from_index(start_date, end_date)
+
+    # THE LIVE QUEUE, unioned in. The daily index is published once, after the
+    # close, so 287 of this job's 288 daily runs re-read a file that has not
+    # changed. EDGAR meanwhile accepts Form 4s all day: measured 2026-09-04 at
+    # 15:55 ET, 113 accepted that day, none of them ours, newest row 16h39m
+    # old. About 19.4% of filings arrive during the session (06:00-15:59 ET)
+    # and those are the ones where the latency costs a subscriber a decision.
+    #
+    # ORDER MATTERS: the index goes first and the queue only ADDS. The index
+    # is the completeness guarantee; the queue returns "the most recent 100"
+    # and is allowed to miss things. If this ever becomes the primary source,
+    # re-read what EFTS did to the historical backfill.
+    #
+    # A queue failure is not a run failure -- it returns [] and the run
+    # proceeds on the index alone, which is exactly today's behaviour.
+    queued = fetch_form4_filings_from_queue()
+    seen_acc = {f["accession"] for f in filings}
+    extra = [f for f in queued if f["accession"] not in seen_acc]
+    if extra:
+        logger.info("Live queue: %d filings, %d not yet in the daily index",
+                    len(queued), len(extra))
+    filings = filings + extra
 
     # Filter to only new filings
     new_filings = [f for f in filings if f["accession"] not in known]
