@@ -246,9 +246,22 @@ def fetch_form4_filings_from_queue(limit: int = 100) -> List[dict]:
         updated = re.search(r"<updated>(\d{4}-\d{2}-\d{2})", block)
         if not (cik and updated):
             continue
+        # THE FORM TYPE MUST BE EXACTLY 4 OR 4/A.
+        #
+        # `&type=4` on getcurrent is a PREFIX match, not an equality test, so
+        # the feed answers with 424B2 prospectuses alongside Form 4s — the
+        # first live run of this parser returned "424B2 - BANK OF MONTREAL"
+        # and would have filed a prospectus as an insider trade. The daily
+        # index parser has known this since it was written ("Startswith on the
+        # padded column avoids matching 40-F, 424B2 and friends"); the same
+        # trap is here in a different shape.
+        raw_title = (title.group(1) if title else "").strip()
+        form = raw_title.split(" - ", 1)[0].strip()
+        if form not in ("4", "4/A"):
+            continue
         seen.add(acc.group(1))
-        name = (title.group(1) if title else "").strip()
         # "4 - COMPANY NAME (0001234567) (Issuer)" -> "COMPANY NAME"
+        name = raw_title
         name = re.sub(r"^4(?:/A)?\s*-\s*", "", name)
         name = re.sub(r"\s*\(\d{7,10}\)\s*\(.*?\)\s*$", "", name).strip()
         rows.append({
