@@ -450,12 +450,28 @@ def _run_fetch_inner(start_date: str, end_date: str, dry_run: bool) -> dict:
 
     # Post-processing for new inserts
     if not dry_run and total_inserted > 0:
-        # Price validation
+        # Price validation.
+        #
+        # THE IMPORT IS NOT IN THE try. It was, and `except Exception` caught
+        # the ImportError for a function price_validator never defined —
+        # every run logged one WARNING line and reported success while
+        # validating nothing. A missing dependency is a broken deployment, not
+        # a runtime hiccup, and it should stop the process rather than scroll
+        # past in a log nobody reads.
+        from price_validator import run_validation
+
         try:
-            from price_validator import run_validation
-            run_validation(conn)
+            stats = run_validation(conn)
+            if stats["corrected"] or stats["flagged"]:
+                logger.info(
+                    "Price validation: %d checked, %d corrected, %d flagged",
+                    stats["checked"], stats["corrected"], stats["flagged"])
         except Exception as e:
-            logger.warning("Price validation error: %s", e)
+            # A genuine runtime failure (bad data, a price lookup that times
+            # out) must not lose the filings we just ingested, so this one
+            # stays caught — but at ERROR, because nothing downstream knows
+            # the prices went unchecked.
+            logger.error("Price validation FAILED: %s", e, exc_info=True)
 
         # Name cleaning
         try:

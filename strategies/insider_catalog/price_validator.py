@@ -87,6 +87,7 @@ Runs on Studio — Mini has no form4 database.
 from __future__ import annotations
 
 import argparse
+import datetime as _dt
 import logging
 import math
 import statistics
@@ -341,6 +342,64 @@ def note_uncorrectable(conn, s: dict) -> None:
          f"no same-day peer to confirm)",
          s["trade_id"]),
     )
+
+
+#: Corrections safe to write unattended. `price_is_total_value` is an
+#: arithmetic identity — price x qty already equals the stored value, so
+#: `price` is holding the total. `power_of_10_shift` is deliberately excluded:
+#: it cannot tell a decimal typo from a foreign currency, and the CLI keeps it
+#: opt-in for the same reason.
+AUTO_APPLY_METHODS = ("price_is_total_value",)
+
+
+def run_validation(conn, since: str | None = None, ticker: str | None = None,
+                   apply_methods: tuple = AUTO_APPLY_METHODS) -> dict:
+    """Validate recently-ingested prices. Called from the ingest path.
+
+    THIS FUNCTION DID NOT EXIST until 2026-09-04, and fetch_latest.py has been
+    calling it since it was written:
+
+        from price_validator import run_validation
+        run_validation(conn)
+
+    wrapped in `except Exception` and logged as a WARNING. So every ingest run
+    reported success while validating nothing, and the ImportError scrolled
+    past in a log nobody reads. That is why 40,049 non-derivative P/S rows
+    carry a price more than 10x from that day's close.
+
+    SCOPED BY DEFAULT. `since=None` here means TODAY, not "everything" — the
+    CLI's None means the whole table, which is right for a manual sweep and
+    catastrophic on a job that runs every five minutes against 1.65M rows.
+    Callers wanting the full pass should use the CLI.
+
+    WRITES ONLY THE ARITHMETIC-IDENTITY CLASS. Everything else that misses its
+    band is recorded in suspect_reason and left alone, which is the existing
+    doctrine: a band miss with no same-day peer is a suspicion, not a finding,
+    and value_suspect stays reserved for what is impossible on its own terms.
+    """
+    if since is None:
+        since = _dt.date.today().isoformat()
+
+    rows = load_rows(conn, since, ticker)
+    if not rows:
+        return {"checked": 0, "corrected": 0, "flagged": 0}
+
+    bands = load_bands(conn, since, ticker)
+    peers = peer_prices(rows)
+    suspects, _peer_excused, _no_band = find_suspects(rows, bands, peers)
+
+    allowed = set(apply_methods)
+    corrected = flagged = 0
+    for s in suspects:
+        fix = s.get("correction")
+        if fix and fix["method"] in allowed:
+            apply_correction(conn, s)
+            corrected += 1
+        else:
+            note_uncorrectable(conn, s)
+            flagged += 1
+    conn.commit()
+    return {"checked": len(rows), "corrected": corrected, "flagged": flagged}
 
 
 def main() -> int:
