@@ -225,6 +225,16 @@ def peers_agree(row: dict, peers: dict) -> bool:
 #: adjusted band, where N is one of these, is far more likely a real trade
 #: against split-adjusted history than a parse failure.
 SPLIT_RATIOS = (2, 3, 4, 5, 6, 7, 8, 10, 15, 20, 25, 30, 50, 100)
+
+#: A ticker needs this many banded filings before the self-consistency
+#: test means anything. Below it, one row proves nothing either way.
+MIN_FILINGS_FOR_SPLIT_TEST = 3
+#: ...of which this share must miss the band high. A split moves every
+#: filing; parse errors are a minority against a compliant majority.
+SPLIT_MAJORITY = 0.75
+#: ...and they must be off by a SIMILAR factor. GOOG's ratios span ~1.6x
+#: end to end; IHT's parse errors span four orders of magnitude.
+SPLIT_SPREAD = 8.0
 SPLIT_RATIO_TOLERANCE = 0.15   # +/-15%. Generous on purpose: the
 #: nearest genuine parse error sits at 2,551x the band, so there is a
 #: two-order-of-magnitude gap to spend. At 6% a GOOG row at 21.2x — a
@@ -311,29 +321,52 @@ def attempt_correction(price: float, qty: float, lo: float, hi: float) -> dict |
 
 
 def split_adjusted_tickers(rows: list[dict], bands: dict) -> set:
-    """Tickers whose band is demonstrably on a different scale to their filings.
+    """Tickers whose BAND is on a different scale to their own FILINGS.
 
-    ONE ROW IS ENOUGH. If any filing for a ticker sits at a round split
-    multiple of its band, the price history is adjusted and the filings are
-    not — and every other row for that ticker is being measured against the
-    same wrong scale, including rows whose own ratio is not a clean multiple.
+    THE TEST IS SELF-CONSISTENCY, not a ratio. An earlier version asked
+    whether a row sat at a round split multiple of its band; that flagged GOOG
+    correctly and then flagged IHT too, because one IHT parse error happened
+    to land near 20x. A whole ticker's genuine corrections were refused on one
+    coincidence.
 
-    GOOG is why this is ticker-level rather than row-level. After the row
-    guard shipped, two rows still slipped:
+    The reliable question is whether the ticker's filings AGREE WITH EACH
+    OTHER:
 
-        2021-05-04  ratio  21.2   a 20:1 split plus ordinary price drift
-        2022-02-09  ratio 208     a 20:1 split compounded with a 10x typo
+      GOOG  filings cluster at $1,725-$2,963 across 2020-2022 and the band
+            says $69. Every filing agrees; the BAND is the outlier, because
+            the history is adjusted for the 2022 20:1 split. Refuse.
 
-    No list of ratios catches every combination. The ticker, however, is
-    unambiguous: other GOOG rows sit at exactly 20x and 30x.
+      IHT   filings cluster at $1-$2.50 with occasional $52,316. The filings
+            disagree with each other; the outliers are parse failures and the
+            band is fine. Correct them.
+
+    So: a ticker is split-adjusted when MOST of its filings miss the band in
+    the same direction by a similar factor. A ticker with parse errors has a
+    few wild outliers against a compliant majority.
     """
-    flagged = set()
+    from collections import defaultdict
+    by_ticker = defaultdict(list)
     for r in rows:
         band = bands.get((r["ticker"], r["trade_date"]))
-        if not band:
+        if not band or band[0] <= 0 or r["price"] <= 0:
             continue
-        if looks_like_a_split(r["price"], band[0], band[1]):
-            flagged.add(r["ticker"])
+        by_ticker[r["ticker"]].append(r["price"] / ((band[0] + band[1]) / 2))
+
+    flagged = set()
+    for ticker, ratios in by_ticker.items():
+        if len(ratios) < MIN_FILINGS_FOR_SPLIT_TEST:
+            continue
+        # What share of this ticker's filings sit well above the band? If it is
+        # most of them, the band is describing a different share class.
+        off = [x for x in ratios if x >= 1.5]
+        if len(off) / len(ratios) < SPLIT_MAJORITY:
+            continue
+        # And they must be off by a SIMILAR factor — a split moves every
+        # filing by the same ratio, while parse errors scatter over orders of
+        # magnitude.
+        lo_r, hi_r = min(off), max(off)
+        if hi_r / lo_r <= SPLIT_SPREAD:
+            flagged.add(ticker)
     return flagged
 
 
