@@ -225,7 +225,10 @@ def peers_agree(row: dict, peers: dict) -> bool:
 #: adjusted band, where N is one of these, is far more likely a real trade
 #: against split-adjusted history than a parse failure.
 SPLIT_RATIOS = (2, 3, 4, 5, 6, 7, 8, 10, 15, 20, 25, 30, 50, 100)
-SPLIT_RATIO_TOLERANCE = 0.06   # +/-6% around the exact ratio
+SPLIT_RATIO_TOLERANCE = 0.15   # +/-15%. Generous on purpose: the
+#: nearest genuine parse error sits at 2,551x the band, so there is a
+#: two-order-of-magnitude gap to spend. At 6% a GOOG row at 21.2x — a
+#: 20:1 split plus ordinary price drift — fell through by 0.05%.
 
 
 def looks_like_a_split(price: float, lo: float, hi: float) -> int | None:
@@ -307,7 +310,35 @@ def attempt_correction(price: float, qty: float, lo: float, hi: float) -> dict |
     return None
 
 
-def find_suspects(rows: list[dict], bands: dict, peers: dict):
+def split_adjusted_tickers(rows: list[dict], bands: dict) -> set:
+    """Tickers whose band is demonstrably on a different scale to their filings.
+
+    ONE ROW IS ENOUGH. If any filing for a ticker sits at a round split
+    multiple of its band, the price history is adjusted and the filings are
+    not — and every other row for that ticker is being measured against the
+    same wrong scale, including rows whose own ratio is not a clean multiple.
+
+    GOOG is why this is ticker-level rather than row-level. After the row
+    guard shipped, two rows still slipped:
+
+        2021-05-04  ratio  21.2   a 20:1 split plus ordinary price drift
+        2022-02-09  ratio 208     a 20:1 split compounded with a 10x typo
+
+    No list of ratios catches every combination. The ticker, however, is
+    unambiguous: other GOOG rows sit at exactly 20x and 30x.
+    """
+    flagged = set()
+    for r in rows:
+        band = bands.get((r["ticker"], r["trade_date"]))
+        if not band:
+            continue
+        if looks_like_a_split(r["price"], band[0], band[1]):
+            flagged.add(r["ticker"])
+    return flagged
+
+
+def find_suspects(rows: list[dict], bands: dict, peers: dict,
+                  split_tickers: set | None = None):
     """Rows whose price cannot be reconciled with what the stock was worth.
 
     Two gates, in order:
@@ -344,7 +375,14 @@ def find_suspects(rows: list[dict], bands: dict, peers: dict):
             "price": price, "qty": qty, "value": float(r["value"] or 0),
             "band_lo": lo, "band_hi": hi,
             "excess": price / hi if price > hi else lo / price,
-            "correction": attempt_correction(price, qty, lo, hi),
+            # No correction is offered for a ticker whose band is on a
+            # different scale to its filings. The row-level check catches
+            # clean multiples; this catches the rest of that ticker's rows,
+            # which are measured against the same wrong scale.
+            "correction": (
+                None if (split_tickers and r["ticker"] in split_tickers)
+                else attempt_correction(price, qty, lo, hi)
+            ),
         })
     return suspects, peer_excused, no_band
 
@@ -434,7 +472,9 @@ def run_validation(conn, since: str | None = None, ticker: str | None = None,
 
     bands = load_bands(conn, since, ticker)
     peers = peer_prices(rows)
-    suspects, _peer_excused, _no_band = find_suspects(rows, bands, peers)
+    split_tickers = split_adjusted_tickers(rows, bands)
+    suspects, _peer_excused, _no_band = find_suspects(rows, bands, peers,
+                                                      split_tickers)
 
     allowed = set(apply_methods)
     corrected = flagged = 0
@@ -472,7 +512,12 @@ def main() -> int:
     peers = peer_prices(rows)
     logger.info("%s bands, %s ticker-days of peer prices", len(bands), len(peers))
 
-    suspects, peer_excused, no_band = find_suspects(rows, bands, peers)
+    split_tickers = split_adjusted_tickers(rows, bands)
+    if split_tickers:
+        logger.info("%d ticker(s) have split-adjusted history; no corrections "
+                    "will be offered for them", len(split_tickers))
+    suspects, peer_excused, no_band = find_suspects(rows, bands, peers,
+                                                    split_tickers)
 
     allowed = {m.strip() for m in args.methods.split(",") if m.strip()}
     fixable = [s for s in suspects
