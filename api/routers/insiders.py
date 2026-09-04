@@ -227,9 +227,10 @@ def get_insider(identifier: str, user: UserContext = Depends(get_current_user)) 
                       FILTER (WHERE signal_class = 'discretionary_buy')  AS buys,
                   COUNT(DISTINCT COALESCE(filing_key, accession))
                       FILTER (WHERE signal_class = 'discretionary_sell') AS sells,
-                  COUNT(DISTINCT ticker) FILTER (
-                      WHERE signal_class IN ('discretionary_buy', 'discretionary_sell')
-                  ) AS n_tickers
+                  COUNT(DISTINCT ticker)
+                      FILTER (WHERE signal_class IN ('discretionary_buy',
+                                                     'discretionary_sell'))
+                      AS n_tickers
                 FROM trades
                 WHERE insider_id = ?
                   AND superseded_by IS NULL
@@ -415,7 +416,7 @@ def get_insider(identifier: str, user: UserContext = Depends(get_current_user)) 
         """, (_pat_10pct, _pat_owner, insider_id, *_cls)).fetchall()
 
         # Filing-level trade counts (consistent with feed display).
-        filing_counts = conn.execute("""
+        filing_counts = conn.execute(f"""
             SELECT
                 SUM(CASE WHEN trans_code = 'P' THEN 1 ELSE 0 END) AS buy_filings,
                 SUM(CASE WHEN trans_code = 'S' THEN 1 ELSE 0 END) AS sell_filings
@@ -426,13 +427,19 @@ def get_insider(identifier: str, user: UserContext = Depends(get_current_user)) 
                   AND superseded_by IS NULL
                   AND is_derivative = 0
                   AND (is_duplicate = 0 OR is_duplicate IS NULL)
+                  -- DISCRETIONARY ONLY. Without this, trans_code 'S' admits
+                  -- 10b5-1 plan sales: Timothy Cook read 2 buys / 49 sells
+                  -- here against 1 / 17 in track_record on the same payload,
+                  -- and 32 of those "sells" were scheduled trades nobody
+                  -- decided on that day.
+                  AND signal_class IN ({_cls_ph})
                 -- Grouped exactly as the /trades endpoint groups, ticker
                 -- included, so the stat grid, the summary sentence and the
                 -- table header cannot report three different totals for the
                 -- same person the way they did for Sylebra Capital (15/14/15).
                 GROUP BY ticker, filing_key, trans_code
             )
-        """, (insider_id,)).fetchone()
+        """, (insider_id, *_cls)).fetchone()
 
         # Sell pattern breakdown (filing-level) — common stock only.
         sell_pattern = conn.execute("""
