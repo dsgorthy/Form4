@@ -70,18 +70,57 @@ def test_the_whole_buy_grid_is_public():
             )
 
 
-def test_the_sell_side_stays_pro():
-    """The line moved, it did not disappear.
+def test_the_whole_track_record_is_public():
+    """REVERSED 2026-09-03 — the second reversal in this file, deliberately.
 
-    Sell-side figures rest on `signal_class` — our decision-sell
-    classification, which is the work, not the arithmetic. Same for per-ticker
-    grades. This is what a subscription buys on this page.
+    This test previously asserted the SELL SIDE STAYS PRO, on the reasoning
+    that sell figures rest on our decision-sell classification and are
+    therefore the work rather than the arithmetic.
+
+    The line moved because it was drawn through the wrong thing. Two facts
+    settled it:
+
+      - /insiders/{id}/trades serves return AND abnormal for 7/30/90 on every
+        filing row, ungated. Sells appear in that table like buys do, so the
+        sell aggregates were arithmetic over published numbers too.
+      - 2 of 179 visitors ever reached /pricing. The wall was not converting;
+        it was making the pages that carry the organic traffic prove nothing.
+
+    So the product sells a CAPABILITY — alerts when a followed insider files,
+    saved screens, the strategy books, the digest — and every number on the
+    profile is public. Those capabilities are gated at their own endpoints.
+
+    WHAT WOULD REVERSE THIS AGAIN: per-filing returns being gated on the
+    trades endpoint. The argument here rests entirely on them being public.
     """
-    for f in PUBLIC_FILING_STAT_FIELDS:
-        assert not f.startswith("sell_"), (
-            f"{f} publishes the sell side. Buys are arithmetic over visible "
-            "rows; sells rest on our classification."
-        )
+    for side in ("buy", "sell"):
+        for metric in ("win_rate", "avg_return", "avg_abnormal", "scored_filings"):
+            for window in ("7d", "30d", "90d"):
+                f = f"{side}_{metric}_{window}"
+                assert f in PUBLIC_FILING_STAT_FIELDS, (
+                    f"{f} is not public. The whole track record is published; "
+                    "Pro is alerts and screening."
+                )
+
+
+def test_the_scores_are_still_stripped_and_not_as_a_paywall():
+    """score / percentile / best_pit_score go because they are not a published
+    scale — api/ratings.py is explicit that pit_grade and conviction must never
+    render as a user-facing rating. Different reason from 'pay us'."""
+    router = (REPO / "api" / "routers" / "insiders.py").read_text(encoding="utf-8")
+    block = router[router.index('result["gated"] = True') - 900:]
+    block = block[:block.index('result["gated"] = True') + 40]
+    for f in ("score", "percentile", "best_pit_score"):
+        assert f'"{f}"' in block, f"{f} is no longer stripped from the payload"
+
+
+def test_gating_still_builds_from_an_allowlist():
+    """The allowlists now cover the whole published set, which makes them look
+    redundant. They are not: iterating an allowlist is what stops a column
+    added to a future SELECT from publishing itself."""
+    router = (REPO / "api" / "routers" / "insiders.py").read_text(encoding="utf-8")
+    assert "for k in PUBLIC_VOLUME_FIELDS if k in tr_full" in router
+    assert "for k in PUBLIC_FILING_STAT_FIELDS" in router
 
 
 def test_the_denominator_is_published_with_the_rate():
@@ -125,60 +164,46 @@ PAGE = (Path(__file__).resolve().parents[2]
        ).read_text(encoding="utf-8")
 
 
-def _gated_block() -> str:
-    """The branch an anonymous visitor actually renders."""
-    i = PAGE.index("{isGated && (")
-    j = PAGE.index("{tr && !isGated &&", i)
-    return PAGE[i:j]
-
-
-def test_the_gated_track_record_renders_the_public_window():
-    """WHAT WENT WRONG, 2026-09-03.
-
-    The allowlist shipped, the endpoint served
-    buy_win_rate_30d=0.2857 to anonymous visitors, and every test here
-    passed — while the page kept drawing nine placeholder bars, because the
-    gated block never read filing_stats at all. It was reported as working.
-
-    An allowlist is a permission, not a rendering. This asserts the page
-    actually consumes the fields the allowlist opens.
-    """
-    block = _gated_block()
-    assert "filing_stats" in block, (
-        "the gated Track Record block does not read filing_stats, so the "
-        "public 30-day window is allowed through the API and then thrown away "
-        "— the reader sees placeholder bars"
+def test_the_placeholder_table_is_gone():
+    """It drew nine grey bars for numbers that are now public. Rendering
+    placeholders over published data is worse than rendering nothing."""
+    assert "aria-hidden" not in PAGE or "h-3.5 w-12 rounded bg-" not in PAGE, (
+        "the gated placeholder bars are back on the insider page"
     )
-    for f in ("buy_win_rate_30d", "buy_avg_return_30d", "buy_scored_filings_30d"):
-        assert f in block, f"the gated block does not render {f}"
 
 
-def test_the_page_renders_all_three_windows_and_alpha():
-    """The complaint both times was a table that looked broken. Nine cells,
-    driven off one array, so a window can only be missing when its data is."""
-    block = _gated_block()
-    for f in ("buy_win_rate_7d", "buy_win_rate_90d",
-              "buy_avg_abnormal_7d", "buy_avg_abnormal_30d", "buy_avg_abnormal_90d"):
-        assert f in block, f"the gated table does not render {f}"
-
-
-def test_an_unfloored_window_still_shows_a_placeholder():
-    """A window below MIN_SCORED_FILINGS is null and must render a bar, not a
-    zero. 'Too thin to publish' and '0%' are different claims."""
-    block = _gated_block()
-    assert "value != null ?" in block, (
-        "the cell no longer distinguishes a null window from a real figure; a "
-        "suppressed window would render as 0.0%"
+def test_anonymous_visitors_get_the_real_track_record():
+    """The full block used to be guarded by `tr && !isGated`."""
+    assert "{tr && !isGated" not in PAGE, (
+        "the full track record is gated again; the whole record is public and "
+        "Pro is alerts and screening"
     )
+
+
+def test_the_cta_sells_a_capability_not_the_numbers():
+    """It sat under a table of grey bars promising the figures behind them.
+    Those figures are printed on the page now, so promising them reads as a
+    lie."""
+    i = PAGE.index("<FollowCta")
+    cta = PAGE[i:i + 400]
+    assert "Alerts" in cta, "the CTA no longer leads with alerts"
+    for banned in ("Win rate, average move", "alpha across"):
+        assert banned not in cta, (
+            f"the CTA offers {banned!r}, which is rendered above it for free"
+        )
 
 
 def test_the_denominator_is_rendered_beside_the_rate():
     """A rate without its count is how a figure over 154 lots once appeared
     under a header reading 19."""
-    block = _gated_block()
-    assert "basis" in block and "scored" in block, (
-        "the scored-filing count is not rendered next to the public rates"
+    # Two places carry it now: the verdict block states it in prose, and the
+    # full track record derives its basis from the per-window scored counts.
+    verdict = (REPO / "frontend" / "src" / "components" / "insider-verdict.tsx"
+               ).read_text(encoding="utf-8")
+    assert "scored purchases" in verdict, (
+        "the verdict no longer states how many filings it is built from"
     )
-    assert "buy_scored_filings" in block, (
-        "the denominator no longer comes from the per-window scored counts"
+    assert "buy_scored_filings" in PAGE and "buyBasis" in PAGE, (
+        "the track record block no longer derives its denominator from the "
+        "per-window scored counts"
     )

@@ -599,35 +599,47 @@ def get_insider(identifier: str, user: UserContext = Depends(get_current_user)) 
 
     # Non-Pro sees who this is and what they did; not how well it worked.
     if not user.is_pro:
-        # Volume survives, outcomes do not. buy_count / sell_count / n_tickers
-        # describe WHAT they did — the same figures every competitor publishes
-        # freely and that Google lifts as the result snippet ("112 transactions
-        # across 1 company"). Nulling the whole object took those with it and
-        # left the summary sentence as a bare name, which is the one thing on
-        # this page that has to earn the click.
+        # ANALYSIS IS PUBLIC. The paid product is alerts and screening, not
+        # withheld numbers — decided 2026-09-03.
+        #
+        # The line used to run through the data: volume public, outcomes Pro,
+        # then one buy window public, then the whole buy grid. It moved twice
+        # in a single afternoon, which was the signal it was drawn in the wrong
+        # place. Two things settled it.
+        #
+        # First, /insiders/{id}/trades already serves return_7d/30d/90d AND
+        # abnormal_7d/30d/90d ungated on every filing row, so the aggregates
+        # were arithmetic over published numbers — withheld from the reader who
+        # trusted the page, not from anyone with a calculator.
+        #
+        # Second, 2 of 179 visitors ever reached /pricing. A wall made of
+        # numbers was not converting; it was just making the pages that carry
+        # the organic traffic prove nothing.
+        #
+        # So the whole track record is public, both sides, all windows, plus
+        # per-ticker grades and sell patterns. What Pro buys is a CAPABILITY:
+        # alerts when a followed insider files, saved screens, the strategy
+        # books, the digest. Those are gated at their own endpoints, not here.
+        #
+        # The allowlists still run. They now cover the whole published set, but
+        # iterating an allowlist is what stops a column added to a future
+        # SELECT from publishing itself; a denylist would leak by default.
         tr_full = result.get("track_record") or {}
         result["track_record"] = (
             {k: tr_full.get(k) for k in PUBLIC_VOLUME_FIELDS if k in tr_full}
             or None
         )
-        # ONE WINDOW OF ANALYSIS SURVIVES, on the buy side. A visitor arriving
-        # from search saw a name, a filing count and some dates -- what a free
-        # SEC scraper gives them -- and nothing said we had done any work.
         stats_full = result.get("filing_stats") or {}
         result["filing_stats"] = {
             k: stats_full.get(k) for k in PUBLIC_FILING_STAT_FIELDS
             if k in stats_full
         }
-        result["sell_pattern"] = None
-        result["ticker_grades"] = []
-        # THE RATING STAYS. It was popped here alongside the raw scores, but a
-        # grade is not a score -- it is the conclusion, and it is the one glyph
-        # that tells a stranger we have a view. The page renders
-        # <InsiderGradeBadge grade={best_career_grade}>, so removing it left
-        # the badge empty on precisely the pages we are trying to convert.
-        #
-        # The numeric scores behind it stay Pro: a grade is a claim, a
-        # percentile invites arithmetic we do not want done on a free tier.
+
+        # STILL STRIPPED, and not as a paywall: the raw numeric scores. score /
+        # percentile / best_pit_score are internal scoring inputs, and
+        # api/ratings.py is explicit that pit_grade and conviction must never
+        # render as user-facing ratings. They are removed because they are not
+        # a published scale, which is a different reason from "pay us".
         for f in ("score", "score_tier", "percentile", "best_career_score",
                   "best_pit_score", "best_pit_grade"):
             result.pop(f, None)

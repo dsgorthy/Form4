@@ -97,21 +97,21 @@ TRACK_RECORD_FIELDS = [
 # The floor still applies underneath all of it: apply_scoring_floor nulls every
 # figure in a window with fewer than MIN_SCORED_FILINGS, upstream of gating, so
 # no anonymous reader can ever see a number a subscriber cannot.
-PUBLIC_FILING_STAT_FIELDS = (
-    "buy_win_rate_7d",
-    "buy_win_rate_30d",
-    "buy_win_rate_90d",
-    "buy_avg_return_7d",
-    "buy_avg_return_30d",
-    "buy_avg_return_90d",
-    "buy_avg_abnormal_7d",
-    "buy_avg_abnormal_30d",
-    "buy_avg_abnormal_90d",
-    "buy_scored_filings_7d",
-    "buy_scored_filings_30d",
-    "buy_scored_filings_90d",
+# Generated rather than typed, from the three dimensions the API builds the
+# object with: side x metric x window. Typing 24 names invites the list and
+# the producer to drift, and the producer is
+#     filing_stats[f"{tt}_{metric}_{window}"]
+# in api/routers/insiders.py.
+PUBLIC_FILING_STAT_FIELDS = tuple(
+    f"{side}_{metric}_{window}"
+    for side in ("buy", "sell")
+    for metric in ("win_rate", "avg_return", "avg_abnormal", "scored_filings")
+    for window in ("7d", "30d", "90d")
 )
 
+#: The whole published track record. STILL AN ALLOWLIST even though it now
+#: covers every field the object carries — a denylist would publish any column
+#: a future SELECT adds, including one nobody meant to expose.
 PUBLIC_VOLUME_FIELDS = (
     "buy_count",
     "sell_count",
@@ -122,6 +122,7 @@ PUBLIC_VOLUME_FIELDS = (
     "buy_last_date",
     "sell_first_date",
     "sell_last_date",
+    "best_window",
 )
 
 # Substrings that mark a field as an outcome measure rather than a volume one.

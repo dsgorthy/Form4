@@ -505,148 +505,23 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
           Pro-only, so for an anonymous visitor they render as a full grid of
           em-dashes. The follow CTA takes their place: it states what is behind
           the wall instead of drawing an empty one. */}
-      {isGated && (() => {
-        // The BUY side in full: three metrics across three windows, the same
-        // grid the Pro block renders. Every figure here is an aggregate of
-        // numbers already served ungated on /insiders/{id}/trades — returns
-        // AND alpha, on every filing row below this table — so none of it was
-        // ever actually withheld, only made tedious. See public_fields.py.
-        //
-        // Already floored at MIN_SCORED_FILINGS upstream, per window. A window
-        // that did not clear the floor is null and keeps its placeholder bar,
-        // which is the honest rendering: too thin to publish, not withheld.
-        const fs = profile.filing_stats || {};
-        const rows: readonly (readonly [string, readonly (number | null | undefined)[]])[] = [
-          ["Win rate",     [fs.buy_win_rate_7d, fs.buy_win_rate_30d, fs.buy_win_rate_90d]],
-          ["Average move", [fs.buy_avg_return_7d, fs.buy_avg_return_30d, fs.buy_avg_return_90d]],
-          ["Alpha vs SPY", [fs.buy_avg_abnormal_7d, fs.buy_avg_abnormal_30d, fs.buy_avg_abnormal_90d]],
-        ];
-        const scored = [fs.buy_scored_filings_7d, fs.buy_scored_filings_30d, fs.buy_scored_filings_90d];
-        const basis = Math.max(0, ...scored.map((n) => n ?? 0));
-        const anyPublished = rows.some(([, vals]) => vals.some((v) => v != null));
-        return (
-        // GATED_CLASS goes on a SERVER-rendered element, not on the CTA inside
-        // it. FollowCta is a client component that renders nothing until Clerk
-        // resolves, so a crawler reading the delivered HTML would find the
-        // page's JSON-LD declaring a paywall over a selector matching nothing.
-        // This wrapper is what makes that declaration resolve, and it names
-        // what is withheld so the block is not simply a hole in the page.
-        <div className={`${GATED_CLASS} mb-8`}>
-          <SectionLabel>Track Record</SectionLabel>
-          {/* Show the SHAPE of what is withheld, not a paragraph describing it.
-              A reader deciding whether to pay needs to see that there are nine
-              specific measurements behind the wall — three metrics across three
-              windows — which a sentence cannot convey. The tiles are the real
-              layout the Pro view renders, with the figures replaced. */}
-          {/* A real table, because this is tabular data: three metrics across
-              three windows. The first attempt laid it out as a CSS grid with
-              three columns and then emitted four cells per row — a label plus
-              the windows — so every row wrapped and the whole thing collapsed
-              into a list. A <table> cannot make that mistake.
-
-              The placeholder bars are aria-hidden with one caption explaining
-              the whole block, rather than nine repetitions of "Pro subscribers
-              only" that a screen reader would read out one at a time and any
-              copy-paste would pick up. */}
-          <div className="rounded-lg border border-[#24242F] bg-[#101017] p-5">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <caption className="sr-only">
-                  Buy-side track record for {profile.name}: win rate, average
-                  move and alpha against SPY, across 7-, 30- and 90-day
-                  windows. Sell-side figures and per-ticker grades are
-                  available to Pro subscribers.
-                </caption>
-                <thead>
-                  <tr className="border-b border-[#2A2A3A]">
-                    <th scope="col" className="pb-2 text-left text-[10px] font-medium uppercase tracking-wider text-[#81819A]">
-                      After
-                    </th>
-                    {["7 days", "30 days", "90 days"].map((w) => (
-                      <th key={w} scope="col" className="pb-2 text-right text-[10px] font-medium uppercase tracking-wider text-[#81819A]">
-                        {w}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {/* THE 30-DAY COLUMN IS REAL. Nine placeholder bars proved we
-                      had a layout, not that we had an answer -- an anonymous
-                      visitor could not tell a withheld measurement from an
-                      absent one. Two live figures against seven bars is a much
-                      better argument than nine bars, and it is the honest one:
-                      the shape is the same, we are showing one column of it.
-
-                      Alpha stays withheld in every window ON PURPOSE, not for
-                      want of space. Win rate and average move are facts about
-                      what happened; alpha reads as a claim about skill, and
-                      three experiments this month could not show our grades
-                      predict forward returns. Publishing history is honest,
-                      publishing it in a frame that implies forecast is not.
-
-                      The figures are already suppressed below
-                      MIN_SCORED_FILINGS by apply_scoring_floor, upstream of
-                      gating -- so the free tier can never show a number the
-                      paid tier hides. */}
-                  {rows.map(([metric, vals]) => (
-                    <tr key={metric} className="border-b border-[#2A2A3A]/40 last:border-0">
-                      <th scope="row" className="py-3 text-left font-normal text-[#8888A0]">
-                        {metric}
-                      </th>
-                      {vals.map((value, i) => (
-                        <td key={i} className="py-3 text-right">
-                          {value != null ? (
-                            <span
-                              className={`font-mono ${
-                                metric === "Win rate"
-                                  ? "text-[#E8E8ED]"
-                                  : value >= 0
-                                    ? "text-[#22C55E]"
-                                    : "text-[#EF4444]"
-                              }`}
-                            >
-                              {`${metric !== "Win rate" && value >= 0 ? "+" : ""}${(value * 100).toFixed(1)}%`}
-                            </span>
-                          ) : (
-                            <span
-                              className="inline-block h-3.5 w-12 rounded bg-[#2A2A3A]"
-                              aria-hidden="true"
-                            />
-                          )}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <p className="mt-4 text-sm text-[#8888A0]">
-              {anyPublished ? (
-                <>
-                  {profile.name}&rsquo;s buy record across {basis} scored{" "}
-                  {basis === 1 ? "purchase" : "purchases"} — one row per filing,
-                  never one per execution lot, and discretionary purchases only.
-                  Pro adds the sell side, per-ticker grades and alerts.
-                </>
-              ) : (
-                <>
-                  Too few scored purchases to publish a record for{" "}
-                  {profile.name}. Every filing below still shows what the stock
-                  did afterwards.
-                </>
-              )}
-            </p>
-          </div>
+      {/* The conversion path, for anyone not signed in. It used to sit under
+          a table of grey placeholder bars; those numbers are public now, so
+          the CTA sells what Pro actually is — an alert when this person files
+          again — instead of the analysis printed directly above it. */}
+      {isGated && (
+        <div className="mb-8">
           <PendingFollow />
           <FollowCta
             entity={profile.name}
-            detail="Alerts when they file, plus the sell side and per-ticker grades"
+            detail="Alerts when they file, saved screens, and the strategy books"
             follow={{ kind: "insider", id }}
           />
         </div>
-        );
-      })()}
-      {tr && !isGated && (() => {
+      )}
+
+      {/* Everyone. Both sides, all three windows, per-ticker grades. */}
+      {tr && (() => {
         const fc = profile.filing_counts;
         const fs = profile.filing_stats;
         const buyCount = fc?.buy ?? tr.buy_count;
