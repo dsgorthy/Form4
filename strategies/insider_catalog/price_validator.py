@@ -221,6 +221,47 @@ def peers_agree(row: dict, peers: dict) -> bool:
 
 # ── detection and repair ────────────────────────────────────────────────────
 
+#: Split ratios common enough to be worth recognising. A filing at N x the
+#: adjusted band, where N is one of these, is far more likely a real trade
+#: against split-adjusted history than a parse failure.
+SPLIT_RATIOS = (2, 3, 4, 5, 6, 7, 8, 10, 15, 20, 25, 30, 50, 100)
+SPLIT_RATIO_TOLERANCE = 0.06   # +/-6% around the exact ratio
+
+
+def looks_like_a_split(price: float, lo: float, hi: float) -> int | None:
+    """Return the split ratio that explains this price, or None.
+
+    WHY THIS EXISTS, 2026-09-04.
+
+    price_is_total_value is an arithmetic identity and it fires on
+    coincidences. GOOG sold at $2,076.19 x 30 shares in March 2021 is a real
+    $62,285 trade, but our price history is adjusted for the 2022 20:1 split,
+    so the band reads $69 and 2076.19/30 = $69.21 lands right in it. The rule
+    then "corrects" a correct row into a $2,076 trade at $69 a share.
+
+    Applied unattended across all history this rewrote 29 real trades: 17
+    GOOG, 4 AMZN (20:1, 2022) and 8 CMG (50:1, 2024). Every one had to be
+    restored from price_as_filed.
+
+    note_uncorrectable already documents the same trap from the other side --
+    the Lucid PIF filing missing its band only because the history is adjusted
+    for a later REVERSE split. This is that hazard, in the direction where a
+    correction is available and wrong.
+
+    The test is deliberately cheap and does not need split reference data: if
+    the filed price sits at a round split multiple of the band, the band is
+    describing post-split prices and cannot judge this row.
+    """
+    mid = (lo + hi) / 2
+    if mid <= 0 or price <= 0:
+        return None
+    ratio = price / mid
+    for n in SPLIT_RATIOS:
+        if abs(ratio - n) / n <= SPLIT_RATIO_TOLERANCE:
+            return n
+    return None
+
+
 def attempt_correction(price: float, qty: float, lo: float, hi: float) -> dict | None:
     """Explain a bad price as one of the three known parse failures, or not at all.
 
@@ -230,6 +271,13 @@ def attempt_correction(price: float, qty: float, lo: float, hi: float) -> dict |
     """
     def in_band(candidate: float) -> bool:
         return lo / CORRECTION_TOLERANCE <= candidate <= hi * CORRECTION_TOLERANCE
+
+    # A price that is a round split multiple of the band means the BAND is
+    # wrong for this row, not the price. Refuse to correct rather than guess:
+    # find_suspects still records it, and note_uncorrectable writes the doubt.
+    split = looks_like_a_split(price, lo, hi)
+    if split:
+        return None
 
     # 1. The price field holds the trade's total value. True price = price/qty,
     #    and the true VALUE is the number sitting in the price field.
