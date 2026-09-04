@@ -364,8 +364,16 @@ def split_adjusted_tickers(rows: list[dict], bands: dict) -> set:
         # And they must be off by a SIMILAR factor — a split moves every
         # filing by the same ratio, while parse errors scatter over orders of
         # magnitude.
-        lo_r, hi_r = min(off), max(off)
-        if hi_r / lo_r <= SPLIT_SPREAD:
+        #
+        # PERCENTILES, NOT MIN/MAX. GOOG's off-band ratios sit tightly around
+        # 20x, but a single 209x row (a 20:1 split compounded with a decimal
+        # typo) and a handful just over the 1.5 threshold made min/max read
+        # 139x, so the ticker was not flagged and the 209x row was then
+        # "corrected". One outlier at each end must not decide this.
+        off.sort()
+        lo_r = off[int(len(off) * 0.10)]
+        hi_r = off[min(len(off) - 1, int(len(off) * 0.90))]
+        if lo_r > 0 and hi_r / lo_r <= SPLIT_SPREAD:
             flagged.add(ticker)
     return flagged
 
