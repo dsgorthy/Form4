@@ -125,3 +125,45 @@ def test_the_slug_is_defined_once():
             "a sector name is hard-coded in the frontend; the list comes from "
             "/api/v1/sectors"
         )
+
+
+# ── the hubs need a route in, not just a sitemap entry ─────────────────────
+
+def test_something_actually_links_to_the_hubs():
+    """WHAT WENT WRONG, found 2026-09-04.
+
+    The hubs shipped into the sitemap AND NOTHING ELSE. Nothing on the site
+    linked to them. Googlebot crawls ~1,100 pages a day here — 552 filings,
+    324 insiders, 240 companies in 24h — and had touched no hub, because its
+    only route in was a sitemap it had not fetched in 48 hours.
+
+    A page reachable only from a sitemap is the slowest discovery path there
+    is, and distributing crawl to the leaves was the entire argument for
+    building them.
+    """
+    src = REPO / "frontend" / "src"
+    linkers = [
+        p.relative_to(src).as_posix()
+        for p in src.rglob("*.tsx")
+        if ".next" not in p.parts
+        and "app/insider-buying" not in p.as_posix()
+        and "/insider-buying" in p.read_text(encoding="utf-8")
+    ]
+    assert linkers, (
+        "nothing outside the hub pages links to /insider-buying. It is "
+        "reachable only from the sitemap, which is how it went uncrawled."
+    )
+
+
+def test_the_company_page_links_to_its_sector_hub():
+    """The strongest topical link available: a Healthcare company pointing at
+    Healthcare Insider Buying, from the second-most-crawled surface."""
+    page = (REPO / "frontend" / "src" / "app" / "company" / "[ticker]" / "page.tsx"
+            ).read_text(encoding="utf-8")
+    assert "/insider-buying/${overview.sector_slug}" in page, (
+        "company pages no longer link to their sector hub"
+    )
+    assert "toLowerCase().replace" not in page, (
+        "the sector slug is being derived in the frontend again; it comes "
+        "from the API, which uses the same slugify the routes use"
+    )

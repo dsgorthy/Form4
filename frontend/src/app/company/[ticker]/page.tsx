@@ -18,6 +18,8 @@ import type { Filing, PaginatedResponse } from "@/lib/types";
 import { SectionLabel } from "@/components/ui/section-label";
 
 interface CompanyOverview {
+  sector?: string | null;
+  sector_slug?: string | null;
   company: string;
   ticker: string;
   total_trades: number;
@@ -297,6 +299,21 @@ export default async function CompanyPage({ params }: { params: Promise<{ ticker
           </Link>
         )}
       </div>
+
+      {/* The strongest topical link this page can carry: a Healthcare company
+          pointing at Healthcare Insider Buying. The hubs shipped into the
+          sitemap and nothing else — Googlebot crawls 240 company pages a day
+          here and had no route to them. */}
+      {overview.sector && overview.sector_slug && (
+        <div className="mt-8 border-t border-[#24242F] pt-4">
+          <Link
+            href={`/insider-buying/${overview.sector_slug}`}
+            className="text-sm text-[#3B82F6] transition-colors hover:text-[#60A5FA]"
+          >
+            More {overview.sector} insider buying &rarr;
+          </Link>
+        </div>
+      )}
 
       <RelatedCompanies items={related?.related ?? []} ticker={overview.ticker} />
     </div>

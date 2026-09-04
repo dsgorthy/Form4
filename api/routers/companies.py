@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.auth import UserContext, get_current_user
 from api.db import get_db
+from api.routers.sectors import slugify as sector_slugify
 from api.filters import (MEANINGFUL_CLASSES, add_signal_class_filter,
                          add_trans_code_filter, deduplicate_filers, filing_group_by)
 from api.gating import get_free_cutoff_date, null_items_track_records, redact_gated_items
@@ -85,6 +86,15 @@ def get_company(ticker: str, user: UserContext = Depends(get_current_user)) -> d
             (six_months_ago, six_months_ago, ticker),
         ).fetchone()
 
+        # The company's own sector, so the page can link to its sector hub.
+        # That link is worth more than the nav entry: a Healthcare company
+        # pointing at "Healthcare Insider Buying" is a topical signal from the
+        # second-most-crawled surface on the site.
+        _sector_row = conn.execute(
+            "SELECT sector FROM ticker_metadata WHERE ticker = ?", (ticker,)
+        ).fetchone()
+        sector = (_sector_row and _sector_row["sector"]) or None
+
         if company_row is None:
             raise HTTPException(status_code=404, detail="Company not found")
 
@@ -149,6 +159,11 @@ def get_company(ticker: str, user: UserContext = Depends(get_current_user)) -> d
         roster_list = null_items_track_records(roster_list)
     encode_response_ids(roster_list, trade=False, insider=True)
     result["insiders"] = roster_list
+    result["sector"] = sector
+    # The SLUG comes from the same slugify the hub routes use. Deriving it in
+    # the frontend is the drift test_sector_hubs.test_the_slug_is_defined_once
+    # exists to prevent, and I wrote that test and then did it anyway.
+    result["sector_slug"] = sector_slugify(sector) if sector else None
     return result
 
 

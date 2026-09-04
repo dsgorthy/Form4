@@ -83,6 +83,14 @@ const primaryLinks = [
 // to give the word up rather than have an Explore menu containing an Explore
 // link.
 const moreLinks = [
+  // /insider-buying and its eleven sector children shipped 2026-09-03 into
+  // the sitemap and NOTHING ELSE. Nothing on the site linked to them.
+  // Googlebot crawls ~1,100 pages a day here — 552 filings, 324 insiders, 240
+  // companies in 24h — and had not touched a hub, because its only route in
+  // was a sitemap it had not fetched in 48 hours. A page reachable only from
+  // a sitemap is the slowest possible discovery path, and the whole argument
+  // for building the hubs was that they distribute crawl to the leaves.
+  { href: "/insider-buying", label: "Insider Buying" },
   { href: "/explore", label: "Explore" },
   { href: "/clusters", label: "Clusters" },
   { href: "/research", label: "Research" },
