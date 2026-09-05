@@ -13,7 +13,6 @@ from api.filters import (MEANINGFUL_CLASSES, add_signal_class_filter,
                          add_trans_code_filter, deduplicate_filers, filing_group_by)
 from api.gating import get_free_cutoff_date, null_items_track_records, redact_gated_items
 from api.id_encoding import encode_response_ids
-from api.pit_helpers import get_ticker_pit_grade
 
 logger = logging.getLogger(__name__)
 
@@ -109,10 +108,31 @@ def get_company(ticker: str, user: UserContext = Depends(get_current_user)) -> d
                  WHERE t.insider_id = ic.insider_id AND t.ticker = ic.ticker
                    AND t.normalized_title IS NOT NULL AND t.normalized_title != ''
                  ORDER BY t.trade_date DESC LIMIT 1) as normalized_title,
-                ic.trade_count, ic.total_value,
+                -- COUNTED THE SAME WAY AS THE HEADLINE ABOVE IT.
+                -- insider_companies.trade_count is every row this insider ever
+                -- filed on this ticker, all transaction codes, one row per
+                -- EXECUTION LOT. AAPL rendered "261 open-market insider
+                -- trades by 31 insiders" over a roster whose trade_count
+                -- summed to 3,084, with Timothy Cook at 547 -- a 12x
+                -- contradiction on one screen, and precisely the defect the
+                -- "one trade population" change claimed to have resolved.
+                d.disc_filings AS trade_count,
+                d.disc_value   AS total_value,
                 ic.first_trade, ic.last_trade
             FROM insider_companies ic
             JOIN insiders i ON ic.insider_id = i.insider_id
+            JOIN LATERAL (
+                SELECT count(DISTINCT COALESCE(t.filing_key, t.accession)) AS disc_filings,
+                       SUM(t.value) AS disc_value
+                  FROM trades t
+                 WHERE t.insider_id = ic.insider_id
+                   AND t.ticker = ic.ticker
+                   AND t.signal_class IN ({MEANINGFUL_IN})
+                   AND t.superseded_by IS NULL
+                   AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
+                   AND t.is_derivative = 0
+                   AND NOT COALESCE(t.value_suspect, FALSE)
+            ) d ON TRUE
             WHERE ic.ticker = ?
               -- Discretionary filers only. Unfiltered this listed every
               -- officer who has ever received a grant, which is not "an
@@ -124,7 +144,7 @@ def get_company(ticker: str, user: UserContext = Depends(get_current_user)) -> d
                        AND t.ticker = ic.ticker
                        AND t.signal_class IN ({MEANINGFUL_IN})
               )
-            ORDER BY ic.total_value DESC
+            ORDER BY d.disc_value DESC NULLS LAST
             """),
             (ticker,),
         ).fetchall()
@@ -152,7 +172,13 @@ def get_company(ticker: str, user: UserContext = Depends(get_current_user)) -> d
 
         # Enrich each insider with their PIT grade for THIS ticker
         for ins in roster_list:
-            ins["pit_grade"] = get_ticker_pit_grade(conn, ins["insider_id"], ticker)
+            # NO pit_grade ON THE ROSTER. api/ratings.py: pit_grade may never
+            # render as a user-facing rating -- it is an internal PIT score,
+            # not a published scale, and it inverts relative to career_grade.
+            # The insider page's Grade-by-Ticker row had exactly this removed
+            # on 2026-09-03; the company roster kept publishing it for every
+            # insider, 31 occurrences on AAPL alone.
+            ins.pop("pit_grade", None)
 
     result = dict(company_row)
     if not user.is_pro:

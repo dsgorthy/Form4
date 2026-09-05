@@ -70,8 +70,11 @@ def test_company_counts_are_discretionary_filings():
 
 
 def test_the_roster_is_the_same_population_as_the_sentence():
+    # Scan the whole roster statement, not a fixed 900-char window. Adding the
+    # LATERAL that fixed the lot-vs-filing count pushed the EXISTS past the
+    # window and turned this green test red without anything breaking.
     i = COMPANIES.index("FROM insider_companies ic")
-    block = COMPANIES[i:i + 900]
+    block = COMPANIES[COMPANIES.rindex("SELECT", 0, i):COMPANIES.index(").fetchall()", i)]
     assert "EXISTS" in block and "signal_class" in block, (
         "the insider roster lists every filer again; it read 48 under a "
         "sentence saying 38"

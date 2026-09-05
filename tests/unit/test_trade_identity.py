@@ -117,10 +117,21 @@ def test_insert_conflicts_are_caught_by_type_not_by_string():
         and it would swallow "there is no unique or exclusion constraint
         matching the ON CONFLICT specification" — a broken deployment.
     """
+    # INSPECT THE BODY OF `except Exception`, not the text before it. The
+    # first version of this assertion looked at the 200 characters BEFORE the
+    # handler, so replacing logger.error(...) with a bare `pass` left every
+    # test in this file green -- a regression straight back to swallowing
+    # schema and deployment errors, which is the bug two commits claim to have
+    # fixed. Proved by mutation in the 2026-09-05 audit.
     i = PARSER_CODE.index("INSERT OR IGNORE INTO trades")
     tail = PARSER_CODE[i:i + 4000]
-    assert "pass" not in tail.split("except Exception")[0][-200:], (
-        "the blind `except: pass` handler is back"
+    # A fixed window after the handler opens. Stripping comments leaves runs
+    # of blank lines, so any "first dedent" heuristic cuts before the body.
+    body = tail[tail.index("except Exception"):][:400]
+    assert "logger.error" in body, (
+        "the generic insert handler no longer logs. A bare `pass` here is the "
+        "original bug: schema errors, type errors and deployment failures all "
+        "silently counted as duplicates."
     )
     assert "except _INSERT_CONFLICT" in tail, (
         "insert conflicts are no longer caught by exception type"
