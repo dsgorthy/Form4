@@ -977,6 +977,21 @@ def parse_form4_xml_full(
                     "title_weight": get_title_weight(title),
                 })
 
+    # LINE NUMBERS, assigned here rather than inside the two loops above.
+    #
+    # A Form 4 transaction's identity is its position in its own document, and
+    # ElementTree preserves document order, so the index of a row in this list
+    # IS that position. Assigning at the end covers both the non-derivative
+    # loop and the swap/derivative loop with one numbering, which is what makes
+    # (accession, line_no) unique across the whole filing rather than per
+    # section.
+    #
+    # This is the key that should always have existed. Without it uniqueness
+    # was enforced on a FLOAT dollar amount, so the 2026-08-26 reload inserted
+    # 458,314 accessions a second time.
+    for i, t in enumerate(trades):
+        t["line_no"] = i
+
     return {"trades": trades, "derivative_trades": derivative_trades}
 
 
@@ -1030,9 +1045,9 @@ def insert_trades(conn, trades: List[dict], accession: str, filed_at: Optional[s
                      shares_owned_after, value_owned_after, nature_of_ownership,
                      equity_swap, is_10b5_1, security_title,
                      deemed_execution_date, trans_form_type, rptowner_cik,
-                     is_derivative)
+                     is_derivative, line_no)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'edgar_live', ?, ?, ?,
-                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 insider_id, t["ticker"], t["company"], t["title"],
                 t["trade_type"], t["trade_date"], t["filing_date"],
@@ -1052,10 +1067,18 @@ def insert_trades(conn, trades: List[dict], accession: str, filed_at: Optional[s
                 t.get("trans_form_type") or None,
                 t.get("rptowner_cik") or None,
                 t.get("is_derivative", 0),
+                t.get("line_no"),
             ))
             inserted += 1
-        except Exception:
-            pass  # duplicate
+        except Exception as exc:
+            # A conflict on (accession, line_no) IS the idempotency guarantee
+            # working -- this row is already stored. Anything else is a real
+            # failure and was, until now, indistinguishable: this handler read
+            # `except Exception: pass  # duplicate` and swallowed schema
+            # errors, type errors and constraint violations alike.
+            msg = str(exc).lower()
+            if "duplicate key" not in msg and "unique" not in msg:
+                logger.error("insert_trades(%s) row failed: %s", accession, exc)
     if rejected_future:
         logger.warning(
             "insert_trades(%s): %d future-dated row(s) rejected", accession, rejected_future
