@@ -21,6 +21,20 @@
 # reasons below for the only shapes that qualify.
 
 dagster:
+  - name: bronze-topup
+    schedule: "20 * * * *"
+    replaced: []
+    note: >
+      NEW WORK, never had a plist. Fetches the complete SEC submission for any
+      accession in `trades` with no row in bronze.edgar_submission. The work
+      list is derived, so it self-heals: new filings, anything the historical
+      backfill has not reached, and anything a future bug drops are all the
+      same case. Bounded at 2000 per run so it tops up rather than competing
+      with the historical backfill for SEC's shared 10 req/s budget.
+
+      Bronze is what makes a refetch unnecessary forever; a filing that
+      arrives without one is the single gap that must not persist.
+
   - name: insider-similarity
     schedule: "0 4 * * 0"
     replaced: []

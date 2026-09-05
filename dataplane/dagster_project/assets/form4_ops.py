@@ -242,6 +242,26 @@ def ops_runner_reversal_dip(context: AssetExecutionContext) -> Output:
     return _runner(context, "reversal_dip")
 
 
+
+@asset(group_name=GROUP, compute_kind="python",
+       description="Top up bronze.edgar_submission with any filing that has no "
+                   "stored document yet. New in 2026-09-05.")
+def ops_bronze_topup(context: AssetExecutionContext) -> Output:
+    # SELF-HEALING BY CONSTRUCTION. The work list is "accessions in trades with
+    # no bronze row", so this covers newly ingested filings, anything the big
+    # historical backfill has not reached, and anything a future bug drops --
+    # without the ingest path needing to know Bronze exists.
+    #
+    # Bounded with --limit so it tops up rather than competing with the
+    # historical backfill for SEC's shared 10 req/s budget. At ~500 new
+    # filings a day, 2000 is several days of headroom in one hourly run.
+    #
+    # Bronze is the layer that makes a refetch unnecessary forever, so a
+    # filing arriving without one is the one gap that must never persist.
+    return _run(context, [BREW, f"{REPO}/scripts/fetch_bronze.py",
+                          "--limit", "2000"], timeout=1800)
+
+
 # ── weekly ─────────────────────────────────────────────────────────────────
 
 @asset(group_name=GROUP, compute_kind="python",
@@ -270,6 +290,7 @@ form4_ops_assets = [
     ops_runner_quality_notrend, ops_runner_quality_momentum,
     ops_runner_reversal_dip,
     ops_insider_similarity,
+    ops_bronze_topup,
 ]
 
 PT = "America/Los_Angeles"
@@ -305,4 +326,5 @@ form4_ops_schedules = [
                                      ops_strategy_health],       "0 17 * * *"),
     _sched("ops_pit_shadow_daily",  [ops_pit_shadow],            "0 18 * * *"),
     _sched("ops_similarity_weekly", [ops_insider_similarity],    "0 4 * * 0"),
+    _sched("ops_bronze_topup_hourly", [ops_bronze_topup],       "20 * * * *"),
 ]

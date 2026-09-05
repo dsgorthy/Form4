@@ -81,6 +81,16 @@ logger = logging.getLogger(__name__)
 
 EFTS_URL = "https://efts.sec.gov/LATEST/search-index"
 USER_AGENT = "Form4/1.0 dsgorthy@hotmail.com"
+
+#: Insert conflicts that mean "already stored". Caught BY TYPE -- see the note
+#: in insert_trades and backfill.migrate_schema for why string matching on the
+#: message is the anti-pattern here.
+try:
+    import psycopg2.errors as _pg_errors
+    _INSERT_CONFLICT = (_pg_errors.UniqueViolation,)
+except ImportError:      # pure-SQLite environments
+    import sqlite3 as _sqlite3
+    _INSERT_CONFLICT = (_sqlite3.IntegrityError,)
 REQUEST_DELAY = 0.12  # SEC allows 10 req/sec, stay under
 
 # Derivative-classification — keep in sync with Phase 2 SQL backfill in the
@@ -1069,16 +1079,29 @@ def insert_trades(conn, trades: List[dict], accession: str, filed_at: Optional[s
                 t.get("is_derivative", 0),
                 t.get("line_no"),
             ))
-            inserted += 1
+            # rowcount, not a blind increment. ON CONFLICT DO NOTHING makes a
+            # suppressed row look identical to a stored one, and fetch_latest
+            # uses this number to decide whether to run the indicator jobs and
+            # reports it as "inserted". The sibling bulk loader hit exactly
+            # this and documented it: "reported 120,732 where 63,264 landed".
+            inserted += cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+        except _INSERT_CONFLICT as exc:
+            # The idempotency guarantee working: this row is already stored.
+            logger.debug("insert_trades(%s): row already present", accession)
         except Exception as exc:
-            # A conflict on (accession, line_no) IS the idempotency guarantee
-            # working -- this row is already stored. Anything else is a real
-            # failure and was, until now, indistinguishable: this handler read
-            # `except Exception: pass  # duplicate` and swallowed schema
-            # errors, type errors and constraint violations alike.
-            msg = str(exc).lower()
-            if "duplicate key" not in msg and "unique" not in msg:
-                logger.error("insert_trades(%s) row failed: %s", accession, exc)
+            # BY TYPE, NOT BY STRING. The previous version of this handler read
+            # `except Exception: pass  # duplicate` and swallowed schema errors,
+            # type errors and real constraint violations alike; the version
+            # after that matched on the words "duplicate key"/"unique" in the
+            # message, which this repo already names as the bug pattern --
+            # backfill.migrate_schema: "catching by string is the bug pattern,
+            # not the fix", after the April 2026 outage.
+            #
+            # String matching would also have swallowed "there is no unique or
+            # exclusion constraint matching the ON CONFLICT specification",
+            # which is a broken deployment, not a duplicate.
+            logger.error("insert_trades(%s) row failed: %s", accession, exc,
+                         exc_info=True)
     if rejected_future:
         logger.warning(
             "insert_trades(%s): %d future-dated row(s) rejected", accession, rejected_future
