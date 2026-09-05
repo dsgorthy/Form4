@@ -116,10 +116,26 @@ def test_a_friday_write_is_fresh_on_monday(monkeypatch, contract):
 
 def test_a_missed_weekday_run_still_halts(contract):
     """The safety property. If the pipeline skips a WEEKDAY, business hours
-    accumulate and the contract must still trip."""
-    friday = _last_friday_1730_pt()
+    accumulate and the contract must still trip.
+
+    FIXED DATES, NOT "LAST FRIDAY + 4". Anchored to the live clock this test
+    went red on 2026-09-04: the most recent Friday was 2026-09-04 itself, +4
+    days is Tuesday 2026-09-08, and the Monday in between is LABOR DAY.
+    business_age_hours discounted the holiday exactly as it should, leaving
+    12.9 hours, and the test read a correct answer as a regression.
+
+    That is the third calendar failure in this file — the two recorded in
+    test_assert_fresh_uses_business_hours_when_the_flag_is_set were the same
+    mistake in a different shape. A test about a missed WEEKDAY must own its
+    calendar rather than borrow whatever week it runs in.
+
+    2026-08-28 -> 2026-09-01 spans Monday 2026-08-31, an ordinary trading day.
+    """
+    from zoneinfo import ZoneInfo
+    PT = ZoneInfo("America/Los_Angeles")
+    friday = datetime(2026, 8, 28, 17, 30, tzinfo=PT).astimezone(timezone.utc)
     # Monday came and went without a run; it is now Tuesday morning.
-    tuesday = _pt_morning_after(friday, 4)
+    tuesday = datetime(2026, 9, 1, 6, 25, tzinfo=PT).astimezone(timezone.utc)
     business = F.business_age_hours(friday, tuesday)
     assert business > 26, (
         f"a skipped weekday run left only {business:.1f} business hours — the "
