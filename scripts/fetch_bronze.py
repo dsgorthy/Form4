@@ -165,8 +165,11 @@ SELECT x.accession, x.cik AS index_cik,
 def progress(conn) -> tuple:
     cur = conn.cursor()
     cur.execute("""
-        SELECT (SELECT count(DISTINCT accession) FROM trades
-                 WHERE accession IS NOT NULL AND accession <> '') AS total,
+        -- Measured against the CORPUS (SEC's index), not against `trades`.
+        -- Reporting "57,540 / 3,198,926" while the real target is 4,060,695
+        -- overstates completion by 27% and hides the 861,769 filings `trades`
+        -- never had -- the exact blind spot this rebuild exists to close.
+        SELECT (SELECT count(*) FROM bronze.edgar_index) AS total,
                (SELECT count(*) FROM bronze.edgar_submission) AS have,
                (SELECT count(*) FROM bronze.edgar_submission WHERE http_status = 200) AS ok
     """)
