@@ -114,7 +114,8 @@ def check_index_against_daily(conn, days: int = 6) -> None:
             continue          # weekend/holiday: no daily file
         sec = set()
         for line in r.text.splitlines():
-            if line.startswith("4 ") or line.startswith("4/A "):
+            f = line.split(" ", 1)[0] if " " in line else ""
+            if f in ("4", "4/A", "5", "5/A"):
                 mm = re.search(r"(\d{10}-\d{2}-\d{6})", line)
                 if mm:
                     sec.add(mm.group(1))

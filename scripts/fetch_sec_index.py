@@ -54,6 +54,19 @@ def quarters():
             yield y, q
 
 
+#: FORMS 4 AND 5, both with amendments.
+#:
+#: Form 5 is the annual statement of changes in beneficial ownership -- real
+#: insider transaction data, and `trades` already carries 148,348 rows from
+#: 96,598 Form 5 accessions (2.07%). A Form-4-only index therefore leaves
+#: filings that back our own data unarchived, which the verifier caught on its
+#: first run as 56 "orphaned" documents whose &lt;documentType&gt; was 5.
+#:
+#: Form 3 is deliberately excluded: it is an initial statement of ownership
+#: and reports no transactions, so nothing in `trades` derives from one.
+INDEX_FORMS = ("4", "4/A", "5", "5/A")
+
+
 def parse_idx(text: str, quarter: str) -> list:
     """form.idx is fixed-width-ish; the form type is the FIRST column.
 
@@ -63,7 +76,8 @@ def parse_idx(text: str, quarter: str) -> list:
     """
     rows, seen = [], set()
     for line in text.splitlines():
-        if not (line.startswith("4 ") or line.startswith("4/A ")):
+        form = line.split(" ", 1)[0] if " " in line else ""
+        if form not in INDEX_FORMS:
             continue
         parts = line.split()
         if len(parts) < 4:
@@ -85,7 +99,7 @@ def parse_idx(text: str, quarter: str) -> list:
         if acc in seen:
             continue
         seen.add(acc)
-        rows.append((acc, "4/A" if line.startswith("4/A") else "4", cik,
+        rows.append((acc, form, cik,
                      " ".join(parts[1:-3]).strip()[:300], filed, quarter))
     return rows
 
