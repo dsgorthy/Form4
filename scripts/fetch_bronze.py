@@ -97,7 +97,7 @@ def submission_url(accession: str, cik: str) -> str:
 def fetch_one(job: tuple) -> dict:
     """Fetch one submission. Never raises -- a failure is a row, not a crash."""
     accession, ciks = job
-    last_err = None
+    last_err, last_status = None, None
     for cik in ciks:
         if not cik:
             continue
@@ -109,33 +109,55 @@ def fetch_one(job: tuple) -> dict:
             last_err = f"{type(exc).__name__}: {exc}"[:400]
             continue
         if r.status_code == 200:
+            # Hash and measure THE BYTES WE STORE. The first version hashed
+            # r.content and stored r.text: SEC serves text/plain with no
+            # charset, so requests decodes latin-1 and psycopg2 re-encodes
+            # UTF-8 on the way in. Any byte >= 0x80 and the checksum silently
+            # stops describing the stored row. Zero incidence so far (all
+            # ASCII) -- which is exactly how it would have gone unnoticed.
             body = r.text
+            raw = body.encode("utf-8")
             return {"accession": accession, "cik_used": str(int(cik)), "source_url": url,
-                    "http_status": 200, "byte_len": len(r.content),
-                    "sha256": hashlib.sha256(r.content).hexdigest(),
+                    "http_status": 200, "byte_len": len(raw),
+                    "sha256": hashlib.sha256(raw).hexdigest(),
                     "content": body, "last_error": None}
+        last_status = r.status_code
         last_err = f"HTTP {r.status_code}"
         # 404 on one CIK just means that CIK is not a party; try the next.
+
+    # RECORD WHAT ACTUALLY HAPPENED. The first version wrote
+    #     0 if last_err and "HTTP" not in last_err else 404
+    # and a requests ConnectionError stringifies as
+    #     "HTTPConnectionPool(host=...): Max retries exceeded"
+    # which CONTAINS "HTTP" -- so the 0 branch was dead code and every
+    # timeout, throttle and 5xx was stored as 404, "SEC says this does not
+    # exist". The work list skips any accession with a row, so ten minutes of
+    # throttling would have poisoned ~4,600 filings permanently.
     return {"accession": accession, "cik_used": None, "source_url": None,
-            "http_status": 0 if last_err and "HTTP" not in last_err else 404,
+            "http_status": last_status if last_status is not None else -1,
             "byte_len": None, "sha256": None, "content": None,
             "last_error": last_err or "no candidate cik"}
 
 
-#: `trades` has no cik column of its own -- the reporting owner's CIK lives in
-#: rptowner_cik, and `insiders.cik` is the second candidate. The accession's
-#: own prefix is a third, added by the caller; it 404s on roughly half of
-#: filings (tested 2026-09-05) so it is strictly a fallback.
+#: THE CORPUS IS bronze.edgar_index, NOT `trades`.
+#:
+#: The first version drove off `trades`, which an audit measured against this
+#: very index at ~82% coverage (2021Q1: 54,611 of 66,015). An archive built
+#: from it inherits an 18% hole -- roughly 850,000 documents -- so "we will
+#: never refetch" would have been false the day it finished.
+#:
+#: CIK candidates, in order: the one SEC names in its own index (always
+#: present and always correct), then the reporting owner from `trades`, then
+#: the accession's prefix. Measured 2026-09-05 on 10,040 fetches: 99.9%
+#: resolve on the first candidate, so the fallbacks cost ~nothing.
 TODO_SQL = """
-SELECT t.accession,
-       MAX(NULLIF(t.rptowner_cik, '')) AS owner_cik,
-       MAX(NULLIF(i.cik, ''))          AS insider_cik
-  FROM trades t
-  LEFT JOIN insiders i ON i.insider_id = t.insider_id
-  LEFT JOIN bronze.edgar_submission b ON b.accession = t.accession
- WHERE t.accession IS NOT NULL AND t.accession <> ''
-   AND b.accession IS NULL
- GROUP BY t.accession
+SELECT x.accession, x.cik AS index_cik,
+       (SELECT MAX(NULLIF(t.rptowner_cik, '')) FROM trades t
+         WHERE t.accession = x.accession) AS owner_cik
+  FROM bronze.edgar_index x
+  LEFT JOIN bronze.edgar_submission b ON b.accession = x.accession
+ WHERE b.accession IS NULL
+ ORDER BY x.filing_date DESC
  LIMIT ?
 """
 
@@ -161,16 +183,35 @@ def main() -> int:
 
     conn = get_connection()
     cur = conn.cursor()
+
+    # AN ADVISORY LOCK, because SEC's 10 req/s is a budget per CLIENT and the
+    # token bucket is a module global -- two processes are two budgets. The
+    # hourly Dagster top-up and this backfill would otherwise sustain 16/s
+    # with a 23/s peak, and re-download each other's work: neither claims
+    # rows, so both compute the same "what is missing" list from the same
+    # position.
+    #
+    # Whoever holds it fetches; anyone else exits cleanly. The lock dies with
+    # the connection, so a crash releases it.
+    cur.execute("SELECT pg_try_advisory_lock(hashtext('bronze_fetch')) AS got")
+    if not cur.fetchone()["got"]:
+        logger.info("another bronze fetcher holds the lock; nothing to do")
+        return 0
+
     total, have, ok = progress(conn)
     logger.info("bronze: %d/%d accessions stored (%d ok, %d failed)",
                 have, total, ok, have - ok)
     if args.status:
         return 0
 
+    # Failures are RETRYABLE. The first version recorded them and the work
+    # list ("no bronze row") then excluded them forever; the only gap class
+    # the top-up must heal was the one it could not see.
     if args.retry_failed:
         cur.execute("DELETE FROM bronze.edgar_submission WHERE http_status <> 200")
+        n = cur.rowcount or 0
         conn.commit()
-        logger.info("cleared %d failed rows for retry", cur.rowcount or 0)
+        logger.info("cleared %d failed rows for retry", n)
 
     done = t0 = 0
     t0 = time.monotonic()
@@ -181,14 +222,20 @@ def main() -> int:
                 break
             cur.execute(TODO_SQL, (take,))
             rows = cur.fetchall()
+            # Close the read transaction BEFORE the network work. Holding it
+            # open across ~65s of fetching left the connection "idle in
+            # transaction", which blocked an ALTER on this very table today
+            # and pins locks for no reason.
+            conn.commit()
             if not rows:
                 break
             jobs = [(r["accession"],
-                     [r["owner_cik"], r["insider_cik"], r["accession"][:10]])
+                     [r["index_cik"], r["owner_cik"], r["accession"][:10]])
                     for r in rows]
 
             results = list(pool.map(fetch_one, jobs))
             for res in results:
+              try:
                 cur.execute("""
                     INSERT INTO bronze.edgar_submission
                       (accession, cik_used, source_url, http_status, byte_len,
@@ -198,6 +245,13 @@ def main() -> int:
                 """, (res["accession"], res["cik_used"], res["source_url"],
                       res["http_status"], res["byte_len"], res["sha256"],
                       res["content"], res["last_error"]))
+              except Exception as exc:
+                # A NUL byte, a constraint violation, a transient DB error --
+                # none of them should end an unattended multi-day run. The row
+                # is skipped and will be picked up on the next pass, because
+                # the work list is "has no bronze row".
+                conn.rollback()
+                logger.error("insert failed for %s: %s", res["accession"], exc)
             conn.commit()
             done += len(results)
             el = time.monotonic() - t0

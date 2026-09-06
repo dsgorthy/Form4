@@ -252,14 +252,18 @@ def ops_bronze_topup(context: AssetExecutionContext) -> Output:
     # historical backfill has not reached, and anything a future bug drops --
     # without the ingest path needing to know Bronze exists.
     #
-    # Bounded with --limit so it tops up rather than competing with the
-    # historical backfill for SEC's shared 10 req/s budget. At ~500 new
-    # filings a day, 2000 is several days of headroom in one hourly run.
+    # An advisory lock in the fetcher makes this safe to run alongside the
+    # historical backfill: whoever holds it fetches, the other exits. So the
+    # limit is now about run length, not about avoiding a rate collision.
+    #
+    # --retry-failed clears recorded non-200s so they are attempted again.
+    # Without it the work list ("no bronze row") excludes a failure forever,
+    # and the one gap class this job exists to heal is the one it cannot see.
     #
     # Bronze is the layer that makes a refetch unnecessary forever, so a
     # filing arriving without one is the one gap that must never persist.
     return _run(context, [BREW, f"{REPO}/scripts/fetch_bronze.py",
-                          "--limit", "2000"], timeout=1800)
+                          "--retry-failed", "--limit", "4000"], timeout=1800)
 
 
 # ── weekly ─────────────────────────────────────────────────────────────────
