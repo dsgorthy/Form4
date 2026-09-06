@@ -70,15 +70,23 @@ def parse_idx(text: str, quarter: str) -> list:
             continue
         path, filed, cik = parts[-1], parts[-2], parts[-3]
         m = re.search(r"(\d{10}-\d{2}-\d{6})", path)
-        if not m or not cik.isdigit() or len(filed) != 8:
+        # THE QUARTERLY INDEX HYPHENATES THE DATE. form.idx per quarter emits
+        # "2021-01-05" (10 chars); the DAILY form.YYYYMMDD.idx emits
+        # "20210105" (8). The first version of this parser reused the daily
+        # parser's `len(filed) != 8` guard and rejected every row in every
+        # quarter -- 0 filings from 83 files, reported as success.
+        if not m or not cik.isdigit():
+            continue
+        if len(filed) == 8 and filed.isdigit():
+            filed = f"{filed[:4]}-{filed[4:6]}-{filed[6:]}"
+        elif not re.fullmatch(r"\d{4}-\d{2}-\d{2}", filed):
             continue
         acc = m.group(1)
         if acc in seen:
             continue
         seen.add(acc)
         rows.append((acc, "4/A" if line.startswith("4/A") else "4", cik,
-                     " ".join(parts[1:-3]).strip()[:300],
-                     f"{filed[:4]}-{filed[4:6]}-{filed[6:]}", quarter))
+                     " ".join(parts[1:-3]).strip()[:300], filed, quarter))
     return rows
 
 
