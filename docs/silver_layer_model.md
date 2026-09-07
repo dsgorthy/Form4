@@ -82,3 +82,85 @@ insider actually paid. For IHT the true figure is probably `22,625 / 12,500 =
 $1.81`, which is inside the band — but "probably" is doing real work in that
 sentence, and it is the same inference that destroyed the GOOG rows. We
 publish what was filed, marked as untrustworthy, and we do not guess.
+
+---
+
+# Gold: how the flag is applied when serving
+
+Silver stores the judgement. Gold decides what a reader sees. There is exactly
+one definition, `api.filters.trusted_value_filter(alias)`, and
+`tests/unit/test_value_aggregates_are_trusted.py` fails the build when a value
+aggregate does not carry it or when a copy of it drifts by a byte.
+
+## The shape depends on the question being asked
+
+**Grouped aggregates FILTER the value and leave the counts alone.**
+
+```sql
+COUNT(DISTINCT COALESCE(filing_key, accession))          AS total_trades,
+SUM(value) FILTER (WHERE NOT COALESCE(value_suspect, FALSE)
+                     AND price_quality IS DISTINCT FROM 'implausible')
+                                                          AS total_value,
+```
+
+A bad price is not a bad filing. Putting the rule in `WHERE` fixes the dollar
+total by deleting the row, and the row is a real decision by a real insider
+that really appears in EDGAR. Measured on IHT, whose 65 flagged rows are 28.9%
+of the ticker:
+
+| insider | real filings | if guarded in WHERE |
+|---|---|---|
+| WIRTH JAMES F | 53 | 10 |
+| Chase JR | 12 | 2 |
+| Kutasi Leslie T | 8 | 1 |
+| BERG MARC E | 1 | **0 — vanishes from the site** |
+
+The company's most active insider would have lost 43 of 53 filings, and one
+insider would have disappeared entirely, to fix a number in a different column.
+
+**Row-level lists guard in WHERE**, because there the question is whether to
+show the row at all. `sectors._TOP_BUYS_SQL` ranks individual buys, and a
+filer's $22,625/share typo must not be *displayed* as a sector's biggest buy.
+No count depends on it, so nothing is lost by excluding it.
+
+## Two things that only appear once it is wired up
+
+**Postgres sorts NULL FIRST under `DESC`.** A group whose every lot is
+implausible sums to NULL, so on all five "biggest" rankings the rows we trust
+least would have sorted to the top — the exact opposite of the intent. Every
+`SUM(...) FILTER (...) DESC` therefore carries `NULLS LAST`, and the test
+enforces it.
+
+**`HAVING` inherits the filter and should.** `HAVING SUM(value) FILTER (...) >=
+100000` excludes a group that only clears the bar on prices we reject, which is
+correct: NULL >= 100000 is NULL, so the group drops out rather than qualifying
+on a typo.
+
+## How this was missed the first time
+
+The flag was wired in by adding it "next to every existing `value_suspect`
+guard". That rule cannot see a query with no guard to sit beside, and the
+company page's headline aggregate was exactly that — it filtered neither flag,
+while the roster immediately below it filtered both. One page, two totals, same
+rows: $7,207,876,939 against $2,325,931.
+
+The test could not catch it either, because it skipped any router that had no
+guard to inspect. **A check that only examines the places already guarded is
+not a check.** The replacement has no SKIP branch: it walks every `SUM` over
+`value` in every router and fails on any that is unfiltered.
+
+## Verifying a change to this layer
+
+The Mini has no `form4` database, so the unit suite never parses a line of this
+SQL, and `studio deploy form4` checks `/api/v1/health` and nothing else. A
+change here is unverified by default. Two things close that gap:
+
+- `scripts/smoke_value_surfaces.sh [base_url]` asks all 14 dollar-publishing
+  surfaces for a real answer. Run it before and after deploying and compare.
+- Extract the modified queries, run them through `config.database.translate_sql`,
+  and `PREPARE` them against the live catalog — that parses and plans without
+  executing, so a mistyped column fails there instead of in front of a user.
+
+And confirm what actually shipped. `studio deploy form4` pulls `origin/main`;
+a commit that exists only locally deploys nothing, the smoke test passes on the
+old code, and the values do not move.
