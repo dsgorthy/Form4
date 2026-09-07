@@ -55,6 +55,7 @@ SELECT m.sector,
    AND t.superseded_by IS NULL
    AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
    AND NOT COALESCE(t.value_suspect, FALSE)
+   AND t.price_quality IS DISTINCT FROM 'implausible'
    AND t.is_derivative = 0
  GROUP BY 1
  ORDER BY buy_filings DESC
@@ -77,6 +78,7 @@ SELECT t.trade_id, t.ticker, t.company, t.insider_id, t.title,
    AND t.superseded_by IS NULL
    AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
    AND NOT COALESCE(t.value_suspect, FALSE)
+   AND t.price_quality IS DISTINCT FROM 'implausible'
    AND t.is_derivative = 0
    AND t.value IS NOT NULL
  ORDER BY t.value DESC
@@ -97,6 +99,7 @@ SELECT t.ticker,
    AND t.superseded_by IS NULL
    AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
    AND NOT COALESCE(t.value_suspect, FALSE)
+   AND t.price_quality IS DISTINCT FROM 'implausible'
    AND t.is_derivative = 0
  GROUP BY 1
  ORDER BY total_value DESC NULLS LAST
@@ -126,6 +129,7 @@ SELECT t.insider_id,
    AND t.superseded_by IS NULL
    AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
    AND NOT COALESCE(t.value_suspect, FALSE)
+   AND t.price_quality IS DISTINCT FROM 'implausible'
    AND t.is_derivative = 0
    AND t.insider_id IS NOT NULL
  GROUP BY 1, 2, 3, 4

@@ -236,6 +236,7 @@ def get_insider(identifier: str, user: UserContext = Depends(get_current_user)) 
                   AND superseded_by IS NULL
                   AND (is_duplicate = 0 OR is_duplicate IS NULL)
                   AND NOT COALESCE(value_suspect, FALSE)
+                  AND price_quality IS DISTINCT FROM 'implausible'
             """, (insider_id,)).fetchone()
             track_record = dict(track_record)
             track_record["buy_count"] = counts["buys"] or 0

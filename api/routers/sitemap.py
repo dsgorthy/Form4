@@ -118,6 +118,7 @@ def sitemap_urls(
                   -- cannot be believed. 1,312 derivative filings sit above $1B.
                   AND is_derivative = 0
                   AND NOT COALESCE(value_suspect, FALSE)
+                  AND price_quality IS DISTINCT FROM 'implausible'
                 ORDER BY filing_date DESC
             """).fetchall()
             filings = [encode_trade_id(r["trade_id"]) for r in filing_rows if r["trade_id"]]

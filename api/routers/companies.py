@@ -132,6 +132,7 @@ def get_company(ticker: str, user: UserContext = Depends(get_current_user)) -> d
                    AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
                    AND t.is_derivative = 0
                    AND NOT COALESCE(t.value_suspect, FALSE)
+                   AND t.price_quality IS DISTINCT FROM 'implausible'
             ) d ON TRUE
             WHERE ic.ticker = ?
               -- Discretionary filers only. Unfiltered this listed every
