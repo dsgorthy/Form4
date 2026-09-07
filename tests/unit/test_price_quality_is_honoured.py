@@ -54,9 +54,20 @@ def test_every_value_suspect_guard_has_a_price_quality_guard(path: Path):
     make a later reader add the second condition."""
     src = path.read_text(encoding="utf-8")
     guards = _guards(src)
+    n_pq = src.count("price_quality IS DISTINCT FROM 'implausible'")
+
+    # A ROUTER WITH NO GUARD IS NOT A PASS. Skipping when none was found is
+    # how the company page's headline total escaped: that query sums `value`
+    # and had neither guard, so this test skipped the whole file and IHT went
+    # on serving $7,207,876,940 for a $1.50 stock.
+    sums_value = re.search(r"SUM\(\s*(t\.)?value\s*\)", src)
+    if sums_value and not guards:
+        raise AssertionError(
+            f"{path.name} sums `value` but applies no value_suspect guard. "
+            "Every dollar aggregate must exclude rows we do not believe."
+        )
     if not guards:
         pytest.skip("no published-population guard in this router")
-    n_pq = src.count("price_quality IS DISTINCT FROM 'implausible'")
     assert n_pq >= len(guards), (
         f"{path.name} has {len(guards)} value_suspect guard(s) but {n_pq} "
         "price_quality guard(s). A dollar aggregate would include a filed "

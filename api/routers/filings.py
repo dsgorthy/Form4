@@ -412,9 +412,9 @@ def list_filings(
                         MAX(t.trade_date) AS last_trade_date,
                         MIN(t.filing_date) AS filing_date,
                         MAX(t.filed_at) AS filed_at,
-                        ROUND(SUM(t.value) / NULLIF(SUM(t.qty), 0), 2) AS price,
+                        ROUND(SUM(t.value) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible') / NULLIF(SUM(t.qty), 0), 2) AS price,
                         SUM(t.qty) AS qty,
-                        SUM(t.value) AS value,
+                        SUM(t.value) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible') AS value,
                         COUNT(*) AS lot_count,
                         MAX(t.is_csuite) AS is_csuite,
                         MIN(t.accession) AS accession,
@@ -456,7 +456,7 @@ def list_filings(
                     WHERE {where_clause}
                     {date_window}
                     GROUP BY COALESCE(t.txn_group_id::text, t.accession), t.ticker, t.trade_type
-                    ORDER BY MAX(COALESCE(t.filed_at, t.filing_date)) DESC, SUM(t.value) DESC
+                    ORDER BY MAX(COALESCE(t.filed_at, t.filing_date)) DESC, SUM(t.value) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible') DESC NULLS LAST
                     LIMIT ? OFFSET ?
             ) agg
             LEFT JOIN insiders i ON agg.best_insider_id = i.insider_id
@@ -567,9 +567,9 @@ def get_related_trades(trade_id: str, limit: int = Query(default=5, ge=1, le=20)
                     MIN(t.trade_date) AS trade_date,
                     MAX(t.trade_date) AS last_trade_date,
                     MIN(t.filing_date) AS filing_date,
-                    ROUND(SUM(t.value) / NULLIF(SUM(t.qty), 0), 2) AS price,
+                    ROUND(SUM(t.value) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible') / NULLIF(SUM(t.qty), 0), 2) AS price,
                     SUM(t.qty) AS qty,
-                    SUM(t.value) AS value,
+                    SUM(t.value) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible') AS value,
                     COUNT(*) AS lot_count,
                     MAX(t.is_csuite) AS is_csuite, MIN(t.accession) AS accession,
                     GROUP_CONCAT(DISTINCT t.trans_code) AS trans_code,

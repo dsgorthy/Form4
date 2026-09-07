@@ -56,9 +56,12 @@ def get_company(ticker: str, user: UserContext = Depends(get_current_user)) -> d
             -- a search snippet; this one is the number the rest of the product
             -- means, and a page whose four counts disagree is worse than a
             -- page with a smaller true one.
+            -- VALUE AGGREGATES ARE FILTERED; COUNTS ARE NOT. A filer typo in
+            -- the price does not unmake the filing — see trusted_value_filter.
             SELECT MAX(company) AS company, ticker,
                    COUNT(DISTINCT COALESCE(filing_key, accession)) AS total_trades,
-                   SUM(value) AS total_value,
+                   SUM(value)
+                       FILTER (WHERE NOT COALESCE(value_suspect, FALSE) AND price_quality IS DISTINCT FROM 'implausible') AS total_value,
                    MIN(trade_date) AS first_trade,
                    MAX(trade_date) AS last_trade,
                    -- Aggregates for the summary sentence under the H1. Every
@@ -68,12 +71,16 @@ def get_company(ticker: str, user: UserContext = Depends(get_current_user)) -> d
                    -- Conditional SUMs over a scan we already perform, so no
                    -- extra query cost.
                    COUNT(DISTINCT insider_id) AS distinct_insiders,
-                   SUM(CASE WHEN trade_type = 'buy'  THEN value ELSE 0 END) AS buy_value,
-                   SUM(CASE WHEN trade_type = 'sell' THEN value ELSE 0 END) AS sell_value,
+                   SUM(CASE WHEN trade_type = 'buy'  THEN value ELSE 0 END)
+                           FILTER (WHERE NOT COALESCE(value_suspect, FALSE) AND price_quality IS DISTINCT FROM 'implausible') AS buy_value,
+                   SUM(CASE WHEN trade_type = 'sell' THEN value ELSE 0 END)
+                           FILTER (WHERE NOT COALESCE(value_suspect, FALSE) AND price_quality IS DISTINCT FROM 'implausible') AS sell_value,
                    SUM(CASE WHEN trade_type = 'buy'
-                             AND trade_date >= ? THEN value ELSE 0 END) AS buy_value_6mo,
+                             AND trade_date >= ? THEN value ELSE 0 END)
+                           FILTER (WHERE NOT COALESCE(value_suspect, FALSE) AND price_quality IS DISTINCT FROM 'implausible') AS buy_value_6mo,
                    SUM(CASE WHEN trade_type = 'sell'
-                             AND trade_date >= ? THEN value ELSE 0 END) AS sell_value_6mo
+                             AND trade_date >= ? THEN value ELSE 0 END)
+                           FILTER (WHERE NOT COALESCE(value_suspect, FALSE) AND price_quality IS DISTINCT FROM 'implausible') AS sell_value_6mo
             FROM trades
             WHERE ticker = ?
               AND (is_duplicate = 0 OR is_duplicate IS NULL)
@@ -123,7 +130,8 @@ def get_company(ticker: str, user: UserContext = Depends(get_current_user)) -> d
             JOIN insiders i ON ic.insider_id = i.insider_id
             JOIN LATERAL (
                 SELECT count(DISTINCT COALESCE(t.filing_key, t.accession)) AS disc_filings,
-                       SUM(t.value) AS disc_value
+                       SUM(t.value)
+                           FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible') AS disc_value
                   FROM trades t
                  WHERE t.insider_id = ic.insider_id
                    AND t.ticker = ic.ticker
@@ -131,8 +139,6 @@ def get_company(ticker: str, user: UserContext = Depends(get_current_user)) -> d
                    AND t.superseded_by IS NULL
                    AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
                    AND t.is_derivative = 0
-                   AND NOT COALESCE(t.value_suspect, FALSE)
-                   AND t.price_quality IS DISTINCT FROM 'implausible'
             ) d ON TRUE
             WHERE ic.ticker = ?
               -- Discretionary filers only. Unfiltered this listed every
@@ -266,9 +272,10 @@ def get_company_trades(
                     MIN(t.trade_date) AS trade_date,
                     MAX(t.trade_date) AS last_trade_date,
                     MIN(t.filing_date) AS filing_date,
-                    ROUND(SUM(t.value) / NULLIF(SUM(t.qty), 0), 2) AS price,
+                    ROUND(SUM(t.value) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible')
+                          / NULLIF(SUM(t.qty) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible'), 0), 2) AS price,
                     SUM(t.qty) AS qty,
-                    SUM(t.value) AS value,
+                    SUM(t.value) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible') AS value,
                     COUNT(*) AS lot_count,
                     MAX(t.is_csuite) AS is_csuite,
                     GROUP_CONCAT(DISTINCT t.trans_code) AS trans_code,
@@ -366,8 +373,9 @@ def get_company_price_history(ticker: str, user: UserContext = Depends(get_curre
                     t.insider_id,
                     t.trade_type,
                     t.trade_date,
-                    ROUND(SUM(t.value) / NULLIF(SUM(t.qty), 0), 2) AS price,
-                    SUM(t.value) AS value,
+                    ROUND(SUM(t.value) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible')
+                          / NULLIF(SUM(t.qty) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible'), 0), 2) AS price,
+                    SUM(t.value) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible') AS value,
                     MAX(t.pit_grade) AS pit_grade
                 FROM trades t
                 WHERE {where_clause}
@@ -474,8 +482,9 @@ def get_chart_data(
                     t.insider_id,
                     t.trade_type,
                     t.trade_date,
-                    ROUND(SUM(t.value) / NULLIF(SUM(t.qty), 0), 2) AS price,
-                    SUM(t.value) AS value,
+                    ROUND(SUM(t.value) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible')
+                          / NULLIF(SUM(t.qty) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible'), 0), 2) AS price,
+                    SUM(t.value) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible') AS value,
                     MAX(t.pit_grade) AS pit_grade
                 FROM trades t
                 WHERE {where_clause}

@@ -167,8 +167,8 @@ def dashboard_stats(user: UserContext = Depends(get_current_user)) -> dict:
         ratio_row = conn.execute(
             """
             SELECT
-                COALESCE(SUM(CASE WHEN trade_type = 'buy' THEN value ELSE 0 END), 0) AS buy_val,
-                COALESCE(SUM(CASE WHEN trade_type = 'sell' THEN value ELSE 0 END), 0) AS sell_val
+                COALESCE(SUM(CASE WHEN trade_type = 'buy' THEN value ELSE 0 END) FILTER (WHERE NOT COALESCE(value_suspect, FALSE) AND price_quality IS DISTINCT FROM 'implausible'), 0) AS buy_val,
+                COALESCE(SUM(CASE WHEN trade_type = 'sell' THEN value ELSE 0 END) FILTER (WHERE NOT COALESCE(value_suspect, FALSE) AND price_quality IS DISTINCT FROM 'implausible'), 0) AS sell_val
             FROM trades
             WHERE filing_date BETWEEN date(?, '-5 days') AND ?
               AND superseded_by IS NULL
@@ -187,7 +187,7 @@ def dashboard_stats(user: UserContext = Depends(get_current_user)) -> dict:
         # Top mover: highest value cluster ticker on the latest filing date
         top_mover_row = conn.execute(
             """
-            SELECT ticker, SUM(value) AS total_value
+            SELECT ticker, SUM(value) FILTER (WHERE NOT COALESCE(value_suspect, FALSE) AND price_quality IS DISTINCT FROM 'implausible') AS total_value
             FROM trades
             WHERE filing_date = ?
               AND ticker != 'NONE'
@@ -290,9 +290,9 @@ def dashboard_highlights(user: UserContext = Depends(get_current_user)) -> dict:
                     MIN(t.trade_id) AS trade_id,
                     t.insider_id, t.ticker, MAX(t.company) AS company, MAX(t.title) AS title,
                     t.trade_type, t.trade_date, MAX(t.filing_date) AS filing_date,
-                    ROUND(SUM(t.value) / NULLIF(SUM(t.qty), 0), 2) AS price,
+                    ROUND(SUM(t.value) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible') / NULLIF(SUM(t.qty), 0), 2) AS price,
                     SUM(t.qty) AS qty,
-                    SUM(t.value) AS value,
+                    SUM(t.value) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible') AS value,
                     COUNT(*) AS lot_count,
                     MAX(t.is_csuite) AS is_csuite, MIN(t.accession) AS accession,
                     MAX(t.pit_grade) AS pit_grade,
@@ -307,7 +307,7 @@ def dashboard_highlights(user: UserContext = Depends(get_current_user)) -> dict:
               AND t.is_derivative = 0
                   AND """ + _PS_FILTER + """
                 GROUP BY t.insider_id, t.ticker, t.trade_type, t.trade_date
-                HAVING SUM(t.value) >= 100000
+                HAVING SUM(t.value) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible') >= 100000
             ) agg
             LEFT JOIN insiders i ON agg.insider_id = i.insider_id
             LEFT JOIN trade_returns tr ON agg.trade_id = tr.trade_id
@@ -334,9 +334,9 @@ def dashboard_highlights(user: UserContext = Depends(get_current_user)) -> dict:
                     MIN(t.trade_id) AS trade_id,
                     t.insider_id, t.ticker, MAX(t.company) AS company, MAX(t.title) AS title,
                     t.trade_type, t.trade_date, MAX(t.filing_date) AS filing_date,
-                    ROUND(SUM(t.value) / NULLIF(SUM(t.qty), 0), 2) AS price,
+                    ROUND(SUM(t.value) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible') / NULLIF(SUM(t.qty), 0), 2) AS price,
                     SUM(t.qty) AS qty,
-                    SUM(t.value) AS value,
+                    SUM(t.value) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible') AS value,
                     COUNT(*) AS lot_count,
                     MAX(t.is_csuite) AS is_csuite, MIN(t.accession) AS accession,
                     MAX(t.pit_grade) AS pit_grade,
@@ -349,7 +349,7 @@ def dashboard_highlights(user: UserContext = Depends(get_current_user)) -> dict:
               AND t.is_derivative = 0
                   AND """ + _PS_FILTER + """
                 GROUP BY t.insider_id, t.ticker, t.trade_type, t.trade_date
-                HAVING SUM(t.value) >= 1000000
+                HAVING SUM(t.value) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible') >= 1000000
             ) agg
             LEFT JOIN insiders i ON agg.insider_id = i.insider_id
             LEFT JOIN trade_returns tr ON agg.trade_id = tr.trade_id
@@ -367,7 +367,7 @@ def dashboard_highlights(user: UserContext = Depends(get_current_user)) -> dict:
                 t.trade_type,
                 MAX(t.company) AS company,
                 COUNT(DISTINCT t.insider_id) AS insider_count,
-                SUM(t.value) AS total_value,
+                SUM(t.value) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible') AS total_value,
                 MIN(t.trade_date) AS first_trade,
                 MAX(t.trade_date) AS last_trade,
                 MAX(t.filing_date) AS latest_filing,
@@ -385,7 +385,7 @@ def dashboard_highlights(user: UserContext = Depends(get_current_user)) -> dict:
               AND """ + _PS_FILTER + """
             GROUP BY t.ticker, t.trade_type
             HAVING COUNT(DISTINCT t.insider_id) >= 2
-            ORDER BY SUM(t.value) DESC
+            ORDER BY SUM(t.value) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible') DESC NULLS LAST
             LIMIT 3
             """,
             (latest, latest),
@@ -439,8 +439,8 @@ def dashboard_sentiment(
             f"""
             SELECT
                 filing_date AS date,
-                COALESCE(SUM(CASE WHEN trade_type = 'buy' THEN value ELSE 0 END), 0) AS buy_value,
-                COALESCE(SUM(CASE WHEN trade_type = 'sell' THEN value ELSE 0 END), 0) AS sell_value
+                COALESCE(SUM(CASE WHEN trade_type = 'buy' THEN value ELSE 0 END) FILTER (WHERE NOT COALESCE(value_suspect, FALSE) AND price_quality IS DISTINCT FROM 'implausible'), 0) AS buy_value,
+                COALESCE(SUM(CASE WHEN trade_type = 'sell' THEN value ELSE 0 END) FILTER (WHERE NOT COALESCE(value_suspect, FALSE) AND price_quality IS DISTINCT FROM 'implausible'), 0) AS sell_value
             FROM trades
             WHERE filing_date BETWEEN (?::date - ? * interval '1 day')::text AND ?
               AND superseded_by IS NULL
@@ -484,7 +484,7 @@ def dashboard_heatmap(days: int = Query(default=90, ge=1, le=365)) -> List[dict]
             SELECT
                 filing_date AS date,
                 COUNT(*) AS count,
-                SUM(value) AS total_value
+                SUM(value) FILTER (WHERE NOT COALESCE(value_suspect, FALSE) AND price_quality IS DISTINCT FROM 'implausible') AS total_value
             FROM trades
             WHERE filing_date BETWEEN (?::date - ? * interval '1 day')::text AND ?
               AND superseded_by IS NULL
@@ -499,7 +499,7 @@ def dashboard_heatmap(days: int = Query(default=90, ge=1, le=365)) -> List[dict]
         # Get top ticker per day
         top_tickers = conn.execute(
             """
-            SELECT filing_date AS date, ticker, SUM(value) AS tv
+            SELECT filing_date AS date, ticker, SUM(value) FILTER (WHERE NOT COALESCE(value_suspect, FALSE) AND price_quality IS DISTINCT FROM 'implausible') AS tv
             FROM trades
             WHERE filing_date BETWEEN (?::date - ? * interval '1 day')::text AND ?
               AND superseded_by IS NULL
@@ -548,7 +548,7 @@ def dashboard_inflections(
                 ticker,
                 trade_type,
                 MAX(company) AS company,
-                SUM(value) AS recent_value,
+                SUM(value) FILTER (WHERE NOT COALESCE(value_suspect, FALSE) AND price_quality IS DISTINCT FROM 'implausible') AS recent_value,
                 COUNT(DISTINCT insider_id) AS recent_insiders,
                 MAX(filing_date) AS latest_filing
             FROM trades
@@ -568,7 +568,7 @@ def dashboard_inflections(
             SELECT
                 ticker,
                 trade_type,
-                SUM(value) / 90.0 AS daily_avg
+                SUM(value) FILTER (WHERE NOT COALESCE(value_suspect, FALSE) AND price_quality IS DISTINCT FROM 'implausible') / 90.0 AS daily_avg
             FROM trades
             WHERE filing_date BETWEEN date(?, '-90 days') AND date(?, '-8 days')
               AND superseded_by IS NULL

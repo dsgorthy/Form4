@@ -87,7 +87,7 @@ def list_clusters(
                         THEN MIN(CASE WHEN t.is_csuite = 1 THEN t.insider_id END)
                         ELSE MIN(t.insider_id)
                     END AS representative_insider,
-                    SUM(t.value) / MAX(1, COUNT(*) * 1.0 / COUNT(DISTINCT t.insider_id)) AS group_value,
+                    SUM(t.value) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible') / MAX(1, COUNT(*) * 1.0 / COUNT(DISTINCT t.insider_id)) AS group_value,
                     MIN(t.trade_date) AS first_trade,
                     MAX(t.trade_date) AS last_trade,
                     MAX(t.filing_date) AS latest_filing,
@@ -144,7 +144,7 @@ def list_clusters(
                     MAX(t.pit_grade) AS pit_grade,
                     MAX(t.career_grade) AS career_grade,
                     MAX(t.pit_blended_score) AS pit_blended_score,
-                    SUM(t.value) AS trade_value,
+                    SUM(t.value) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible') AS trade_value,
                     MAX(t.title) AS title,
                     MAX(t.is_csuite) AS is_csuite,
                     MAX(t.trade_date) AS last_trade_date,
@@ -159,7 +159,7 @@ def list_clusters(
                   AND t.is_derivative = 0
                   {extra_where}
                 GROUP BY t.insider_id
-                ORDER BY SUM(t.value) DESC
+                ORDER BY SUM(t.value) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible') DESC NULLS LAST
                 """,
                 [row["ticker"], row["trade_type"]] + params + [latest],
             ).fetchall()
@@ -241,7 +241,7 @@ def get_cluster_detail(
                 t.trade_type,
                 MAX(t.company) AS company,
                 COUNT(DISTINCT t.txn_group_id) AS insider_count,
-                SUM(t.value) / MAX(1, COUNT(*) * 1.0 / COUNT(DISTINCT t.txn_group_id)) AS total_value,
+                SUM(t.value) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible') / MAX(1, COUNT(*) * 1.0 / COUNT(DISTINCT t.txn_group_id)) AS total_value,
                 MIN(t.trade_date) AS first_trade,
                 MAX(t.trade_date) AS last_trade,
                 COUNT(DISTINCT t.txn_group_id) AS trade_count,
@@ -272,7 +272,7 @@ def get_cluster_detail(
                 MAX(t.pit_grade) AS pit_grade,
                     MAX(t.career_grade) AS career_grade,
                 MAX(t.pit_blended_score) AS pit_blended_score,
-                SUM(t.value) AS trade_value, MAX(t.title) AS title,
+                SUM(t.value) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible') AS trade_value, MAX(t.title) AS title,
                 MAX(t.is_csuite) AS is_csuite,
                 MAX(t.trade_date) AS last_trade_date, COUNT(*) AS n_trades, 1 AS n_filers
             FROM trades t
@@ -285,7 +285,7 @@ def get_cluster_detail(
               AND t.is_derivative = 0
               {_PS}
             GROUP BY t.insider_id
-            ORDER BY SUM(t.value) DESC
+            ORDER BY SUM(t.value) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible') DESC NULLS LAST
             """,
             (ticker, trade_type, latest),
         ).fetchall()
@@ -325,9 +325,9 @@ def get_cluster_detail(
                     MIN(t.trade_id) AS trade_id,
                     t.insider_id, MAX(t.ticker) AS ticker, MAX(t.company) AS company, MAX(t.title) AS title,
                     t.trade_type, MIN(t.trade_date) AS trade_date, MIN(t.filing_date) AS filing_date,
-                    ROUND(SUM(t.value) / NULLIF(SUM(t.qty), 0), 2) AS price,
+                    ROUND(SUM(t.value) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible') / NULLIF(SUM(t.qty), 0), 2) AS price,
                     SUM(t.qty) AS qty,
-                    SUM(t.value) AS value,
+                    SUM(t.value) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible') AS value,
                     MAX(t.is_csuite) AS is_csuite,
                     MAX(t.pit_grade) AS pit_grade,
                     MAX(t.career_grade) AS career_grade,

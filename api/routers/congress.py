@@ -299,7 +299,7 @@ def convergence(days: int = Query(default=90, ge=7, le=365), user: UserContext =
                         ticker,
                         MAX(company) AS company,
                         COUNT(*) AS insider_buys,
-                        SUM(value) AS insider_total_value,
+                        SUM(value) FILTER (WHERE NOT COALESCE(value_suspect, FALSE) AND price_quality IS DISTINCT FROM 'implausible') AS insider_total_value,
                         MIN(trade_date) AS first_date,
                         MAX(trade_date) AS last_date
                     FROM trades

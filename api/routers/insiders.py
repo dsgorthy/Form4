@@ -235,8 +235,6 @@ def get_insider(identifier: str, user: UserContext = Depends(get_current_user)) 
                 WHERE insider_id = ?
                   AND superseded_by IS NULL
                   AND (is_duplicate = 0 OR is_duplicate IS NULL)
-                  AND NOT COALESCE(value_suspect, FALSE)
-                  AND price_quality IS DISTINCT FROM 'implausible'
             """, (insider_id,)).fetchone()
             track_record = dict(track_record)
             track_record["buy_count"] = counts["buys"] or 0
@@ -286,7 +284,7 @@ def get_insider(identifier: str, user: UserContext = Depends(get_current_user)) 
                         ELSE MAX(trade_type) END AS trade_type,
                    COUNT(*) AS count, SUM(total_value) AS total_value
             FROM (
-                SELECT trans_code, MAX(trade_type) AS trade_type, SUM(value) AS total_value
+                SELECT trans_code, MAX(trade_type) AS trade_type, SUM(value) FILTER (WHERE NOT COALESCE(value_suspect, FALSE) AND price_quality IS DISTINCT FROM 'implausible') AS total_value
                 FROM trades
                 WHERE insider_id = ? AND trans_code IS NOT NULL
                   AND superseded_by IS NULL
@@ -792,9 +790,9 @@ def get_insider_trades(
                     MIN(t.trade_date) AS trade_date,
                     MAX(t.trade_date) AS last_trade_date,
                     MIN(t.filing_date) AS filing_date,
-                    ROUND(SUM(t.value) / NULLIF(SUM(t.qty), 0), 2) AS price,
+                    ROUND(SUM(t.value) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible') / NULLIF(SUM(t.qty), 0), 2) AS price,
                     SUM(t.qty) AS qty,
-                    SUM(t.value) AS value,
+                    SUM(t.value) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible') AS value,
                     COUNT(*) AS lot_count,
                     MAX(t.is_csuite) AS is_csuite,
                     GROUP_CONCAT(DISTINCT t.trans_code) AS trans_code,
@@ -1055,7 +1053,7 @@ def get_return_distribution(
         trade_rows = conn.execute(
             f"""
             SELECT MIN(t.trade_date) AS trade_date, t.ticker, t.trade_type,
-                   SUM(t.value) AS value, MAX(tr.{col}) AS ret
+                   SUM(t.value) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible') AS value, MAX(tr.{col}) AS ret
             FROM trades t
             JOIN trade_returns tr ON t.trade_id = tr.trade_id
             WHERE t.insider_id = ?

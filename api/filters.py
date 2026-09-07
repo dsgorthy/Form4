@@ -142,3 +142,77 @@ def add_trans_code_filter(conditions: list, params: list, trans_codes: str, alia
     placeholders = ",".join("?" * len(codes))
     conditions.append(f"{alias}.trans_code IN ({placeholders})")
     params.extend(codes)
+
+
+# ── Prices we are willing to publish ───────────────────────────────────────
+#
+# THE GOLD-LAYER RULE, DEFINED ONCE.
+#
+# Bronze stores the filer's bytes verbatim and Silver parses them faithfully —
+# neither corrects anybody, and that is deliberate: the source of truth has to
+# keep saying what the source actually said. But a filer typo is still a typo,
+# and Gold is where we decide what a reader is shown.
+#
+# Two independent judgements, both stored on the row by the Silver quality
+# pass, never by an UPDATE that overwrites a source fact:
+#
+#   value_suspect   the row is impossible on its own terms — over $5B for a
+#                   single insider lot, or dated after the filing that reports
+#                   it.
+#   price_quality   the filed price-per-share is >=100x the band that ticker
+#                   traded in that month. IHT's 0001493152-25-015819 reports
+#                   $22,625/share for a hotel REIT that closed at $1.50; the
+#                   XML really does say 22625, so this is the filer's error
+#                   faithfully carried, not ours.
+#
+#   Deliberately NOT flagged: the 20-100x range. That is 12,343 rows across 39
+#   tickers and it is the signature of a stock SPLIT, where an unadjusted
+#   filing is compared against an adjusted price history. Those prices are
+#   correct as filed.
+#
+# WHY THIS IS A CONSTANT AND NOT 50 HAND-WRITTEN CLAUSES. On 2026-09-06 the
+# company page's headline total carried NEITHER guard while the roster
+# directly beneath it carried both, so one page disagreed with itself: IHT
+# served $7,207,876,940 against a true $2,325,931. The guard had been added
+# "next to every value_suspect guard", which silently skipped every query that
+# had no guard to sit next to. One definition, applied by name, cannot drift
+# that way.
+def trustworthy_value_sql(alias: str = "") -> str:
+    """SQL predicate admitting only rows whose dollar value we publish.
+
+    Args:
+        alias: table alias including trailing dot (``"t."``), or ``""`` for
+            unqualified column names.
+
+    Returns:
+        A SQL fragment beginning with ``AND``, safe to append to any WHERE
+        clause over ``trades``.
+    """
+    a = alias if not alias or alias.endswith(".") else f"{alias}."
+    return (f"AND NOT COALESCE({a}value_suspect, FALSE) "
+            f"AND {a}price_quality IS DISTINCT FROM 'implausible'")
+
+
+#: The same rule as a bare pair of conditions, for builders that assemble a
+#: ``conditions`` list rather than interpolating a fragment.
+def trustworthy_value_conditions(alias: str = "") -> list[str]:
+    a = alias if not alias or alias.endswith(".") else f"{alias}."
+    return [f"NOT COALESCE({a}value_suspect, FALSE)",
+            f"{a}price_quality IS DISTINCT FROM 'implausible'"]
+
+
+def trusted_value_filter(alias: str = "") -> str:
+    """``FILTER (WHERE ...)`` restricting ONE aggregate to believable dollars.
+
+    Prefer this over a WHERE-clause guard on any query that also COUNTS.
+
+    A bad price is not a bad filing. The flag lands on 28.9% of IHT's rows and
+    50% of AMMA's, so moving the rule into WHERE would erase a quarter of a
+    company's real filing history to fix its dollar total — the insider did
+    file, and did trade; only the price they typed is unusable. Filtering the
+    aggregate keeps both true at once: every real filing counted, only
+    believable dollars summed.
+    """
+    a = alias if not alias or alias.endswith(".") else f"{alias}."
+    return (f"FILTER (WHERE NOT COALESCE({a}value_suspect, FALSE) "
+            f"AND {a}price_quality IS DISTINCT FROM 'implausible')")

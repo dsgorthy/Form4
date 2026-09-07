@@ -46,7 +46,7 @@ def search(
             """
             SELECT ticker, MAX(company) AS company,
                    COUNT(*) AS trade_count,
-                   SUM(value) AS total_value
+                   SUM(value) FILTER (WHERE NOT COALESCE(value_suspect, FALSE) AND price_quality IS DISTINCT FROM 'implausible') AS total_value
             FROM trades
             WHERE ticker != 'NONE' AND (ticker ILIKE ? OR company ILIKE ?)
               AND trans_code IN ('P', 'S')

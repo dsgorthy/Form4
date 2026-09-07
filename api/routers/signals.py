@@ -66,7 +66,7 @@ def sell_cessation(
                 MAX(COALESCE(i.display_name, i.name)) AS name,
                 MAX(i.cik) AS cik,
                 COUNT(*) AS sell_count_12m,
-                SUM(t.value) AS sell_value_12m,
+                SUM(t.value) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible') AS sell_value_12m,
                 MAX(t.trade_date) AS last_sell_date,
                 MAX(t.pit_grade) AS pit_grade,
                 MAX(t.pit_blended_score) AS pit_blended_score,

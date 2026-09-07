@@ -46,7 +46,7 @@ SELECT m.sector,
        count(DISTINCT COALESCE(t.filing_key, t.accession)) AS buy_filings,
        count(DISTINCT t.ticker)     AS tickers,
        count(DISTINCT t.insider_id) AS insiders,
-       SUM(t.value)                 AS total_value
+       SUM(t.value) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible')                 AS total_value
   FROM trades t
   JOIN ticker_metadata m ON m.ticker = t.ticker
  WHERE t.signal_class = 'discretionary_buy'
@@ -54,8 +54,6 @@ SELECT m.sector,
    AND m.sector IS NOT NULL
    AND t.superseded_by IS NULL
    AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
-   AND NOT COALESCE(t.value_suspect, FALSE)
-   AND t.price_quality IS DISTINCT FROM 'implausible'
    AND t.is_derivative = 0
  GROUP BY 1
  ORDER BY buy_filings DESC
@@ -77,9 +75,14 @@ SELECT t.trade_id, t.ticker, t.company, t.insider_id, t.title,
    AND t.filing_date >= (CURRENT_DATE - {days})::text
    AND t.superseded_by IS NULL
    AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
+   AND t.is_derivative = 0
+   -- ROW-LEVEL LIST, so the rule belongs in WHERE, not in a FILTER.
+   -- This ranks individual buys; a filer's $22,625/share typo must not
+   -- be DISPLAYED as the sector's biggest buy. The grouped queries above
+   -- filter their aggregate instead, so a bad price never deletes a real
+   -- filing from a count.
    AND NOT COALESCE(t.value_suspect, FALSE)
    AND t.price_quality IS DISTINCT FROM 'implausible'
-   AND t.is_derivative = 0
    AND t.value IS NOT NULL
  ORDER BY t.value DESC
  LIMIT ?
@@ -90,7 +93,7 @@ SELECT t.ticker,
        MAX(t.company) AS company,
        count(DISTINCT COALESCE(t.filing_key, t.accession)) AS buy_filings,
        count(DISTINCT t.insider_id) AS insiders,
-       SUM(t.value) AS total_value
+       SUM(t.value) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible') AS total_value
   FROM trades t
   JOIN ticker_metadata m ON m.ticker = t.ticker
  WHERE m.sector = ?
@@ -98,8 +101,6 @@ SELECT t.ticker,
    AND t.filing_date >= (CURRENT_DATE - {days})::text
    AND t.superseded_by IS NULL
    AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
-   AND NOT COALESCE(t.value_suspect, FALSE)
-   AND t.price_quality IS DISTINCT FROM 'implausible'
    AND t.is_derivative = 0
  GROUP BY 1
  ORDER BY total_value DESC NULLS LAST
@@ -119,7 +120,7 @@ SELECT t.insider_id,
        COALESCE(i.is_entity, 0) AS is_entity,
        count(DISTINCT COALESCE(t.filing_key, t.accession)) AS buy_filings,
        count(DISTINCT t.ticker) AS tickers,
-       SUM(t.value) AS total_value
+       SUM(t.value) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible') AS total_value
   FROM trades t
   JOIN ticker_metadata m ON m.ticker = t.ticker
   LEFT JOIN insiders i ON i.insider_id = t.insider_id
@@ -128,8 +129,6 @@ SELECT t.insider_id,
    AND t.filing_date >= (CURRENT_DATE - {days})::text
    AND t.superseded_by IS NULL
    AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
-   AND NOT COALESCE(t.value_suspect, FALSE)
-   AND t.price_quality IS DISTINCT FROM 'implausible'
    AND t.is_derivative = 0
    AND t.insider_id IS NOT NULL
  GROUP BY 1, 2, 3, 4

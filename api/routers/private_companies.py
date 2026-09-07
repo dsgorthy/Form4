@@ -61,7 +61,7 @@ def list_private_companies(
             SELECT
                 company,
                 COUNT(*) AS total_trades,
-                SUM(value) AS total_value,
+                SUM(value) FILTER (WHERE NOT COALESCE(value_suspect, FALSE) AND price_quality IS DISTINCT FROM 'implausible') AS total_value,
                 MIN(trade_date) AS first_trade,
                 MAX(trade_date) AS last_trade
             FROM trades
@@ -110,7 +110,7 @@ def get_private_company(slug: str, user: UserContext = Depends(get_current_user)
             SELECT
                 company,
                 COUNT(*) AS total_trades,
-                SUM(value) AS total_value,
+                SUM(value) FILTER (WHERE NOT COALESCE(value_suspect, FALSE) AND price_quality IS DISTINCT FROM 'implausible') AS total_value,
                 MIN(trade_date) AS first_trade,
                 MAX(trade_date) AS last_trade
             FROM trades
@@ -143,7 +143,7 @@ def get_private_company(slug: str, user: UserContext = Depends(get_current_user)
                    AND t2.normalized_title IS NOT NULL AND t2.normalized_title != ''
                  ORDER BY t2.trade_date DESC LIMIT 1) AS normalized_title,
                 COUNT(*) AS trade_count,
-                SUM(t.value) AS total_value,
+                SUM(t.value) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible') AS total_value,
                 MIN(t.trade_date) AS first_trade,
                 MAX(t.trade_date) AS last_trade
             FROM trades t
@@ -155,7 +155,7 @@ def get_private_company(slug: str, user: UserContext = Depends(get_current_user)
               AND t.is_derivative = 0
               AND t.trans_code IN ('P', 'S')
             GROUP BY t.insider_id
-            ORDER BY SUM(t.value) DESC
+            ORDER BY SUM(t.value) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible') DESC NULLS LAST
             """,
             (company_name, company_name),
         ).fetchall()
@@ -263,9 +263,9 @@ def get_private_company_trades(
                     t.insider_id, MAX(t.ticker) AS ticker, MAX(t.company) AS company, MAX(t.title) AS title,
                     MAX(t.normalized_title) AS normalized_title,
                     t.trade_type, t.trade_date, MAX(t.filing_date) AS filing_date,
-                    ROUND(SUM(t.value) / NULLIF(SUM(t.qty), 0), 2) AS price,
+                    ROUND(SUM(t.value) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible') / NULLIF(SUM(t.qty), 0), 2) AS price,
                     SUM(t.qty) AS qty,
-                    SUM(t.value) AS value,
+                    SUM(t.value) FILTER (WHERE NOT COALESCE(t.value_suspect, FALSE) AND t.price_quality IS DISTINCT FROM 'implausible') AS value,
                     COUNT(*) AS lot_count,
                     MAX(t.is_csuite) AS is_csuite,
                     MAX(t.pit_grade) AS pit_grade,

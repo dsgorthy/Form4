@@ -137,7 +137,22 @@ def test_the_index_parser_accepts_both_date_formats():
 
 def test_the_index_parser_matches_the_form_column_not_a_substring():
     """`type=4` style matching pulls in 424B2 and 40-F. Learned twice already:
-    once in the daily-index parser, once in the live-queue reader."""
-    assert 'startswith("4 ")' in INDEX and 'startswith("4/A ")' in INDEX, (
-        "the index parser no longer anchors on the padded form column"
+    once in the daily-index parser, once in the live-queue reader.
+
+    Asserts the PROPERTY -- the form token is extracted and compared for
+    equality against an allowed set -- not one spelling of it. The first
+    version pinned `startswith("4 ")`, which went red the moment Form 5 was
+    added to the corpus even though the anti-substring property was preserved.
+    """
+    assert "INDEX_FORMS" in INDEX, "the allowed form set is gone"
+    assert re.search(r"form\s*=\s*line\.split", INDEX), (
+        "the form type is no longer extracted as its own token"
+    )
+    assert re.search(r"form\s+not\s+in\s+INDEX_FORMS", INDEX), (
+        "the form token is no longer compared for EQUALITY against the "
+        "allowed set -- a substring or prefix test admits 424B2 and 40-F"
+    )
+    m = re.search(r"INDEX_FORMS\s*=\s*\(([^)]*)\)", INDEX)
+    assert m and "3" not in m.group(1).replace("'", "").split(","), (
+        "Form 3 is in the corpus; it reports no transactions"
     )
