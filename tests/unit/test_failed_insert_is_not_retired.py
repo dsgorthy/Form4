@@ -6,9 +6,25 @@ each filing was parsed, every row raised NameError into a broad handler, and
 the filing was still retired as "ok" with a positive trade_count. It would
 never be looked at again.
 
-Measured the day it was found: 132 filings sit in `processed_filings` with
-status='ok' and trade_count > 0 and ZERO rows in `trades`. The run reported
-"37 new filings -> 0 trades" and exited 0.
+Measured the day it was found: the 15:15 run reported "37 new filings -> 0
+trades" and exited 0, having logged a NameError traceback for every single row.
+
+A CORRECTION WORTH KEEPING. "status='ok' with zero rows in `trades`" is NOT by
+itself evidence of loss, and reading it that way sent this investigation down a
+false path. The unique key on `trades` is
+(insider_id, ticker, trade_date, trade_type, value) — accession is NOT in it —
+so a second filing of an already-reported transaction is correctly suppressed
+by INSERT OR IGNORE and stores nothing. Of 127 such filings, five were sampled,
+re-parsed, and every one was already present under a different accession:
+
+    0001094629-26-000002  TILE 2026-09-02 sell $297,040
+        -> stored under 0001094629-26-000001
+
+34 of the 127 were 4/A amendments, where that is the whole point. So the
+invariant this file protects is narrow and specific: a filing whose inserts
+RAISED must not be retired. A filing that stored nothing because the rows were
+already there is finished, and re-opening it just churns it through retries
+until it is abandoned.
 
 The xml-unavailable branch immediately above already had this exact guard,
 with a comment naming the bug — the insert branch just never got it.

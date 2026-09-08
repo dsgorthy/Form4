@@ -167,47 +167,6 @@ def get_known_accessions(conn) -> set:
     return {r[0] for r in rows}
 
 
-def requeue_unstored(conn, dry_run: bool = False) -> int:
-    """Re-open filings marked done that never actually stored a trade.
-
-    `mark_processed` took the PARSED count, so when the insert path broke a
-    filing was retired as status='ok' with a positive trade_count while
-    storing nothing. Those rows are invisible to every other repair path:
-    get_known_accessions treats 'ok' as done, and get_retryable only looks at
-    'failed'.
-
-    Setting them back to 'failed' hands them to machinery that already exists
-    — attempts is left alone, so the normal MAX_FETCH_ATTEMPTS ceiling still
-    applies and this cannot become an infinite loop. The CIK comes from
-    bronze.edgar_index because processed_filings only has it for rows written
-    after the column was added (2 of the 132 found on 2026-09-08).
-    """
-    find = """
-        SELECT p.accession, x.cik
-          FROM processed_filings p
-          JOIN bronze.edgar_index x ON x.accession = p.accession
-         WHERE p.status = 'ok' AND p.trade_count > 0
-           AND p.attempts < ?
-           AND NOT EXISTS (SELECT 1 FROM trades t WHERE t.accession = p.accession)
-    """
-    rows = conn.execute(find, (MAX_FETCH_ATTEMPTS,)).fetchall()
-    if dry_run:
-        logger.info("requeue-unstored: %d filing(s) would be re-opened", len(rows))
-        return len(rows)
-    for acc, cik in rows:
-        conn.execute(
-            """UPDATE processed_filings
-                  SET status = 'failed',
-                      cik = COALESCE(cik, ?),
-                      last_error = 'requeued: marked ok but stored no trades'
-                WHERE accession = ?""",
-            (cik, acc),
-        )
-    conn.commit()
-    logger.info("requeue-unstored: re-opened %d filing(s) for retry", len(rows))
-    return len(rows)
-
-
 def get_retryable(conn, limit: int) -> list:
     """Filings we failed to fetch and have not given up on, oldest first."""
     return conn.execute(
@@ -587,21 +546,7 @@ def main():
     parser = argparse.ArgumentParser(description="Incremental EDGAR Form 4 fetcher")
     parser.add_argument("--days", type=int, default=2, help="Look back N days (default: 2)")
     parser.add_argument("--dry-run", action="store_true", help="Report without inserting")
-    parser.add_argument("--requeue-unstored", action="store_true",
-                        help="Re-open filings marked done that stored no trades, then exit")
     args = parser.parse_args()
-
-    if args.requeue_unstored:
-        # A repair, not a fetch: re-open the rows and let the normal 5-minute
-        # run pick them up through get_retryable.
-        from config.database import get_connection
-        conn = get_connection()
-        try:
-            n = requeue_unstored(conn, dry_run=args.dry_run)
-        finally:
-            conn.close()
-        print(f"re-opened {n} filing(s)")
-        return
 
     from framework.observability import pipeline_run
 
