@@ -76,6 +76,7 @@ TIMEOUT = 45
 #: retries fill the tail of a batch and never stall the forward scan.
 MAX_ATTEMPTS = 5
 BACKOFF_MIN = 20          # nth retry waits n * 20 minutes
+RETRY_BUDGET = 25         # per batch of BATCH; bounded so the scan cannot stall
 
 
 class TokenBucket:
@@ -180,10 +181,29 @@ SELECT x.accession, x.cik AS index_cik,
   FROM bronze.edgar_index x
   LEFT JOIN bronze.edgar_submission b ON b.accession = x.accession
  WHERE b.accession IS NULL
-    OR (b.http_status <> 200
-        AND b.attempts < {MAX_ATTEMPTS}
-        AND b.fetched_at < NOW() - (b.attempts * INTERVAL '{BACKOFF_MIN} minutes'))
- ORDER BY (b.accession IS NOT NULL), x.filing_date DESC
+ ORDER BY x.filing_date DESC
+ LIMIT ?
+"""
+
+#: RETRIES NEED THEIR OWN BUDGET, NOT A PLACE IN THE QUEUE.
+#:
+#: The first version of this appended the retry arm to the work list above and
+#: sorted it last, so the forward scan would not stall. Measured on the running
+#: backfill: 586 failures sat behind 2.9M unfetched accessions and `attempts`
+#: never left 1 — they were not going to be retried until the backfill
+#: finished, five days later, which is the same permanent hole with a longer
+#: fuse. A bounded slice of every batch is reserved for them instead: retries
+#: always make progress, and they can never crowd out the scan.
+RETRY_SQL = """
+SELECT b.accession, x.cik AS index_cik,
+       (SELECT MAX(NULLIF(t.rptowner_cik, '')) FROM trades t
+         WHERE t.accession = b.accession) AS owner_cik
+  FROM bronze.edgar_submission b
+  JOIN bronze.edgar_index x ON x.accession = b.accession
+ WHERE b.http_status <> 200
+   AND b.attempts < {MAX_ATTEMPTS}
+   AND b.fetched_at < NOW() - (b.attempts * INTERVAL '{BACKOFF_MIN} minutes')
+ ORDER BY b.fetched_at
  LIMIT ?
 """
 
@@ -249,9 +269,14 @@ def main() -> int:
             take = BATCH if not args.limit else min(BATCH, args.limit - done)
             if take <= 0:
                 break
-            cur.execute(TODO_SQL.replace("{MAX_ATTEMPTS}", str(MAX_ATTEMPTS))
-                        .replace("{BACKOFF_MIN}", str(BACKOFF_MIN)), (take,))
+            cur.execute(RETRY_SQL.replace("{MAX_ATTEMPTS}", str(MAX_ATTEMPTS))
+                        .replace("{BACKOFF_MIN}", str(BACKOFF_MIN)),
+                        (min(RETRY_BUDGET, take),))
             rows = cur.fetchall()
+            n_retry = len(rows)
+            if take - n_retry > 0:
+                cur.execute(TODO_SQL, (take - n_retry,))
+                rows = rows + cur.fetchall()
             # Close the read transaction BEFORE the network work. Holding it
             # open across ~65s of fetching left the connection "idle in
             # transaction", which blocked an ALTER on this very table today

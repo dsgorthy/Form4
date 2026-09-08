@@ -187,30 +187,52 @@ def test_the_index_parser_matches_the_form_column_not_a_substring():
 
 def test_the_work_list_re_offers_failures():
     code = _code(FETCH)
-    todo = code[code.index("TODO_SQL"):]
-    todo = todo[:todo.index('"""', todo.index('"""') + 3)]
-    assert "http_status <> 200" in todo, (
-        "the work list only asks for accessions with NO bronze row, so a "
-        "transient 404 is a permanent hole. It must also re-offer failures."
+    assert "RETRY_SQL" in code, (
+        "nothing re-offers a failed accession, so the first non-200 is a "
+        "permanent hole in the layer whose purpose is that we never refetch"
     )
-    assert "attempts <" in todo, (
+    retry = code[code.index("RETRY_SQL"):]
+    retry = retry[:retry.index('"""', retry.index('"""') + 3)]
+    assert "http_status <> 200" in retry
+    assert "attempts <" in retry, (
         "retries must be bounded, or a genuinely absent document is fetched "
         "forever on every pass"
     )
-    assert "INTERVAL" in todo and "attempts *" in todo, (
+    assert "INTERVAL" in retry and "attempts *" in retry, (
         "retries need a widening backoff — hammering a throttled window with "
         "the process that provoked it just re-manufactures the failure"
     )
 
 
-def test_fresh_work_is_not_starved_by_retries():
+def test_retries_are_actually_reachable():
+    """A retry arm that never runs is the same hole with a longer fuse.
+
+    The first version appended retries to the main work list and sorted them
+    last so the forward scan could not stall. On the live backfill that put
+    586 failures behind 2,906,054 unfetched accessions: `attempts` never left
+    1, and they would not have been retried until the run finished five days
+    later. Reserving a bounded slice of every batch is what makes them
+    reachable AND keeps them from crowding out the scan.
+    """
     code = _code(FETCH)
-    todo = code[code.index("TODO_SQL"):]
-    todo = todo[:todo.index('"""', todo.index('"""') + 3)]
-    order = todo[todo.index("ORDER BY"):]
-    assert "b.accession IS NOT NULL" in order, (
-        "retries must sort AFTER unfetched accessions. Otherwise a batch can "
-        "fill with the same failing rows and the forward scan stalls."
+    assert "RETRY_BUDGET" in code, (
+        "retries have no reserved budget, so they only run once the main "
+        "work list is exhausted"
+    )
+    ns = {}
+    for line in code.split("\n"):
+        if line.startswith(("RETRY_BUDGET", "BATCH")):
+            exec(line, ns)
+    budget, batch = ns.get("RETRY_BUDGET", 0), ns.get("BATCH", 0)
+    assert budget >= 1, "RETRY_BUDGET must reserve at least one slot per batch"
+    assert budget < batch, (
+        f"RETRY_BUDGET ({budget}) must be smaller than BATCH ({batch}), or "
+        "retries can crowd out the forward scan entirely"
+    )
+    # And the budget must be SPENT before the batch is topped up, otherwise it
+    # is a constant nothing reads.
+    assert "RETRY_BUDGET" in code[code.index("while True:"):], (
+        "RETRY_BUDGET is defined but never used in the fetch loop"
     )
 
 
