@@ -1046,7 +1046,15 @@ def insert_trades(conn, trades: List[dict], accession: str, filed_at: Optional[s
             pass
 
         try:
-            conn.execute("""
+            # BIND THE CURSOR. This read `conn.execute(...)` with the return
+            # value discarded, and eleven lines below `inserted += cur.rowcount`
+            # referenced a name that was never bound. Every insert therefore
+            # raised NameError, was caught by the broad handler underneath, and
+            # logged as a per-row failure — so the live path reported "37 new
+            # filings -> 0 trades" and ingested nothing. A weekend and Labor Day
+            # hid it for four days, because with no new filings this line is
+            # never reached.
+            cur = conn.execute("""
                 INSERT OR IGNORE INTO trades
                     (insider_id, ticker, company, title, trade_type, trade_date,
                      filing_date, price, qty, value, is_csuite, title_weight,
