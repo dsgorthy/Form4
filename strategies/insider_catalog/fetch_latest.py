@@ -343,7 +343,21 @@ def _process_one(conn, filing: dict, dry_run: bool):
     if dry_run:
         return 0, ("ok" if trades else "empty"), len(trades), buys, sells
 
-    inserted = insert_trades(conn, trades, acc, filed_at=filed_at) if trades else 0
+    insert_errors: list = []
+    inserted = (insert_trades(conn, trades, acc, filed_at=filed_at, errors=insert_errors)
+                if trades else 0)
+    if insert_errors:
+        # A PARSED FILING THAT DID NOT STORE IS A FAILURE, NOT A SUCCESS.
+        # mark_processed takes the PARSED count, so this line used to retire a
+        # filing whose every insert had raised. That is what turned an unbound
+        # cursor into four silent days: the run logged per-row tracebacks and
+        # still reported "37 new filings -> 0 trades", then never looked at
+        # them again. Same reasoning as the xml-unavailable branch above.
+        mark_attempt_failed(conn, acc, fdate,
+                            f"{len(insert_errors)} row(s) failed to insert: "
+                            f"{insert_errors[0][:160]}",
+                            cik=filing.get("cik"), company=filing.get("company"))
+        return inserted, "failed", len(trades), buys, sells
     mark_processed(conn, acc, fdate, len(trades))
     return inserted, ("ok" if trades else "empty"), len(trades), buys, sells
 

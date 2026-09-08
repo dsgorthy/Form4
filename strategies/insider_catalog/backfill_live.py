@@ -1008,7 +1008,8 @@ def parse_form4_xml_full(
 # ── DB Insertion ─────────────────────────────────────────────────────────
 
 
-def insert_trades(conn, trades: List[dict], accession: str, filed_at: Optional[str] = None) -> int:
+def insert_trades(conn, trades: List[dict], accession: str, filed_at: Optional[str] = None,
+                  errors: Optional[list] = None) -> int:
     """Insert parsed trades into insiders.db. Returns count of new rows."""
     from datetime import date as _date
     today = _date.today().isoformat()
@@ -1110,6 +1111,14 @@ def insert_trades(conn, trades: List[dict], accession: str, filed_at: Optional[s
             # which is a broken deployment, not a duplicate.
             logger.error("insert_trades(%s) row failed: %s", accession, exc,
                          exc_info=True)
+            # REPORT IT UPWARDS, don't just log it. The caller marks the
+            # filing processed on the PARSED count, so a row that logged here
+            # and stored nothing still retired the filing forever: 132 filings
+            # were parsed "ok" with a positive trade_count and have zero rows
+            # in `trades`. Logging a failure that no caller can see is how a
+            # broken insert path looked like a healthy run for four days.
+            if errors is not None:
+                errors.append(f"{type(exc).__name__}: {exc}")
     if rejected_future:
         logger.warning(
             "insert_trades(%s): %d future-dated row(s) rejected", accession, rejected_future

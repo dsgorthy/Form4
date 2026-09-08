@@ -25,3 +25,8 @@ matplotlib>=3.7
 websockets>=12.0
 starlette
 urllib3
+
+# Static undefined-name gate. An unbound `cur` in the live ingest path raised
+# NameError on every insert for four days while the job reported success --
+# see tests/unit/test_no_undefined_names.py.
+pyflakes>=3.0
