@@ -60,6 +60,23 @@ WORKERS = 4
 BATCH = 500               # accessions claimed per DB round trip
 TIMEOUT = 45
 
+#: A FAILURE IS AN ATTEMPT, NOT A VERDICT.
+#:
+#: The work list used to be "no bronze row", so the first non-200 written for
+#: an accession removed it from the corpus permanently. Measured 2026-09-08 at
+#: 29.7% through the backfill: 575 failures, 522 of them HTTP 404 — and six
+#: sampled 404s ALL RETURN 200 on a re-fetch to the same URL with the CIK the
+#: index already holds. They are SEC hiccups under sustained load, not missing
+#: documents. The rate is a steady ~0.1% of each hour rather than one outage,
+#: which extrapolates to roughly 2,000 poisoned filings over the full 4.1M.
+#:
+#: So failures are re-offered, with a ceiling so a genuinely absent document
+#: stops being retried, and a widening gap so a throttled window is not
+#: hammered by the same process that provoked it. Fresh accessions sort first;
+#: retries fill the tail of a batch and never stall the forward scan.
+MAX_ATTEMPTS = 5
+BACKOFF_MIN = 20          # nth retry waits n * 20 minutes
+
 
 class TokenBucket:
     """One shared budget for the whole process, not one per thread."""
@@ -133,7 +150,13 @@ def fetch_one(job: tuple) -> dict:
     # timeout, throttle and 5xx was stored as 404, "SEC says this does not
     # exist". The work list skips any accession with a row, so ten minutes of
     # throttling would have poisoned ~4,600 filings permanently.
-    return {"accession": accession, "cik_used": None, "source_url": None,
+    # Record the URL that was tried. The first version stored None for both,
+    # so a failed row could not say which CIK it used and every diagnosis
+    # started by guessing.
+    tried = [c for c in ciks if c]
+    return {"accession": accession,
+            "cik_used": str(int(tried[-1])) if tried else None,
+            "source_url": submission_url(accession, tried[-1]) if tried else None,
             "http_status": last_status if last_status is not None else -1,
             "byte_len": None, "sha256": None, "content": None,
             "last_error": last_err or "no candidate cik"}
@@ -157,7 +180,10 @@ SELECT x.accession, x.cik AS index_cik,
   FROM bronze.edgar_index x
   LEFT JOIN bronze.edgar_submission b ON b.accession = x.accession
  WHERE b.accession IS NULL
- ORDER BY x.filing_date DESC
+    OR (b.http_status <> 200
+        AND b.attempts < {MAX_ATTEMPTS}
+        AND b.fetched_at < NOW() - (b.attempts * INTERVAL '{BACKOFF_MIN} minutes'))
+ ORDER BY (b.accession IS NOT NULL), x.filing_date DESC
  LIMIT ?
 """
 
@@ -223,7 +249,8 @@ def main() -> int:
             take = BATCH if not args.limit else min(BATCH, args.limit - done)
             if take <= 0:
                 break
-            cur.execute(TODO_SQL, (take,))
+            cur.execute(TODO_SQL.replace("{MAX_ATTEMPTS}", str(MAX_ATTEMPTS))
+                        .replace("{BACKOFF_MIN}", str(BACKOFF_MIN)), (take,))
             rows = cur.fetchall()
             # Close the read transaction BEFORE the network work. Holding it
             # open across ~65s of fetching left the connection "idle in
@@ -244,7 +271,20 @@ def main() -> int:
                       (accession, cik_used, source_url, http_status, byte_len,
                        sha256, content, last_error)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT (accession) DO NOTHING
+                    ON CONFLICT (accession) DO UPDATE SET
+                        cik_used    = EXCLUDED.cik_used,
+                        source_url  = EXCLUDED.source_url,
+                        http_status = EXCLUDED.http_status,
+                        byte_len    = EXCLUDED.byte_len,
+                        sha256      = EXCLUDED.sha256,
+                        content     = EXCLUDED.content,
+                        last_error  = EXCLUDED.last_error,
+                        fetched_at  = NOW(),
+                        attempts    = bronze.edgar_submission.attempts + 1
+                    -- Only ever move a row FORWARD. Without this guard a
+                    -- concurrent pass that failed could overwrite content
+                    -- already stored, turning a good row into a hole.
+                    WHERE bronze.edgar_submission.http_status <> 200
                 """, (res["accession"], res["cik_used"], res["source_url"],
                       res["http_status"], res["byte_len"], res["sha256"],
                       res["content"], res["last_error"]))
