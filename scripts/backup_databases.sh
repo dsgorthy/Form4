@@ -88,16 +88,45 @@ for db in "${DATABASES[@]}"; do
     SUMMARY+=("$db: $size, ${elapsed}s, $tables tables")
 done
 
-# Prune old local dumps.
-pruned=$(find "$BACKUP_ROOT" -name "*.dump" -type f -mtime +"$RETENTION_DAYS" -print -delete 2>/dev/null | wc -l | tr -d ' ')
-log "pruned $pruned dump(s) older than ${RETENTION_DAYS}d"
+# Prune old local dumps. -maxdepth 1 so a sibling archive directory can never
+# be caught by a retention rule written for the nightly set.
+pruned=$(find "$BACKUP_ROOT" -maxdepth 1 -name "*.dump" -type f -mtime +"$RETENTION_DAYS" -print -delete 2>/dev/null | wc -l | tr -d ' ')
+log "pruned $pruned local dump(s) older than ${RETENTION_DAYS}d"
 
 # Off-box copy. A same-disk backup does not survive a disk failure.
+#
+# The mirror is pruned BEFORE the transfer, by us, over ssh. Two reasons, both
+# learned on 2026-09-09 when the Mini hit 99% full and the off-box copy had been
+# failing silently for two nights:
+#
+#   1. rsync --delete cannot do this job. An --exclude pattern also PROTECTS the
+#      receiver's matching files from deletion, so the previous
+#      `--delete-after --include="*_${STAMP}.dump" --exclude="*"` deleted
+#      nothing on any night -- including every night it logged success. The
+#      mirror grew unbounded to 118 GB / 28 days against a 7-day retention while
+#      this script reported "off-box copy ok".
+#   2. Pruning first frees the space the transfer is about to need. Pruning
+#      after inverts that: once the mirror is full the transfer fails, so the
+#      prune never runs, so the mirror stays full. That is the loop the Mini was
+#      stuck in, and it cannot unstick itself.
+#
+# Scoped by database name rather than to *.dump, because the mirror also holds
+# the final archival dumps of the decommissioned Pyrrho databases. Those have no
+# live source left to re-dump from, so they must never age out.
 if ssh -o ConnectTimeout=10 -o BatchMode=yes "${OFFBOX_USER}@${OFFBOX_HOST}" "mkdir -p '$OFFBOX_DIR'" 2>/dev/null; then
-    if rsync -a --delete-after \
+    remote_pruned=$(ssh -o ConnectTimeout=30 -o BatchMode=yes "${OFFBOX_USER}@${OFFBOX_HOST}" \
+        "n=0; for db in ${DATABASES[*]}; do \
+             c=\$(find '$OFFBOX_DIR' -maxdepth 1 -type f -name \"\${db}_*.dump\" -mtime +$RETENTION_DAYS -print -delete 2>/dev/null | wc -l); \
+             n=\$((n+c)); \
+         done; echo \$n" 2>/dev/null | tr -d ' ')
+    log "pruned ${remote_pruned:-?} mirror dump(s) older than ${RETENTION_DAYS}d"
+
+    if rsync -a \
         --include="*_${STAMP}.dump" --include="*/" --exclude="*" \
         "$BACKUP_ROOT/" "${OFFBOX_USER}@${OFFBOX_HOST}:${OFFBOX_DIR}/" 2>/dev/null; then
-        log "off-box copy -> ${OFFBOX_HOST}:${OFFBOX_DIR} ok"
+        remote_free=$(ssh -o ConnectTimeout=10 -o BatchMode=yes "${OFFBOX_USER}@${OFFBOX_HOST}" \
+            "df -h '$OFFBOX_DIR' | tail -1 | awk '{print \$4}'" 2>/dev/null)
+        log "off-box copy -> ${OFFBOX_HOST}:${OFFBOX_DIR} ok (${remote_free:-?} free there)"
     else
         log "off-box copy FAILED (local dumps still good)"
         overall_rc=1
