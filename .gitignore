@@ -1,5 +1,10 @@
 # Credentials — NEVER commit secrets
+# Secrets. `.env` alone was not enough: three .env.bak.* files on Studio each
+# held a live Stripe secret key and were one `git add -A` from being committed.
+# Found 2026-09-10 while rotating that key.
 .env
+.env.*
+!.env*.example
 .env.development
 .env.sandbox
 frontend/.env.local

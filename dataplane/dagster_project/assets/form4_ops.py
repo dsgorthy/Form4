@@ -286,6 +286,70 @@ def ops_insider_similarity(context: AssetExecutionContext) -> Output:
                 timeout=1800)
 
 
+
+# ── the 2026-09-08 StartInterval stall ─────────────────────────────────────
+#
+# At 00:57-01:20 on 2026-09-08 SIX services stopped firing within 23 minutes of
+# each other and stayed stopped for 57 hours. Nothing reported it: launchd said
+# `last exit code = 0` for every one of them, and no log line was written
+# because a job that never runs writes nothing.
+#
+# A census of every loaded com.openclaw job that day makes the cause exact.
+# Six used StartInterval; all six were dead. Fourteen used
+# StartCalendarInterval or KeepAlive; all fourteen were alive. macOS coalesces
+# and defers interval timers for power management and, on a long-uptime box
+# (29 days here), can defer them indefinitely — see
+# feedback_startinterval_agents_stop_firing, written when insider-fetch died in
+# the same event and was fixed with a calendar schedule.
+#
+# THESE THREE ARE THE ONES THAT BELONG IN DAGSTER. All three were already
+# declared `pending` in scheduled_work.yaml — held back only because they write
+# to `trades` / `strategy_portfolio` and the 2026-08-26 SEC reload was in
+# flight. That reload and its recompute are done, so the hold is lifted.
+#
+# The other three StartInterval jobs — form4-uptime, heartbeat-probe,
+# freshness-probe — are NOT here, and deliberately. They are `exempt` in the
+# registry because a watchdog running inside the thing it watches goes quiet
+# exactly when it is needed, and that argument is still right. They get a
+# calendar schedule where they are instead. What this stall showed is that the
+# exemption bought independence from a Dagster outage that never happened,
+# while leaving them on the one scheduler that actually failed.
+
+@asset(group_name=GROUP, compute_kind="python",
+       description="Notification scanner (was com.openclaw.form4-notifications, every 5m).")
+def ops_form4_notifications(context: AssetExecutionContext) -> Output:
+    # No _wrapped() here: notification_scanner.py opens its own pipeline_run()
+    # context internally and records itself to pipeline_runs as
+    # `notification_scanner`. Wrapping it would double-record.
+    #
+    # Its plist LABEL is com.openclaw.form4-notifications but the FILE is
+    # com.openclaw.insideredge-notifications.plist, left from the old Insider
+    # Edge naming — which is why the 2026-08-26 audit missed it entirely.
+    return _run(context, [BREW, f"{REPO}/pipelines/notification_scanner.py"],
+                timeout=900)
+
+
+@asset(group_name=GROUP, compute_kind="python",
+       description="Mark open positions to market "
+                   "(was com.openclaw.refresh-open-position-prices, every 15m).")
+def ops_refresh_open_position_prices(context: AssetExecutionContext) -> Output:
+    # Also unwrapped, and also self-recording — it appears in pipeline_runs as
+    # `refresh-open-position-prices`, hyphens and all, because the module names
+    # itself that way rather than inheriting the wrap's underscore convention.
+    return _run(context, [BREW, "-m",
+                          "pipelines.insider_study.refresh_open_position_prices"],
+                timeout=900)
+
+
+@asset(group_name=GROUP, compute_kind="python",
+       description="Intraday portfolio simulation across all books "
+                   "(was com.openclaw.strategy-intraday, every 10m).")
+def ops_strategy_intraday(context: AssetExecutionContext) -> Output:
+    return _run(context, _wrapped("strategy_intraday", BREW, "-m",
+                                  "pipelines.insider_study.simulate_portfolio_intraday",
+                                  "--all"), timeout=1800)
+
+
 form4_ops_assets = [
     ops_enrich_narratives, ops_breaking_signal, ops_trial_emails,
     ops_ceowatcher_reader, ops_monday_paper_monitor, ops_alpaca_reconcile,
@@ -295,6 +359,8 @@ form4_ops_assets = [
     ops_runner_reversal_dip,
     ops_insider_similarity,
     ops_bronze_topup,
+    ops_form4_notifications, ops_refresh_open_position_prices,
+    ops_strategy_intraday,
 ]
 
 PT = "America/Los_Angeles"
@@ -331,4 +397,13 @@ form4_ops_schedules = [
     _sched("ops_pit_shadow_daily",  [ops_pit_shadow],            "0 18 * * *"),
     _sched("ops_similarity_weekly", [ops_insider_similarity],    "0 4 * * 0"),
     _sched("ops_bronze_topup_hourly", [ops_bronze_topup],       "20 * * * *"),
+
+    # Cadence preserved exactly from the plists they replace. This change is
+    # orchestration, not behaviour: narrowing them to market hours the way the
+    # strategy runners were narrowed is a separate, arguable call, and folding
+    # it in here would make a scheduler swap indistinguishable from a logic
+    # change if either misbehaves.
+    _sched("ops_notifications_5min", [ops_form4_notifications],          "*/5 * * * *"),
+    _sched("ops_position_prices_15min", [ops_refresh_open_position_prices], "*/15 * * * *"),
+    _sched("ops_strategy_intraday_10min", [ops_strategy_intraday],       "*/10 * * * *"),
 ]
