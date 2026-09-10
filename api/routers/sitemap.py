@@ -15,7 +15,13 @@ router = APIRouter(prefix="/api/v1/sitemap", tags=["sitemap"])
 
 @router.get("/urls")
 def sitemap_urls(
-    limit_insiders: int = Query(default=45000, ge=100, le=50000),
+    # Ceiling raised 50,000 -> 200,000 on 2026-09-10. The old one was set to
+    # the SITEMAP PROTOCOL cap, which only worked while the client emitted one
+    # file; it now chunks insiders, so the protocol cap is a per-file property
+    # and has no business bounding this query. The real bound is buy_count >= 2
+    # below. Measured that day: 51,747 eligible, i.e. already past the old
+    # ceiling, so this validator would have refused to serve them all.
+    limit_insiders: int = Query(default=45000, ge=100, le=200000),
     filing_days: int = Query(default=90, ge=7, le=365),
 ) -> dict:
     """Return tickers, insider IDs, and recent filing IDs for sitemap generation.
@@ -84,10 +90,20 @@ def sitemap_urls(
                  -- table is being refreshed -- the cap was simply the binding
                  -- constraint.
                  --
-                 -- Still under the 50,000-URL sitemap limit, and the client
-                 -- chunks at CHUNK anyway. Deliberately not unbounded: the
-                 -- buy_count >= 2 floor is what keeps single-filing stubs out,
-                 -- and that floor matters more than the ceiling.
+                 -- Deliberately not unbounded: the buy_count >= 2 floor is
+                 -- what keeps single-filing stubs out, and that floor matters
+                 -- more than the ceiling.
+                 --
+                 -- 2026-09-10: the note that used to sit here — "still under
+                 -- the 50,000-URL sitemap limit, and the client chunks at
+                 -- CHUNK anyway" — was wrong on the second half and made the
+                 -- first half load-bearing without anyone noticing. The client
+                 -- chunked FILINGS; insiders were emitted as one file, so
+                 -- 45,000 was the only thing keeping that document under the
+                 -- protocol cap. Eligibility has since reached 51,747, which
+                 -- would have produced a rejected sitemap the moment the cap
+                 -- moved. Insiders are chunked now and the limit is set from
+                 -- INSIDER_CHUNKS * CHUNK in frontend/src/lib/sitemap-data.ts.
                  ORDER BY tr.score DESC NULLS LAST, tr.buy_count DESC, tr.insider_id
                  LIMIT ?
             """, (limit_insiders,)).fetchall()

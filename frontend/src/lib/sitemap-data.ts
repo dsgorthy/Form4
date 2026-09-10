@@ -27,15 +27,38 @@ const API =
 // needs another file.
 export const CHUNK = 20000;
 
-// Filings dominate and grow daily (32,935 of the 52,327). Companies and
-// insiders are bounded by construction — one row per ticker, top-N insiders —
-// so only this section scales by adding files.
 export const FILING_CHUNKS = 4;
+
+// INSIDERS IS CHUNKED TOO, AS OF 2026-09-10.
+//
+// It was a single file, and the header above used to claim insiders were
+// "bounded by construction". They are not: the bound is `buy_count >= 2` in
+// api/routers/sitemap.py, and that population GREW THROUGH THE PROTOCOL CAP.
+// It was 42,195 when the limit was raised to 45,000 on 2026-09-03; measured
+// 2026-09-10 it is 51,747 — past the 50,000 ceiling a single <urlset> may
+// hold, almost certainly from the Form 4 ingestion-loss reload landing.
+//
+// So this section was one generation away from repeating the exact failure
+// documented at the top of this file: an oversized sitemap is REJECTED, not
+// truncated, and nothing in it gets processed. The 45,000 limit was the only
+// thing holding it under, at the cost of dropping 6,747 qualifying insiders.
+//
+// Three files gives 60,000 of capacity against 51,747 eligible. Adding a
+// fourth is a one-line change here — which is the point of chunking it.
+export const INSIDER_CHUNKS = 3;
+
+// Ask the API for exactly what the chunks can hold. Keep this and
+// INSIDER_CHUNKS in step; the API clamps to its own ceiling independently.
+export const INSIDER_LIMIT = INSIDER_CHUNKS * CHUNK;
 
 export const SECTIONS = [
   "core",
   "companies",
-  "insiders",
+  // /sitemaps/insiders.xml is deliberately gone rather than kept as an alias.
+  // The index is the only document that names its children, Google re-reads it
+  // on every fetch, and a stale alias would be a second URL serving the same
+  // 20,000 entries as insiders-0.
+  ...Array.from({ length: INSIDER_CHUNKS }, (_, i) => `insiders-${i}`),
   ...Array.from({ length: FILING_CHUNKS }, (_, i) => `filings-${i}`),
 ];
 
@@ -58,7 +81,7 @@ interface SitemapData {
 export async function fetchSitemapData(): Promise<SitemapData> {
   try {
     const resp = await fetch(
-      `${API}/sitemap/urls?limit_insiders=45000&filing_days=90`,
+      `${API}/sitemap/urls?limit_insiders=${INSIDER_LIMIT}&filing_days=90`,
       { next: { revalidate: 3600 } },
     );
     if (resp.ok) return await resp.json();

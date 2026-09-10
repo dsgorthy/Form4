@@ -86,14 +86,21 @@ export async function GET(
         changefreq: "daily",
         priority: 0.8,
       }));
-    } else if (section === "insiders") {
+    } else if (section.startsWith("insiders-")) {
       // insiderPath prefers the STORED slug, which is the canonical URL the
       // page itself declares. Deriving one from the name instead would publish
       // a URL that 301s to the real one — a redirect chain in the sitemap,
       // pointing at the surface this whole SEO push was for.
+      //
+      // Filter BEFORE slicing. Slicing the raw list and filtering each chunk
+      // afterwards would let a dropped row shrink one file while leaving a gap
+      // no other file covers, so an insider could fall out of the sitemap
+      // entirely on a boundary.
+      const n = Number(section.slice("insiders-".length));
       entries = data.insiders
         .map((i) => (typeof i === "string" ? { id: i, name: "" } : i))
         .filter((i) => i && i.id)          // never emit /insider/undefined
+        .slice(n * CHUNK, (n + 1) * CHUNK)
         .map((i) => ({
           loc: `${BASE}${insiderPath(i.name, i.id, i.slug)}`,
           lastmod: today,

@@ -158,6 +158,62 @@ JOB_SUCCESS_SQL = (
 )
 
 
+# ── high-frequency services: is the clock still turning? ───────────────────
+#
+# JOB_SUCCESS above covers two DAILY Dagster jobs out of dagster_runs.runs.
+# Nothing covered the minute-to-minute services, and on 2026-09-08 that gap
+# cost 57 hours: between 00:57 and 01:20 SIX of them stopped firing within 23
+# minutes of each other and stayed stopped, while this watchdog printed "all
+# checks passed" on every run in between. Every data-freshness check here kept
+# passing because the DATA was fine — the jobs that maintain it had simply
+# stopped, and no check asked that question.
+#
+# The cause was launchd: a census that day found six jobs on StartInterval, all
+# six dead, and fourteen on StartCalendarInterval or KeepAlive, all fourteen
+# alive. macOS defers interval timers indefinitely on a long-uptime box. But
+# the reason it went unseen for 57 hours is this list not existing, and that
+# would be just as true of a Dagster schedule silently unregistering.
+#
+# budget_m is derived from MEASURED inter-run gaps over the 30 days before the
+# stall, not from the nominal cadence — see
+# feedback_monitor_budgets_follow_schedules. Each budget is at least twice the
+# largest gap actually observed, so a missed tick or a slow run is not a page:
+#
+#   service                       median   p95    max seen   budget
+#   form4_uptime                    1.1     1.1      14.4       30
+#   notification_scanner            5.0     5.1      26.7       45
+#   insider_fetch                   5.2     6.0      20.1       45
+#   strategy_intraday              10.0    10.0      30.0       60
+#   heartbeat_probe                15.0    15.0      30.0       60
+#   refresh-open-position-prices   15.0    15.0      30.0       60
+#   freshness_probe                30.0    30.0      60.0      120
+#
+# All seven run continuously — no market-hours or weekday gating — which is why
+# a flat budget is honest here. Do not copy that assumption to a job with a
+# calendar schedule; use JOB_SUCCESS and last_expected_fire() for those.
+SERVICE_HEARTBEAT = [
+    {"service": "form4_uptime", "budget_m": 30},
+    {"service": "insider_fetch", "budget_m": 45},
+    {"service": "notification_scanner", "budget_m": 45},
+    {"service": "strategy_intraday", "budget_m": 60},
+    {"service": "heartbeat_probe", "budget_m": 60},
+    {"service": "refresh-open-position-prices", "budget_m": 60},
+    {"service": "freshness_probe", "budget_m": 120},
+]
+
+# One query for all of them: this runs from the Mini over SSH every 30 minutes,
+# and seven round-trips to answer one question is six too many.
+#
+# started_at is `timestamp with time zone`, so AT TIME ZONE renders it as local
+# Pacific and _parse_ts stamps _DB_TZ back on. Note this is the opposite
+# direction to JOB_SUCCESS_SQL, where create_timestamp is naive and AT TIME
+# ZONE attaches an offset instead.
+SERVICE_HEARTBEAT_SQL = (
+    "SELECT service, max(started_at) AT TIME ZONE 'America/Los_Angeles' "
+    "FROM pipeline_runs WHERE service IN ({names}) GROUP BY service"
+)
+
+
 def last_expected_fire(spec: dict, now: "datetime | None" = None) -> datetime:
     """The most recent scheduled fire that has had its grace period elapse.
 
@@ -375,6 +431,37 @@ def main() -> int:
                 f"{job} has not succeeded since it was last due "
                 f"({due:%a %Y-%m-%d %H:%M}Z); last success {age_h:.1f}h ago"
             )
+
+    # Is the clock still turning on the high-frequency services?
+    names = ", ".join("'" + s["service"] + "'" for s in SERVICE_HEARTBEAT)
+    rows = ssh_psql("form4", SERVICE_HEARTBEAT_SQL.format(names=names))
+    if rows is None:
+        problems.append("service heartbeats: could not query pipeline_runs")
+        print("  FAIL service heartbeats: query failed")
+    else:
+        seen: dict = {}
+        for line in rows.splitlines():
+            svc, _, val = line.partition("|")
+            if svc:
+                seen[svc.strip()] = _parse_ts(val)
+        for spec in SERVICE_HEARTBEAT:
+            svc, budget = spec["service"], spec["budget_m"]
+            last = seen.get(svc)
+            if last is None:
+                # A service with no row at all is not "fine by default" — it is
+                # the same silence, one step earlier.
+                problems.append(f"{svc}: no run on record in pipeline_runs")
+                print(f"  FAIL {svc}: never ran")
+                continue
+            age_m = (now - last).total_seconds() / 60.0
+            ok = age_m <= budget
+            print(f"  {'OK  ' if ok else 'FAIL'} {svc} last run: "
+                  f"{age_m:.0f}m ago (budget {budget}m)")
+            if not ok:
+                problems.append(
+                    f"{svc} has not run for {age_m:.0f} minutes "
+                    f"(budget {budget}m); last run {last:%Y-%m-%d %H:%M %Z}"
+                )
 
     _finish(problems, topic, args.dry_run)
     return 1 if problems else 0
