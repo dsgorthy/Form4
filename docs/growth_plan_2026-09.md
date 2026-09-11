@@ -259,6 +259,10 @@ Ordered. `[ ]` open, `[~]` in flight, `[x]` done.
 - [x] 0.5 `SERVICE_HEARTBEAT` stall check in `offbox_watchdog.py` — catches all 6 dead services, passes `insider_fetch`
 - [ ] 0.6 Convert `offbox_watchdog`'s own `StartInterval=1800` to a calendar schedule *(runs on the Mini, short uptime, so not yet bitten)*
 
+**Carried into the next session** — see `docs/handoff_2026-09-10.md`
+- [ ] 0.7 **Watchdog checks recency, not status.** `SERVICE_HEARTBEAT` would have reported green through all 4,182 failed scanner runs. Highest-priority open item.
+- [ ] 0.8 Convert `offbox_watchdog`'s own `StartInterval=1800` — the last one left
+
 **Phase 1**
 - [x] 1.1 CTA renders before Clerk resolves (was returning null for 84% of search visitors)
 - [x] 1.2 Scroll-depth instrumentation
