@@ -1190,8 +1190,14 @@ def _run_on_studio(args: argparse.Namespace, day: str) -> int:
     reads as "no posts today", which is a claim.
     """
     remote_args = [a for a in sys.argv[1:] if a != "--write"] + ["--date", day]
+    # /opt/homebrew/bin/python3 by absolute path, matching BREW in
+    # dataplane/dagster_project/assets/form4_ops.py: a non-interactive ssh
+    # shell on the Studio does not put Homebrew on PATH, so bare `python3`
+    # resolves to Apple's 3.9 there -- every ssh command in this repo has to
+    # export PATH first for the same reason.
     remote = (f"cd {shlex.quote(STUDIO_REPO)} && "
-              f"python3 pipelines/{Path(__file__).name} {shlex.join(remote_args)}")
+              f"/opt/homebrew/bin/python3 pipelines/{Path(__file__).name} "
+              f"{shlex.join(remote_args)}")
     logger.info("no form4 database on %s; running on %s",
                 socket.gethostname(), STUDIO_HOST)
     proc = subprocess.run(
