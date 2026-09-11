@@ -46,6 +46,9 @@ Usage:
     python3 scripts/verify_bronze.py                 # all checks, sample 200
     python3 scripts/verify_bronze.py --sample 1000   # heavier fidelity check
     python3 scripts/verify_bronze.py --quick         # skip the network checks
+    python3 scripts/verify_bronze.py --quick --expect-partial
+                                     # while the backfill runs: name what is
+                                     # missing, do not fail on it
 """
 from __future__ import annotations
 
@@ -136,7 +139,61 @@ def check_index_against_daily(conn, days: int = 6) -> None:
 
 # ── 2. archive coverage ────────────────────────────────────────────────────
 
-def check_coverage(conn) -> None:
+def coverage_verdicts(r: dict, expect_partial: bool) -> list[tuple[str, str, str]]:
+    """What the coverage numbers mean. Pure, so it is testable without a
+    database: `r` is the row check_coverage selects plus `missing_sample`.
+
+    Returns (level, check, detail) triples; level is "ok", "fail" or "note".
+
+    `missing` is an index accession with NO submission row of any status. It
+    is not `failed`, which is a row that records a non-200 -- a failure was
+    at least attempted and is visible; a missing accession was never fetched
+    and is visible only if someone subtracts. Nobody did: see check_coverage.
+
+    --expect-partial exists for the backfill. It reports the hole and declines
+    to fail on it. It never produces an "ok" while anything is missing.
+    """
+    out: list[tuple[str, str, str]] = []
+    pct = 100.0 * r["stored"] / r["corpus"] if r["corpus"] else 0.0
+    out.append(("note", "coverage/counts",
+                f"corpus={r['corpus']} stored={r['stored']} ({pct:.2f}%) "
+                f"failed={r['failed']} orphaned={r['orphaned']} missing={r['missing']}"))
+    if r["failed"]:
+        out.append(("fail", "coverage/failed",
+                    f"{r['failed']} accessions recorded as failures"))
+    if r["orphaned"]:
+        out.append(("fail", "coverage/orphaned",
+                    f"{r['orphaned']} stored documents are not in the SEC index"))
+    if r["missing"]:
+        sample = ", ".join(r.get("missing_sample") or [])
+        detail = (f"{r['missing']} index accessions have no submission row"
+                  + (f", e.g. {sample}" if sample else ""))
+        if expect_partial:
+            out.append(("note", "coverage/partial",
+                        detail + " (--expect-partial: backfill in progress, "
+                                 "reported, not failed)"))
+        else:
+            out.append(("fail", "coverage/missing", detail))
+    elif r["stored"] and not r["failed"] and not r["orphaned"]:
+        out.append(("ok", "coverage",
+                    f"{r['stored']}/{r['corpus']} archived, no failures, "
+                    "no orphans, nothing missing"))
+    return out
+
+
+def check_coverage(conn, expect_partial: bool = False) -> None:
+    """Property 2: every accession in the index has a submission row, and
+    what is missing is NAMED.
+
+    Until 2026-09-11 this selected corpus, stored, failed and orphaned and
+    reported ok whenever failed and orphaned were both zero. It never
+    subtracted stored from corpus. So it logged "corpus=4,137,834
+    stored=2,290,000 (55.3%)" and passed -- the one property in the module
+    docstring the code did not implement, on the archive whose whole point is
+    that a filing must never go missing. At 100% with holes it would have
+    passed the same way, and the holes would have stayed invisible for as long
+    as this script was trusted.
+    """
     cur = conn.cursor()
     cur.execute("""
         SELECT (SELECT count(*) FROM bronze.edgar_index) AS corpus,
@@ -144,19 +201,28 @@ def check_coverage(conn) -> None:
                (SELECT count(*) FROM bronze.edgar_submission WHERE http_status <> 200) AS failed,
                (SELECT count(*) FROM bronze.edgar_submission s
                  WHERE NOT EXISTS (SELECT 1 FROM bronze.edgar_index i
-                                    WHERE i.accession = s.accession)) AS orphaned
+                                    WHERE i.accession = s.accession)) AS orphaned,
+               (SELECT count(*) FROM bronze.edgar_index i
+                 WHERE NOT EXISTS (SELECT 1 FROM bronze.edgar_submission s
+                                    WHERE s.accession = i.accession)) AS missing
     """)
-    r = cur.fetchone()
-    pct = 100.0 * r["stored"] / r["corpus"] if r["corpus"] else 0
-    logger.info("      corpus=%d stored=%d (%.2f%%) failed=%d orphaned=%d",
-                r["corpus"], r["stored"], pct, r["failed"], r["orphaned"])
-    if r["failed"]:
-        fail("coverage/failed", f"{r['failed']} accessions recorded as failures")
-    if r["orphaned"]:
-        fail("coverage/orphaned",
-             f"{r['orphaned']} stored documents are not in the SEC index")
-    if r["stored"] and not r["failed"] and not r["orphaned"]:
-        ok("coverage", f"{r['stored']}/{r['corpus']} archived, no failures, no orphans")
+    r = dict(cur.fetchone())
+    r["missing_sample"] = []
+    if r["missing"]:
+        # Newest first: a hole in last week's filings is a live-path bug, a
+        # hole in 2009 is the backfill not having got there yet.
+        cur.execute("""SELECT i.accession FROM bronze.edgar_index i
+                        WHERE NOT EXISTS (SELECT 1 FROM bronze.edgar_submission s
+                                           WHERE s.accession = i.accession)
+                        ORDER BY i.filing_date DESC, i.accession LIMIT 5""")
+        r["missing_sample"] = [x["accession"] for x in cur.fetchall()]
+    for level, check, detail in coverage_verdicts(r, expect_partial):
+        if level == "fail":
+            fail(check, detail)
+        elif level == "ok":
+            ok(check, detail)
+        else:
+            logger.info("note  %-22s %s", check, detail)
 
 
 # ── 3. stored integrity ────────────────────────────────────────────────────
@@ -244,17 +310,28 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--sample", type=int, default=200)
     ap.add_argument("--quick", action="store_true", help="skip network checks")
+    ap.add_argument("--expect-partial", action="store_true",
+                    help="backfill in progress: name the missing accessions "
+                         "without failing on them (never turns a hole into ok)")
     args = ap.parse_args()
 
     conn = get_connection()
     conn.cursor().execute("SET statement_timeout = '900s'")
 
-    check_coverage(conn)
-    check_integrity(conn)
-    check_usable(conn, args.sample)
+    # Wall time per property. First rehearsal was 2026-09-11 at ~55% of the
+    # corpus; integrity recomputes sha256 over every stored row, so its time
+    # here is what bounds the full run against the 900s statement_timeout.
+    def timed(name: str, fn, *a) -> None:
+        t0 = time.monotonic()
+        fn(*a)
+        logger.info("      %-22s %.1fs", f"[{name}]", time.monotonic() - t0)
+
+    timed("coverage", check_coverage, conn, args.expect_partial)
+    timed("integrity", check_integrity, conn)
+    timed("usable", check_usable, conn, args.sample)
     if not args.quick:
-        check_index_against_daily(conn)
-        check_fidelity(conn, args.sample)
+        timed("index/daily-xcheck", check_index_against_daily, conn)
+        timed("fidelity", check_fidelity, conn, args.sample)
 
     print()
     if FAILURES:
