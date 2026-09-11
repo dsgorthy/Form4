@@ -60,9 +60,14 @@ def test_the_gap_spreads_a_full_day_across_hours_not_minutes():
 
 
 def test_each_rendered_post_carries_a_time():
-    """A header saying only 'POST 3/5' invites pasting all five at once."""
-    block = SRC[SRC.index("POST {i}/{len(picked)}") - 400:]
-    block = block[:block.index("print(post)") + 20]
+    """A header saying only 'POST 3/5' invites pasting all five at once.
+
+    Checked on compose_schedule, the ONE function both stdout and --write
+    take their text from. Until 2026-09-10 this looked at the print loop
+    alone, and the file --write produced carried no times at all.
+    """
+    block = SRC[SRC.index("def compose_schedule"):]
+    block = block[:block.index("\ndef ")]
     assert "MIN_MINUTES_BETWEEN_POSTS" in block, (
         "the per-post header no longer staggers by the spacing constant"
     )

@@ -33,11 +33,37 @@ make the feed look like a permabull.
 Usage:
     python3 pipelines/generate_stocktwits_posts.py
     python3 pipelines/generate_stocktwits_posts.py --date 2026-08-17 --count 5
+    python3 pipelines/generate_stocktwits_posts.py --count 3 --write
+
+WHERE IT RUNS, AND WHERE THE FILE LANDS
+
+The query needs the form4 database, which exists only on the Studio. The file
+is read on the Mini, from data/content/stocktwits_{date}.txt. So from the Mini
+
+    python3 pipelines/generate_stocktwits_posts.py --count 3 --write
+
+runs this same script on the Studio over ssh (same flags minus --write,
+against the Studio's checkout, which `studio deploy form4` keeps current),
+streams the schedule back, prints it, and writes
+data/content/stocktwits_{date}.txt HERE. Run on the Studio, the same command
+writes the same file into the Studio's checkout. On either machine stdout and
+the file are one document from one function, compose_schedule, so
+`ssh ... > file` is byte-identical to --write.
+
+2026-09-10: --write put pipelines/data/content/2026-09-10_stocktwits.txt on the
+Studio -- generate_daily_content's directory, a different filename, and the
+three bodies joined by rules with no title, no velocity warning and no times.
+Every file anyone has actually read lives at data/content/stocktwits_{date}.txt
+on the Mini, and 09-10's was typed out by hand from the terminal. The two paths
+had parted at 63d046b, which put the schedule on the print path only.
 """
 from __future__ import annotations
 
 import argparse
 import logging
+import shlex
+import socket
+import subprocess
 import sys
 from datetime import timedelta, date
 from pathlib import Path
@@ -51,7 +77,17 @@ from pipelines.insider_study.annotate_trade import annotate, clean_title  # noqa
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-OUTPUT_DIR = Path(__file__).resolve().parent / "data" / "content"
+#: <repo>/data/content/stocktwits_{date}.txt -- the file that is actually read.
+#: parents[1], not parent: `parent / "data" / "content"` is
+#: pipelines/data/content/, where generate_daily_content keeps its captions and
+#: video scripts, and on 2026-09-10 the schedule went there on the Studio while
+#: the copy that was posted from was typed by hand on the Mini.
+OUTPUT_DIR = Path(__file__).resolve().parents[1] / "data" / "content"
+
+#: Where the database is. From any other machine main() runs itself here over
+#: ssh and writes the result locally; see the module docstring.
+STUDIO_HOST = "derekg@100.78.9.66"
+STUDIO_REPO = "/Users/derekg/trading-framework"
 
 GRADE_WEIGHT = {"A+": 100, "A": 80, "B": 40, "C": 15, "D": 0}
 
@@ -1043,6 +1079,52 @@ def render(t: dict) -> str:
     return "\n".join(lines)
 
 
+def compose_schedule(day: str, picked: list[dict], bodies: list[str], *,
+                     now, no_record: bool = False) -> str:
+    """The whole hand-over document as one string: title, velocity warning,
+    then one stamped block per post.
+
+    This is the ONLY place the document is assembled. Until 2026-09-10 the
+    terminal showed stamped headers while --write joined the bare bodies with
+    rules -- 63d046b added the schedule to the print path and never told the
+    file path -- so the file on disk was the one artefact that still invited
+    pasting the posts together. stdout and --write both take this string, so
+    they cannot part again.
+    """
+    rule = "=" * 64
+    lines = [
+        f"STOCKTWITS — {day}",
+        "",
+        f"*** POST THESE {MIN_MINUTES_BETWEEN_POSTS} MINUTES APART. "
+        "DO NOT PASTE THEM TOGETHER. ***",
+        "",
+        "The account was suspended 2026-08-24 (ten at once) and flagged again",
+        "2026-08-28 (three within seconds). It is the velocity, not the content.",
+    ]
+    if no_record:
+        # The reader has to know that tomorrow's run will not treat these as
+        # posted: nothing went into social_posts, so the cooldown and the
+        # repeat guard are both blind to them.
+        lines += ["", "Generated with --no-record, so these tickers are NOT in "
+                      f"the {TICKER_COOLDOWN_DAYS}-day cooldown yet."]
+    for i, (t, body) in enumerate(zip(picked, bodies), 1):
+        # A concrete clock time per post, staggered from now. "POST 3/5" on
+        # its own invited pasting all five at once; a time does not.
+        when = now + timedelta(minutes=MIN_MINUTES_BETWEEN_POSTS * (i - 1))
+        stamp = "POST NOW" if i == 1 else f"POST AT ~{when:%H:%M}"
+        lines += ["", rule, f"POST {i} of {len(picked)} — ${t['ticker']:<9}{stamp}",
+                  rule, "", body]
+    return "\n".join(lines) + "\n"
+
+
+def write_schedule(doc: str, day: str, out_dir: Path = OUTPUT_DIR) -> Path:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    p = out_dir / f"stocktwits_{day}.txt"
+    p.write_text(doc, encoding="utf-8")
+    logger.info("wrote %s", p)
+    return p
+
+
 def record_posts(conn, picked: list[dict], bodies: list[str]) -> int:
     """Write each generated post to social_posts.
 
@@ -1089,6 +1171,43 @@ def record_posts(conn, picked: list[dict], bodies: list[str]) -> int:
     return written
 
 
+def _on_studio() -> bool:
+    # Hostname, not path: the Studio and the Mini both hold this repo at
+    # /Users/derekg/trading-framework under the same username, so nothing on
+    # the filesystem says which machine this is.
+    return socket.gethostname().lower().startswith("dereks-mac-studio")
+
+
+def _run_on_studio(args: argparse.Namespace, day: str) -> int:
+    """Run this script on the Studio with the same flags and bring the
+    schedule back here.
+
+    The form4 database lives only on the Studio; the file is read on the Mini.
+    Everything but --write passes through, --date is pinned so both machines
+    name the same day, and the Studio's stdout IS the document -- its log
+    lines go to stderr and show here as they happen. Nothing is written when
+    the remote run fails or prints nothing: an empty stocktwits_{day}.txt
+    reads as "no posts today", which is a claim.
+    """
+    remote_args = [a for a in sys.argv[1:] if a != "--write"] + ["--date", day]
+    remote = (f"cd {shlex.quote(STUDIO_REPO)} && "
+              f"python3 pipelines/{Path(__file__).name} {shlex.join(remote_args)}")
+    logger.info("no form4 database on %s; running on %s",
+                socket.gethostname(), STUDIO_HOST)
+    proc = subprocess.run(
+        ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", STUDIO_HOST, remote],
+        stdout=subprocess.PIPE, text=True,
+    )
+    if proc.returncode != 0:
+        logger.error("Studio run exited %d; nothing written", proc.returncode)
+        return proc.returncode
+    doc = proc.stdout
+    sys.stdout.write(doc)
+    if args.write and doc:
+        write_schedule(doc, day)
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--date", default=None, help="Filing date (default: today)")
@@ -1097,12 +1216,16 @@ def main() -> int:
     ap.add_argument("--min-count", type=int, default=3,
                     help="Always post at least this many, even on a thin day")
     ap.add_argument("--max-count", type=int, default=MAX_POSTS_PER_DAY)
-    ap.add_argument("--write", action="store_true", help="Also write to data/content/")
+    ap.add_argument("--write", action="store_true",
+                    help="Also write data/content/stocktwits_{date}.txt (on the "
+                         "Mini: generated on the Studio over ssh, written here)")
     ap.add_argument("--no-record", action="store_true",
                     help="Skip writing to social_posts (dry run)")
     args = ap.parse_args()
 
     day = args.date or date.today().isoformat()
+    if not _on_studio():
+        return _run_on_studio(args, day)
     conn = get_connection()
     rows = [dict(r) for r in conn.execute(SQL, (day,)).fetchall()]
     if not rows:
@@ -1203,27 +1326,22 @@ def main() -> int:
                     len(notable), short, lo)
 
     picked.sort(key=score, reverse=True)
+    if not picked:
+        logger.info("nothing to post for %s", day)
+        return 0
 
-    out = []
-    for i, t in enumerate(picked, 1):
-        post = render(t)
-        out.append(post)
-        # Stagger from now, so the header carries a concrete time rather than
-        # an instruction that is easy to skim past.
-        when = _now_local() + timedelta(minutes=MIN_MINUTES_BETWEEN_POSTS * (i - 1))
-        stamp = "POST NOW" if i == 1 else f"POST AT ~{when:%H:%M}"
-        print(f"\n{'─' * 58}\n  POST {i}/{len(picked)}   ({len(post)} chars)   "
-              f"{stamp}\n{'─' * 58}")
-        print(post)
+    bodies = [render(t) for t in picked]
+    doc = compose_schedule(day, picked, bodies, now=_now_local(),
+                           no_record=args.no_record)
+    # stdout is the document and nothing else -- logging goes to stderr -- so
+    # `ssh studio '...' > file` and --write produce the same bytes.
+    print(doc, end="")
 
     if not args.no_record:
-        record_posts(conn, picked, out)
+        record_posts(conn, picked, bodies)
 
     if args.write:
-        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        p = OUTPUT_DIR / f"{day}_stocktwits.txt"
-        p.write_text(("\n\n" + "=" * 58 + "\n\n").join(out))
-        logger.info("wrote %s", p)
+        write_schedule(doc, day)
     return 0
 
 
