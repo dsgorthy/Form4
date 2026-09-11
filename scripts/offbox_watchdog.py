@@ -20,6 +20,9 @@ Checks:
   5. Intraday ingest: hours since the last row was WRITTEN, during EDGAR hours
   6. Nightly jobs actually SUCCEEDED — a failing job is invisible to (3),
      which measures data age and cannot tell a stalled feed from a slow one
+  7. High-frequency services (5-30 min cadence) are still ticking AND their
+     latest completed run succeeded. Recency alone passed notification_scanner
+     for 17 days while 3,811 of its 3,912 runs were status='failed'
 
 Exit 0 = all good, 1 = at least one problem (and an ntfy push was attempted).
 
@@ -191,6 +194,26 @@ JOB_SUCCESS_SQL = (
 # All seven run continuously — no market-hours or weekday gating — which is why
 # a flat budget is honest here. Do not copy that assumption to a job with a
 # calendar schedule; use JOB_SUCCESS and last_expected_fire() for those.
+#
+# RECENCY IS NOT HEALTH. Each service gets a second, independent verdict.
+#
+# As first written on 2026-09-10 this asked only when a service last STARTED.
+# From 2026-08-25 13:14 to 2026-09-10 23:10 notification_scanner started every
+# five minutes and wrote status='failed' on 3,811 of its 3,912 runs — the same
+# TypeError each time; the 101 'ok' rows all fall on 09-01. At 22:52 on 09-10
+# this watchdog printed "OK notification_scanner last run: 2m ago" and then
+# "all checks passed"; the row it had just read, started 22:50:07, was
+# 'failed'. A loop that turns and fails on every turn has the same heartbeat
+# as a healthy one. Same lesson as feedback_liveness_is_not_health, learnt
+# again on a different service.
+#
+# So: stale (started_at older than budget_m) and failing (latest COMPLETED run
+# is not 'ok') are judged separately and both reported. 'running' rows are
+# excluded from the status verdict because this watchdog regularly lands
+# mid-run — insider_fetch has taken 904s and notification_scanner 1,300s on
+# 5-minute cadences — and a run in progress has no verdict yet. They still
+# count for recency, so a row that hangs in 'running' forever ages out like
+# any other silence rather than pinning the service at "fresh".
 SERVICE_HEARTBEAT = [
     {"service": "form4_uptime", "budget_m": 30},
     {"service": "insider_fetch", "budget_m": 45},
@@ -208,8 +231,29 @@ SERVICE_HEARTBEAT = [
 # Pacific and _parse_ts stamps _DB_TZ back on. Note this is the opposite
 # direction to JOB_SUCCESS_SQL, where create_timestamp is naive and AT TIME
 # ZONE attaches an offset instead.
+#
+# Four columns, and the order is load-bearing. max(started_at) is over ALL
+# rows, 'running' included, so recency is never masked by a hung run. Status
+# and error come from the newest row that is NOT 'running' (see above). The
+# error is the LAST column and only its first line: error_message holds a
+# full traceback, and psql -A would emit every line of it as if it were a
+# row, while a '|' inside a Python exception text — repr of a dict, an SQL
+# fragment — would shift columns if anything followed it. The consumer splits
+# on at most three '|' for the same reason.
+#
+# No double quote and no '$' anywhere in this string: ssh_psql hands it to a
+# remote shell inside double quotes. chr(10) instead of E'\n' for that reason.
+# Proven through that exact path on 2026-09-11 (132ms over 264k rows, on the
+# (service, started_at DESC) index); with `AND started_at < '2026-09-10
+# 23:12-07'` appended it returns the incident row:
+#   notification_scanner|2026-09-10 23:10:05.606411|failed|TypeError: '<' ...
 SERVICE_HEARTBEAT_SQL = (
-    "SELECT service, max(started_at) AT TIME ZONE 'America/Los_Angeles' "
+    "SELECT service, "
+    "max(started_at) AT TIME ZONE 'America/Los_Angeles', "
+    "coalesce((array_agg(status ORDER BY started_at DESC) "
+    "FILTER (WHERE status <> 'running'))[1], ''), "
+    "coalesce((array_agg(split_part(error_message, chr(10), 1) "
+    "ORDER BY started_at DESC) FILTER (WHERE status <> 'running'))[1], '') "
     "FROM pipeline_runs WHERE service IN ({names}) GROUP BY service"
 )
 
@@ -235,6 +279,76 @@ def last_expected_fire(spec: dict, now: "datetime | None" = None) -> datetime:
             return fire.astimezone(timezone.utc)
     # No scheduled fire in the window has come due yet.
     return (now - timedelta(days=11)).astimezone(timezone.utc)
+
+
+def evaluate_service_heartbeats(rows: str, now: datetime) -> "tuple[list[str], list[str]]":
+    """Judge every SERVICE_HEARTBEAT entry from one SERVICE_HEARTBEAT_SQL result.
+
+    Pure so the 2026-09-10 row can be replayed in a test without Studio:
+    `rows` is the psql -tA text, `now` the instant to age against. Returns
+    (problems, report_lines) — one report line per service, and for each
+    service up to TWO problems, judged independently:
+
+      stale   — newest started_at older than budget_m
+      failing — newest COMPLETED run is not 'ok'
+
+    They are not folded into one verdict because they are different faults
+    with different fixes: a stale service has a scheduler problem, a failing
+    one has a code problem, and 3h of failures is both. An empty status means
+    every row so far is still 'running' — no verdict yet, which is not a
+    failure; the recency verdict still applies to it.
+    """
+    problems: list[str] = []
+    report: list[str] = []
+
+    seen: dict = {}
+    for line in rows.splitlines():
+        # The error is the last column, and this cap is what keeps a '|' inside
+        # an exception message inside its column.
+        parts = line.split("|", 3)
+        if len(parts) < 4 or not parts[0].strip():
+            continue
+        svc, ts, status, err = (p.strip() for p in parts)
+        seen[svc] = (ts, status, err)
+
+    for spec in SERVICE_HEARTBEAT:
+        svc, budget = spec["service"], spec["budget_m"]
+        row = seen.get(svc)
+        if row is None:
+            # A service with no row at all is not "fine by default" — it is
+            # the same silence, one step earlier.
+            problems.append(f"{svc}: no run on record in pipeline_runs")
+            report.append(f"  FAIL {svc}: never ran")
+            continue
+        ts, status, err = row
+        last = _parse_ts(ts)
+        if last is None:
+            problems.append(f"{svc}: unparseable last-run time {ts!r}")
+            report.append(f"  FAIL {svc}: unparseable last run {ts!r}")
+            continue
+
+        age_m = (now - last).total_seconds() / 60.0
+        fresh = age_m <= budget
+        healthy = status in ("ok", "")
+
+        shown = status or "running (no completed run yet)"
+        if not healthy and err:
+            # First line of the traceback only, and not all of that: this ends
+            # up in a push notification, not a log.
+            shown += f": {err[:200]}"
+        report.append(
+            f"  {'OK  ' if fresh and healthy else 'FAIL'} {svc} last run: "
+            f"{age_m:.0f}m ago (budget {budget}m); status {shown}"
+        )
+        if not fresh:
+            problems.append(
+                f"{svc} has not run for {age_m:.0f} minutes "
+                f"(budget {budget}m); last run {last:%Y-%m-%d %H:%M %Z}"
+            )
+        if not healthy:
+            problems.append(f"{svc} last completed run {shown}")
+
+    return problems, report
 
 
 def _header_safe(text: str) -> str:
@@ -432,36 +546,17 @@ def main() -> int:
                 f"({due:%a %Y-%m-%d %H:%M}Z); last success {age_h:.1f}h ago"
             )
 
-    # Is the clock still turning on the high-frequency services?
+    # Is the clock still turning on the high-frequency services — and did the
+    # last turn actually succeed?
     names = ", ".join("'" + s["service"] + "'" for s in SERVICE_HEARTBEAT)
     rows = ssh_psql("form4", SERVICE_HEARTBEAT_SQL.format(names=names))
     if rows is None:
         problems.append("service heartbeats: could not query pipeline_runs")
         print("  FAIL service heartbeats: query failed")
     else:
-        seen: dict = {}
-        for line in rows.splitlines():
-            svc, _, val = line.partition("|")
-            if svc:
-                seen[svc.strip()] = _parse_ts(val)
-        for spec in SERVICE_HEARTBEAT:
-            svc, budget = spec["service"], spec["budget_m"]
-            last = seen.get(svc)
-            if last is None:
-                # A service with no row at all is not "fine by default" — it is
-                # the same silence, one step earlier.
-                problems.append(f"{svc}: no run on record in pipeline_runs")
-                print(f"  FAIL {svc}: never ran")
-                continue
-            age_m = (now - last).total_seconds() / 60.0
-            ok = age_m <= budget
-            print(f"  {'OK  ' if ok else 'FAIL'} {svc} last run: "
-                  f"{age_m:.0f}m ago (budget {budget}m)")
-            if not ok:
-                problems.append(
-                    f"{svc} has not run for {age_m:.0f} minutes "
-                    f"(budget {budget}m); last run {last:%Y-%m-%d %H:%M %Z}"
-                )
+        svc_problems, svc_report = evaluate_service_heartbeats(rows, now)
+        print("\n".join(svc_report))
+        problems.extend(svc_problems)
 
     _finish(problems, topic, args.dry_run)
     return 1 if problems else 0
