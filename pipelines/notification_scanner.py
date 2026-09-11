@@ -968,12 +968,24 @@ def scan_watchlist_activity(iconn: ConnectionWrapper, nconn: ConnectionWrapper, 
     nconn.commit()
     return count
 
-def _maybe_send_realtime_email(nconn: ConnectionWrapper, user: dict, title: str, body: str) -> None:
-    """Send email immediately if user has realtime frequency enabled."""
+def _maybe_send_realtime_email(nconn: ConnectionWrapper, user: dict, title: str, body: str) -> bool:
+    """Send email immediately if user has realtime frequency enabled.
+
+    Returns True ONLY when Resend accepted the message. Every other exit --
+    email disabled, not on `realtime`, no address, Resend refused -- is False,
+    and the caller must not stamp the row on a False. This used to return
+    None on all five outcomes and the caller stamped regardless, so on Studio
+    18 DIRECT notifications (10 portfolio_alert, 8 watchlist_activity, every
+    one for a `daily` user) were marked SENT within seconds of creation,
+    never emailed here, and then invisible to the digest's `emailed =
+    PENDING` gate. Each also counted as a distinct send against the 4/day
+    cap, which held four real digests (2026-08-27, 08-29, and both remaining
+    daily users on 09-11).
+    """
     if not user.get("email_enabled"):
-        return
+        return False
     if user.get("email_frequency") != "realtime":
-        return
+        return False
 
     user_id = user["user_id"]
     if user_id not in _email_cache:
@@ -981,10 +993,10 @@ def _maybe_send_realtime_email(nconn: ConnectionWrapper, user: dict, title: str,
 
     email = _email_cache.get(user_id)
     if not email:
-        return
+        return False
 
     html = build_notification_email(title, body)
-    send_email(email, f"Form4: {title}", html)
+    return bool(send_email(email, f"Form4: {title}", html))
 
 
 def _try_send_realtime(nconn: ConnectionWrapper, user: dict,
@@ -1037,7 +1049,13 @@ def _try_send_realtime(nconn: ConnectionWrapper, user: dict,
                         user_id, event_type or "notification")
             return
 
-        _maybe_send_realtime_email(nconn, user, title, body)
+        # Stamp ONLY on a confirmed send. A daily-frequency user's DIRECT
+        # notification takes this path too, and used to be stamped SENT
+        # without a send -- which is exactly the marked-sent-never-sent shape
+        # of the 2026-08-24 outage, one row at a time. Unstamped, it stays
+        # PENDING for the digest, where it belongs.
+        if not _maybe_send_realtime_email(nconn, user, title, body):
+            return
         # Stamp the row we just delivered, or the cap above can never see a
         # realtime send and would only ever count digests.
         if notification_id is not None:
