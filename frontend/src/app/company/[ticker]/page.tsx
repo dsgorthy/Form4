@@ -8,6 +8,7 @@ import { fetchAPIAuth } from "@/lib/auth";
 import { RelatedCompanies, type RelatedCompany } from "@/components/related-companies";
 import { ProGate } from "@/components/pro-gate";
 import { FollowCta } from "@/components/follow-cta";
+import { PendingFollow } from "@/components/pending-follow";
 import { formatCurrency } from "@/lib/format";
 import { titleSummary } from "@/lib/title-format";
 import { WatchButton } from "@/components/watch-button";
@@ -246,9 +247,25 @@ export default async function CompanyPage({ params }: { params: Promise<{ ticker
             grade stays visible as proof. Blurring the whole roster hid the
             content Google came for. */}
         <InsiderRoster insiders={overview.insiders} gated />
+        {/* PendingFollow completes a follow carried through sign-up, and
+            renders nothing when there is no `?follow=` to act on. It has to be
+            on this page for the same reason the token below has to be passed:
+            without it the round trip ends on a page that cannot finish what it
+            started. */}
+        <PendingFollow />
         <FollowCta
           entity={ticker.toUpperCase()}
           detail={`Grades for ${Math.max(overview.insiders.length - 1, 0)} more insiders at ${ticker.toUpperCase()}`}
+          // WITHOUT THIS the band says "get alerted the next time NVDA files"
+          // and then hands the reader a generic sign-up form — the exact
+          // broken promise FollowCta's own docblock warns about, live on the
+          // highest-yield surface in the site (2.80 search views per 1,000
+          // URLs, against 1.53 for insiders and 0.43 for filings).
+          //
+          // `ticker` is already supported end to end: pending-follow.tsx posts
+          // {ticker: id} to /notifications/watchlist for this kind. It was
+          // only ever missing here.
+          follow={{ kind: "ticker", id: ticker.toUpperCase() }}
         />
       </div>
 
