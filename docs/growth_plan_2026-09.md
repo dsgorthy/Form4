@@ -48,9 +48,11 @@ Insider and company pages are **71% of search traffic**. Individual filings are
 worse yield per URL than a company page.
 
 Companies are nearly fully published already (17,866 of 21,493 distinct
-tickers). Insiders are the surface that is both efficient *and* starved:
-**45,000 published of 118,475 qualifying**. That is where the next URL should
-go, not into a fifth filing chunk.
+tickers). Insiders are the surface that is both efficient *and* starved — but
+by less than first stated. The eligibility rule is not "≥5 filings" across all
+212,983 insiders; it is `buy_count >= 2` on `insider_track_records`, which
+yields **51,747 eligible against a 45,000 cap — 6,747 excluded**, not 73,475.
+That is still where the next URL should go, not into a fifth filing chunk.
 
 This is a priority ordering, not a strict zero-sum trade — crawl budget is not a
 fixed pool that reallocates 1:1, and filings do bring a fifth of search traffic.
@@ -127,12 +129,17 @@ read from data we already collect.
 |---|---|---|
 | 0.1 | Rotate the Stripe secret key | Leaked into a session transcript 2026-09-10 |
 | 0.2 | Pin `stripe==X.Y.Z` in `api/requirements.txt` | Unpinned is how the 15.x break happened; it will recur |
-| 0.3 | Chunk `insiders.xml` | Single file at **45,000 of a 50,000 hard cap**; also 73,475 qualifying insider pages are unpublished |
+| 0.3 | Chunk `insiders.xml` | Single file at **45,000 of a 50,000 hard cap**, while eligibility has already reached **51,747** — the section could not be made whole without breaking it |
 | 0.4 | Finish the scheduler work in flight | 6 jobs sat dead 57h with `exit code = 0`; 3 migrated to Dagster, 3 need calendar schedules |
 | 0.5 | Add stall detection to `offbox_watchdog.py` | It reported "all checks passed" through the entire 57h outage |
 
-**Checkpoint 0:** every sitemap section under 20k URLs; `stripe` pinned; no
-declared scheduled job silently stopped. Verifiable in one pass.
+**Checkpoint 0 — MET 2026-09-10.** Sitemap sections all ≤20,000 (insiders now
+51,747 across three chunks, every eligible insider published for the first
+time); `stripe` pinned to 15.6.1; **zero `StartInterval` agents remain loaded on
+Studio** and all six formerly-dead services verified firing at 17:00 PT. The
+off-box watchdog reports all-clear on a run that names each service and its
+budget — the same message it was printing while six of them were dead, now
+actually earned.
 
 ### Phase 1 — Make the landing page convert (weeks 1–3)
 
@@ -176,7 +183,7 @@ this needs ~1,000 landers/month, so it depends on Phase 3.
 
 | # | task |
 |---|---|
-| 3.1 | Publish the 73,475 qualifying insider pages currently excluded by `limit_insiders=45000` |
+| 3.1 | Raise `INSIDER_CHUNKS` as eligibility grows past 60,000 capacity |
 | 3.2 | Track Search Console coverage as the restored sitemap re-indexes |
 
 **Checkpoint 3:** 50,000 pageviews/month. This is the gate on Phase 4.
@@ -216,14 +223,14 @@ So:
 Ordered. `[ ]` open, `[~]` in flight, `[x]` done.
 
 **Phase 0**
-- [ ] 0.1 Rotate Stripe secret key *(Derek — dashboard action)*
-- [ ] 0.2 Pin `stripe` in `api/requirements.txt`
-- [ ] 0.3 Chunk `insiders.xml`; raise `limit_insiders` past 45,000
-- [~] 0.4a Dagster assets for `form4-notifications`, `refresh-open-position-prices`, `strategy-intraday` — written, not deployed
-- [ ] 0.4b `StartCalendarInterval` for `form4-uptime`, `heartbeat-probe`, `freshness-probe`
-- [ ] 0.4c Unload the three migrated plists in the same change Dagster picks them up *(double-run risk)*
-- [ ] 0.5 `SERVICE_HEARTBEAT` stall check in `offbox_watchdog.py`, budgets from measured gaps
-- [ ] 0.6 Convert `offbox_watchdog`'s own `StartInterval=1800` to a calendar schedule
+- [x] 0.1 Rotate Stripe secret key — done; new key verified live, site never dropped
+- [x] 0.2 Pin `stripe` in `api/requirements.txt` — pinned to 15.6.1
+- [x] 0.3 Chunk `insiders.xml` → `insiders-0..2`; API ceiling off the protocol cap; 5 tests
+- [x] 0.4a Dagster assets for `form4-notifications`, `refresh-open-position-prices`, `strategy-intraday` — deployed, firing
+- [x] 0.4b `StartCalendarInterval` for `form4-uptime`, `heartbeat-probe`, `freshness-probe` — all firing
+- [x] 0.4c Three migrated plists unloaded and archived before the Dagster restart — no double-run
+- [x] 0.5 `SERVICE_HEARTBEAT` stall check in `offbox_watchdog.py` — catches all 6 dead services, passes `insider_fetch`
+- [ ] 0.6 Convert `offbox_watchdog`'s own `StartInterval=1800` to a calendar schedule *(runs on the Mini, short uptime, so not yet bitten)*
 
 **Phase 1**
 - [ ] 1.1 Follow CTA above the fold on `/insider/[id]` and `/company/[ticker]`
@@ -238,7 +245,7 @@ Ordered. `[ ]` open, `[~]` in flight, `[x]` done.
 - [ ] 2.4 Default `tier` metadata on signup — the 5 newest Clerk users have none
 
 **Phase 3**
-- [ ] 3.1 Publish the remaining 73,475 insider pages
+- [ ] 3.1 Raise `INSIDER_CHUNKS` as eligibility grows past 60,000
 - [ ] 3.2 Search Console coverage tracking
 
 **Phase 4**
