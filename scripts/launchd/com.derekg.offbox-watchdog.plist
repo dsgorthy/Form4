@@ -21,33 +21,36 @@
 -->
 <plist version="1.0">
 <dict>
-  <key>Label</key>
-  <string>com.derekg.offbox-watchdog</string>
-
-  <key>ProgramArguments</key>
-  <array>
-    <string>/usr/bin/python3</string>
-    <string>/Users/derekg/trading-framework/scripts/offbox_watchdog.py</string>
-  </array>
-
-  <key>WorkingDirectory</key>
-  <string>/Users/derekg/trading-framework</string>
-
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>PATH</key>
-    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
-  </dict>
-
-  <key>StartInterval</key>
-  <integer>1800</integer>
-
-  <key>RunAtLoad</key>
-  <true/>
-
-  <key>StandardOutPath</key>
-  <string>/Users/derekg/trading-framework/logs/offbox-watchdog.log</string>
-  <key>StandardErrorPath</key>
-  <string>/Users/derekg/trading-framework/logs/offbox-watchdog.err</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+	</dict>
+	<key>Label</key>
+	<string>com.derekg.offbox-watchdog</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/bin/python3</string>
+		<string>/Users/derekg/trading-framework/scripts/offbox_watchdog.py</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>StandardErrorPath</key>
+	<string>/Users/derekg/trading-framework/logs/offbox-watchdog.err</string>
+	<key>StandardOutPath</key>
+	<string>/Users/derekg/trading-framework/logs/offbox-watchdog.log</string>
+	<key>StartCalendarInterval</key>
+	<array>
+		<dict>
+			<key>Minute</key>
+			<integer>0</integer>
+		</dict>
+		<dict>
+			<key>Minute</key>
+			<integer>30</integer>
+		</dict>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>/Users/derekg/trading-framework</string>
 </dict>
 </plist>
