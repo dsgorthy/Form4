@@ -303,6 +303,35 @@ def _get_subscribed_users(nconn: ConnectionWrapper, event_type: str) -> list[dic
     return users
 
 
+def tier_allows(user: dict, row_tier: int) -> bool:
+    """Does this user's tier floor admit a row graded `row_tier`?
+
+    `None` MEANS NO FLOOR, and that is not an accident of the data — the
+    function above sets it deliberately for every non-Pro account, because
+    applying our own grade filter to a free user's alerts would silently drop
+    filings on companies they explicitly asked to hear about.
+
+    Callers compared `row_tier < user["min_insider_tier"]` directly, which
+    raises TypeError the moment a non-Pro user is subscribed. That is not a
+    hypothetical: `scan_high_value_filings` crashed on it for **4,182
+    consecutive runs from 2026-08-24, without a single success**, and because
+    it is third of six scanners, congress_convergence, cluster_formation and
+    activity_spike never ran at all in that time. It went unnoticed because the
+    plist exited non-zero into a log nobody tailed; the Dagster migration on
+    2026-09-10 surfaced it within one scheduling tick.
+
+    It became reachable when the last Pro subscriptions ended (one refunded
+    2026-08-25, one charged back 2026-08-30) and every subscribed account was
+    non-Pro. A gate that is only exercised by free users is a gate that a paying
+    userbase hides.
+
+    Exists as a named function so the contract has one home and can be tested
+    without a database.
+    """
+    floor = user.get("min_insider_tier")
+    return floor is None or row_tier >= floor
+
+
 # ---------------------------------------------------------------------------
 # Rate limiting — priority tiers and caps
 # ---------------------------------------------------------------------------
@@ -515,7 +544,9 @@ def scan_high_value_filings(iconn: ConnectionWrapper, nconn: ConnectionWrapper, 
             else:
                 if r["total_value"] < user["min_trade_value"]:
                     continue
-                if r_tier < user["min_insider_tier"]:
+                # None means no floor — see tier_allows. Comparing directly
+                # here is what crashed every run of this scanner for 17 days.
+                if not tier_allows(user, r_tier):
                     continue
 
             title_str = r["title"] or "Insider"
