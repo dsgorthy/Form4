@@ -146,16 +146,43 @@ actually earned.
 The measured problem is that 91% of SEO visitors never see the offer. Fix
 visibility before touching policy.
 
-| # | task |
-|---|---|
-| 1.1 | Surface the follow CTA above the fold on `/insider/[id]` and `/company/[ticker]` |
-| 1.2 | Instrument scroll depth so "did not scroll" is measurable rather than inferred |
-| 1.3 | Add a `cta_clicked` event — only `follow_cta_shown` exists, so intent is currently unmeasurable |
+**The premise was wrong, and the data said so within an hour of starting.**
+`follow_cta_shown` fires on MOUNT, not on visibility, so it never carried any
+information about scrolling. The component opened with
+`if (!isLoaded || pro) return null` — it rendered *nothing* until Clerk
+resolved:
 
-**Checkpoint 1:** `follow_cta_shown` people ÷ SEO landers goes from **8.7% to
->50%**. That ratio has n≈208/month behind it, so it is readable in 2–3 weeks.
-This is the only checkpoint in the plan that current traffic can actually
-support.
+| | people | median time on page |
+|---|---|---|
+| CTA rendered | 15 | **97.9s** |
+| CTA never rendered | 81 | **17.2s** |
+
+Search visitors leave in a median of 17 seconds; Clerk does not resolve in that
+window. For 84% of them the CTA never mounted. Moving a component that never
+mounts would have done nothing.
+
+| # | task | shipped |
+|---|---|---|
+| 1.1 | ~~Move the CTA above the fold~~ → **render it before Clerk resolves**, anonymous shape first | ✅ |
+| 1.2 | Scroll depth, 25/50/75/100 per pageview | ✅ |
+| 1.3 | ~~Add `cta_clicked`~~ — already existed, had simply never had an impression to record | n/a |
+| 1.4 | `follow_cta_viewed` — a real IntersectionObserver event, kept SEPARATE from the mount event so the old series keeps one meaning | ✅ |
+| 1.5 | Company CTA passes `follow={{kind:"ticker"}}` + renders `PendingFollow` — it said "get alerted the next time NVDA files" and linked to a bare `/sign-up` | ✅ |
+
+**Checkpoint 1, restated** — the original ("CTA-seen 8.7% → >50%") was built on
+a metric that did not mean what its name said. Three readings now:
+
+1. **`follow_cta_shown` ÷ non-Pro SEO landers → >90%**, from ~11%. This is a
+   pure render check and should be near-total; anything less means the CTA is
+   still conditional somewhere.
+2. **`follow_cta_viewed` ÷ `follow_cta_shown`** — the honest "did they actually
+   see it" rate. No baseline exists, by construction. This is what the original
+   checkpoint was trying and failing to measure.
+3. **`follow_cta_clicked` ÷ `follow_cta_viewed`** — the first real read on
+   whether the offer works. It has fired zero times on 19 impressions, which at
+   that sample is consistent with any CTR under ~10%: not evidence the offer is
+   broken, only that nothing could be concluded. ~700 landers/month now all get
+   the CTA, so this becomes answerable in roughly a month.
 
 ### Phase 2 — Re-cut the ladder (weeks 3–6, after Checkpoint 1)
 
@@ -233,10 +260,11 @@ Ordered. `[ ]` open, `[~]` in flight, `[x]` done.
 - [ ] 0.6 Convert `offbox_watchdog`'s own `StartInterval=1800` to a calendar schedule *(runs on the Mini, short uptime, so not yet bitten)*
 
 **Phase 1**
-- [ ] 1.1 Follow CTA above the fold on `/insider/[id]` and `/company/[ticker]`
-- [ ] 1.2 Scroll-depth instrumentation
-- [ ] 1.3 `cta_clicked` event
-- [ ] 1.4 Read Checkpoint 1 after 2–3 weeks
+- [x] 1.1 CTA renders before Clerk resolves (was returning null for 84% of search visitors)
+- [x] 1.2 Scroll-depth instrumentation
+- [x] 1.3 `cta_clicked` — already existed; added `follow_cta_viewed` (IntersectionObserver) instead
+- [x] 1.5 Company CTA carries its follow token + `PendingFollow`
+- [ ] 1.6 Read Checkpoint 1 after 2–3 weeks
 
 **Phase 2**
 - [ ] 2.1 Drop the 90-day wall; design the immediacy gate
