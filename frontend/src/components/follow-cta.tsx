@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { posthog } from "@/lib/posthog";
 import { useAuth, useUser } from "@clerk/nextjs";
@@ -70,28 +70,89 @@ export function FollowCta({
   const { isSignedIn, isLoaded } = useAuth();
   const { user } = useUser();
   const pathname = usePathname();
+  const ref = useRef<HTMLDivElement | null>(null);
+  const viewed = useRef(false);
 
   const pro = isPro(user);
   const token = follow ? `${follow.kind}:${follow.id}` : null;
 
   // HOOK FIRST, unconditionally, above every early return. The condition lives
-  // inside. Placing it after `if (!isLoaded || isPro(user)) return null` would
-  // change hook order between renders as Clerk resolves — the same rules-of-
-  // hooks mistake made in pro-gate the same day.
+  // inside. Placing it after `if (isPro(user)) return null` would change hook
+  // order between renders as Clerk resolves — the same rules-of-hooks mistake
+  // made in pro-gate the same day.
+  //
+  // Note this no longer waits on isLoaded, because the render below no longer
+  // does either. See the block comment on the early return.
   useEffect(() => {
-    if (!isLoaded || pro) return;
+    if (pro) return;
     posthog?.capture?.("follow_cta_shown", {
       entity,
       signed_in: !!isSignedIn,
       has_follow_target: !!token,
+      auth_resolved: !!isLoaded,
       path: pathname ?? null,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoaded, isSignedIn, pro]);
+  }, [isSignedIn, pro]);
 
-  // Render nothing until Clerk resolves. Flashing an upsell at a paying
-  // subscriber for a beat is worse than showing the CTA a beat late.
-  if (!isLoaded || pro) return null;
+  // `follow_cta_shown` fires on MOUNT and always did — it never meant the
+  // visitor saw anything, only that React rendered it. That reading cost a
+  // session: a 8.7% "saw the CTA" rate was read as "they don't scroll",
+  // when the component was not mounting at all.
+  //
+  // This is the honest version, and it is a SECOND event rather than a
+  // redefinition of the first, so the existing series keeps one meaning for
+  // its whole history.
+  useEffect(() => {
+    if (pro || !ref.current || typeof IntersectionObserver === "undefined") return;
+    const el = ref.current;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (!e.isIntersecting || viewed.current) continue;
+          viewed.current = true;
+          posthog?.capture?.("follow_cta_viewed", {
+            entity,
+            signed_in: !!isSignedIn,
+            has_follow_target: !!token,
+            path: pathname ?? null,
+          });
+          obs.disconnect();
+        }
+      },
+      // Half the band, so a sliver clipping into view at the moment someone
+      // closes the tab does not count as having been read.
+      { threshold: 0.5 },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pro]);
+
+  // RENDER BEFORE CLERK RESOLVES, in the anonymous shape.
+  //
+  // This used to be `if (!isLoaded || pro) return null`, defended as "flashing
+  // an upsell at a paying subscriber for a beat is worse than showing the CTA
+  // a beat late". Measured 2026-09-10, that trade is strictly bad:
+  //
+  //   people whose CTA rendered      15    median 97.9s on page
+  //   people whose CTA never did     81    median 17.2s on page
+  //
+  // Search visitors leave in a median of 17 seconds. Clerk does not resolve in
+  // that window, so for 84% of them the CTA never mounted and the product
+  // never made its cheapest ask. The only visitors who saw it were the ones
+  // who stayed 5.7x longer — the ones least in need of persuading.
+  //
+  // The flicker it was avoiding costs a paying subscriber a fraction of a
+  // second. There are currently ZERO active subscriptions, so it was
+  // protecting nobody. Even once there are, "subscriber sees a band for one
+  // frame" is a smaller harm than "every search visitor is asked for nothing".
+  //
+  // Anonymous is the correct pre-resolution shape because it is what the
+  // overwhelming majority of these page views are, and because it is the only
+  // variant that is never WRONG for a signed-out reader. Once Clerk resolves,
+  // `isSignedIn` flips the copy and `pro` unmounts the band entirely.
+  if (pro) return null;
 
   // A signed-in free account is NOT asked for money here. They already have
   // following; selling them what they have is noise, and the relationship is
@@ -114,6 +175,7 @@ export function FollowCta({
 
   return (
     <div
+      ref={ref}
       className={`${marksGate ? GATED_CLASS : ""} mt-4 flex flex-col gap-3 rounded-lg border border-[#2A2A3A] bg-[#12121A] px-5 py-4 sm:flex-row sm:items-center sm:justify-between`}
     >
       <div className="min-w-0">
