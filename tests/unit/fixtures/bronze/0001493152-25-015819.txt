@@ -1,0 +1,163 @@
+<SEC-DOCUMENT>0001493152-25-015819.txt : 20250926
+<SEC-HEADER>0001493152-25-015819.hdr.sgml : 20250926
+<ACCEPTANCE-DATETIME>20250926172901
+ACCESSION NUMBER:		0001493152-25-015819
+CONFORMED SUBMISSION TYPE:	4
+PUBLIC DOCUMENT COUNT:		1
+CONFORMED PERIOD OF REPORT:	20250925
+FILED AS OF DATE:		20250926
+DATE AS OF CHANGE:		20250926
+
+REPORTING-OWNER:	
+
+	OWNER DATA:	
+		COMPANY CONFORMED NAME:			WIRTH JAMES F
+		CENTRAL INDEX KEY:			0001055365
+		ORGANIZATION NAME:           	
+
+	FILING VALUES:
+		FORM TYPE:		4
+		SEC ACT:		1934 Act
+		SEC FILE NUMBER:	001-07062
+		FILM NUMBER:		251351586
+
+	MAIL ADDRESS:	
+		STREET 1:		1625 E. NORTHERN AVENUE
+		STREET 2:		SUITE 105
+		CITY:			PHOENIX
+		STATE:			AZ
+		ZIP:			85020
+
+ISSUER:		
+
+	COMPANY DATA:	
+		COMPANY CONFORMED NAME:			INNSUITES HOSPITALITY TRUST
+		CENTRAL INDEX KEY:			0000082473
+		STANDARD INDUSTRIAL CLASSIFICATION:	REAL ESTATE INVESTMENT TRUSTS [6798]
+		ORGANIZATION NAME:           	05 Real Estate & Construction
+		EIN:				346647590
+		STATE OF INCORPORATION:			OH
+		FISCAL YEAR END:			0131
+
+	BUSINESS ADDRESS:	
+		STREET 1:		INNSUITES HOTELS CENTRE
+		STREET 2:		1625 E NORTHERN AVE STE 105
+		CITY:			PHOENIX
+		STATE:			AZ
+		ZIP:			85020
+		BUSINESS PHONE:		2166220046
+
+	MAIL ADDRESS:	
+		STREET 1:		925 EUCLID AVENUE
+		STREET 2:		SUITE 1750
+		CITY:			CLEVELAND
+		STATE:			OH
+		ZIP:			44115
+
+	FORMER COMPANY:	
+		FORMER CONFORMED NAME:	REALTY REFUND TRUST
+		DATE OF NAME CHANGE:	19920703
+</SEC-HEADER>
+<DOCUMENT>
+<TYPE>4
+<SEQUENCE>1
+<FILENAME>ownership.xml
+<DESCRIPTION>4
+<TEXT>
+<XML>
+<?xml version="1.0"?>
+<ownershipDocument>
+
+    <schemaVersion>X0508</schemaVersion>
+
+    <documentType>4</documentType>
+
+    <periodOfReport>2025-09-25</periodOfReport>
+
+    <notSubjectToSection16>0</notSubjectToSection16>
+
+    <issuer>
+        <issuerCik>0000082473</issuerCik>
+        <issuerName>INNSUITES HOSPITALITY TRUST</issuerName>
+        <issuerTradingSymbol>IHT</issuerTradingSymbol>
+    </issuer>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001055365</rptOwnerCik>
+            <rptOwnerName>WIRTH JAMES F</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>5700 E, GLENN DR.</rptOwnerStreet1>
+            <rptOwnerStreet2></rptOwnerStreet2>
+            <rptOwnerCity>PARADISE VALLEY</rptOwnerCity>
+            <rptOwnerState>AZ</rptOwnerState>
+            <rptOwnerZipCode>85253</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>0</isDirector>
+            <isOfficer>1</isOfficer>
+            <isTenPercentOwner>1</isTenPercentOwner>
+            <isOther>1</isOther>
+            <officerTitle>President &amp; CEO</officerTitle>
+            <otherText>Chairman</otherText>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <aff10b5One>1</aff10b5One>
+
+    <nonDerivativeTable>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>INNSUITES HOSPITALITY REIT</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2025-09-25</value>
+            </transactionDate>
+            <deemedExecutionDate>
+                <value>2025-09-26</value>
+            </deemedExecutionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>S</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+            </transactionCoding>
+            <transactionTimeliness></transactionTimeliness>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>12500</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>22625</value>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>D</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>6226796</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>I</value>
+                </directOrIndirectOwnership>
+                <natureOfOwnership>
+                    <value>By Spouse</value>
+                </natureOfOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+    </nonDerivativeTable>
+
+    <ownerSignature>
+        <signatureName>/s/ James F. Wirth</signatureName>
+        <signatureDate>2025-09-26</signatureDate>
+    </ownerSignature>
+</ownershipDocument>
+</XML>
+</TEXT>
+</DOCUMENT>
+</SEC-DOCUMENT>
+

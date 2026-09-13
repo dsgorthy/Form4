@@ -1,0 +1,157 @@
+-----BEGIN PRIVACY-ENHANCED MESSAGE-----
+Proc-Type: 2001,MIC-CLEAR
+Originator-Name: webmaster@www.sec.gov
+Originator-Key-Asymmetric:
+ MFgwCgYEVQgBAQICAf8DSgAwRwJAW2sNKK9AVtBzYZmr6aGjlWyK3XmZv3dTINen
+ TWSM7vrzLADbmYQaionwg5sDW3P6oaM5D3tdezXMm7z1T+B+twIDAQAB
+MIC-Info: RSA-MD5,RSA,
+ RWwZctpgesH3Ubjl1pfNkC5IKW8tRHIOuwwCBSojMDUNK1k0CQkQCqz/MsWC7Mvi
+ 6EUeBkhpWD3Mgxr1eRiLTA==
+
+<SEC-DOCUMENT>0001240812-07-000005.txt : 20070817
+<SEC-HEADER>0001240812-07-000005.hdr.sgml : 20070817
+<ACCEPTANCE-DATETIME>20070817152725
+ACCESSION NUMBER:		0001240812-07-000005
+CONFORMED SUBMISSION TYPE:	4
+PUBLIC DOCUMENT COUNT:		1
+CONFORMED PERIOD OF REPORT:	20070815
+FILED AS OF DATE:		20070817
+DATE AS OF CHANGE:		20070817
+
+ISSUER:		
+
+	COMPANY DATA:	
+		COMPANY CONFORMED NAME:			NICHOLAS APPLEGATE CONVERTIBLE & INCOME FUND
+		CENTRAL INDEX KEY:			0001214935
+		IRS NUMBER:				000000000
+		STATE OF INCORPORATION:			MA
+
+	MAIL ADDRESS:	
+		STREET 1:		1345 AVE OF THE AMERICAS
+		STREET 2:		47TH FL
+		CITY:			NEW YORK
+		STATE:			NY
+		ZIP:			10105
+
+	FORMER COMPANY:	
+		FORMER CONFORMED NAME:	NICHOLAS APPLEGATE CONVERTIBLE INCOME FUND
+		DATE OF NAME CHANGE:	20030121
+
+REPORTING-OWNER:	
+
+	OWNER DATA:	
+		COMPANY CONFORMED NAME:			LEMESEVSKI ELIZABETH
+		CENTRAL INDEX KEY:			0001240808
+
+	FILING VALUES:
+		FORM TYPE:		4
+		SEC ACT:		1934 Act
+		SEC FILE NUMBER:	811-21284
+		FILM NUMBER:		071065119
+
+	MAIL ADDRESS:	
+		STREET 1:		C/O ALLIANZ EQUITY ADVISORS
+		STREET 2:		1345 AVE OF THE AMERICAS
+		CITY:			NEW YORK
+		STATE:			NY
+		ZIP:			10105
+</SEC-HEADER>
+<DOCUMENT>
+<TYPE>4
+<SEQUENCE>1
+<FILENAME>primary_doc.xml
+<DESCRIPTION>PRIMARY DOCUMENT
+<TEXT>
+<XML>
+<?xml version="1.0"?>
+<ownershipDocument>
+
+    <schemaVersion>X0202</schemaVersion>
+
+    <documentType>4</documentType>
+
+    <periodOfReport>2007-08-15</periodOfReport>
+
+    <notSubjectToSection16>0</notSubjectToSection16>
+
+    <issuer>
+        <issuerCik>0001214935</issuerCik>
+        <issuerName>NICHOLAS APPLEGATE CONVERTIBLE &amp; INCOME FUND</issuerName>
+        <issuerTradingSymbol>NCV</issuerTradingSymbol>
+    </issuer>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001240808</rptOwnerCik>
+            <rptOwnerName>LEMESEVSKI ELIZABETH</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>C/O ALLIANZ EQUITY ADVISORS</rptOwnerStreet1>
+            <rptOwnerStreet2>1345 AVE OF THE AMERICAS</rptOwnerStreet2>
+            <rptOwnerCity>NEW YORK</rptOwnerCity>
+            <rptOwnerState>NY</rptOwnerState>
+            <rptOwnerZipCode>10105</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>0</isDirector>
+            <isOfficer>0</isOfficer>
+            <isTenPercentOwner>0</isTenPercentOwner>
+            <isOther>1</isOther>
+            <otherText>Affiliated Person</otherText>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <nonDerivativeTable>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Common Stock</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2007-08-17</value>
+            </transactionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>P</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+            </transactionCoding>
+            <transactionTimeliness>
+                <value></value>
+            </transactionTimeliness>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>300</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>11.75</value>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>A</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>300</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+    </nonDerivativeTable>
+
+    <remarks>Nicholas-Applegate Capital Management LLC (&quot;NACM&quot;) is an investment adviser of the Issuer.  Ms. Lemesevski is an investment analyst with NACM who is invloved with the day-to-day portfolio management of the Issuer.</remarks>
+
+    <ownerSignature>
+        <signatureName>Lagan Srivastava, Attorney in fact for Elizabeth Lemesevski</signatureName>
+        <signatureDate>2007-08-17</signatureDate>
+    </ownerSignature>
+</ownershipDocument>
+</XML>
+</TEXT>
+</DOCUMENT>
+</SEC-DOCUMENT>
+-----END PRIVACY-ENHANCED MESSAGE-----
+

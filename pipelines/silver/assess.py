@@ -1,0 +1,109 @@
+#!/usr/bin/env python3
+"""price_quality for Silver rows: an assessment, never an edit.
+
+The criterion is the one measured for migrations/2026-09-06_price_quality.sql
+on `trades`: compare the FILED per-share price to the ticker's price band for
+the month of the transaction.
+
+    ratio = price_per_share / band_high
+
+      >= 100x           implausible     no corporate action moves a price 100x
+                                        in a month; the largest split in the
+                                        data is 50:1. The IHT 22,625 filer error
+                                        is ~15,000x.
+      3x .. 100x        outside_band    splits, ADRs, volatility. Real more
+      or < band_low/3                   often than not; the value is shown but
+                                        a reader deserves the label.
+      inside            ok
+      no prices that    no_reference    we cannot say, and say so
+      month
+
+The band is [min(low), max(high)] over prices.daily_prices for the calendar
+month of trans_date. It is a SEPARATE pass from the parse so a parse without
+prices is still a complete parse, and so re-assessing (better prices, a
+different threshold) never touches the facts.
+
+    python3 pipelines/silver/assess.py --limit 50000
+"""
+from __future__ import annotations
+
+import argparse
+import logging
+import sys
+from decimal import Decimal
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from config.database import get_connection  # noqa: E402
+from framework.observability.pipeline_runner import pipeline_run  # noqa: E402
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger("assess_silver")
+
+IMPLAUSIBLE_X = Decimal(100)
+OUTSIDE_X = Decimal(3)
+
+# One statement does the whole batch: the band is a correlated aggregate over
+# the month, and the CASE is the table above. daily_prices.date is TEXT
+# (YYYY-MM-DD), hence the substr.
+ASSESS_SQL = """
+    WITH todo AS (
+        SELECT accession, rptowner_cik, line_no, ticker, trans_date, price_per_share
+          FROM silver.form4_transaction
+         WHERE price_quality IS NULL AND price_per_share IS NOT NULL
+         LIMIT ?
+    ), band AS (
+        SELECT t.accession, t.rptowner_cik, t.line_no, t.price_per_share,
+               (SELECT min(p.low)  FROM prices.daily_prices p
+                 WHERE p.ticker = t.ticker AND substr(p.date, 1, 7) = to_char(t.trans_date, 'YYYY-MM')) AS lo,
+               (SELECT max(p.high) FROM prices.daily_prices p
+                 WHERE p.ticker = t.ticker AND substr(p.date, 1, 7) = to_char(t.trans_date, 'YYYY-MM')) AS hi
+          FROM todo t
+    )
+    UPDATE silver.form4_transaction s
+       SET price_quality = CASE
+             WHEN b.hi IS NULL OR b.hi <= 0            THEN 'no_reference'
+             WHEN b.price_per_share >= b.hi * ?        THEN 'implausible'
+             WHEN b.price_per_share >= b.hi * ?
+               OR b.price_per_share * ? < b.lo          THEN 'outside_band'
+             ELSE 'ok' END,
+           price_quality_note = CASE
+             WHEN b.hi IS NULL OR b.hi <= 0 THEN 'no daily prices for this ticker in the month of the transaction'
+             ELSE format('filed %s against a %s..%s band that month (%sx the high)',
+                         b.price_per_share, round(b.lo::numeric, 4), round(b.hi::numeric, 4),
+                         round((b.price_per_share / b.hi)::numeric, 1)) END
+      FROM band b
+     WHERE s.accession = b.accession AND s.rptowner_cik = b.rptowner_cik AND s.line_no = b.line_no
+"""
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--limit", type=int, default=100000, help="rows per batch")
+    ap.add_argument("--max-batches", type=int, default=None)
+    args = ap.parse_args()
+    with pipeline_run("assess_silver") as run:
+        conn = get_connection()
+        total = batches = 0
+        while args.max_batches is None or batches < args.max_batches:
+            cur = conn.execute(ASSESS_SQL, (args.limit, IMPLAUSIBLE_X, OUTSIDE_X, OUTSIDE_X))
+            n = cur.rowcount if cur.rowcount is not None else 0
+            conn.commit()
+            total += n
+            batches += 1
+            logger.info("assessed %d (total %d)", n, total)
+            if n < args.limit:
+                break
+        dist = conn.execute(
+            "SELECT price_quality, count(*) AS n FROM silver.form4_transaction "
+            "WHERE price_per_share IS NOT NULL GROUP BY 1 ORDER BY 2 DESC").fetchall()
+        for r in dist:
+            logger.info("  %-14s %d", r["price_quality"], r["n"])
+        run.set_rows_written(total)
+        run.set_metadata({r["price_quality"] or "unassessed": r["n"] for r in dist})
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
