@@ -38,8 +38,23 @@ COMPARE = ["trans_code", "trans_date", "trans_acquired_disp", "security_title",
 
 JOIN_SQL = """
     WITH parsed AS (SELECT accession FROM silver.form4_parse WHERE status = 'ok'),
-    s AS (SELECT f.* FROM silver.form4_transaction f JOIN parsed USING (accession)),
-    t AS (SELECT tr.* FROM trades tr JOIN parsed USING (accession)
+    -- Pair sibling lines POSITIONALLY. trades.line_no is NULL on every row
+    -- older than the column, and quantity cannot tell siblings apart either
+    -- (0000001750-06-000062 has four same-day S lots of equal size, so a
+    -- quantity join fanned each line into three). Silver's line_no is
+    -- document order; the live parser inserted in document order, so trade_id
+    -- is the same order on the trades side. Rank both within the filing's
+    -- natural key and join on rank.
+    s AS (SELECT f.*,
+                 row_number() OVER (PARTITION BY f.accession, f.rptowner_cik, f.trans_date, f.trans_code,
+                                                 COALESCE(f.security_title, ''), f.is_derivative
+                                    ORDER BY f.line_no) AS rk
+            FROM silver.form4_transaction f JOIN parsed USING (accession)),
+    t AS (SELECT tr.*,
+                 row_number() OVER (PARTITION BY tr.accession, tr.rptowner_cik, tr.trade_date, tr.trans_code,
+                                                 COALESCE(tr.security_title, ''), COALESCE(tr.is_derivative, 0)
+                                    ORDER BY tr.trade_id) AS rk
+            FROM trades tr JOIN parsed USING (accession)
            WHERE COALESCE(tr.is_duplicate, 0) = 0)
     SELECT s.accession, s.rptowner_cik, s.line_no,
            s.trans_code AS s_code, t.trans_code AS t_code,
@@ -59,15 +74,8 @@ JOIN_SQL = """
        AND t.trade_date::date = s.trans_date
        AND t.trans_code = s.trans_code
        AND COALESCE(t.security_title, '') = COALESCE(s.security_title, '')
-       -- trades.line_no is NULL on every row older than the line_no column
-       -- (69,347 of the first 10,000 accessions' rows, 2026-09-14). Without
-       -- a line number a filing's sibling lines -- three S lots on one day --
-       -- are told apart by quantity; joining on (date, code, title) alone
-       -- fanned 24,794 Silver lines into 87,808 pairs and called every one
-       -- a shares mismatch.
-       AND (t.line_no = s.line_no
-            OR (t.line_no IS NULL AND abs(t.qty::numeric - s.shares) < 0.0001))
        AND COALESCE(t.is_derivative, 0)::int = s.is_derivative::int
+       AND t.rk = s.rk
 """
 
 
@@ -93,6 +101,59 @@ def _cents_eq(a, b) -> bool:
     return round(float(a), 2) == round(float(b), 2)
 
 
+
+def _loose_pair(rows: list[dict]) -> list[dict]:
+    """Second pass for lines the strict join could not pair because the
+    trades row has no owner or no security title.
+
+    Found 2026-09-14: 2026-dated sell rows in trades with rptowner_cik NULL
+    and security_title NULL (0000002488-26-000024 holds ten). A join on owner
+    cannot see them, so Silver's line reads as "silver_only" and the trades
+    row as "trades_only" when in fact they are the same transaction. Pair the
+    strict leftovers within (accession, date, code, is_derivative) in
+    document order and say what was missing on the trades side.
+    """
+    unmatched_s = [r for r in rows if r["trade_id"] is None and r["accession"] is not None]
+    unmatched_t = [r for r in rows if r["s_code"] is None and r["t_code"] is not None]
+    if not unmatched_s or not unmatched_t:
+        return rows
+    key_s = lambda r: (r["accession"], str(r["s_date"]), r["s_code"], bool(r["s_is_derivative"]))
+    key_t = lambda r: (r["accession"], str(r["t_date"]), r["t_code"], False)  # trades_only rows: derivative flag not selected; assume non-derivative
+    from collections import defaultdict
+    by_t: dict = defaultdict(list)
+    for r in unmatched_t:
+        if r["rptowner_cik"] is None or r["t_title"] is None:
+            by_t[key_t(r)].append(r)
+    for lst in by_t.values():
+        lst.sort(key=lambda r: r["trade_id"])
+    paired = set()
+    merged = []
+    for r in sorted(unmatched_s, key=lambda r: (r["accession"], r["line_no"])):
+        cands = by_t.get(key_s(r))
+        if not cands:
+            continue
+        t = cands.pop(0)
+        paired.add(id(t))
+        m = dict(r)
+        for k in ("t_code", "t_date", "t_ad", "t_title", "t_di", "t_ticker", "t_qty",
+                  "t_price", "t_price_as_filed", "t_after", "t_line_no", "trade_id"):
+            m[k] = t[k]
+        m["loose"] = "trades_owner_null" if t["rptowner_cik"] is None else "trades_title_null"
+        merged.append((id(r), m))
+    if not merged:
+        return rows
+    replace = dict(merged)
+    out = []
+    for r in rows:
+        if id(r) in replace:
+            out.append(replace[id(r)])
+        elif id(r) in paired:
+            continue
+        else:
+            out.append(r)
+    return out
+
+
 def bucket(r: dict) -> tuple[str, str]:
     if r["accession"] is None or (r["s_code"] is None and r["t_code"] is not None):
         return "trades_only", ""
@@ -102,7 +163,11 @@ def bucket(r: dict) -> tuple[str, str]:
         # lines the live path dropped, which are the ingestion-loss class.
         return ("silver_only_derivative" if r["s_is_derivative"] else "silver_only", "")
     diffs = []
-    if not _num_eq(r["s_after"], r["t_after"]):
+    # shares (a key now) and shares_owned_after are compared at cents for the
+    # same reason as price: trades rounds (3925.009 -> 3925.01).
+    if not _cents_eq(r["s_shares"], r["t_qty"]):
+        diffs.append("shares")
+    if not _cents_eq(r["s_after"], r["t_after"]):
         diffs.append("shares_owned_after")
     if r["t_price_as_filed"] is not None:
         if _cents_eq(r["s_price"], r["t_price_as_filed"]):
@@ -110,6 +175,8 @@ def bucket(r: dict) -> tuple[str, str]:
         diffs.append("price_as_filed")
     elif not _cents_eq(r["s_price"], r["t_price"]):
         diffs.append("price")
+    if r.get("loose"):
+        diffs.append(r["loose"])
     return ("match" if not diffs else "mismatch", ",".join(diffs))
 
 
@@ -121,6 +188,7 @@ def main() -> int:
 
     conn = get_connection(readonly=True)
     rows = [dict(r) for r in conn.execute(JOIN_SQL).fetchall()]
+    rows = _loose_pair(rows)
     counts: dict[str, int] = {}
     examples: dict[str, list] = {}
     out_rows = []
