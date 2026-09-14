@@ -48,7 +48,7 @@ JOIN_SQL = """
            s.security_title AS s_title, t.security_title AS t_title,
            s.direct_indirect AS s_di, t.direct_indirect AS t_di,
            s.ticker AS s_ticker, t.ticker AS t_ticker,
-           s.shares AS s_shares, t.qty AS t_qty,
+           s.shares AS s_shares, t.qty AS t_qty, s.is_derivative AS s_is_derivative,
            s.price_per_share AS s_price, t.price AS t_price, t.price_as_filed AS t_price_as_filed,
            s.shares_owned_after AS s_after, t.shares_owned_after AS t_after,
            t.line_no AS t_line_no, t.trade_id
@@ -59,7 +59,14 @@ JOIN_SQL = """
        AND t.trade_date::date = s.trans_date
        AND t.trans_code = s.trans_code
        AND COALESCE(t.security_title, '') = COALESCE(s.security_title, '')
-       AND (t.line_no IS NULL OR t.line_no = s.line_no)
+       -- trades.line_no is NULL on every row older than the line_no column
+       -- (69,347 of the first 10,000 accessions' rows, 2026-09-14). Without
+       -- a line number a filing's sibling lines -- three S lots on one day --
+       -- are told apart by quantity; joining on (date, code, title) alone
+       -- fanned 24,794 Silver lines into 87,808 pairs and called every one
+       -- a shares mismatch.
+       AND (t.line_no = s.line_no
+            OR (t.line_no IS NULL AND abs(t.qty::numeric - s.shares) < 0.0001))
        AND COALESCE(t.is_derivative, 0)::int = s.is_derivative::int
 """
 
@@ -75,23 +82,33 @@ def _num_eq(a, b) -> bool:
         return False
 
 
+def _cents_eq(a, b) -> bool:
+    """trades stores price rounded to cents; Silver keeps the filed decimals
+    (24.6414 vs 24.64). Equal at cents is the live path being lossy, not a
+    disagreement about the filing -- the exact value is Silver's to keep."""
+    if a is None and b is None:
+        return True
+    if a is None or b is None:
+        return False
+    return round(float(a), 2) == round(float(b), 2)
+
+
 def bucket(r: dict) -> tuple[str, str]:
-    if r["accession"] is None:
+    if r["accession"] is None or (r["s_code"] is None and r["t_code"] is not None):
         return "trades_only", ""
     if r["trade_id"] is None:
-        return "silver_only", ""
-    if r["s_code"] is None and r["t_code"] is not None:
-        return "trades_only", ""
+        # trades never carried derivative lines for most of its history; those
+        # are expected here and are reported apart from the non-derivative
+        # lines the live path dropped, which are the ingestion-loss class.
+        return ("silver_only_derivative" if r["s_is_derivative"] else "silver_only", "")
     diffs = []
-    if not _num_eq(r["s_shares"], r["t_qty"]):
-        diffs.append("shares")
     if not _num_eq(r["s_after"], r["t_after"]):
         diffs.append("shares_owned_after")
     if r["t_price_as_filed"] is not None:
-        if _num_eq(r["s_price"], r["t_price_as_filed"]):
+        if _cents_eq(r["s_price"], r["t_price_as_filed"]):
             return ("price_overwritten" if not diffs else "mismatch", ",".join(diffs))
         diffs.append("price_as_filed")
-    elif not _num_eq(r["s_price"], r["t_price"]):
+    elif not _cents_eq(r["s_price"], r["t_price"]):
         diffs.append("price")
     return ("match" if not diffs else "mismatch", ",".join(diffs))
 
@@ -123,7 +140,7 @@ def main() -> int:
     md = [f"# Silver vs trades parity — {today}", "",
           f"{total:,} joined rows over {conn.execute('SELECT count(*) AS n FROM silver.form4_parse WHERE status = %s', ('ok',)).fetchone()['n']:,} parsed accessions.", "",
           "| bucket | rows | share |", "|---|---|---|"]
-    for b in ("match", "price_overwritten", "mismatch", "silver_only", "trades_only"):
+    for b in ("match", "price_overwritten", "mismatch", "silver_only", "silver_only_derivative", "trades_only"):
         n = counts.get(b, 0)
         md.append(f"| {b} | {n:,} | {100.0 * n / total if total else 0:.2f}% |")
     for b, ex in examples.items():
