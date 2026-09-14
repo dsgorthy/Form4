@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS silver.form4_transaction (
   underlying_shares     numeric(24,6),
   footnote_ids          text[],
   -- the judgement, SEPARATE from the facts. NULL = not yet assessed.
-  price_quality         text CHECK (price_quality IN ('ok','outside_band','implausible','no_reference')),
+  price_quality         text CHECK (price_quality IN ('ok','outside_band','implausible','no_reference','no_price')),
   price_quality_note    text,
   -- provenance
   bronze_sha256         text        NOT NULL,   -- the bytes this row was parsed from
@@ -91,3 +91,11 @@ CREATE TABLE IF NOT EXISTS silver.form4_parse (
   parsed_at       timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS silver_form4_parse_status ON silver.form4_parse (status) WHERE status <> 'ok';
+
+-- 2026-09-14 addendum, applied by hand the same day: a filed price of 0 (grant,
+-- exercise, gift) is not a bad price and must not be judged against a band.
+-- 1,766,274 lines of the first full assessment had been labelled outside_band
+-- for that reason.
+ALTER TABLE silver.form4_transaction DROP CONSTRAINT IF EXISTS form4_transaction_price_quality_check;
+ALTER TABLE silver.form4_transaction ADD CONSTRAINT form4_transaction_price_quality_check
+  CHECK (price_quality IN ('ok','outside_band','implausible','no_reference','no_price'));

@@ -17,6 +17,8 @@ the month of the transaction.
       inside            ok
       no prices that    no_reference    we cannot say, and say so
       month
+      price filed as 0  no_price        a grant, exercise or gift; not a
+                                        market price, so not judged against one
 
 The band is [min(low), max(high)] over prices.daily_prices for the calendar
 month of trans_date. It is a SEPARATE pass from the parse so a parse without
@@ -75,12 +77,18 @@ ASSESS_SQL = """
     )
     UPDATE silver.form4_transaction s
        SET price_quality = CASE
+             -- A price of 0 is a grant, exercise or gift: the filer reported
+             -- no price, and comparing 0 to a band said 'outside_band' on
+             -- 1,766,274 lines of the first full run. No price is not a
+             -- bad price.
+             WHEN b.price_per_share <= 0                THEN 'no_price'
              WHEN b.hi IS NULL OR b.hi <= 0            THEN 'no_reference'
              WHEN b.price_per_share >= b.hi * ?        THEN 'implausible'
              WHEN b.price_per_share >= b.hi * ?
                OR b.price_per_share * ? < b.lo          THEN 'outside_band'
              ELSE 'ok' END,
            price_quality_note = CASE
+             WHEN b.price_per_share <= 0 THEN 'no price filed (0): a grant, exercise, gift or similar, not a market transaction'
              WHEN b.hi IS NULL OR b.hi <= 0 THEN 'no daily prices for this ticker in the month of the transaction'
              -- concatenation, not format(): a %s inside the SQL string is a
              -- psycopg2 placeholder and the first run died on it
