@@ -30,7 +30,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
 from config.database import get_connection
-from framework.contracts.freshness import FreshnessRegistry, get_freshness
+from framework.contracts.freshness import FreshnessRegistry, business_age_hours, get_freshness
 from framework.alerts.log import alert
 
 try:
@@ -135,7 +135,17 @@ def main():
                            c.table, c.column, e)
             ts, age = None, None
 
-        is_stale = age is None or age > c.max_staleness_hours
+        # Judge on BUSINESS hours when the contract says so -- the same rule
+        # assert_fresh applies in the runner's preflight. This compared raw
+        # hours, so every weekday-written column went "STALE" at ~26h on
+        # Saturday and stayed that way until Monday's refresh: 194 critical
+        # alerts in the seven days to 2026-09-14, all of them the weekend,
+        # while the preflight (correctly) never halted on any of them. Two
+        # readers of one contract must reach one verdict.
+        effective = age
+        if ts is not None and age is not None and c.business_hours_only:
+            effective = business_age_hours(ts)
+        is_stale = effective is None or effective > c.max_staleness_hours
         key = f"{c.table}.{c.column}"
         prev_status = state.get(key, {}).get("status", "unknown")
         new_status = "stale" if is_stale else "ok"
@@ -145,6 +155,7 @@ def main():
             "column": c.column,
             "max_staleness_hours": c.max_staleness_hours,
             "observed_age_hours": round(age, 2) if age is not None else None,
+            "business_age_hours": round(effective, 2) if effective is not None else None,
             "last_observed_at": ts.isoformat() if ts else None,
             "status": new_status,
             "prev_status": prev_status,

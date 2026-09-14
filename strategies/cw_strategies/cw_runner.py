@@ -501,15 +501,16 @@ def _scan_signals_engine(
     pit_strategy = strategy_cls(config)
     engine = PITLiveEngine(conn, pit_strategy, config)
 
-    # Mirror the V1 SQL window (`filing_date >= date('now', '-N days')`):
-    # walk the same calendar-day range and aggregate decisions. V1's SQL
-    # uses PG CURRENT_DATE which is server-local (PT on Studio); we match
-    # that with `date.today()` so V1 and engine see the same lookback even
-    # for ad-hoc runs after midnight ET.
+    # Mirror the V1 SQL window exactly: the same trading-day start as
+    # _build_thesis_query, then every calendar day from it through today (a
+    # weekend date in the list is harmless -- nothing files on it -- and the
+    # two paths must agree on what "the window" is). `date.today()` is
+    # server-local on Studio, which is what the SQL side uses too.
     today = date.today()
+    start = _lookback_start(lookback, today)
     dates = [
-        (today - timedelta(days=i)).strftime("%Y-%m-%d")
-        for i in range(lookback + 1)
+        (start + timedelta(days=i)).strftime("%Y-%m-%d")
+        for i in range((today - start).days + 1)
     ]
 
     all_decisions = []
@@ -636,6 +637,33 @@ def _scan_signals_engine(
     return candidates
 
 
+
+def _lookback_start(lookback_days: int, today: "date | None" = None) -> date:
+    """The earliest FILING DATE a scan admits: `lookback_days` TRADING days
+    before today.
+
+    This was calendar days -- `filing_date >= date('now', '-N days')` -- and
+    with N=2 that is Saturday on a Monday. So Friday's filings fell outside
+    every Monday scan, and since the runner only scans 06:00-13:00 PT on
+    weekdays there was never a later scan to catch them. Measured 2026-09-14
+    over 30 days of trade_decision_audit, rows by the FILING weekday:
+    Mon 3,058 / Tue 3,553 / Wed 1,720 / Thu 439 / Fri 0. Every Friday
+    insider buy was silently never alerted, and every Monday scan ran to
+    "scanned: 0" -- which is also why the Monday paper monitor has failed on
+    every Monday in its history.
+
+    Counting trading days instead leaves every midweek window exactly as it
+    was (Wednesday still reaches back to Monday) and makes Monday reach back
+    to Thursday, so Friday is inside it. Holidays fall out the same way: the
+    Tuesday after Labor Day reaches back to the previous Thursday.
+    """
+    from framework.data.calendar import MarketCalendar
+    cal = MarketCalendar()
+    d = today or date.today()
+    for _ in range(int(lookback_days)):
+        d = cal.prev_trading_day(d)
+    return d
+
 def _build_thesis_query(thesis: dict, lookback_days: int) -> tuple[str, list]:
     """Build WHERE clauses and params for a single thesis filter set."""
     filters = thesis.get("filters", {})
@@ -657,7 +685,9 @@ def _build_thesis_query(thesis: dict, lookback_days: int) -> tuple[str, list]:
     # published book was COE in A-List on 2026-05-19, which closed -43.2%: one of
     # that book's two worst positions.
     clauses.append("(t.signal_class IS NULL OR t.signal_class <> 'planned_buy')")
-    clauses.append(f"t.filing_date >= date('now', '-{int(lookback_days)} days')")
+    # Trading days, not calendar days -- see _lookback_start for the Friday
+    # filings this dropped for as long as the calendar version existed.
+    clauses.append(f"t.filing_date >= '{_lookback_start(lookback_days).isoformat()}'")
     clauses.append("(t.is_duplicate = 0 OR t.is_duplicate IS NULL)")
 
     # Optional filters
@@ -2893,7 +2923,18 @@ def main() -> None:
         result = smoke_test(config)
         print(json.dumps(result, indent=2))
     elif args.once or args.dry_run or args.catchup:
+        # The heartbeat file was written only inside run_daemon's loop. When
+        # the runners moved to Dagster one-shots (2026-09-02) the file froze
+        # at "sleeping", and heartbeat_probe plus the Monday paper monitor
+        # read that frozen file for twelve days -- 16,553 minutes stale on
+        # 2026-09-14 while pipeline_runs showed the runner green every ten
+        # minutes. A one-shot is a cycle too; it writes the same heartbeat.
+        if not args.dry_run:
+            _write_heartbeat(config, "alive", f"once: scan starting {_now_et():%H:%M}")
         result = run_daily(config, dry_run=args.dry_run)
+        if not args.dry_run:
+            _write_heartbeat(config, "ok", f"once: scanned {result.get('scanned', '?')}",
+                             scanned=result.get("scanned"))
         print(json.dumps(result, indent=2))
     else:
         run_daemon(config)
