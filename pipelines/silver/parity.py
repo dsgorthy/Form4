@@ -79,6 +79,56 @@ JOIN_SQL = """
 """
 
 
+# Full-corpus mode: the buckets are computed SERVER-SIDE. The first full run
+# tried to pull every joined row over 4.08M accessions into Python and did
+# not finish; the smoke run (10k accessions) was the last time that was a
+# reasonable thing to do. Same strict pairing as JOIN_SQL, same cents rule,
+# no loose pass (it needs Python and is a small correction at this scale --
+# report it from the sample run instead).
+SUMMARY_SQL = """
+    WITH parsed AS (SELECT accession FROM silver.form4_parse WHERE status = 'ok'),
+    s AS (SELECT f.*,
+                 row_number() OVER (PARTITION BY f.accession, f.rptowner_cik, f.trans_date, f.trans_code,
+                                                 COALESCE(f.security_title, ''), f.is_derivative
+                                    ORDER BY f.line_no) AS rk
+            FROM silver.form4_transaction f JOIN parsed USING (accession)),
+    t AS (SELECT tr.*,
+                 row_number() OVER (PARTITION BY tr.accession, tr.rptowner_cik, tr.trade_date, tr.trans_code,
+                                                 COALESCE(tr.security_title, ''), COALESCE(tr.is_derivative, 0)
+                                    ORDER BY tr.trade_id) AS rk
+            FROM trades tr JOIN parsed USING (accession)
+           WHERE COALESCE(tr.is_duplicate, 0) = 0),
+    j AS (
+        SELECT s.accession AS s_acc, t.trade_id, s.is_derivative AS s_der, t.trans_code AS t_code, s.trans_code AS s_code,
+               s.shares, t.qty, s.shares_owned_after AS s_after, t.shares_owned_after AS t_after,
+               s.price_per_share AS s_price, t.price AS t_price, t.price_as_filed
+          FROM s FULL OUTER JOIN t
+            ON t.accession = s.accession AND t.rptowner_cik = s.rptowner_cik
+           AND t.trade_date::date = s.trans_date AND t.trans_code = s.trans_code
+           AND COALESCE(t.security_title, '') = COALESCE(s.security_title, '')
+           AND COALESCE(t.is_derivative, 0)::int = s.is_derivative::int
+           AND t.rk = s.rk),
+    b AS (
+        SELECT CASE
+                 WHEN s_acc IS NULL THEN 'trades_only'
+                 WHEN trade_id IS NULL AND s_der THEN 'silver_only_derivative'
+                 WHEN trade_id IS NULL THEN 'silver_only'
+                 WHEN price_as_filed IS NOT NULL AND round(s_price::numeric, 2) = round(price_as_filed::numeric, 2)
+                      AND round(COALESCE(shares, 0)::numeric, 2) = round(COALESCE(qty, 0)::numeric, 2)
+                      AND round(COALESCE(s_after, 0)::numeric, 2) = round(COALESCE(t_after, 0)::numeric, 2) THEN 'price_overwritten'
+                 WHEN round(COALESCE(s_price, 0)::numeric, 2) = round(COALESCE(t_price, 0)::numeric, 2)
+                      AND round(COALESCE(shares, 0)::numeric, 2) = round(COALESCE(qty, 0)::numeric, 2)
+                      AND round(COALESCE(s_after, 0)::numeric, 2) = round(COALESCE(t_after, 0)::numeric, 2) THEN 'match'
+                 ELSE 'mismatch' END AS bucket
+          FROM j)
+    SELECT bucket, count(*) AS n FROM b GROUP BY 1 ORDER BY 2 DESC
+"""
+
+
+def summary(conn) -> list[dict]:
+    return [dict(r) for r in conn.execute(SUMMARY_SQL).fetchall()]
+
+
 def _num_eq(a, b) -> bool:
     if a is None and b is None:
         return True
@@ -184,9 +234,22 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=None)
     ap.add_argument("--examples", type=int, default=20)
+    ap.add_argument("--summary", action="store_true",
+                    help="full-corpus bucket counts computed in SQL; no per-row examples")
     args = ap.parse_args()
 
     conn = get_connection(readonly=True)
+    if args.summary:
+        conn.execute("SET statement_timeout = '3600s'")
+        rows_s = summary(conn)
+        total = sum(r["n"] for r in rows_s)
+        parsed = conn.execute("SELECT count(*) AS n FROM silver.form4_parse WHERE status = 'ok'").fetchone()["n"]
+        print(f"# Silver vs trades parity (summary) — {date.today().isoformat()}\n")
+        print(f"{total:,} joined rows over {parsed:,} parsed accessions.\n")
+        print("| bucket | rows | share |\n|---|---|---|")
+        for r in rows_s:
+            print(f"| {r['bucket']} | {r['n']:,} | {100.0 * r['n'] / total if total else 0:.2f}% |")
+        return 0
     rows = [dict(r) for r in conn.execute(JOIN_SQL).fetchall()]
     rows = _loose_pair(rows)
     counts: dict[str, int] = {}

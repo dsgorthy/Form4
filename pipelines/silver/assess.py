@@ -30,6 +30,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+import time
 from decimal import Decimal
 from pathlib import Path
 
@@ -47,19 +48,30 @@ OUTSIDE_X = Decimal(3)
 # One statement does the whole batch: the band is a correlated aggregate over
 # the month, and the CASE is the table above. daily_prices.date is TEXT
 # (YYYY-MM-DD), hence the substr.
+# The band is built ONCE per run into a temp table and joined. The first
+# version computed it as a correlated subquery per row -- min(low)/max(high)
+# over daily_prices filtered by substr(date, 1, 7), which no index serves --
+# and one 100,000-row batch ran past twelve minutes on the full 11.4M-row
+# table. daily_prices.date is TEXT (YYYY-MM-DD), hence the substr.
+BAND_SQL = """
+    CREATE TEMP TABLE band AS
+    SELECT ticker, substr(date, 1, 7) AS ym, min(low) AS lo, max(high) AS hi
+      FROM prices.daily_prices
+     WHERE low IS NOT NULL AND high IS NOT NULL
+     GROUP BY 1, 2;
+    CREATE INDEX band_ticker_ym ON band (ticker, ym);
+    ANALYZE band;
+"""
+
 ASSESS_SQL = """
     WITH todo AS (
-        SELECT accession, rptowner_cik, line_no, ticker, trans_date, price_per_share
+        SELECT accession, rptowner_cik, line_no, ticker, to_char(trans_date, 'YYYY-MM') AS ym, price_per_share
           FROM silver.form4_transaction
          WHERE price_quality IS NULL AND price_per_share IS NOT NULL
          LIMIT ?
-    ), band AS (
-        SELECT t.accession, t.rptowner_cik, t.line_no, t.price_per_share,
-               (SELECT min(p.low)  FROM prices.daily_prices p
-                 WHERE p.ticker = t.ticker AND substr(p.date, 1, 7) = to_char(t.trans_date, 'YYYY-MM')) AS lo,
-               (SELECT max(p.high) FROM prices.daily_prices p
-                 WHERE p.ticker = t.ticker AND substr(p.date, 1, 7) = to_char(t.trans_date, 'YYYY-MM')) AS hi
-          FROM todo t
+    ), scored AS (
+        SELECT t.accession, t.rptowner_cik, t.line_no, t.price_per_share, b.lo, b.hi
+          FROM todo t LEFT JOIN band b ON b.ticker = t.ticker AND b.ym = t.ym
     )
     UPDATE silver.form4_transaction s
        SET price_quality = CASE
@@ -75,7 +87,7 @@ ASSESS_SQL = """
              ELSE 'filed ' || b.price_per_share || ' against a ' || round(b.lo::numeric, 4)
                   || '..' || round(b.hi::numeric, 4) || ' band that month ('
                   || round((b.price_per_share / b.hi)::numeric, 1) || 'x the high)' END
-      FROM band b
+      FROM scored b
      WHERE s.accession = b.accession AND s.rptowner_cik = b.rptowner_cik AND s.line_no = b.line_no
 """
 
@@ -87,6 +99,12 @@ def main() -> int:
     args = ap.parse_args()
     with pipeline_run("assess_silver") as run:
         conn = get_connection()
+        t0 = time.monotonic()
+        for stmt in BAND_SQL.strip().split(";"):
+            if stmt.strip():
+                conn.execute(stmt)
+        nb = conn.execute("SELECT count(*) AS n FROM band").fetchone()["n"]
+        logger.info("band table: %d ticker-months in %.1fs", nb, time.monotonic() - t0)
         total = batches = 0
         while args.max_batches is None or batches < args.max_batches:
             cur = conn.execute(ASSESS_SQL, (args.limit, IMPLAUSIBLE_X, OUTSIDE_X, OUTSIDE_X))
