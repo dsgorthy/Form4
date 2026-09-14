@@ -42,7 +42,7 @@ from typing import Optional
 
 #: Bump when the parse changes shape. Rows carry it; a re-parse is
 #: "receipts with an older version", not a truncate.
-PARSER_VERSION = "1"
+PARSER_VERSION = "2"   # 2: CIKs kept zero-padded as filed, not int-stripped
 
 _HEADER_KV = re.compile(r"^([A-Z][A-Z0-9 \-/]+?):\s*(.*)$", re.M)
 _ACCEPTANCE = re.compile(r"<ACCEPTANCE-DATETIME>(\d{14})")
@@ -195,8 +195,11 @@ def parse_ownership(xml_text: str) -> Filing:
         cik = _text(rid, "rptOwnerCik")
         if not cik:
             continue          # a reportingOwner with no CIK cannot be keyed; SEC does not emit these
+        # AS FILED: SEC pads CIKs to ten digits and so does trades.rptowner_cik.
+        # v1 stripped them to int, which was both a departure from the source
+        # and the reason the first parity run joined zero rows.
         owners.append(Owner(
-            cik=str(int(cik)) if cik.isdigit() else cik,
+            cik=cik,
             name=_text(rid, "rptOwnerName"),
             is_director=_bool(_text(rel, "isDirector")),
             is_officer=_bool(_text(rel, "isOfficer")),
@@ -219,7 +222,7 @@ def parse_ownership(xml_text: str) -> Filing:
     return Filing(
         document_type=_text(root, "documentType"),
         period_of_report=_date(_text(root, "periodOfReport")),
-        issuer_cik=(lambda c: str(int(c)) if c and c.isdigit() else c)(_text(issuer, "issuerCik")),
+        issuer_cik=_text(issuer, "issuerCik"),   # as filed, ten digits
         ticker=_text(issuer, "issuerTradingSymbol"),
         owners=owners,
         lines=lines,

@@ -47,7 +47,7 @@ def test_the_iht_filer_error_is_reproduced_not_corrected():
     assert ln.direct_indirect == "I"
     assert ln.nature_of_ownership == "By Spouse"
     assert ln.equity_swap is False
-    assert filing.owners and filing.owners[0].cik
+    assert filing.owners[0].cik == "0001055365"   # padded, as filed
 
 
 def test_value_is_the_product_of_what_was_filed():
@@ -108,8 +108,10 @@ def test_nothing_is_dropped_and_absence_is_null_not_zero():
     assert ln.shares == Decimal("0")
     assert ln.price_per_share is None
     assert ln.footnote_ids == ["F1"]
-    assert filing.owners[0].cik == "9999" and filing.owners[0].is_director is True
-    assert filing.issuer_cik == "1234"
+    # Ten digits, as filed -- trades.rptowner_cik is padded the same way, and
+    # v1's int-stripping is why the first parity run joined nothing.
+    assert filing.owners[0].cik == "0000009999" and filing.owners[0].is_director is True
+    assert filing.issuer_cik == "0000001234"
 
 
 def test_rows_for_emits_one_row_per_owner_per_line_and_flags_amendments():

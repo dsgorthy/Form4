@@ -70,9 +70,11 @@ ASSESS_SQL = """
              ELSE 'ok' END,
            price_quality_note = CASE
              WHEN b.hi IS NULL OR b.hi <= 0 THEN 'no daily prices for this ticker in the month of the transaction'
-             ELSE format('filed %s against a %s..%s band that month (%sx the high)',
-                         b.price_per_share, round(b.lo::numeric, 4), round(b.hi::numeric, 4),
-                         round((b.price_per_share / b.hi)::numeric, 1)) END
+             -- concatenation, not format(): a %s inside the SQL string is a
+             -- psycopg2 placeholder and the first run died on it
+             ELSE 'filed ' || b.price_per_share || ' against a ' || round(b.lo::numeric, 4)
+                  || '..' || round(b.hi::numeric, 4) || ' band that month ('
+                  || round((b.price_per_share / b.hi)::numeric, 1) || 'x the high)' END
       FROM band b
      WHERE s.accession = b.accession AND s.rptowner_cik = b.rptowner_cik AND s.line_no = b.line_no
 """
