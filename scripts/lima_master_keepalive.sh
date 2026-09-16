@@ -93,16 +93,22 @@ reconcile() {
 }
 
 become_master() {
-    # LogLevel=VERBOSE: a signal death prints "Killed by signal N" here; a
-    # connection loss prints its reason; a clean mux exit request prints
-    # nothing. So the absence of a line is itself the answer. VERBOSE does
-    # not log per-connection channel traffic, so this costs nothing.
-    ssh -F "$CFG" -N -o LogLevel=VERBOSE \
+    # The master runs a remote `sleep infinity` instead of -N, and logs at
+    # VERBOSE, so that its death explains itself in this log. With -N,
+    # OpenSSH deliberately swallows a SIGTERM (exit 0, no message) -- the
+    # one case we most need to see. With a remote command:
+    #   "Killed by signal N."  + status 255  -> something on the host signalled it
+    #   "Connection to ... closed by remote host" / "Timeout, server ... not
+    #   responding"           + status 255  -> the transport or the VM
+    #   no line                + status 0    -> an `ssh -O exit` request
+    #   no line                + status 143  -> the remote sleep was killed
+    # VERBOSE does not log per-connection channel traffic, so this costs nothing.
+    ssh -F "$CFG" -o LogLevel=VERBOSE \
         -o ControlMaster=auto -o ControlPersist=no \
         -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
         -o ExitOnForwardFailure=no -o StreamLocalBindUnlink=yes \
         -L "$DOCKER_SOCK:/var/run/docker.sock" \
-        "$HOST" &
+        "$HOST" -- exec sleep infinity &
     local pid=$! i
     OUR_SSH=$pid
     for i in 1 2 3 4 5 6 7 8 9 10; do
@@ -118,9 +124,9 @@ become_master() {
 
 OUR_SSH=""
 
-# Our master died: collect its exit status (255 = killed by a signal or a
-# lost connection, 0 = it was asked to exit) and the exact second. This is
-# the evidence the 09-15/16 deaths never left behind.
+# Our master died: collect its exit status and the exact second, next to the
+# ssh's own VERBOSE line above it. This is the evidence the 09-15/16 deaths
+# never left behind (see the table in become_master).
 reap_our_master() {
     [ -n "$OUR_SSH" ] || return 0
     if ! kill -0 "$OUR_SSH" 2>/dev/null; then
