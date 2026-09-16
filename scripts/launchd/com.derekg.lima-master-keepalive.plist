@@ -14,6 +14,12 @@
   Install (on the Studio, from the repo):
     cp scripts/launchd/com.derekg.lima-master-keepalive.plist ~/Library/LaunchAgents/
     launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.derekg.lima-master-keepalive.plist
+    launchctl kickstart -k gui/$(id -u)/com.derekg.lima-master-keepalive
+  The kickstart is not optional on this box: bootstrap loaded the job as
+  "not running / never exited" and RunAtLoad did nothing (2026-09-16), the
+  same launchd behaviour that leaves the cloudflared tunnels and Colima
+  unstarted. Installed and failover-tested 2026-09-16 11:03: master killed,
+  new master + all four ports + docker.sock back in 7 s, site 200 at 9 s.
   Verify:
     launchctl list | grep lima-master        # pid, exit 0
     tail -f logs/lima-master-keepalive.log   # "master pid N", then forwards as needed

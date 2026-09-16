@@ -121,9 +121,11 @@ Expected recovery after a master death: ≤ ~20 s, all ports plus docker.sock,
 no container touched, no Colima restart. Tested read-only against the live
 master on 09-16 (it correctly added only the missing 443).
 
-**Install and the failover test need Derek's approval** — a new launchd
-agent on production plus a deliberate ~20 s outage to prove the takeover
-works before it has to work at 4 am.
+**Installed and verified 2026-09-16 11:03** with a controlled failover:
+master killed 11:03:25 → keepalive took over 11:03:31 → new master with all
+four ports and docker.sock 11:03:32 → form4.app 200 at +9 s. Total planned
+outage 7–9 s. One install gotcha: `launchctl bootstrap` left the job
+"not running" despite RunAtLoad; `launchctl kickstart -k` was required.
 
 ## Open question: what closes the master?
 
