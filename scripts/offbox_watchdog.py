@@ -258,6 +258,62 @@ SERVICE_HEARTBEAT_SQL = (
 )
 
 
+# Long-running agents on the Studio that must ALWAYS have a pid. `launchctl
+# list` prints "-" in the PID column for a job that is loaded but not running,
+# and reports the last exit code -- 0 -- as if that were fine. A KeepAlive=true
+# job stays that way once launchd itself has stopped it. On 2026-09-15
+# 23:25:37 a Colima restart left six of these dead at once -- both non-form4
+# cloudflared tunnels, the GitHub deploy runner (so pushes to main queued
+# instead of deploying), dagster-daemon (so every Dagster schedule stopped),
+# dagster-webserver and Ollama -- for 12 to 19 hours. The service-heartbeat
+# check below caught the Dagster symptom; nothing named the cause. This does.
+MUST_RUN_AGENTS = [
+    ("com.cloudflare.cloudflared", "form4.app tunnel"),
+    ("com.openclaw.tailorly-tunnel", "trytailorly.com tunnel"),
+    ("com.cloudflare.cloudflared.designquiz", "interiordesignfordummies.com tunnel"),
+    ("homebrew.mxcl.colima", "the Docker VM"),
+    ("com.derekg.lima-master-keepalive", "the VM's port forwards"),
+    ("com.openclaw.dagster-daemon", "every Dagster schedule"),
+    ("com.openclaw.dagster-webserver", "Dagster UI"),
+    ("com.openclaw.pyrrho-desk", "dataplane desk"),
+    ("actions.runner.dsgorthy-Form4.dereks-mac-studio", "push-to-main deploys"),
+    ("com.ollama.server", "Ollama"),
+]
+
+LAUNCHCTL_LIST_CMD = "/bin/launchctl list"
+
+
+def evaluate_must_run_agents(launchctl_list: str) -> "tuple[list[str], list[str]]":
+    """`launchctl list` output -> (problems, report lines). Pure.
+
+    Columns are PID, last exit status, label; PID is "-" when nothing is
+    running. Both "not loaded" and "loaded but not running" are problems: the
+    remedy for the second is `launchctl kickstart -k gui/$(id -u)/<label>`,
+    which the message says, because at 4 am nobody should have to work it out.
+    """
+    pids: dict[str, str] = {}
+    for line in launchctl_list.splitlines():
+        parts = line.split()
+        if len(parts) == 3 and parts[2] != "Label":
+            pids[parts[2]] = parts[0]
+    problems: list[str] = []
+    report: list[str] = []
+    for label, role in MUST_RUN_AGENTS:
+        pid = pids.get(label)
+        if pid is None:
+            report.append(f"  FAIL {label}: not loaded")
+            problems.append(f"{label} ({role}) is not loaded in launchd on Studio")
+        elif pid == "-":
+            report.append(f"  FAIL {label}: loaded, not running")
+            problems.append(
+                f"{label} ({role}) is loaded but NOT RUNNING on Studio -- "
+                f"launchctl kickstart -k gui/$(id -u)/{label}"
+            )
+        else:
+            report.append(f"  OK   {label}: pid {pid}")
+    return problems, report
+
+
 def last_expected_fire(spec: dict, now: "datetime | None" = None) -> datetime:
     """The most recent scheduled fire that has had its grace period elapse.
 
@@ -397,6 +453,18 @@ def notify(title: str, message: str, topic: str) -> None:
             )
         except Exception as exc2:  # noqa: BLE001
             print(f"  [ntfy retry also failed: {exc2}]", file=sys.stderr)
+
+
+def ssh_run(remote_cmd: str) -> str | None:
+    """Run one command on Studio. None means unreachable or it failed."""
+    cmd = ["ssh", "-o", "ConnectTimeout=15", "-o", "BatchMode=yes", SSH_TARGET, remote_cmd]
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
+    except subprocess.TimeoutExpired:
+        return None
+    if out.returncode != 0:
+        return None
+    return out.stdout or None
 
 
 def ssh_psql(db: str, sql: str) -> str | None:
@@ -557,6 +625,16 @@ def main() -> int:
         svc_problems, svc_report = evaluate_service_heartbeats(rows, now)
         print("\n".join(svc_report))
         problems.extend(svc_problems)
+
+    # Are the daemons that everything above depends on actually running?
+    listing = ssh_run(LAUNCHCTL_LIST_CMD)
+    if listing is None:
+        problems.append("must-run agents: could not read launchctl list on Studio")
+        print("  FAIL must-run agents: launchctl list failed")
+    else:
+        agent_problems, agent_report = evaluate_must_run_agents(listing)
+        print("\n".join(agent_report))
+        problems.extend(agent_problems)
 
     _finish(problems, topic, args.dry_run)
     return 1 if problems else 0
