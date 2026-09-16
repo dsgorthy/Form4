@@ -162,21 +162,51 @@ four ports and docker.sock 11:03:32 → form4.app 200 at +9 s. Total planned
 outage 7–9 s. One install gotcha: `launchctl bootstrap` left the job
 "not running" despite RunAtLoad; `launchctl kickstart -k` was required.
 
-## Open question: what closes the master?
+## Open question: what closes the master? (still open — narrowed, not answered)
 
-Facts: the VM's sshd received a normal client-initiated disconnect both
-times (`:11: disconnected by user`), so not a network failure (it is
-localhost TCP), not an sshd-side kill, not the VM. The Studio never sleeps
-(`pmset sleep 0`, no sleep/wake events). Nothing is scheduled at 22:53 or
-04:48. No process on the host runs `ssh -O exit`/`stop`. No loginwindow or
-session event. The master's parent is launchd (pid 1) — no terminal, no
-SIGHUP source. Not inotify (second death had it off). Two deaths, 5h18m and
-~32 days of life, no pattern yet.
+What the VM's sshd logged both times, `Received disconnect … :11:
+disconnected by user`, is the DISCONNECT packet the OpenSSH client sends
+whenever its main loop ends — on a normal end, on an `ssh -O exit` request,
+**and on SIGTERM/SIGHUP/SIGINT** (the packet goes out before the signal is
+reported). So it proves the client chose to leave over a healthy connection;
+it does not rule out a signal, as the first draft of this document claimed.
 
-How we will learn: the keepalive logs the master pid and every takeover to
-the second. At the next death, `log show --start <t-60s> --end <t+5s>`
-across the whole system is the first thing to read. Until then the trigger
-is unknown and the system no longer cares.
+Ruled out on 09-16 (this time with `/usr/bin/log` — every earlier "the
+unified log is silent" statement had run zsh's builtin `log` and seen nothing):
+- The VM, the transport and sshd: the client sent the disconnect; localhost TCP.
+- Sleep/wake: `pmset sleep 0`, no power events. No loginwindow/session events.
+- Lima: `limactl` runs `ssh -O exit` only in the hostagent's shutdown
+  cleanup (Lima v2.1.1 `hostagent.go`); the hostagent ran on through both
+  deaths and logged only time-sync ticks at those seconds.
+- Scripts: nothing under `~` on the Studio or in this repo / the studio CLI
+  on the Mini kills ssh, matches `mux`, or sends `-O exit`/`-O stop`.
+- Scheduled work: no launchd job or Dagster schedule fires at 22:53 or 04:48;
+  launchd logged no job activity at either second except the uptime monitor.
+- Updates: no OS install, no Homebrew formula changed in the window.
+- The master is `setsid`-ed into its own process group (verified with a
+  throwaway master), so a process-group kill of Lima's processes cannot reach it.
+- Not inotify: the second death happened with it off.
+
+Exact lifetimes: master 1 ran Aug 14 15:01 → Sep 15 22:53:08 (~32 d);
+master 2 ran 23:30:34 → 04:48:34 (5 h 18 m 00 s to the second). No common
+period; no OpenSSH timer fits (`ControlPersist=yes` never expires; no
+ServerAlive; RekeyLimit is by volume).
+
+What remains: a signal to that specific pid from a process that leaves no
+log, or an `ssh -O exit` from something not yet found. The keepalive's
+master is now instrumented to say which: it runs a remote `sleep infinity`
+(a `-N` client swallows SIGTERM silently, by OpenSSH design) at
+`LogLevel=VERBOSE`, and the script reaps it and logs the exit status:
+
+| in `logs/lima-master-keepalive.log` | meaning |
+|---|---|
+| `Killed by signal N.` then `died, exit status 255` | something on the host signalled it — then `sudo eslogger signal` for a day would name the sender |
+| `Connection to 127.0.0.1 closed by remote host` / `Timeout, server … not responding`, status 255 | transport or VM |
+| no ssh line, `exit status 0` | an `ssh -O exit` request from some process on the host |
+| no ssh line, `exit status 143` | the remote sleep was killed inside the VM |
+
+Either way the sites now recover in ~7 s, so the answer is for curiosity and
+for whatever else that actor might be killing.
 
 ## Follow-ups
 
