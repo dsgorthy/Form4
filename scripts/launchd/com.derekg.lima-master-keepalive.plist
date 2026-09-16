@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Runs scripts/lima_master_keepalive.sh: a supervised ssh ControlMaster to
+  the Colima VM that recreates the port forwards (80, 443, 8080, 8082,
+  docker.sock) within ~15 s of the master dying. RUNS ON THE STUDIO. The
+  script's header and docs/rca_2026-09-16_colima_ssh_master.md say why.
+
+  Deliberately com.derekg.* not com.openclaw.*: this is host infrastructure
+  supervising a connection, not scheduled work (Dagster owns that), and
+  `guard_studio_only_plists` in the studio CLI is keyed on the com.openclaw
+  prefix.
+
+  Install (on the Studio, from the repo):
+    cp scripts/launchd/com.derekg.lima-master-keepalive.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.derekg.lima-master-keepalive.plist
+  Verify:
+    launchctl list | grep lima-master        # pid, exit 0
+    tail -f logs/lima-master-keepalive.log   # "master pid N", then forwards as needed
+    lsof -nP -iTCP:80 -sTCP:LISTEN ; docker ps
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.derekg.lima-master-keepalive</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/derekg/trading-framework/scripts/lima_master_keepalive.sh</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>HOME</key>
+    <string>/Users/derekg</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- The script loops forever; KeepAlive only matters if it crashes. -->
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+
+  <key>StandardOutPath</key>
+  <string>/Users/derekg/trading-framework/logs/lima-master-keepalive.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/derekg/trading-framework/logs/lima-master-keepalive.log</string>
+</dict>
+</plist>

@@ -71,6 +71,12 @@ if [ ${#failed_endpoints[@]} -gt 0 ]; then
 
     # Update state
     python3 -c "import json; json.dump({'consecutive_failures': $new_failures, 'alert_state': '$prev_state', 'last_check': '$(ts)'}, open('$STATE_FILE', 'w'))"
+
+    # A failed check is a failed run. This script exited 0 through the whole
+    # 5h11m outage of 2026-09-16, so pipeline_runs said form4_uptime was
+    # 'ok' and the watchdog's status check could not see the site was down.
+    echo "form4.app check failed [$new_failures]: ${failed_endpoints[*]}" >&2
+    exit 1
 else
     # All endpoints OK
     if [ "$prev_state" = "down" ]; then
