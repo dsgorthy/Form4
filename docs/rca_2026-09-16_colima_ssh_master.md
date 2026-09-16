@@ -25,6 +25,7 @@ only when a human ran ssh at 09:59.
 | Also broken | `docker` CLI on the host and therefore any CI deploy (docker.sock is one of the forwards) |
 | Not affected | Data. Ingestion, Dagster, strategy runners and PostgreSQL run on the host, not through the VM. The API containers stayed up and unreachable. |
 | Previous | 2026-09-15 22:53:08 → 23:05:40 (12.5 min), same mechanism, plus a planned 5-min Colima restart |
+| Collateral of that restart | Six long-running agents stopped at 23:25:37 and stayed dead 12–19 h: **dagster-daemon** (every Dagster schedule — notification scanner, strategy intraday, price refresh — silent 23:25 → 11:17), **the GitHub deploy runner** (pushes to main queued instead of deploying), dagster-webserver, Ollama, and the tailorly + design-quiz tunnels (those two were kickstarted the same night). Found 11:10–11:20 on 09-16. |
 
 ## Timeline (PT)
 
@@ -42,6 +43,9 @@ only when a human ran ssh at 09:59.
 - 10:00:13, 10:01:39 — two hand-run `ssh -N -L 80 -L 8080 -L 8082 …` clients. Each pushes its forwards onto the master through the mux, then falls back to its own session, fails to bind the same ports itself and exits — but the forwards it registered stay on the master. **This is what restored 80/8080/8082.** Sites 200 by ~10:02.
 - 10:02:52 — docker.sock-only client (own session) restores the Docker CLI.
 - 10:23:08 — reconcile pass of the new keepalive restores 443, the one forward the stopgap did not carry.
+- 11:02 — fix pushed. The deploy job **queues**: the self-hosted runner has been dead since 23:25:37 (its log: "Runner execution been cancelled" at that second).
+- 11:03:00 — keepalive installed (needed `launchctl kickstart`; `bootstrap` left it "not running"). 11:03:25 controlled failover: master killed → all forwards back 11:03:32, site 200 at +9 s.
+- 11:14 — runner kickstarted; deploy runs and succeeds. 11:17 — dagster-daemon, dagster-webserver and Ollama kickstarted; Dagster's first scheduled run since 23:25 lands at 11:17:15.
 
 ## How the forwards work (and why one process is the whole edge)
 
@@ -86,6 +90,32 @@ sub-second event) is entirely the absence of supervision and detection.
    ssh fall back to a direct connection). It neither depends on nor protects
    the master.
 
+## The restart's collateral: a second, silent outage
+
+`brew services restart colima` at 23:25:37 on 09-15 did not just stop the
+VM. At that same second launchd stopped six unrelated long-running user
+agents and left each at `- 0` (no pid, "exit 0") without restarting them —
+KeepAlive=true (both tunnels) or no KeepAlive (the runner) made no
+difference. Nothing in the unified log names the actor. The two tunnels were
+noticed and kickstarted that night; the other four were not:
+
+| agent | consequence | dead for |
+|---|---|---|
+| `com.openclaw.dagster-daemon` | every Dagster schedule stopped — notification scanner, strategy intraday, open-position price refresh; last runs 23:15–23:25, next 11:17 | 11h52m |
+| `actions.runner.dsgorthy-Form4.dereks-mac-studio` | a push to main no longer deploys; today's sat queued 12 min | 11h49m |
+| `com.openclaw.dagster-webserver` | Dagster UI | ~12h |
+| `com.ollama.server` | local LLM | ~12h |
+
+The Mini watchdog paged for the Dagster *symptom* on every tick from 00:00
+(`notification_scanner last run 695m ago`) — correct, unread overnight, and
+it never said *why*. `launchctl list` on the Studio said `0` for all of them.
+
+**Rule from this: a Colima restart on this box is a full-service restart.**
+After one, kickstart and verify every agent in the watchdog's
+`MUST_RUN_AGENTS` list. The watchdog now reads `launchctl list` over ssh
+each tick and pages a loaded-but-not-running agent by name with its
+kickstart command (`evaluate_must_run_agents`, tested).
+
 ## Detection
 
 - `scripts/uptime_monitor.sh` saw the outage from the first minute and
@@ -95,6 +125,11 @@ sub-second event) is entirely the absence of supervision and detection.
   on stderr.
 - The off-box watchdog on the Mini paged at 05:00, 12 minutes in. Correct,
   and useless at 5 am. The fix has to be automatic recovery, not louder paging.
+- Neither check could name a dead daemon. Added: the watchdog's must-run-agents
+  check (above).
+- Side effect of the exit-code fix, expected: a deploy restarts the frontend, so
+  one `form4_uptime` run per deploy records `failed` (11:18:07 today, `/ → 502`);
+  the next minute's run is `ok` and supersedes it.
 
 ## Fix
 
@@ -154,5 +189,8 @@ is unknown and the system no longer cares.
    restart. Still unexplained.
 3. `brew services restart colima` stops the VM but never starts it on this
    box; use `launchctl kickstart -k gui/$(id -u)/homebrew.mxcl.colima`.
-4. The off-box watchdog could check host listeners on 80/8080/8082 directly
-   (over ssh) to name this failure class in the page instead of "502".
+4. Why does a Colima restart stop unrelated launchd agents, and why does
+   launchd not restart KeepAlive jobs afterwards? Unified log had nothing at
+   23:25:37. Until known: treat every Colima restart as a full-service restart.
+5. The runner's plist has no KeepAlive at all; the tunnels' KeepAlive did not
+   help either, so adding one is not the fix — the watchdog check is.
