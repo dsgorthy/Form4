@@ -93,13 +93,18 @@ reconcile() {
 }
 
 become_master() {
-    ssh -F "$CFG" -N \
+    # LogLevel=VERBOSE: a signal death prints "Killed by signal N" here; a
+    # connection loss prints its reason; a clean mux exit request prints
+    # nothing. So the absence of a line is itself the answer. VERBOSE does
+    # not log per-connection channel traffic, so this costs nothing.
+    ssh -F "$CFG" -N -o LogLevel=VERBOSE \
         -o ControlMaster=auto -o ControlPersist=no \
         -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
         -o ExitOnForwardFailure=no -o StreamLocalBindUnlink=yes \
         -L "$DOCKER_SOCK:/var/run/docker.sock" \
         "$HOST" &
     local pid=$! i
+    OUR_SSH=$pid
     for i in 1 2 3 4 5 6 7 8 9 10; do
         sleep 1
         [ "$(master_pid)" = "$pid" ] && { log "became ControlMaster, pid $pid"; return 0; }
@@ -107,8 +112,23 @@ become_master() {
     done
     # Someone else won the race or the VM is not answering; drop ours and retry next cycle.
     log "could not become master (ssh pid $pid, master '$(master_pid)')"
-    kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+    kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; OUR_SSH=""
     return 1
+}
+
+OUR_SSH=""
+
+# Our master died: collect its exit status (255 = killed by a signal or a
+# lost connection, 0 = it was asked to exit) and the exact second. This is
+# the evidence the 09-15/16 deaths never left behind.
+reap_our_master() {
+    [ -n "$OUR_SSH" ] || return 0
+    if ! kill -0 "$OUR_SSH" 2>/dev/null; then
+        local rc
+        wait "$OUR_SSH" 2>/dev/null; rc=$?
+        log "our master (pid $OUR_SSH) died, exit status $rc"
+        OUR_SSH=""
+    fi
 }
 
 main() {
@@ -116,6 +136,7 @@ main() {
     local last=""
     while true; do
         local m
+        reap_our_master
         m=$(master_pid)
         if [ -z "$m" ]; then
             log "no live ControlMaster; taking over"
