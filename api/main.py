@@ -330,12 +330,9 @@ def portfolio_runner_status(strategy: str = "quality_momentum", user: UserContex
 
 @app.get("/api/v1/me")
 async def me(user: "UserContext" = Depends(get_current_user)) -> dict:
-    """Return current user status including trial info."""
-    from api.auth import UserContext
+    """Return current user status."""
     return {
         "user_id": user.user_id,
         "tier": user.tier,
         "is_pro": user.is_pro,
-        "trial_days_left": user.trial_days_left,
-        "grace_days_left": user.grace_days_left,
     }

@@ -267,7 +267,7 @@ export default async function LandingPage() {
           </div>
         )}
 
-        {/* One button. The nav already carries Sign In and Start Free Trial,
+        {/* One button. The nav already carries Sign In and Sign up free,
             so a third hero CTA was competing with our own header. */}
         <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-3">
           <SignUpButton mode="modal">
@@ -495,7 +495,7 @@ export default async function LandingPage() {
               // getting it out of the product.
               {
                 name: "Free", price: "$0", cadence: "",
-                cta: "Get started", featured: false,
+                cta: "Sign up free", featured: false,
                 perks: [
                   "Follow up to 10 companies",
                   "Email alerts when they file",
@@ -504,7 +504,7 @@ export default async function LandingPage() {
               },
               {
                 name: "Pro", price: "$25", cadence: "/mo",
-                cta: "Start 7-day trial", featured: true,
+                cta: "Try Pro free", featured: true,
                 perks: [
                   "Insider grades & full track records",
                   "Filter any feed by grade",

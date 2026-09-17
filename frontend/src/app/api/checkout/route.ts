@@ -4,6 +4,9 @@ import Stripe from "stripe";
 
 import { resolveStripeCustomer } from "@/lib/stripe-customer";
 
+/** Days of Pro before the card is charged. Stated on /pricing; keep the two in step. */
+const PRO_TRIAL_DAYS = 7;
+
 function getStripe() {
   return new Stripe(process.env.STRIPE_SECRET_KEY!, {
     apiVersion: "2026-02-25.clover",
@@ -52,18 +55,20 @@ export async function POST(request: NextRequest) {
       cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL || request.headers.get("origin") || request.nextUrl.origin}/pricing?canceled=true`,
     };
 
-    // If user is still in their free trial, carry remaining days into Stripe
-    // so billing starts after the trial ends (computed server-side, not from client)
-    const TRIAL_DAYS = 7;
-    if (user?.createdAt) {
-      const created = typeof user.createdAt === "number" ? user.createdAt : new Date(user.createdAt).getTime();
-      const ageDays = (Date.now() - created) / 86_400_000;
-      if (ageDays < TRIAL_DAYS) {
-        const remaining = Math.max(1, Math.ceil(TRIAL_DAYS - ageDays));
-        sessionParams.subscription_data = {
-          trial_period_days: remaining,
-        };
-      }
+    // THE PRO TRIAL LIVES HERE, AND ONLY HERE. Until 2026-09-17 every new
+    // account was a Pro trial by age, and checkout carried whatever days were
+    // left into Stripe. Accounts are free now; the trial is what you start
+    // when you choose Pro: a card on file, nothing charged for PRO_TRIAL_DAYS,
+    // cancel before then and pay nothing. Stripe runs the clock and the
+    // reminders; the webhook maps `trialing` to pro like any active plan.
+    //
+    // One trial per customer: a subscriber who cancelled and comes back has
+    // had theirs. Stripe would happily grant another.
+    const hadASubscription = existingCustomerId
+      ? (await stripe.subscriptions.list({ customer: existingCustomerId, status: "all", limit: 1 })).data.length > 0
+      : false;
+    if (!hadASubscription) {
+      sessionParams.subscription_data = { trial_period_days: PRO_TRIAL_DAYS };
     }
 
     if (existingCustomerId) {

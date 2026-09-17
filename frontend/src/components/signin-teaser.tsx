@@ -51,7 +51,7 @@ export function SignInTeaser({
               href="/sign-up"
               className="rounded-lg bg-[#3B82F6] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#2563EB]"
             >
-              Start Free Trial
+              Sign up free
             </Link>
             <Link
               href="/sign-in"
@@ -61,7 +61,7 @@ export function SignInTeaser({
             </Link>
           </div>
           <p className="mt-3 text-[10px] text-[#81819A]">
-            7 days of full access — no credit card required
+            Free account. No card, and nothing to cancel.
           </p>
         </div>
       </div>

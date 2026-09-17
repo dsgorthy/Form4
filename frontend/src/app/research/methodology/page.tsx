@@ -87,7 +87,7 @@ function GateSkeleton() {
 function GatedSection({ visible, label, isAuthed, children }: { visible: boolean; label: string; isAuthed?: boolean; children: React.ReactNode }) {
   if (visible) return <>{children}</>;
   const ctaHref = isAuthed ? "/pricing" : "/sign-up";
-  const ctaLabel = isAuthed ? "Upgrade to Pro" : "Start Free Trial";
+  const ctaLabel = isAuthed ? "Upgrade to Pro" : "Sign up free";
   return (
     <div className="relative my-6 min-h-[280px]">
       <div className="blur-sm"><GateSkeleton /></div>
@@ -108,9 +108,9 @@ function GatedSection({ visible, label, isAuthed, children }: { visible: boolean
 
 export default async function ScoringPage() {
   const user = await currentUser();
-  const tier = getUserTier(user ? { publicMetadata: user.publicMetadata, createdAt: user.createdAt } : null);
+  const tier = getUserTier(user ? { publicMetadata: user.publicMetadata } : null);
   const isAuthed = !!user;
-  const isPro = tier === "pro" || tier === "trial";
+  const isPro = tier === "pro" || tier === "pro_plus";
 
   return (
     <div className="max-w-3xl">
@@ -239,9 +239,9 @@ export default async function ScoringPage() {
               href="/sign-up"
               className="inline-flex rounded-md bg-[#3B82F6] px-4 py-2 text-sm font-medium text-white hover:bg-[#2563EB] transition-colors"
             >
-              Start Free Trial
+              Sign up free
             </Link>
-            <p className="text-[10px] text-[#81819A] mt-2">7 days of full Pro access — no credit card required</p>
+            <p className="text-[10px] text-[#81819A] mt-2">Free account, no card. Pro adds the exact parameters.</p>
           </div>
         )}
       </section>
@@ -489,7 +489,7 @@ export default async function ScoringPage() {
           href={isPro ? "/leaderboard" : isAuthed ? "/pricing" : "/sign-up"}
           className="inline-flex rounded-md bg-[#3B82F6] px-4 py-2 text-sm font-medium text-white hover:bg-[#2563EB] transition-colors"
         >
-          {isPro ? "View Leaderboard" : isAuthed ? "Upgrade to Pro" : "Start Free Trial"}
+          {isPro ? "View Leaderboard" : isAuthed ? "Upgrade to Pro" : "Sign up free"}
         </Link>
       </div>
     </div>

@@ -29,14 +29,13 @@ from api.routers.notifications import (  # noqa: E402
 )
 
 FREE = UserContext(user_id="user_free", tier="free")
-TRIAL = UserContext(user_id="user_trial", tier="trial", trial_days_left=5)
-GRACE = UserContext(user_id="user_grace", tier="grace", grace_days_left=3)
 PRO = UserContext(user_id="user_pro", tier="pro")
+PRO_PLUS = UserContext(user_id="user_pro_plus", tier="pro_plus")
 
 
 # ── following is free, after auth ───────────────────────────────────────────
 
-@pytest.mark.parametrize("user", [FREE, TRIAL, GRACE, PRO], ids=lambda u: u.tier)
+@pytest.mark.parametrize("user", [FREE, PRO, PRO_PLUS], ids=lambda u: u.tier)
 def test_every_signed_in_tier_can_follow(user):
     assert require_auth(user) is user
 
@@ -63,17 +62,14 @@ def test_free_account_still_cannot_reach_the_analysis():
     assert exc.value.status_code == 403
 
 
-def test_grace_is_not_pro():
-    """has_full_feed is true for grace; is_pro is not. Don't conflate them."""
-    assert GRACE.has_full_feed
-    assert not GRACE.is_pro
-    with pytest.raises(HTTPException):
-        require_pro(GRACE)
-
-
-def test_trial_is_pro_while_it_lasts():
-    assert require_pro(TRIAL) is TRIAL
-
+def test_free_is_not_pro_and_there_is_no_tier_in_between():
+    """Until 2026-09-17 a new account was 'trial' (Pro) for a week and
+    'grace' for another. Both are gone: an account is free or it pays."""
+    assert not FREE.is_pro
+    assert not FREE.has_full_feed
+    assert PRO.is_pro and PRO.has_full_feed
+    assert not hasattr(FREE, "is_grace")
+    assert not hasattr(FREE, "trial_days_left")
 
 def test_research_tools_stay_pro_plus():
     with pytest.raises(HTTPException):

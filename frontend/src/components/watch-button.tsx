@@ -8,9 +8,9 @@ const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1
 /**
  * Follow a ticker. Available to any signed-in account, not just Pro.
  *
- * This was gated on isPro, which meant a trial that expired also took the
+ * This was gated on isPro, which meant an account that lapsed also took the
  * watchlist with it — the one feature that brings someone back was the one
- * that lapsed. Signing up still starts the 7-day Pro trial with no card; what
+ * that lapsed. Signing up creates a free account; what
  * changed is that following survives it. Pro buys the analytical layer.
  */
 export function WatchButton({ ticker }: { ticker: string }) {

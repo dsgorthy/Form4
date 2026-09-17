@@ -161,7 +161,7 @@ export default async function CongressPage({ searchParams }: Props) {
               href="/sign-up"
               className="rounded-md border border-[#2A2A3A] px-4 py-2 text-sm text-[#8888A0] transition-colors hover:text-[#E8E8ED]"
             >
-              Start a free trial
+              Sign up free
             </Link>
           )}
         </div>

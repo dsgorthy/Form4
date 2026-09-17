@@ -784,7 +784,7 @@ export function PortfolioView() {
               href={isSignedIn ? "/pricing" : "/sign-up"}
               className="shrink-0 rounded-lg bg-[#3B82F6] px-4 py-2 text-sm font-medium text-white hover:bg-[#2563EB] transition-colors"
             >
-              {isSignedIn ? "Upgrade to Pro" : "Start Free Trial"}
+              {isSignedIn ? "Try Pro free" : "Sign up free"}
             </Link>
           </div>
         </div>

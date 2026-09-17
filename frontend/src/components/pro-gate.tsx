@@ -31,7 +31,7 @@ interface ProGateProps {
    * A visitor who lands here from search has no relationship with the product
    * and mostly will not buy anything today, but a meaningful share will agree
    * to hear about the next filing — so the ask that closes a gated block should
-   * be the cheap one. Sign-up starts the 7-day Pro trial, which is what makes
+   * be the cheap one. Sign-up creates a free account, which is what makes
    * the promise real: watchlists are Pro, and the CTA would be a lie otherwise.
    */
   watch?: string;
@@ -123,12 +123,12 @@ export function ProGate({
       : `Follow ${watch}`
     : isSignedIn
       ? "Upgrade to Pro"
-      : "Start Free Trial";
+      : "Sign up free";
   const subtitle = isSignedIn
     ? undefined
     : watch
-      ? `Get alerted on the next ${watch} filing — 7-day free trial, no card required`
-      : "7 days of full Pro access — no credit card required";
+      ? `Get an email on the next ${watch} filing. Free account, no card.`
+      : "Free account, no card. Pro adds what is behind this.";
 
   return (
     <div className={`${GATED_CLASS} relative`}>

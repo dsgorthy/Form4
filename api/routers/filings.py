@@ -9,7 +9,7 @@ from api.auth import UserContext, get_current_user
 from api.db import get_db
 from api.filters import add_signal_class_filter, add_trans_code_filter, filing_group_by
 from api.titles import clean_title
-from api.gating import get_free_cutoff_date, get_grace_cutoff_datetime, null_items_track_records, redact_gated_items
+from api.gating import get_free_cutoff_date, null_items_track_records, redact_gated_items
 from api.id_encoding import decode_trade_id, encode_trade_id, encode_insider_id, encode_response_ids
 from api.ownership import position_change
 from api.signals_enrichment import enrich_items_with_signals
@@ -193,7 +193,6 @@ def list_filings(
     params = []
 
     free_cutoff = get_free_cutoff_date() if not user.has_full_feed else None
-    grace_cutoff = get_grace_cutoff_datetime() if user.is_grace else None
 
     add_trans_code_filter(conditions, params, trans_codes)
     add_signal_class_filter(conditions, params, signal_class)
@@ -246,11 +245,6 @@ def list_filings(
         conditions.append("(t.is_10b5_1 != 1 OR t.is_10b5_1 IS NULL)")
     if hide_planned:
         conditions.append("(t.is_10b5_1 != 1 OR t.is_10b5_1 IS NULL)")
-
-    # Grace tier: 24h signal delay — hide filings filed in the last 24h
-    if grace_cutoff:
-        conditions.append("COALESCE(t.filed_at, t.filing_date) <= ?")
-        params.append(grace_cutoff)
 
     # Grade filter: uses pre-computed signal_grade column on trades table
     grade_filter_active = min_grade is not None
@@ -492,9 +486,6 @@ def list_filings(
         for item in items:
             item["gated"] = item["trade_date"] < free_cutoff
         items = redact_gated_items(items)
-    elif grace_cutoff:
-        # Grace: track records nulled, but no gated/redacted items (just 24h delayed)
-        items = null_items_track_records(items)
     encode_response_ids(items)
 
     resp: dict = {
@@ -505,8 +496,6 @@ def list_filings(
     }
     if free_cutoff:
         resp["free_cutoff"] = free_cutoff
-    if grace_cutoff:
-        resp["grace_delay"] = True
     return resp
 
 
@@ -610,11 +599,6 @@ def get_related_trades(trade_id: str, limit: int = Query(default=5, ge=1, le=20)
     items = _display_titles([dict(r) for r in rows])
     if not user.is_pro:
         items = null_items_track_records(items)
-    # Grace users: filter out filings from last 24h
-    if user.is_grace:
-        from api.gating import get_grace_cutoff_datetime as _grace_cutoff
-        cutoff = _grace_cutoff()
-        items = [i for i in items if (i.get("filing_date") or "") <= cutoff]
     encode_response_ids(items)
     return items
 
@@ -680,12 +664,6 @@ def get_filing(trade_id: str, user: UserContext = Depends(get_current_user)) -> 
 
         if row is None:
             raise HTTPException(status_code=404, detail="Filing not found")
-
-        # Grace tier: block access to filings filed in the last 24h
-        if user.is_grace:
-            filed = row["filed_at"] or row["filing_date"] or ""
-            if filed > get_grace_cutoff_datetime():
-                raise HTTPException(status_code=403, detail="This filing is delayed 24h for your account. Upgrade for real-time access.")
 
         result = _display_titles([dict(row)])[0]
 

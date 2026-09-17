@@ -1,7 +1,25 @@
-export type Tier = "free" | "pro" | "pro_plus" | "trial" | "grace";
+/**
+ * Who is on what tier, client side.
+ *
+ * An account is FREE unless Clerk `publicMetadata.tier` says "pro" or
+ * "pro_plus" (written by the Stripe webhook, or by hand for a comp). That is
+ * the whole rule.
+ *
+ * Until 2026-09-17 there was a second rule underneath it: with no metadata,
+ * the tier was derived from the account's AGE — days 0–7 "trial" (full Pro),
+ * days 8–14 "grace" (signals delayed 24h), then free. Nobody chose that
+ * trial; every new account got a countdown in the nav, a banner, and four
+ * "your Pro access expires" emails. It made "free account" a lie the moment
+ * someone signed up. Derek, 2026-09-17: free users over anonymous users. A
+ * Pro trial still exists — as a choice, started from checkout, run by Stripe
+ * (see app/api/checkout/route.ts). Nothing here counts days any more.
+ *
+ * Mirrors api/auth.py — keep the two in sync. test_accounts_are_free_not_trial
+ * fails the build if age-based tiering comes back on either side.
+ */
+export type Tier = "free" | "pro" | "pro_plus";
 
-const TRIAL_DAYS = 7;
-const GRACE_DAYS = 7;
+type UserLike = { publicMetadata?: Record<string, unknown> } | null | undefined;
 
 /**
  * True if a comped tier's end date has passed. `pro_until` is only ever set
@@ -9,7 +27,7 @@ const GRACE_DAYS = 7;
  * means "no expiry" and paid subscribers are untouched. An unparseable value
  * leaves access in place — a typo shouldn't revoke access we promised.
  *
- * Mirrors `comp_lapsed` in api/auth.py — keep the two in sync.
+ * Mirrors `comp_lapsed` in api/comp.py — keep the two in sync.
  */
 function compLapsed(meta: Record<string, unknown>): boolean {
   const raw = meta.pro_until;
@@ -25,60 +43,32 @@ function compLapsed(meta: Record<string, unknown>): boolean {
   return Date.now() > expires;
 }
 
-export function getUserTier(user: { publicMetadata?: Record<string, unknown>; createdAt?: number | Date | null } | null | undefined): Tier {
+export function getUserTier(user: UserLike): Tier {
   if (!user) return "free";
   const meta = user.publicMetadata || {};
-
-  // Paid pro / pro+ — a comped tier falls through to trial/grace once it lapses.
-  if (!compLapsed(meta)) {
-    if ((meta.tier as string) === "pro_plus") return "pro_plus";
-    if ((meta.tier as string) === "pro") return "pro";
-  }
-
-  // Check account age for trial / grace (Clerk provides createdAt as ms timestamp)
-  if (user.createdAt) {
-    const created = typeof user.createdAt === "number" ? user.createdAt : new Date(user.createdAt).getTime();
-    const ageDays = (Date.now() - created) / 86_400_000;
-    if (ageDays <= TRIAL_DAYS) return "trial";
-    if (ageDays <= TRIAL_DAYS + GRACE_DAYS) return "grace";
-  }
-
+  if (compLapsed(meta)) return "free";
+  if ((meta.tier as string) === "pro_plus") return "pro_plus";
+  if ((meta.tier as string) === "pro") return "pro";
   return "free";
 }
 
-export function getTrialDaysLeft(user: { createdAt?: number | Date | null } | null | undefined): number {
-  if (!user?.createdAt) return 0;
-  const created = typeof user.createdAt === "number" ? user.createdAt : new Date(user.createdAt).getTime();
-  const ageDays = (Date.now() - created) / 86_400_000;
-  if (ageDays > TRIAL_DAYS) return 0;
-  return Math.max(1, Math.ceil(TRIAL_DAYS - ageDays));
-}
-
-export function getGraceDaysLeft(user: { createdAt?: number | Date | null } | null | undefined): number {
-  if (!user?.createdAt) return 0;
-  const created = typeof user.createdAt === "number" ? user.createdAt : new Date(user.createdAt).getTime();
-  const ageDays = (Date.now() - created) / 86_400_000;
-  if (ageDays <= TRIAL_DAYS || ageDays > TRIAL_DAYS + GRACE_DAYS) return 0;
-  return Math.max(1, Math.ceil(TRIAL_DAYS + GRACE_DAYS - ageDays));
-}
-
-export function hasApiAccess(user: { publicMetadata?: Record<string, unknown> } | null | undefined): boolean {
+export function hasApiAccess(user: UserLike): boolean {
   if (!user) return false;
   const meta = user.publicMetadata || {};
   return meta.api_access === true;
 }
 
-export function isPro(user: { publicMetadata?: Record<string, unknown>; createdAt?: number | Date | null } | null | undefined): boolean {
+export function isPro(user: UserLike): boolean {
   const tier = getUserTier(user);
-  return tier === "pro" || tier === "pro_plus" || tier === "trial";
+  return tier === "pro" || tier === "pro_plus";
 }
 
-export function isProPlus(user: { publicMetadata?: Record<string, unknown> } | null | undefined): boolean {
+export function isProPlus(user: UserLike): boolean {
   if (!user) return false;
   return getUserTier(user) === "pro_plus";
 }
 
-export function hasFullFeed(user: { publicMetadata?: Record<string, unknown>; createdAt?: number | Date | null } | null | undefined): boolean {
-  const tier = getUserTier(user);
-  return tier === "pro" || tier === "pro_plus" || tier === "trial" || tier === "grace";
+/** The full feed — no 90-day cutoff, no gated items — is Pro's. */
+export function hasFullFeed(user: UserLike): boolean {
+  return isPro(user);
 }

@@ -30,34 +30,37 @@ def _get_jwks_client() -> PyJWKClient:
     return _jwks_client
 
 
-TRIAL_DAYS = 7
-GRACE_DAYS = 7  # 7 more days after trial ends
+# An account is FREE unless Clerk public_metadata.tier says pro or pro_plus
+# (written by the Stripe webhook, or by hand for a comp). That is the whole
+# rule. Until 2026-09-17 a second rule sat underneath: with no metadata the
+# tier came from the account's AGE -- days 0-7 "trial" (full Pro), 8-14
+# "grace" (filings delayed 24h), then free -- so every new account got a
+# countdown and four "your Pro access expires" emails it never asked for.
+# The Pro trial still exists, as a choice: started from checkout, run by
+# Stripe, which reports it as a `trialing` subscription -> tier pro.
+# Mirrors frontend/src/lib/subscription.ts; test_accounts_are_free_not_trial
+# fails the build if age-based tiering returns on either side.
+PAID_TIERS = ("pro", "pro_plus")
 
 
 @dataclass
 class UserContext:
     user_id: Optional[str] = None
-    tier: str = "free"  # "free" | "pro" | "trial" | "grace"
+    tier: str = "free"  # "free" | "pro" | "pro_plus"
     api_access: bool = False
-    trial_days_left: int = 0
-    grace_days_left: int = 0
 
     @property
     def is_pro(self) -> bool:
-        return self.tier in ("pro", "pro_plus", "trial")
+        return self.tier in PAID_TIERS
 
     @property
     def is_pro_plus(self) -> bool:
         return self.tier == "pro_plus"
 
     @property
-    def is_grace(self) -> bool:
-        return self.tier == "grace"
-
-    @property
     def has_full_feed(self) -> bool:
-        """Pro, Pro+, trial, and grace users see the full feed (no 90-day cutoff, no gated items)."""
-        return self.tier in ("pro", "pro_plus", "trial", "grace")
+        """The full feed (no 90-day cutoff, no gated items) is Pro's."""
+        return self.tier in PAID_TIERS
 
     @property
     def is_admin(self) -> bool:
@@ -93,8 +96,6 @@ async def _fetch_clerk_metadata(user_id: str) -> dict:
             if resp.status_code == 200:
                 data = resp.json()
                 metadata = data.get("public_metadata", {})
-                # Include created_at for trial computation (ms timestamp from Clerk)
-                metadata["_created_at"] = data.get("created_at")
                 _metadata_cache[user_id] = (now, metadata)
                 return metadata
     except Exception as e:
@@ -152,36 +153,13 @@ async def get_current_user(
             tier = metadata.get("tier", "free")
             api_access = metadata.get("api_access", False)
 
-        # A comped tier expires on its own; fall back to the age-derived
-        # trial/grace logic below once it does.
+        # A comped tier expires on its own and the account is free after.
         if comp_lapsed(metadata):
             tier = "free"
+        if tier not in PAID_TIERS:
+            tier = "free"
 
-        # If user is already Pro (paid), skip trial logic
-        if tier == "pro":
-            return UserContext(user_id=user_id, tier="pro", api_access=api_access)
-
-        # Check for free trial / grace period based on account creation date
-        created_at = metadata.get("_created_at")
-        if created_at:
-            import time as _time
-            # Clerk returns created_at as milliseconds since epoch
-            created_ts = created_at / 1000 if created_at > 1e12 else created_at
-            age_days = (_time.time() - created_ts) / 86400
-            if age_days <= TRIAL_DAYS:
-                trial_days_left = max(1, int(TRIAL_DAYS - age_days + 0.5))
-                return UserContext(
-                    user_id=user_id, tier="trial",
-                    api_access=api_access, trial_days_left=trial_days_left,
-                )
-            elif age_days <= TRIAL_DAYS + GRACE_DAYS:
-                grace_days_left = max(1, int(TRIAL_DAYS + GRACE_DAYS - age_days + 0.5))
-                return UserContext(
-                    user_id=user_id, tier="grace",
-                    api_access=api_access, grace_days_left=grace_days_left,
-                )
-
-        return UserContext(user_id=user_id, tier=tier or "free", api_access=api_access)
+        return UserContext(user_id=user_id, tier=tier, api_access=api_access)
     except Exception as e:
         logger.debug("JWT decode failed: %s", e)
         return ANONYMOUS

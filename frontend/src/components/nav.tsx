@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { UserButton, useUser, useAuth } from "@clerk/nextjs";
 import { EntitySearch } from "@/components/entity-search";
-import { isPro, getUserTier, getTrialDaysLeft } from "@/lib/subscription";
+import { isPro, getUserTier } from "@/lib/subscription";
 import { ProBadge } from "@/components/pro-badge";
 import { NotificationBell } from "@/components/notification-bell";
 
@@ -114,7 +114,6 @@ export function Nav() {
 
   const userIsPro = isPro(user);
   const userTier = getUserTier(user);
-  const trialDaysLeft = getTrialDaysLeft(user);
 
   return (
     <nav className="sticky top-0 z-50 w-full border-b border-[#2A2A3A] bg-[#0A0A0F]/95 backdrop-blur supports-[backdrop-filter]:bg-[#0A0A0F]/80">
@@ -156,20 +155,10 @@ export function Nav() {
           </div>
           {isLoaded && isSignedIn && (
             <>
-              {/* Alerts are free after sign-in, so the bell is too — hiding it
-                  from a lapsed trial would mean their follows keep firing into
-                  a UI that never shows them. */}
+              {/* Alerts are free after sign-in, so the bell is too. */}
               <NotificationBell />
               {(userTier === "pro" || userTier === "pro_plus") ? (
                 <span className="hidden md:inline-flex"><ProBadge /></span>
-              ) : userTier === "trial" ? (
-                <Link
-                  href="/pricing"
-                  className="hidden md:inline-flex items-center gap-1.5 rounded-md border border-[#3B82F6]/30 bg-[#3B82F6]/10 px-2.5 py-1 text-xs font-medium text-[#3B82F6] hover:bg-[#3B82F6]/20 transition-colors"
-                >
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#3B82F6] animate-pulse" />
-                  Trial · {trialDaysLeft}d left
-                </Link>
               ) : (
                 <Link
                   href="/pricing"
@@ -209,7 +198,7 @@ export function Nav() {
                 href="/sign-up"
                 className="hidden md:inline-flex rounded-md bg-[#3B82F6] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#2563EB] transition-colors"
               >
-                Start Free Trial
+                Sign up free
               </Link>
             </>
           )}
@@ -330,7 +319,7 @@ export function Nav() {
                 onClick={() => setMobileOpen(false)}
                 className="rounded-md bg-[#3B82F6] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#2563EB] transition-colors"
               >
-                Start Free Trial
+                Sign up free
               </Link>
             </div>
           )}

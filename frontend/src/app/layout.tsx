@@ -3,7 +3,6 @@ import { ClerkProvider } from "@clerk/nextjs";
 import { dark } from "@clerk/themes";
 import { Inter, JetBrains_Mono, Newsreader } from "next/font/google";
 import { Nav } from "@/components/nav";
-import { TrialBanner } from "@/components/trial-banner";
 import { Footer } from "@/components/footer";
 import { OnboardingGuard } from "@/components/onboarding-guard";
 import { AnalyticsProvider } from "@/components/analytics-provider";
@@ -186,7 +185,6 @@ export default function RootLayout({
                 Skip to main content
               </a>
               <Nav />
-              <TrialBanner />
               <main id="main" className="mx-auto max-w-7xl px-4 py-4 md:px-6 md:py-6">{children}</main>
               <Footer />
             </TooltipProvider>

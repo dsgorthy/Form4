@@ -46,11 +46,6 @@ def get_free_cutoff_date() -> str:
     return (datetime.utcnow() - timedelta(days=FREE_TIER_DAYS)).strftime("%Y-%m-%d")
 
 
-def get_grace_cutoff_datetime() -> str:
-    """Return the cutoff datetime for grace users (24h ago). Filings filed before this are visible."""
-    return (datetime.utcnow() - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
-
-
 # Fields redacted on gated items (identifying data hidden, but structural fields kept)
 GATED_REDACT_FIELDS = {
     "insider_name": "Insider ••••",

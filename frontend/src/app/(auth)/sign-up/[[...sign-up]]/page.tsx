@@ -44,9 +44,14 @@ export default async function SignUpPage({
       : `Free account. You'll get an email the next time ${name} files.`
     : "Free account. Follow insiders and companies and get an email when they file.";
 
+  // Back to where they came from: with the follow attached when there is
+  // one, or plainly (pricing sends "Try Pro free" visitors here and wants
+  // them back on pricing, signed in, to start the trial).
   const destination = follow
     ? `${next}${next.includes("?") ? "&" : "?"}follow=${encodeURIComponent(follow)}`
-    : undefined;
+    : next !== "/"
+      ? next
+      : undefined;
 
   return (
     <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4">

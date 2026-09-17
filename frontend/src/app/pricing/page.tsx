@@ -3,7 +3,7 @@
 import { useUser, useAuth } from "@clerk/nextjs";
 import Link from "next/link";
 import { useState } from "react";
-import { getUserTier, getTrialDaysLeft } from "@/lib/subscription";
+import { getUserTier } from "@/lib/subscription";
 import { posthog } from "@/lib/posthog";
 
 const PRO_MONTHLY = process.env.NEXT_PUBLIC_STRIPE_PRO_MONTHLY_PRICE_ID || "";
@@ -71,7 +71,6 @@ export default function PricingPage() {
   const tier = getUserTier(user);
   const userIsPro = tier === "pro" || tier === "pro_plus";
   const userIsProPlus = tier === "pro_plus";
-  const trialDaysLeft = getTrialDaysLeft(user);
 
   async function handleCheckout(priceId: string) {
     if (!isSignedIn) {
@@ -82,7 +81,7 @@ export default function PricingPage() {
           authenticated: false,
         });
       } catch { /* posthog optional */ }
-      window.location.href = "/sign-up";
+      window.location.href = "/sign-up?next=%2Fpricing";
       return;
     }
     if (!priceId) {
@@ -193,7 +192,7 @@ export default function PricingPage() {
               href="/sign-up"
               className="block w-full text-center rounded-lg border border-[#2A2A3A] px-4 py-2.5 text-sm font-medium text-[#8888A0] hover:text-[#E8E8ED] hover:border-[#81819A] transition-colors"
             >
-              Get Started
+              Sign up free
             </Link>
           ) : (
             <div className="text-center text-sm text-[#81819A] py-2.5">
@@ -233,10 +232,10 @@ export default function PricingPage() {
             <div className="text-center text-sm text-[#81819A] py-2.5">Included in Pro+</div>
           ) : !isSignedIn ? (
             <Link
-              href="/sign-up"
+              href="/sign-up?next=%2Fpricing"
               className="block w-full text-center rounded-lg bg-[#3B82F6] px-4 py-2.5 text-sm font-medium text-white hover:bg-[#2563EB] transition-colors"
             >
-              Start Free Trial
+              Try Pro free for 7 days
             </Link>
           ) : (
             <div>
@@ -247,13 +246,11 @@ export default function PricingPage() {
                 disabled={loading !== null}
                 className="block w-full text-center rounded-lg bg-[#3B82F6] px-4 py-2.5 text-sm font-medium text-white hover:bg-[#2563EB] transition-colors disabled:opacity-50"
               >
-                {loading ? "Redirecting to Stripe..." : "Upgrade to Pro"}
+                {loading ? "Redirecting to Stripe..." : "Try Pro free for 7 days"}
               </button>
-              {tier === "trial" && trialDaysLeft > 0 && (
-                <p className="mt-2 text-center text-xs text-[#22C55E]">
-                  Your {trialDaysLeft} remaining trial day{trialDaysLeft !== 1 ? "s" : ""} carry over &mdash; billing starts after.
-                </p>
-              )}
+              <p className="mt-2 text-center text-xs text-[#81819A]">
+                Add a card to start. Nothing is charged until the trial ends, and you can cancel before then.
+              </p>
             </div>
           )}
         </div>
@@ -287,10 +284,10 @@ export default function PricingPage() {
             </div>
           ) : !isSignedIn ? (
             <Link
-              href="/sign-up"
+              href="/sign-up?next=%2Fpricing"
               className="block w-full text-center rounded-lg border border-[#22C55E]/50 px-4 py-2.5 text-sm font-medium text-[#22C55E] hover:bg-[#22C55E]/10 transition-colors"
             >
-              Start Free Trial
+              Try Pro+ free for 7 days
             </Link>
           ) : (
             <button
@@ -308,8 +305,10 @@ export default function PricingPage() {
 
       <div className="mx-auto mt-10 max-w-2xl rounded-lg border border-[#2A2A3A] bg-[#12121A] p-4 text-xs leading-relaxed text-[#8888A0]">
         <p>
-          <strong className="text-[#E8E8ED]">Automatic renewal.</strong> The
-          7-day trial requires no card. If you subscribe, your plan renews
+          <strong className="text-[#E8E8ED]">Trials and renewal.</strong> Pro
+          and Pro+ start with a 7-day free trial. You add a card to start it and
+          nothing is charged until the trial ends; cancel before then and you
+          pay nothing. After that your plan renews
           automatically at the end of each billing period — $25/month or
           $250/year for Pro, $75/month or $750/year for Pro+ — and your payment
           method is charged until you cancel.
@@ -331,7 +330,7 @@ export default function PricingPage() {
       </div>
 
       <div className="mt-8 text-center text-sm text-[#81819A]">
-        All plans include a 7-day free trial. Cancel anytime.
+        The free account is free for good. Pro and Pro+ start with a 7-day trial. Cancel anytime.
         <br />
         Questions? <a href="mailto:support@form4.app" className="text-[#3B82F6] hover:underline">support@form4.app</a>
       </div>
