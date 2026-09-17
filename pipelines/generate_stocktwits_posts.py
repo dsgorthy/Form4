@@ -598,6 +598,62 @@ def tickers_in_cooldown(conn, day: str) -> set:
     return {r[0] for r in rows}
 
 
+# A filed price that disagrees with our own close by this much is not a
+# price move, it is a different currency or a different security. UMC's CFO
+# filed 1.6M shares at NT$142-145 (Taiwan-listed ordinaries) on 2026-09-16;
+# against our $22.54 ADR close that read as "sold $228.8M ... already 84%
+# below their fill", when the sale was about US$7M. AXIA3 the day before was
+# a B3 listing priced in BRL with no US series at all. Three-fold either way
+# is wide enough that no real one-day move trips it and narrow enough that
+# no currency does (the smallest ratio in the data, GBP, is 1.3x; TWD is 30x).
+FOREIGN_PRICE_RATIO = 3.0
+
+def price_is_foreign(filed_price, our_close) -> bool:
+    """True when the filing's price and our USD close cannot be the same
+    security in the same currency. Unknown on either side is not foreign --
+    a missing series is a coverage gap, not a currency."""
+    try:
+        fp = float(filed_price); oc = float(our_close)
+    except (TypeError, ValueError):
+        return False
+    if fp <= 0 or oc <= 0:
+        return False
+    ratio = fp / oc
+    return ratio >= FOREIGN_PRICE_RATIO or ratio <= 1.0 / FOREIGN_PRICE_RATIO
+
+
+CLOSE_ON_SQL = """
+SELECT DISTINCT ON (d.ticker) d.ticker, d.close
+  FROM prices.daily_prices d
+ WHERE d.ticker = ANY(?) AND d.date <= ?
+ ORDER BY d.ticker, d.date DESC
+"""
+
+
+def drop_foreign_priced(conn, rows: list[dict], day: str) -> list[dict]:
+    """Drop candidates whose filed price is in the wrong currency for the
+    US series we would quote against. Also drops tickers with a digit in
+    them: no US-listed cashtag has one, and a filer who wrote AXIA3 or
+    2330 wrote their home listing, which StockTwits cannot tag."""
+    tickers = sorted({r["ticker"] for r in rows})
+    closes = {}
+    if tickers:
+        for rec in conn.execute(CLOSE_ON_SQL, (tickers, day)).fetchall():
+            closes[rec["ticker"]] = rec["close"]
+    kept = []
+    for r in rows:
+        t = r["ticker"]
+        if any(ch.isdigit() for ch in t):
+            logger.info("dropped %s: not a US cashtag (home-market ticker)", t)
+            continue
+        if price_is_foreign(r.get("price"), closes.get(t)):
+            logger.info("dropped %s: filed price %.2f against our close %.2f -- "
+                        "different currency or security", t, float(r["price"]), float(closes[t]))
+            continue
+        kept.append(r)
+    return kept
+
+
 def posts_already_today(conn, day: str) -> int:
     row = conn.execute(CTX_TODAY_COUNT, (day,)).fetchone()
     return int(row[0]) if row else 0
@@ -1236,6 +1292,11 @@ def main() -> int:
     rows = [dict(r) for r in conn.execute(SQL, (day,)).fetchall()]
     if not rows:
         logger.info("No qualifying filings for %s", day)
+        return 0
+
+    rows = drop_foreign_priced(conn, rows, day)
+    if not rows:
+        logger.info("every candidate for %s was foreign-priced or untaggable", day)
         return 0
 
     attach_context(conn, rows, day)
