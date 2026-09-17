@@ -66,7 +66,7 @@ def test_free_is_not_pro_and_there_is_no_tier_in_between():
     """Until 2026-09-17 a new account was 'trial' (Pro) for a week and
     'grace' for another. Both are gone: an account is free or it pays."""
     assert not FREE.is_pro
-    assert not FREE.has_full_feed
+    assert FREE.has_full_feed, "the record is free (HISTORY_IS_FREE); only the analysis is Pro"
     assert PRO.is_pro and PRO.has_full_feed
     assert not hasattr(FREE, "is_grace")
     assert not hasattr(FREE, "trial_days_left")

@@ -499,7 +499,7 @@ export default async function LandingPage() {
                 perks: [
                   "Follow up to 10 companies",
                   "Email alerts when they file",
-                  "90 days of filings",
+                  "Every filing since 2016",
                 ],
               },
               {
@@ -509,7 +509,7 @@ export default async function LandingPage() {
                   "Insider grades & full track records",
                   "Filter any feed by grade",
                   "Screener, leaderboard & clusters",
-                  "Real-time alerts and full history",
+                  "Trade entry and exit alerts, in real time",
                 ],
               },
               {

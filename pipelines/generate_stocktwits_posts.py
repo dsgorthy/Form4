@@ -60,6 +60,7 @@ had parted at 63d046b, which put the schedule on the print path only.
 from __future__ import annotations
 
 import argparse
+import re
 import logging
 import shlex
 import socket
@@ -519,6 +520,26 @@ SELECT e.ticker, e.signal_class, e.insider_id,
  ORDER BY 6 DESC
 """
 
+# One filer on BOTH sides of the same ticker within days. That is a market
+# maker or an authorised participant working an ETF, not an insider with a
+# view: HRT Financial "bought $16.6M" of USO on 2026-09-14 after selling
+# $12M of it on the 11th, and led a post as the first insider purchase on
+# record at the company. Buys and sells by the same filer inside this window
+# cancel; the filer is dropped from the day's candidates.
+LOOKBACK_TWO_SIDED_DAYS = 5
+
+CTX_TWO_SIDED = f"""
+SELECT x.insider_id, x.ticker
+  FROM trades x
+ WHERE x.ticker = ANY(?)
+   AND x.signal_class IN ('discretionary_buy', 'discretionary_sell')
+   AND x.filing_date::date >  ?::date - ?
+   AND x.filing_date::date <= ?::date
+   {_EXCL}
+ GROUP BY x.insider_id, x.ticker
+HAVING COUNT(DISTINCT x.signal_class) = 2
+"""
+
 # What the other side of the book did over a longer window. This is the line
 # that makes BABA a story rather than a large purchase: Alibaba insiders filed
 # nothing but exercises and sales for five months, and then the chairman and
@@ -683,6 +704,32 @@ def span_phrase(days: int) -> str:
     return "a month" if days <= 34 else f"{days} days"
 
 
+def _name_key(name) -> frozenset:
+    """A person, as a set of name tokens. Form 4 filers appear under
+    several insider_ids when the same name is filed in different orders --
+    "De Lima Filho Pedro Batista" and "Pedro Batista de Lima Filho" are one
+    director (AXIA3, 2026-09-16), and he was posted as his own co-buyer
+    while the window cluster counted him as four people."""
+    if not name:
+        return frozenset()
+    return frozenset(t for t in re.sub(r"[^a-z0-9 ]", " ", str(name).lower()).split() if len(t) > 1)
+
+
+def same_person(a, b) -> bool:
+    ka, kb = _name_key(a), _name_key(b)
+    return bool(ka) and ka == kb
+
+
+def distinct_people(names) -> int:
+    """How many different people a list of filer names is."""
+    return len({_name_key(n) for n in names if _name_key(n)})
+
+
+def drop_two_sided(rows: list[dict]) -> list[dict]:
+    """See CTX_TWO_SIDED. Pure; the flag is set by attach_context."""
+    return [r for r in rows if not r.get("two_sided")]
+
+
 def attach_context(conn, rows: list[dict], day: str) -> None:
     """Fill each candidate with what was happening around it. Mutates in place.
 
@@ -714,6 +761,8 @@ def attach_context(conn, rows: list[dict], day: str) -> None:
              for r in q(CTX_PRIOR, (tickers, day, LOOKBACK_PROGRAM_DAYS))}
     mech = {(r["insider_id"], r["ticker"]): r
             for r in q(CTX_MECHANICAL, (tickers, day, LOOKBACK_EXERCISE_DAYS, day))}
+    two_sided = {(r["insider_id"], r["ticker"])
+                 for r in q(CTX_TWO_SIDED, (tickers, day, LOOKBACK_TWO_SIDED_DAYS, day))}
     try:
         posted = {r["ticker"]: r for r in q(CTX_LAST_POST, (tickers,))}
     except Exception as e:                                     # noqa: BLE001
@@ -725,6 +774,7 @@ def attach_context(conn, rows: list[dict], day: str) -> None:
 
     for t in rows:
         key = (t["insider_id"], t["ticker"], t["signal_class"])
+        t["two_sided"] = (t["insider_id"], t["ticker"]) in two_sided
         tk = (t["ticker"], t["signal_class"])
 
         p = prog.get(key)
@@ -742,7 +792,11 @@ def attach_context(conn, rows: list[dict], day: str) -> None:
             t["win_cluster_span_days"] = _days_between(c["first_filing"], c["last_filing"])
             # The biggest participant who is NOT the filer this post is about.
             peers = [m for m in members.get(tk, [])
-                     if m["insider_id"] != t["insider_id"]]
+                     if m["insider_id"] != t["insider_id"]
+                     and not same_person(m.get("insider_name"), t.get("insider_name"))]
+            people = distinct_people([m.get("insider_name") for m in members.get(tk, [])])
+            if people and people < (t["win_cluster_n"] or 0):
+                t["win_cluster_n"] = people
             if peers:
                 t["peer_name"] = peers[0]["insider_name"]
                 t["peer_title"] = peers[0]["insider_title"]
@@ -1300,6 +1354,11 @@ def main() -> int:
         return 0
 
     attach_context(conn, rows, day)
+    before = len(rows)
+    rows = drop_two_sided(rows)
+    if before != len(rows):
+        logger.info("dropped %d filer(s) on both sides of their ticker within %d days",
+                    before - len(rows), LOOKBACK_TWO_SIDED_DAYS)
     before = len(rows)
     rows = [r for r in rows if not is_distribution_program(r)]
     if before != len(rows):

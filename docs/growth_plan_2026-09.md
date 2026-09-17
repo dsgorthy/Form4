@@ -282,8 +282,9 @@ Ordered. `[ ]` open, `[~]` in flight, `[x]` done.
 - [x] 2.2c Email sequence rewritten for a free account: day 0 what it does + who you follow, day 3 what the people you follow filed (their follows, not top signals), day 10 what Pro adds (once), day 30 only if no sign-in for 14 days. `test_account_emails_are_for_free_users.py`.
 - [x] 2.4 Not needed any more: with no age-based fallback, absent `tier` metadata simply means free.
 - [x] Onboarding answers now save (the API demanded three fields the form stopped sending; 422 for months). `default_strategy` column added.
-- [ ] 2.2d Signup value still to build: follow-the-book alerts for the strategy chosen in onboarding; a welcome that shows a real alert.
-- [ ] 2.3 Redefine Pro; the `/pricing` feature lists are unchanged
+- [x] 2.2d (2026-09-17) Onboarding follows the chosen book's open positions (newest five, or its last three entries if it holds nothing) for an account that follows nothing, so the free alert has somewhere to come from; the welcome email shows a real alert — the latest filing by someone they follow, or the book's latest entry. `test_onboarding_seeds_follows.py`.
+- [x] 2.1 / 2.3 (2026-09-17) **The 90-day wall is down.** `HISTORY_IS_FREE` in `api/public_fields.py`; `has_full_feed` is true for everyone (visitors included — it is what Google indexes), clusters and the books' trade log now gate on `is_pro`. Pricing: Free "Every filing since 2016"; Pro no longer sells history. `test_history_is_free.py`. Flip the flag to re-gate everything at once.
+- [x] 5 (2026-09-17) `scripts/funnel_read.py` pulls the whole funnel (PostHog, Clerk, Stripe) in one command. **Read it on ~2026-09-30.**
 
 **Phase 3**
 - [ ] 3.1 Raise `INSIDER_CHUNKS` as eligibility grows past 60,000

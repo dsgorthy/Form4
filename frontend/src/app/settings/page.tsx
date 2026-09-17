@@ -340,7 +340,7 @@ export default function SettingsPage() {
             <p className="text-sm text-[#8888A0] mt-1">
               {userIsPro
                 ? "Full access to all Form4 features"
-                : "Limited to last 90 days, no insider scores"}
+                : "No insider scores or track records"}
             </p>
           </div>
           {userIsPro ? (

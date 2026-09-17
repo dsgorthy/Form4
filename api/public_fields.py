@@ -155,6 +155,14 @@ OUTCOME_MARKERS = (
 # narrowing their own alerts costs us less mail rather than more.
 
 #: Alert event types any signed-in account may enable.
+#: The 90-day history wall is down (2026-09-17). History is the SEO asset --
+#: the insider and company pages rank because they are the record of what
+#: someone traded -- and paywalling the record paywalls the thing the page
+#: ranks for. The paid axis is the judgement (grades, track records, screens,
+#: the strategy books' alerts), not the depth of the record. Flip this back
+#: and every reader of has_full_feed / get_free_cutoff_date re-gates at once.
+HISTORY_IS_FREE = True
+
 FREE_ALERT_EVENTS = ("watchlist_activity", "high_value_filing")
 
 #: Alert event types that exist only because we computed something.

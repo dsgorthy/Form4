@@ -233,6 +233,20 @@ def _drop_foreign_priced(conn, rows: list[dict]) -> list[dict]:
     return kept
 
 
+def _book_latest_entry(conn, strategy: str) -> dict | None:
+    """The chosen book's most recent entry, for the welcome example."""
+    row = conn.execute(
+        """SELECT ticker, entry_date, entry_price FROM strategy_portfolio
+            WHERE strategy = ? AND execution_source IN ('alert', 'simulated') AND is_live = FALSE
+            ORDER BY entry_date DESC LIMIT 1""",
+        (strategy,),
+    ).fetchone()
+    if not row:
+        return None
+    return {"kind": "book", "label": STRATEGY_LABELS.get(strategy, strategy),
+            "ticker": row["ticker"], "entry_date": row["entry_date"], "entry_price": row["entry_price"]}
+
+
 def _top_filings(conn, days: int, limit: int = 5) -> list[dict]:
     """The market's largest discretionary filings — for an account that
     follows nobody yet."""
@@ -273,7 +287,13 @@ def _build_email(email_name: str, user_data: dict, conn) -> tuple[str, str] | No
     if email_name == "welcome":
         # The strategy book chosen in onboarding lives in Clerk unsafe metadata.
         key = (user_data.get("unsafe_metadata") or {}).get("defaultStrategy")
-        return welcome_email(names, STRATEGY_LABELS.get(key), unsub_url)
+        example = None
+        recent = _recent_filings(conn, tickers, insiders, days=90, limit=1) if following else []
+        if recent:
+            example = {"kind": "filing", **recent[0]}
+        elif key:
+            example = _book_latest_entry(conn, key)
+        return welcome_email(names, STRATEGY_LABELS.get(key), unsub_url, example)
     if email_name == "your_week":
         items = _recent_filings(conn, tickers, insiders, days=3) if following else _top_filings(conn, days=3)
         return your_week_email(items, following, unsub_url)

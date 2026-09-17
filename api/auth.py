@@ -40,6 +40,8 @@ def _get_jwks_client() -> PyJWKClient:
 # Stripe, which reports it as a `trialing` subscription -> tier pro.
 # Mirrors frontend/src/lib/subscription.ts; test_accounts_are_free_not_trial
 # fails the build if age-based tiering returns on either side.
+from api.public_fields import HISTORY_IS_FREE  # noqa: E402
+
 PAID_TIERS = ("pro", "pro_plus")
 
 
@@ -59,8 +61,10 @@ class UserContext:
 
     @property
     def has_full_feed(self) -> bool:
-        """The full feed (no 90-day cutoff, no gated items) is Pro's."""
-        return self.tier in PAID_TIERS
+        """The full record -- no date cutoff, no redacted rows. Free for
+        everyone while HISTORY_IS_FREE; the analysis on top of it is not
+        (see is_pro)."""
+        return HISTORY_IS_FREE or self.tier in PAID_TIERS
 
     @property
     def is_admin(self) -> bool:

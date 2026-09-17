@@ -68,7 +68,8 @@ export function isProPlus(user: UserLike): boolean {
   return getUserTier(user) === "pro_plus";
 }
 
-/** The full feed — no 90-day cutoff, no gated items — is Pro's. */
-export function hasFullFeed(user: UserLike): boolean {
-  return isPro(user);
+/** The full record is free for everyone since 2026-09-17 (HISTORY_IS_FREE in
+ * api/public_fields.py). The analysis on top of it is Pro's — see isPro. */
+export function hasFullFeed(_user: UserLike): boolean {
+  return true;
 }

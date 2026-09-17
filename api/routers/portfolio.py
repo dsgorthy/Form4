@@ -8,7 +8,6 @@ from api.public_fields import ACTIVE_STRATEGIES, strategy_label
 
 from api.auth import UserContext, get_current_user
 from api.db import get_db
-from api.gating import FREE_TIER_DAYS
 from api.id_encoding import encode_insider_id, encode_trade_id
 from api.titles import clean_title
 
@@ -638,12 +637,11 @@ def get_portfolio(
     daily_dd = _bl["max_dd_daily"] if _bl else None
     annual_returns = _bl["annual"] if _bl else []
 
-    # Gating: free users see last FREE_VISIBLE trades ungated, rest blurred
+    # Gating: free users see the last FREE_VISIBLE trades ungated, the rest
+    # blurred. This is the book's analysis, not the filing record, so it stays
+    # Pro while the record itself is free (HISTORY_IS_FREE).
     FREE_VISIBLE = 10
-    is_pro = user.has_full_feed
-    free_cutoff = (
-        datetime.utcnow() - timedelta(days=FREE_TIER_DAYS)
-    ).strftime("%Y-%m-%d")
+    is_pro = user.is_pro
 
     trade_rows = []
     for i, r in enumerate(trades):

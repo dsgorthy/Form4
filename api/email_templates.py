@@ -97,10 +97,37 @@ def _filing_rows(items: list[dict], empty: str) -> str:
 
 # --- Day 0: Welcome ---
 
+def example_block(example: dict | None) -> str:
+    """What an alert actually looks like, from real data: the latest filing
+    by someone they follow, or -- if nobody they follow has filed -- the
+    chosen book's latest entry. Describing an alert is what the old welcome
+    did; showing one is the point."""
+    if not example:
+        return ""
+    if example.get("kind") == "book":
+        line = (f"{example.get('label')} bought <strong {_STRONG}>{example.get('ticker')}</strong> at "
+                f"${float(example.get('entry_price') or 0):,.2f} on {example.get('entry_date')}.")
+        note = "Pro subscribers were emailed that morning; your portfolio page shows it after 24 hours."
+    else:
+        action = "bought" if example.get("trade_type") == "buy" else "sold"
+        val = example.get("value") or 0
+        line = (f"<strong {_STRONG}>{example.get('ticker')}</strong> &mdash; {example.get('insider_name', 'an insider')} "
+                f"{action} ${val:,.0f}, filed {example.get('filing_date')}.")
+        note = "That is the kind of email you will get, the day the filing lands."
+    return f"""\
+    <p style="margin:16px 0 6px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#63636F;">What an alert looks like</p>
+    <div style="padding:12px 14px;border:1px solid #1E1E2E;border-radius:8px;background:#0B0B12;">
+      <div style="font-size:14px;color:#E8E8ED;">{line}</div>
+      <div style="font-size:12px;color:#8888A0;margin-top:4px;">{note}</div>
+    </div>"""
+
+
 def welcome_email(follows: list[str], strategy_label: str | None = None,
-                  unsubscribe_url: str = "") -> tuple[str, str]:
+                  unsubscribe_url: str = "", example: dict | None = None) -> tuple[str, str]:
     """(subject, html). `follows` are the names/tickers already followed --
-    the search-landing path creates one before the account exists."""
+    the search-landing path creates one before the account exists, and
+    onboarding follows the chosen book's positions. `example` is a real
+    filing or book entry to show; see example_block."""
     if follows:
         shown = ", ".join(follows[:5]) + (f" and {len(follows) - 5} more" if len(follows) > 5 else "")
         following = f"<p {_P}>You are following <strong {_STRONG}>{shown}</strong>. The next time any of them files, you get one email.</p>"
@@ -113,10 +140,11 @@ def welcome_email(follows: list[str], strategy_label: str | None = None,
             if strategy_label else "")
     content = f"""\
     <h2 {_H}>Welcome to Form4</h2>
-    <p {_P}>Your account is free, and it stays free. It does two things: you can follow up to 10 insiders and 10 companies, and you get an email when any of them files a Form 4. Every filing from the last 90 days is open to you.</p>
+    <p {_P}>Your account is free, and it stays free. It does two things: you can follow up to 10 insiders and 10 companies, and you get an email when any of them files a Form 4. Every filing back to 2016 is open to you.</p>
     {following}
     {book}
-    <p {_P}>Pro is there when you want the grades, the screener and the full history. No hurry.</p>"""
+    {example_block(example)}
+    <p {_P} style="margin-top:16px;">Pro is there when you want the grades, the screener and the strategy books' alerts. No hurry.</p>"""
     return ("Welcome to Form4", _layout(content, cta[0], cta[1], unsubscribe_url))
 
 
@@ -147,8 +175,8 @@ def pro_once_email(unsubscribe_url: str = "") -> tuple[str, str]:
     """(subject, html). The only Pro pitch in the sequence."""
     content = f"""\
     <h2 {_H}>What Pro adds</h2>
-    <p {_P}>Free is the record: who filed, what they did, 90 days back, and an email when the people you follow file again.</p>
-    <p {_P}>Pro is the judgement on top of it: each insider's grade and full track record, any feed filtered by grade, the screener and clusters, every filing back to 2016, and entry and exit alerts from the strategy books.</p>
+    <p {_P}>Free is the record: who filed, what they did, back to 2016, and an email when the people you follow file again.</p>
+    <p {_P}>Pro is the judgement on top of it: each insider's grade and full track record, any feed filtered by grade, the screener and clusters, and entry and exit alerts from the strategy books the moment they fire.</p>
     <p {_P}>It is $25 a month. There is a 7-day free trial, started from the pricing page, and nothing is charged until it ends.</p>
     <p {_P}>If free does what you need, keep it. This is the only time we will bring Pro up.</p>"""
     return ("What Pro adds", _layout(content, "See what Pro adds", f"{APP_URL}/pricing", unsubscribe_url))

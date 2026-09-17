@@ -35,7 +35,7 @@ const FREE_FEATURES = [
   // list separately, so following an insider does not cost a company slot.
   "Follow up to 10 companies and 10 insiders",
   "Email alerts when they file",
-  "Last 90 days of filings",
+  "Every filing since 2016",
   "Company & insider pages",
   "24h-delayed portfolio view",
 ];
@@ -49,7 +49,6 @@ const PRO_FEATURES = [
   "Filter any feed by grade or tier",
   "Real-time portfolio & positions",
   "Trade entry/exit alerts",
-  "Full filing history (2016+)",
   "Screener & leaderboard",
   "Clusters, spikes & sell-cessation signals",
   "Congress trades & convergence alerts",
