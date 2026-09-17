@@ -1,7 +1,9 @@
 """Email templates for Form4.app.
 
-The lifecycle sequence is 6 emails sent at days 0, 3, 5, 7, 14, 30 after
-signup (see EMAIL_SEQUENCE, driven by pipelines/trial_emails.py).
+The account sequence is 4 emails at days 0, 3, 10 and 30 after signup (see
+EMAIL_SEQUENCE, driven by pipelines/trial_emails.py; the day-30 one only to an
+account that has gone quiet). It replaced a 6-step trial funnel on 2026-09-17
+when accounts stopped being trials.
 
 comp_grant_email is separate: a hand-sent note for when an account is comped
 to Pro via scripts/comp_user.py. It is not part of the sequence and is never
@@ -59,176 +61,110 @@ def _layout(content: str, cta_text: str, cta_url: str, unsubscribe_url: str = ""
 </body></html>"""
 
 
-# --- Day 0: Welcome ---
+# ── The account sequence ───────────────────────────────────────────────────
+#
+# Four emails to a FREE account: what it does (day 0), what the people they
+# follow did (day 3), what Pro adds -- once (day 10), and a note if they have
+# gone quiet (day 30, only then). Until 2026-09-17 this was a six-step trial
+# funnel -- "your trial starts now", "2 days left", "your trial has ended",
+# "your grace period has ended" -- sent to people who never chose a trial,
+# including everyone the search-landing pages had just promised a free
+# account. Accounts are free now (api/auth.py); the sequence says so and
+# stops selling after one mention.
+#
+# Plain sentences. No countdowns, no "what you'll lose", no exclamation marks.
 
-def welcome_email(unsubscribe_url: str = "") -> tuple[str, str]:
-    """Returns (subject, html) for the welcome email."""
-    content = """\
-    <h2 style="margin:0 0 12px;font-size:18px;color:#E8E8ED;">Welcome to Form4</h2>
-    <p style="margin:0 0 16px;font-size:14px;color:#8888A0;line-height:1.6;">
-      You now have <strong style="color:#3B82F6;">7 days of full Pro access</strong> &mdash; every signal, every score, every insider track record. No credit card required.
-    </p>
-    <p style="margin:0 0 8px;font-size:13px;font-weight:600;color:#E8E8ED;">Here's how to get the most out of it:</p>
-    <ul style="margin:0;padding:0 0 0 18px;font-size:13px;color:#8888A0;line-height:1.8;">
-      <li><strong style="color:#E8E8ED;">Browse the feed</strong> &mdash; newest insider filings with signal grades</li>
-      <li><strong style="color:#E8E8ED;">Check the leaderboard</strong> &mdash; insiders ranked by track record</li>
-      <li><strong style="color:#E8E8ED;">Explore clusters</strong> &mdash; multiple insiders buying the same stock</li>
-    </ul>"""
-
-    return (
-        "Welcome to Form4 — your trial starts now",
-        _layout(content, "Open the Feed", f"{APP_URL}/", unsubscribe_url),
-    )
+_P = 'style="margin:0 0 16px;font-size:14px;color:#8888A0;line-height:1.6;"'
+_H = 'style="margin:0 0 12px;font-size:18px;color:#E8E8ED;"'
+_STRONG = 'style="color:#E8E8ED;"'
 
 
-# --- Day 3: Value ---
-
-def value_email(top_signals: list[dict], unsubscribe_url: str = "") -> tuple[str, str]:
-    """Returns (subject, html) for the value email showing recent top signals.
-
-    top_signals: list of dicts with keys: ticker, insider_name, trade_type, value, return_7d
-    """
+def _filing_rows(items: list[dict], empty: str) -> str:
+    """One line per filing: ticker, who, bought/sold how much, when."""
     rows = ""
-    for s in top_signals[:3]:
-        ret = s.get("return_7d")
-        ret_str = f"{ret:+.1f}%" if ret is not None else "pending"
-        ret_color = "#22C55E" if ret and ret > 0 else "#EF4444" if ret and ret < 0 else "#8888A0"
-        action = "bought" if s.get("trade_type") == "buy" else "sold"
-        val = s.get("value", 0)
+    for f in items[:5]:
+        action = "bought" if f.get("trade_type") == "buy" else "sold"
+        val = f.get("value") or 0
         val_str = f"${val:,.0f}" if val else ""
-        rows += f"""\
-        <div style="padding:12px 0;border-bottom:1px solid #1E1E2E;">
-          <div style="font-size:14px;color:#E8E8ED;font-weight:600;">{s.get('ticker', '')} &mdash; {s.get('insider_name', 'Insider')}</div>
-          <div style="font-size:12px;color:#8888A0;margin-top:4px;">
-            {action} {val_str} &middot; 7-day return: <span style="color:{ret_color};font-weight:600;">{ret_str}</span>
-          </div>
-        </div>"""
-
-    if not rows:
-        rows = '<p style="font-size:13px;color:#8888A0;">Check the feed to see what insiders have been doing.</p>'
-
-    content = f"""\
-    <h2 style="margin:0 0 12px;font-size:18px;color:#E8E8ED;">Here's what insiders did this week</h2>
-    <p style="margin:0 0 16px;font-size:14px;color:#8888A0;line-height:1.6;">
-      These are the top signals from your first few days on Form4:
-    </p>
-    {rows}"""
-
-    return (
-        "Here's what insiders did this week",
-        _layout(content, "See All Signals", f"{APP_URL}/signals", unsubscribe_url),
-    )
-
-
-# --- Day 5: Urgency ---
-
-def urgency_email(unsubscribe_url: str = "") -> tuple[str, str]:
-    """Returns (subject, html) for the 2-days-left urgency email."""
-    content = """\
-    <h2 style="margin:0 0 12px;font-size:18px;color:#E8E8ED;">2 days left on your trial</h2>
-    <p style="margin:0 0 16px;font-size:14px;color:#8888A0;line-height:1.6;">
-      Your Pro access expires in 2 days. After that, you'll enter a 7-day grace period with
-      <strong style="color:#F59E0B;">24-hour signal delays</strong>, then move to the free tier.
-    </p>
-    <p style="margin:0 0 8px;font-size:13px;font-weight:600;color:#E8E8ED;">What you'll lose:</p>
-    <ul style="margin:0;padding:0 0 0 18px;font-size:13px;color:#8888A0;line-height:1.8;">
-      <li>Real-time insider filing alerts</li>
-      <li>Insider track records &amp; quality scores</li>
-      <li>Full trade history (free tier: last 90 days only)</li>
-      <li>Signal quality grades (A through F)</li>
-    </ul>"""
-
-    return (
-        "2 days left on your Form4 trial",
-        _layout(content, "Upgrade to Pro", f"{APP_URL}/pricing", unsubscribe_url),
-    )
-
-
-# --- Day 7: Trial ended ---
-
-def trial_ended_email(unsubscribe_url: str = "") -> tuple[str, str]:
-    """Returns (subject, html) for the trial-ended email."""
-    content = """\
-    <h2 style="margin:0 0 12px;font-size:18px;color:#E8E8ED;">Your trial has ended</h2>
-    <p style="margin:0 0 16px;font-size:14px;color:#8888A0;line-height:1.6;">
-      You're now in a <strong style="color:#F59E0B;">7-day grace period</strong>.
-      You can still see all insider filings, but signals are <strong style="color:#F59E0B;">delayed by 24 hours</strong>.
-    </p>
-    <p style="margin:0 0 16px;font-size:14px;color:#8888A0;line-height:1.6;">
-      After the grace period ends, you'll move to the free tier:
-    </p>
-    <ul style="margin:0;padding:0 0 0 18px;font-size:13px;color:#8888A0;line-height:1.8;">
-      <li>Last 90 days of filings only</li>
-      <li>Track records and insider scores hidden</li>
-      <li>Identifying details redacted on older filings</li>
-    </ul>
-    <p style="margin:16px 0 0;font-size:14px;color:#8888A0;line-height:1.6;">
-      Upgrade now to keep full, real-time access.
-    </p>"""
-
-    return (
-        "Your Form4 trial has ended",
-        _layout(content, "Upgrade to Pro", f"{APP_URL}/pricing", unsubscribe_url),
-    )
-
-
-# --- Day 14: Hard gate ---
-
-def hard_gate_email(unsubscribe_url: str = "") -> tuple[str, str]:
-    """Returns (subject, html) for the grace-period-ended email."""
-    content = """\
-    <h2 style="margin:0 0 12px;font-size:18px;color:#E8E8ED;">Your grace period has ended</h2>
-    <p style="margin:0 0 16px;font-size:14px;color:#8888A0;line-height:1.6;">
-      You're now on the free tier. You can still browse the last 90 days of filings, but
-      track records, insider scores, and full details are reserved for Pro members.
-    </p>
-    <p style="margin:0 0 0;font-size:14px;color:#8888A0;line-height:1.6;">
-      Upgrade anytime to restore full access &mdash; your watchlist and settings are still saved.
-    </p>"""
-
-    return (
-        "Your Form4 grace period has ended",
-        _layout(content, "Upgrade to Pro", f"{APP_URL}/pricing", unsubscribe_url),
-    )
-
-
-# --- Day 30: Win-back ---
-
-def win_back_email(top_signals: list[dict], unsubscribe_url: str = "") -> tuple[str, str]:
-    """Returns (subject, html) for the 30-day win-back email.
-
-    top_signals: list of dicts with keys: ticker, insider_name, trade_type, value, return_7d
-    """
-    rows = ""
-    for s in top_signals[:5]:
-        ret = s.get("return_7d")
-        ret_str = f"{ret:+.1f}%" if ret is not None else "pending"
-        ret_color = "#22C55E" if ret and ret > 0 else "#EF4444" if ret and ret < 0 else "#8888A0"
-        action = "bought" if s.get("trade_type") == "buy" else "sold"
-        val = s.get("value", 0)
-        val_str = f"${val:,.0f}" if val else ""
+        when = f.get("filing_date") or ""
         rows += f"""\
         <div style="padding:10px 0;border-bottom:1px solid #1E1E2E;">
-          <div style="font-size:14px;color:#E8E8ED;font-weight:600;">{s.get('ticker', '')} &mdash; {s.get('insider_name', 'Insider')}</div>
-          <div style="font-size:12px;color:#8888A0;margin-top:4px;">
-            {action} {val_str} &middot; 7-day return: <span style="color:{ret_color};font-weight:600;">{ret_str}</span>
-          </div>
+          <div style="font-size:14px;color:#E8E8ED;font-weight:600;">{f.get('ticker', '')} &mdash; {f.get('insider_name', 'an insider')}</div>
+          <div style="font-size:12px;color:#8888A0;margin-top:3px;">{action} {val_str} &middot; filed {when}</div>
         </div>"""
+    return rows or f'<p style="font-size:13px;color:#8888A0;">{empty}</p>'
 
-    if not rows:
-        rows = '<p style="font-size:13px;color:#8888A0;">Check the feed for recent insider activity.</p>'
 
+# --- Day 0: Welcome ---
+
+def welcome_email(follows: list[str], strategy_label: str | None = None,
+                  unsubscribe_url: str = "") -> tuple[str, str]:
+    """(subject, html). `follows` are the names/tickers already followed --
+    the search-landing path creates one before the account exists."""
+    if follows:
+        shown = ", ".join(follows[:5]) + (f" and {len(follows) - 5} more" if len(follows) > 5 else "")
+        following = f"<p {_P}>You are following <strong {_STRONG}>{shown}</strong>. The next time any of them files, you get one email.</p>"
+        cta = ("Open your feed", f"{APP_URL}/feed")
+    else:
+        following = (f"<p {_P}>You are not following anyone yet. Pick one company or one insider you already keep an eye on; "
+                     f"that is where the emails come from.</p>")
+        cta = ("Pick someone to follow", f"{APP_URL}/explore")
+    book = (f"<p {_P}>Your portfolio page opens on <strong {_STRONG}>{strategy_label}</strong>. You can switch books there.</p>"
+            if strategy_label else "")
     content = f"""\
-    <h2 style="margin:0 0 12px;font-size:18px;color:#E8E8ED;">Here's what you missed this month</h2>
-    <p style="margin:0 0 16px;font-size:14px;color:#8888A0;line-height:1.6;">
-      These were the top insider signals from the last 30 days. Pro members saw them in real time.
-    </p>
-    {rows}"""
+    <h2 {_H}>Welcome to Form4</h2>
+    <p {_P}>Your account is free, and it stays free. It does two things: you can follow up to 10 insiders and 10 companies, and you get an email when any of them files a Form 4. Every filing from the last 90 days is open to you.</p>
+    {following}
+    {book}
+    <p {_P}>Pro is there when you want the grades, the screener and the full history. No hurry.</p>"""
+    return ("Welcome to Form4", _layout(content, cta[0], cta[1], unsubscribe_url))
 
-    return (
-        "Here's what you missed on Form4 this month",
-        _layout(content, "Upgrade to Pro", f"{APP_URL}/pricing", unsubscribe_url),
-    )
+
+# --- Day 3: what the people you follow did ---
+
+def your_week_email(items: list[dict], following: bool, unsubscribe_url: str = "") -> tuple[str, str]:
+    """(subject, html). `items` are recent filings by the people/companies
+    they follow; when they follow nobody, the market's most notable instead."""
+    if following:
+        subject = "What the people you follow filed this week"
+        intro = f"<p {_P}>Filings from the insiders and companies you follow, last three days.</p>"
+        empty = "Nobody you follow has filed in the last three days. That is normal; most insiders file a few times a year."
+    else:
+        subject = "What stood out this week"
+        intro = (f"<p {_P}>You are not following anyone yet, so here is what stood out across the market. "
+                 f"Follow a company or an insider and this email becomes about them.</p>")
+        empty = "A quiet few days. Check the feed for the latest."
+    content = f"""\
+    <h2 {_H}>{subject}</h2>
+    {intro}
+    {_filing_rows(items, empty)}"""
+    return (subject, _layout(content, "Open your feed", f"{APP_URL}/feed", unsubscribe_url))
+
+
+# --- Day 10: what Pro adds, said once ---
+
+def pro_once_email(unsubscribe_url: str = "") -> tuple[str, str]:
+    """(subject, html). The only Pro pitch in the sequence."""
+    content = f"""\
+    <h2 {_H}>What Pro adds</h2>
+    <p {_P}>Free is the record: who filed, what they did, 90 days back, and an email when the people you follow file again.</p>
+    <p {_P}>Pro is the judgement on top of it: each insider's grade and full track record, any feed filtered by grade, the screener and clusters, every filing back to 2016, and entry and exit alerts from the strategy books.</p>
+    <p {_P}>It is $25 a month. There is a 7-day free trial, started from the pricing page, and nothing is charged until it ends.</p>
+    <p {_P}>If free does what you need, keep it. This is the only time we will bring Pro up.</p>"""
+    return ("What Pro adds", _layout(content, "See what Pro adds", f"{APP_URL}/pricing", unsubscribe_url))
+
+
+# --- Day 30: only if they have gone quiet ---
+
+def win_back_email(items: list[dict], following: bool, unsubscribe_url: str = "") -> tuple[str, str]:
+    """(subject, html). Sent only to an account with no sign-in for two weeks."""
+    intro = (f"<p {_P}>Filings from the insiders and companies you follow, last thirty days.</p>" if following
+             else f"<p {_P}>The month's most notable insider filings. Follow someone and this becomes about them.</p>")
+    content = f"""\
+    <h2 {_H}>Since you were last here</h2>
+    {intro}
+    {_filing_rows(items, "A quiet month. The feed has the latest.")}"""
+    return ("Since you were last here", _layout(content, "Open Form4", f"{APP_URL}/feed", unsubscribe_url))
 
 
 # --- One-off: comped Pro access (not part of the sequence) ---
@@ -302,9 +238,11 @@ def comp_grant_email(
 # Registry: maps (email_name, target_day) for the sequence runner
 EMAIL_SEQUENCE = [
     ("welcome", 0),
-    ("value", 3),
-    ("urgency", 5),
-    ("trial_ended", 7),
-    ("hard_gate", 14),
-    ("win_back", 30),
+    ("your_week", 3),
+    ("pro_once", 10),
+    ("win_back", 30),   # only if there has been no sign-in for WIN_BACK_QUIET_DAYS
 ]
+
+#: A day-30 note goes only to an account that has gone quiet; someone who
+#: signed in this week does not need to be told what they missed.
+WIN_BACK_QUIET_DAYS = 14

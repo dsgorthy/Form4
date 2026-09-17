@@ -1,21 +1,26 @@
 #!/usr/bin/env python3
-"""Trial email sequence — sends lifecycle emails to users based on account age.
+"""Account email sequence — four emails to a free account, by account age.
 
-Runs daily via launchd. Queries Clerk for all users, checks created_at to
-determine which email to send, tracks sent emails in notifications.db to
-avoid duplicates.
+    Day 0   welcome    what the account does, who they already follow
+    Day 3   your_week  what the people they follow filed (or the market, if nobody)
+    Day 10  pro_once   what Pro adds; the only Pro pitch there is
+    Day 30  win_back   only if there has been no sign-in for two weeks
 
-Email schedule:
-    Day 0  — Welcome
-    Day 3  — Value (top signals from their first 3 days)
-    Day 5  — Urgency (2 days left on trial)
-    Day 7  — Trial ended (grace period begins)
-    Day 14 — Hard gate (grace period over)
-    Day 30 — Win-back (what they missed)
+Runs every 6 hours under Dagster (ops_trial_emails_6h). Lists Clerk users,
+works out each account's age, sends whatever is due inside its window and
+records it in sent_trial_emails so nothing goes twice. Paying accounts and
+live comps get nothing.
+
+The file keeps its old name because a Dagster asset, a registry entry and
+this table are keyed on it. What it sent until 2026-09-17 was a six-step
+TRIAL funnel — "your trial starts now", "2 days left", "your trial has
+ended", "your grace period has ended" — to people who never chose a trial,
+because every account was one by age. Accounts are free now (api/auth.py)
+and the sequence says so.
 
 Usage:
     python3 pipelines/trial_emails.py              # normal run
-    python3 pipelines/trial_emails.py --dry-run     # preview without sending
+    python3 pipelines/trial_emails.py --dry-run    # preview without sending
 """
 from __future__ import annotations
 
@@ -40,13 +45,14 @@ from api.email import send_email, generate_unsubscribe_token
 from api.email_templates import (
     APP_URL,
     EMAIL_SEQUENCE,
+    WIN_BACK_QUIET_DAYS,
     welcome_email,
-    value_email,
-    urgency_email,
-    trial_ended_email,
-    hard_gate_email,
+    your_week_email,
+    pro_once_email,
     win_back_email,
 )
+from api.filters import MEANINGFUL_CLASSES
+from api.public_fields import STRATEGY_LABELS
 from config.database import get_connection
 
 logging.basicConfig(
@@ -61,7 +67,7 @@ CLERK_SECRET_KEY = os.getenv("CLERK_SECRET_KEY", "")
 DAY_TOLERANCE = 1
 
 # ───────────────────────────────────────────────────────────────────
-# Schema for tracking sent trial emails
+# Schema for tracking sent emails (name kept: the table has history)
 # ───────────────────────────────────────────────────────────────────
 
 TRIAL_EMAILS_SCHEMA = """\
@@ -70,12 +76,11 @@ CREATE TABLE IF NOT EXISTS sent_trial_emails (
     email_name TEXT NOT NULL,
     sent_at TEXT NOT NULL DEFAULT NOW(),
     PRIMARY KEY (user_id, email_name)
-);
+)
 """
 
 
 def _ensure_schema(conn) -> None:
-    """Create sent_trial_emails table if it doesn't exist."""
     conn.execute(TRIAL_EMAILS_SCHEMA)
     conn.commit()
 
@@ -83,7 +88,6 @@ def _ensure_schema(conn) -> None:
 # ───────────────────────────────────────────────────────────────────
 # Clerk user listing
 # ───────────────────────────────────────────────────────────────────
-
 
 def _fetch_all_clerk_users() -> list[dict]:
     """Fetch all users from Clerk API (paginated)."""
@@ -96,7 +100,6 @@ def _fetch_all_clerk_users() -> list[dict]:
     users: list[dict] = []
     limit = 100
     offset = 0
-
     with httpx.Client(timeout=30) as client:
         while True:
             resp = client.get(
@@ -107,23 +110,18 @@ def _fetch_all_clerk_users() -> list[dict]:
             if resp.status_code != 200:
                 logger.error("Clerk API error %d: %s", resp.status_code, resp.text)
                 break
-
             batch = resp.json()
             if not batch:
                 break
-
             users.extend(batch)
-
             if len(batch) < limit:
                 break
             offset += limit
-
     logger.info("Fetched %d users from Clerk", len(users))
     return users
 
 
 def _get_user_email(user_data: dict) -> str | None:
-    """Extract primary email from Clerk user data."""
     addrs = user_data.get("email_addresses", [])
     primary_id = user_data.get("primary_email_address_id")
     for addr in addrs:
@@ -133,103 +131,140 @@ def _get_user_email(user_data: dict) -> str | None:
 
 
 # ───────────────────────────────────────────────────────────────────
-# Top signals query (for value + win-back emails)
+# Pure rules — tested
 # ───────────────────────────────────────────────────────────────────
 
+def is_paying(public_meta: dict) -> bool:
+    """A paid or live-comped account gets none of this."""
+    return public_meta.get("tier") in ("pro", "pro_plus") and not comp_lapsed(public_meta)
 
-def _get_top_signals(days_back: int = 7, limit: int = 5) -> list[dict]:
-    """Fetch top insider signals from the last N days for email content."""
-    try:
-        from api.db import DB_PATH as INSIDERS_DB_PATH
 
-        conn = get_connection(readonly=True)
-        cutoff = (datetime.utcnow() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+def win_back_due(last_sign_in_ms: int | None, now: datetime) -> bool:
+    """The day-30 note is for an account that has gone quiet: no sign-in for
+    WIN_BACK_QUIET_DAYS. Someone who was here on Tuesday knows what happened."""
+    if not last_sign_in_ms:
+        return True
+    last = datetime.utcfromtimestamp(last_sign_in_ms / 1000)
+    return (now - last) >= timedelta(days=WIN_BACK_QUIET_DAYS)
 
-        rows = conn.execute(
-            """
-            SELECT t.ticker,
-                   COALESCE(i.display_name, i.name) AS insider_name,
-                   t.trade_type,
-                   SUM(t.value) AS value,
-                   tr.return_7d
-            FROM trades t
-            LEFT JOIN insiders i ON t.insider_id = i.insider_id
-            LEFT JOIN trade_returns tr ON t.trade_id = tr.trade_id
-            WHERE t.filing_date >= ?
-              AND t.trans_code IN ('P', 'S')
-              AND tr.return_7d IS NOT NULL
-            GROUP BY t.ticker, t.insider_id, t.trade_type
-            ORDER BY ABS(tr.return_7d) DESC
-            LIMIT ?
-            """,
-            (cutoff, limit),
-        ).fetchall()
-        conn.close()
 
-        return [
-            {
-                "ticker": r["ticker"],
-                "insider_name": r["insider_name"],
-                "trade_type": r["trade_type"],
-                "value": r["value"],
-                "return_7d": round(r["return_7d"] * 100, 1) if r["return_7d"] else None,
-            }
-            for r in rows
-        ]
-    except Exception as exc:
-        logger.warning("Failed to fetch top signals: %s", exc)
+def in_window(age_days: float, target_day: int) -> bool:
+    return (target_day - 0.5) <= age_days <= (target_day + DAY_TOLERANCE + 0.5)
+
+
+# ───────────────────────────────────────────────────────────────────
+# What the emails are about: the account's follows
+# ───────────────────────────────────────────────────────────────────
+
+def _follows(conn, user_id: str) -> tuple[list[str], list[str], list[int]]:
+    """(display names, tickers, insider ids) this account follows."""
+    rows = conn.execute(
+        """SELECT w.ticker, w.insider_id, COALESCE(i.display_name, i.name) AS insider_name
+             FROM watchlist w
+             LEFT JOIN insiders i ON i.insider_id = w.insider_id
+            WHERE w.user_id = ?
+            ORDER BY w.added_at""",
+        (user_id,),
+    ).fetchall()
+    names, tickers, insiders = [], [], []
+    for r in rows:
+        if r["insider_id"]:
+            insiders.append(int(r["insider_id"]))
+            names.append(r["insider_name"] or "an insider")
+        elif r["ticker"]:
+            tickers.append(r["ticker"])
+            names.append(r["ticker"])
+    return names, tickers, insiders
+
+
+def _recent_filings(conn, tickers: list[str], insiders: list[int], days: int, limit: int = 5) -> list[dict]:
+    """Discretionary filings by the followed tickers/insiders, largest first."""
+    if not tickers and not insiders:
         return []
+    cutoff = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%d")
+    classes = tuple(sorted(MEANINGFUL_CLASSES))
+    rows = conn.execute(
+        f"""SELECT t.ticker, COALESCE(i.display_name, i.name) AS insider_name, t.trade_type,
+                   SUM(t.value) AS value, MAX(t.filing_date) AS filing_date
+              FROM trades t
+              LEFT JOIN insiders i ON i.insider_id = t.insider_id
+             WHERE t.filing_date >= ?
+               AND t.signal_class IN ({",".join("?" * len(classes))})
+               AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
+               AND t.superseded_by IS NULL
+               AND (t.ticker = ANY(?) OR t.insider_id = ANY(?))
+             GROUP BY t.ticker, t.insider_id, i.display_name, i.name, t.trade_type
+             ORDER BY SUM(t.value) DESC
+             LIMIT ?""",
+        (cutoff, *classes, tickers or [""], insiders or [-1], limit),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def _top_filings(conn, days: int, limit: int = 5) -> list[dict]:
+    """The market's largest discretionary filings — for an account that
+    follows nobody yet."""
+    cutoff = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%d")
+    classes = tuple(sorted(MEANINGFUL_CLASSES))
+    rows = conn.execute(
+        f"""SELECT t.ticker, COALESCE(i.display_name, i.name) AS insider_name, t.trade_type,
+                   SUM(t.value) AS value, MAX(t.filing_date) AS filing_date
+              FROM trades t
+              LEFT JOIN insiders i ON i.insider_id = t.insider_id
+             WHERE t.filing_date >= ?
+               AND t.signal_class IN ({",".join("?" * len(classes))})
+               AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
+               AND t.superseded_by IS NULL
+               AND COALESCE(i.is_entity, 0) = 0
+             GROUP BY t.ticker, t.insider_id, i.display_name, i.name, t.trade_type
+             ORDER BY SUM(t.value) DESC
+             LIMIT ?""",
+        (cutoff, *classes, limit),
+    ).fetchall()
+    return [dict(r) for r in rows]
 
 
 # ───────────────────────────────────────────────────────────────────
 # Email dispatch
 # ───────────────────────────────────────────────────────────────────
 
-
-def _build_email(email_name: str, user_id: str) -> tuple[str, str] | None:
-    """Build (subject, html) for a given email. Returns None if data unavailable."""
+def _build_email(email_name: str, user_data: dict, conn) -> tuple[str, str] | None:
+    user_id = user_data.get("id", "")
     unsub_token = generate_unsubscribe_token(user_id)
     # Param must be `user_id` — that's the name the endpoint declares
-    # (api/routers/notifications.py:287). `user` returns 422.
+    # (api/routers/notifications.py). `user` returns 422.
     unsub_url = f"{APP_URL}/api/v1/notifications/unsubscribe?user_id={user_id}&token={unsub_token}"
 
+    names, tickers, insiders = _follows(conn, user_id)
+    following = bool(names)
+
     if email_name == "welcome":
-        return welcome_email(unsub_url)
-    elif email_name == "value":
-        signals = _get_top_signals(days_back=3)
-        return value_email(signals, unsub_url)
-    elif email_name == "urgency":
-        return urgency_email(unsub_url)
-    elif email_name == "trial_ended":
-        return trial_ended_email(unsub_url)
-    elif email_name == "hard_gate":
-        return hard_gate_email(unsub_url)
-    elif email_name == "win_back":
-        signals = _get_top_signals(days_back=30, limit=5)
-        return win_back_email(signals, unsub_url)
+        # The strategy book chosen in onboarding lives in Clerk unsafe metadata.
+        key = (user_data.get("unsafe_metadata") or {}).get("defaultStrategy")
+        return welcome_email(names, STRATEGY_LABELS.get(key), unsub_url)
+    if email_name == "your_week":
+        items = _recent_filings(conn, tickers, insiders, days=3) if following else _top_filings(conn, days=3)
+        return your_week_email(items, following, unsub_url)
+    if email_name == "pro_once":
+        return pro_once_email(unsub_url)
+    if email_name == "win_back":
+        items = _recent_filings(conn, tickers, insiders, days=30) if following else _top_filings(conn, days=30)
+        return win_back_email(items, following, unsub_url)
     return None
 
 
-def process_user(
-    user_data: dict,
-    conn,
-    dry_run: bool = False,
-) -> int:
-    """Check which emails to send for a user. Returns count of emails sent."""
+def process_user(user_data: dict, conn, dry_run: bool = False, now: datetime | None = None) -> int:
+    """Send whatever is due for one account. Returns the number sent."""
+    now = now or datetime.utcnow()
     user_id = user_data.get("id", "")
     created_at = user_data.get("created_at")
     if not user_id or not created_at:
         return 0
-
-    # Skip pro users (already paying, or on an unexpired comp)
-    public_meta = user_data.get("public_metadata", {})
-    if public_meta.get("tier") in ("pro", "pro_plus") and not comp_lapsed(public_meta):
+    if is_paying(user_data.get("public_metadata") or {}):
         return 0
 
-    # Calculate account age in days
-    # Clerk returns created_at as ms timestamp
     created_ts = created_at / 1000 if created_at > 1e12 else created_at
-    age_days = (datetime.utcnow().timestamp() - created_ts) / 86400
+    age_days = (now.timestamp() - created_ts) / 86400
 
     email = _get_user_email(user_data)
     if not email:
@@ -237,13 +272,10 @@ def process_user(
 
     sent = 0
     for email_name, target_day in EMAIL_SEQUENCE:
-        # Check if we're in the right window for this email
-        if age_days < target_day - 0.5:
-            continue  # Too early
-        if age_days > target_day + DAY_TOLERANCE + 0.5:
-            continue  # Too late (missed window)
-
-        # Check if already sent
+        if not in_window(age_days, target_day):
+            continue
+        if email_name == "win_back" and not win_back_due(user_data.get("last_sign_in_at"), now):
+            continue
         existing = conn.execute(
             "SELECT 1 FROM sent_trial_emails WHERE user_id = ? AND email_name = ?",
             (user_id, email_name),
@@ -251,30 +283,24 @@ def process_user(
         if existing:
             continue
 
-        # Build and send
-        result = _build_email(email_name, user_id)
+        result = _build_email(email_name, user_data, conn)
         if not result:
             continue
-
         subject, html = result
 
         if dry_run:
             logger.info("[DRY RUN] Would send '%s' to %s (day %.1f)", email_name, email, age_days)
         else:
-            success = send_email(email, subject, html)
-            if success:
-                conn.execute(
-                    "INSERT OR IGNORE INTO sent_trial_emails (user_id, email_name) VALUES (?, ?)",
-                    (user_id, email_name),
-                )
-                conn.commit()
-                logger.info("Sent '%s' to %s (day %.1f)", email_name, email, age_days)
-            else:
+            if not send_email(email, subject, html):
                 logger.error("Failed to send '%s' to %s", email_name, email)
                 continue
-
+            conn.execute(
+                "INSERT OR IGNORE INTO sent_trial_emails (user_id, email_name) VALUES (?, ?)",
+                (user_id, email_name),
+            )
+            conn.commit()
+            logger.info("Sent '%s' to %s (day %.1f)", email_name, email, age_days)
         sent += 1
-
     return sent
 
 
@@ -282,13 +308,11 @@ def process_user(
 # Main
 # ───────────────────────────────────────────────────────────────────
 
-
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Trial email sequence runner")
+    parser = argparse.ArgumentParser(description="Account email sequence runner")
     parser.add_argument("--dry-run", action="store_true", help="Preview without sending")
     args = parser.parse_args()
 
-    # Open notifications DB for tracking
     conn = get_connection(readonly=False)
     _ensure_schema(conn)
 
@@ -303,7 +327,6 @@ def main() -> None:
         total_sent += process_user(user_data, conn, dry_run=args.dry_run)
 
     conn.close()
-
     prefix = "[DRY RUN] " if args.dry_run else ""
     logger.info("%sDone. %d email(s) sent across %d users.", prefix, total_sent, len(users))
 

@@ -112,7 +112,7 @@ def ops_breaking_signal(context: AssetExecutionContext) -> Output:
 # ── every 6 hours ──────────────────────────────────────────────────────────
 
 @asset(group_name=GROUP, compute_kind="python",
-       description="Trial lifecycle email sequence (was com.openclaw.trial-emails).")
+       description="Account email sequence for free users (was com.openclaw.trial-emails).")
 def ops_trial_emails(context: AssetExecutionContext) -> Output:
     return _run(context, _wrapped("trial_emails", BREW,
                                   f"{REPO}/pipelines/trial_emails.py"), timeout=1800)

@@ -277,9 +277,13 @@ Ordered. `[ ]` open, `[~]` in flight, `[x]` done.
 
 **Phase 2**
 - [ ] 2.1 Drop the 90-day wall; design the immediacy gate
-- [ ] 2.2 Signup value: unlimited follows, alerts, no ads
-- [ ] 2.3 Redefine Pro; update `/pricing`
-- [ ] 2.4 Default `tier` metadata on signup — the 5 newest Clerk users have none
+- [x] 2.2a **Accounts are free, not trials (2026-09-17).** Every new account had been a Pro trial by age (days 0–7 "trial", 8–14 "grace", then free), computed from `createdAt` in both the API and the client, with a nav countdown, a site-wide banner, 16 "Start Free Trial" surfaces, and a six-hourly email funnel ("2 days left on your trial", "your grace period has ended" — 41 sent). Removed on both sides; tier = Clerk metadata or free. `test_accounts_are_free_not_trial.py`.
+- [x] 2.2b The Pro trial is opt-in: checkout grants `trial_period_days: 7` (card on file, once per Stripe customer); `/pricing` says exactly that. "Sign up free" everywhere a visitor is asked in; "Try Pro free" / "Upgrade to Pro" for accounts.
+- [x] 2.2c Email sequence rewritten for a free account: day 0 what it does + who you follow, day 3 what the people you follow filed (their follows, not top signals), day 10 what Pro adds (once), day 30 only if no sign-in for 14 days. `test_account_emails_are_for_free_users.py`.
+- [x] 2.4 Not needed any more: with no age-based fallback, absent `tier` metadata simply means free.
+- [x] Onboarding answers now save (the API demanded three fields the form stopped sending; 422 for months). `default_strategy` column added.
+- [ ] 2.2d Signup value still to build: follow-the-book alerts for the strategy chosen in onboarding; a welcome that shows a real alert.
+- [ ] 2.3 Redefine Pro; the `/pricing` feature lists are unchanged
 
 **Phase 3**
 - [ ] 3.1 Raise `INSIDER_CHUNKS` as eligibility grows past 60,000
