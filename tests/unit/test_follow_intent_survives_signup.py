@@ -91,7 +91,7 @@ def test_the_impression_hook_precedes_every_return():
     """Rules of hooks: this component returns null before the CTA is built."""
     lines = CTA.read_text(encoding="utf-8").splitlines()
     body = next(i for i, l in enumerate(lines) if "export function FollowCta" in l)
-    effect = next(i for i, l in enumerate(lines) if i > body and "useEffect(" in l)
+    effect = next(i for i, l in enumerate(lines) if i > body and ("useEffect(" in l or "useFollowOffer(" in l))
     first_return = next(i for i, l in enumerate(lines)
                         if i > body and re.match(r"\s{2}(if .*)?return[\s(;<]", l))
     assert effect < first_return, (

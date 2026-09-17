@@ -268,7 +268,12 @@ Ordered. `[ ]` open, `[~]` in flight, `[x]` done.
 - [x] 1.2 Scroll-depth instrumentation
 - [x] 1.3 `cta_clicked` — already existed; added `follow_cta_viewed` (IntersectionObserver) instead
 - [x] 1.5 Company CTA carries its follow token + `PendingFollow`
-- [ ] 1.6 Read Checkpoint 1 after 2–3 weeks
+- [x] 1.6 Read Checkpoint 1 (2026-09-16, five days in): 134 SEO landers → `follow_cta_shown` 7 → `follow_cta_viewed` 27 → clicked 0. Two findings below.
+- [x] 1.7 **The anonymous band sold a trial.** It read "7-day free trial, no credit card required" under the follow button — the Pro trial's line on a feature a free account already has. Rewritten: "Get an email the next time X files / Free account. One email when the next filing comes in. / Follow X for free". Trial copy now lives on /pricing only. `test_follow_cta_is_free_not_trial.py`.
+- [x] 1.8 `FollowInline`: the same ask as one line under the header of both pages, in the first viewport — the band alone was seen by 20% of landers. Events carry `placement` (top / band).
+- [x] 1.9 `follow_cta_shown` was reaching PostHog for 5% of landers because it fired before `posthog.init()` and was dropped; captures now wait for the client. The old series undercounts; read `placement`-tagged events from 09-16 on.
+- [x] 1.10 **Sign-up never sent anyone back.** `next=` was carried to /sign-up and honoured by nothing, so every sign-up landed on the home page with the follow discarded and `PendingFollow` never ran (`follow_completed`: 0 events ever). The sign-up page now hands Clerk `forceRedirectUrl` with `?follow=` kept, and says "Free account. You'll get an email the next time X files." above the form.
+- [ ] 1.11 Read again ~2026-09-30: viewed→clicked by placement, `follow_completed`, landers→signup. At ~130 landers/week the first two are readable; signups still are not.
 
 **Phase 2**
 - [ ] 2.1 Drop the 90-day wall; design the immediacy gate

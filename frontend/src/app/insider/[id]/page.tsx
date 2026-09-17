@@ -18,7 +18,7 @@ import { TickerDisplay, companyToSlug } from "@/components/ui/ticker-display";
 import type { InsiderProfile, InsiderCompany, Filing, PaginatedResponse } from "@/lib/types";
 import { insiderPath, idFromSlug } from "@/lib/insider-url";
 import { InsiderSummary } from "@/components/entity-summary";
-import { FollowCta } from "@/components/follow-cta";
+import { FollowCta, FollowInline } from "@/components/follow-cta";
 import { PendingFollow } from "@/components/pending-follow";
 import { GATED_CLASS, insiderJsonLd, jsonLdScript } from "@/lib/structured-data";
 import { SectionLabel } from "@/components/ui/section-label";
@@ -247,8 +247,13 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                 it, and inside the summary sentence above that — three times on
                 one screen. */}
             {profile.cik && (
-              <p className="mb-8 font-mono text-xs text-[#63636F]">CIK {profile.cik}</p>
+              <p className="mb-4 font-mono text-xs text-[#63636F]">CIK {profile.cik}</p>
             )}
+            {/* The cheap ask, in the first viewport. The band further down
+                is seen by one visitor in five; a search visitor gives this
+                page 27 seconds and most of them never scroll past the
+                header. Same offer, same events, placement "top". */}
+            <FollowInline entity={profile.name} follow={{ kind: "insider", id }} />
           </>
         );
       })()}

@@ -7,7 +7,7 @@ import { fetchAPI } from "@/lib/api";
 import { fetchAPIAuth } from "@/lib/auth";
 import { RelatedCompanies, type RelatedCompany } from "@/components/related-companies";
 import { ProGate } from "@/components/pro-gate";
-import { FollowCta } from "@/components/follow-cta";
+import { FollowCta, FollowInline } from "@/components/follow-cta";
 import { PendingFollow } from "@/components/pending-follow";
 import { formatCurrency } from "@/lib/format";
 import { titleSummary } from "@/lib/title-format";
@@ -202,6 +202,15 @@ export default async function CompanyPage({ params }: { params: Promise<{ ticker
           <span>
             {overview.first_trade} to {overview.last_trade}
           </span>
+        </div>
+        {/* The cheap ask, in the first viewport — the band at the bottom of
+            the roster is seen by one visitor in five. Same offer and events
+            as FollowCta, placement "top". */}
+        <div className="mt-4">
+          <FollowInline
+            entity={ticker.toUpperCase()}
+            follow={{ kind: "ticker", id: ticker.toUpperCase() }}
+          />
         </div>
       </div>
 

@@ -76,7 +76,9 @@ def test_viewport_event_is_separate_from_the_mount_event(src):
 
 def test_capture_hook_stays_above_every_early_return(src):
     body = _body(src)
-    first_effect = body.find("useEffect(")
+    # The hooks moved into useFollowOffer on 2026-09-16; the invariant is the
+    # same — the hook call precedes the early return.
+    first_effect = body.find("useEffect(") if "useEffect(" in body else body.find("useFollowOffer(")
     early_return = body.find("return null;")
     assert first_effect != -1 and early_return != -1
     assert first_effect < early_return, (
