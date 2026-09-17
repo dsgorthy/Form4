@@ -133,7 +133,7 @@ export default function PricingPage() {
           Watch three live strategies. Or do your own research.
         </h1>
         <p className="text-[#8888A0]">
-          Full access for 7 days. Then choose the plan that fits.
+          Following and alerts are free. Pro is the grades, the screener and the full history.
         </p>
       </div>
 
