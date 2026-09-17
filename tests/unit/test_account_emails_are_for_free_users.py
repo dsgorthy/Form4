@@ -104,3 +104,29 @@ def test_followed_filings_use_the_one_definition_of_meaningful():
     src = Path(pipe.__file__).read_text(encoding="utf-8")
     assert "MEANINGFUL_CLASSES" in src
     assert "trans_code IN ('P', 'S')" not in src, "the old signals query typed its own definition"
+
+
+def test_the_email_fallback_uses_the_same_foreign_price_rule_as_the_posts():
+    """One definition: pipelines.generate_stocktwits_posts.price_is_foreign."""
+    src = Path(pipe.__file__).read_text(encoding="utf-8")
+    assert "from pipelines.generate_stocktwits_posts import price_is_foreign" in src
+    assert src.count("return _drop_foreign_priced(conn") == 2, "both filing queries must pass through the guard"
+
+
+class _Conn:
+    def __init__(self, closes): self.closes = closes
+    def execute(self, sql, params):
+        rows = [{"ticker": t, "close": c} for t, c in self.closes.items() if t in params[0]]
+        class R:
+            def __init__(s, rows): s.rows = rows
+            def fetchall(s): return s.rows
+        return R(rows)
+
+
+def test_the_umc_filing_is_dropped_from_an_email_and_a_domestic_one_kept():
+    rows = [
+        {"ticker": "UMC", "insider_name": "Chitung Liu", "trade_type": "sell", "value": 228_799_600, "qty": 1_600_000},
+        {"ticker": "STX", "insider_name": "William D. Mosley", "trade_type": "sell", "value": 77_045_215, "qty": 100_000},
+    ]
+    kept = pipe._drop_foreign_priced(_Conn({"UMC": 22.54, "STX": 770.45}), rows)
+    assert [r["ticker"] for r in kept] == ["STX"]

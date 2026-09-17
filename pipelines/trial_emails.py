@@ -52,6 +52,7 @@ from api.email_templates import (
     win_back_email,
 )
 from api.filters import MEANINGFUL_CLASSES
+from pipelines.generate_stocktwits_posts import price_is_foreign
 from api.public_fields import STRATEGY_LABELS
 from config.database import get_connection
 
@@ -185,7 +186,7 @@ def _recent_filings(conn, tickers: list[str], insiders: list[int], days: int, li
     classes = tuple(sorted(MEANINGFUL_CLASSES))
     rows = conn.execute(
         f"""SELECT t.ticker, COALESCE(i.display_name, i.name) AS insider_name, t.trade_type,
-                   SUM(t.value) AS value, MAX(t.filing_date) AS filing_date
+                   SUM(t.value) AS value, SUM(t.qty) AS qty, MAX(t.filing_date) AS filing_date
               FROM trades t
               LEFT JOIN insiders i ON i.insider_id = t.insider_id
              WHERE t.filing_date >= ?
@@ -196,9 +197,40 @@ def _recent_filings(conn, tickers: list[str], insiders: list[int], days: int, li
              GROUP BY t.ticker, t.insider_id, i.display_name, i.name, t.trade_type
              ORDER BY SUM(t.value) DESC
              LIMIT ?""",
-        (cutoff, *classes, tickers or [""], insiders or [-1], limit),
+        (cutoff, *classes, tickers or [""], insiders or [-1], limit * 3),
     ).fetchall()
-    return [dict(r) for r in rows]
+    return _drop_foreign_priced(conn, [dict(r) for r in rows])[:limit]
+
+
+def _drop_foreign_priced(conn, rows: list[dict]) -> list[dict]:
+    """A filing priced in another currency is not a headline. UMC's CFO
+    filed 1.6M Taiwan-listed shares at NT$142-145 on 2026-09-16; against
+    the $22.54 ADR it read as a $228.8M sale and would have led the day-3
+    email for every account that follows nobody. Same rule, same function,
+    as the StockTwits generator: a filed price 3x off our close either way."""
+    tickers = sorted({r["ticker"] for r in rows if r.get("ticker")})
+    if not tickers:
+        return rows
+    closes = {
+        rec["ticker"]: rec["close"]
+        for rec in conn.execute(
+            """SELECT DISTINCT ON (d.ticker) d.ticker, d.close
+                 FROM prices.daily_prices d
+                WHERE d.ticker = ANY(?)
+                ORDER BY d.ticker, d.date DESC""",
+            (tickers,),
+        ).fetchall()
+    }
+    kept = []
+    for r in rows:
+        qty = r.get("qty") or 0
+        price = (r.get("value") or 0) / qty if qty else None
+        if price_is_foreign(price, closes.get(r.get("ticker"))):
+            logger.info("dropped %s from the email: filed price %.2f against our close %.2f",
+                        r.get("ticker"), price, float(closes[r["ticker"]]))
+            continue
+        kept.append(r)
+    return kept
 
 
 def _top_filings(conn, days: int, limit: int = 5) -> list[dict]:
@@ -208,7 +240,7 @@ def _top_filings(conn, days: int, limit: int = 5) -> list[dict]:
     classes = tuple(sorted(MEANINGFUL_CLASSES))
     rows = conn.execute(
         f"""SELECT t.ticker, COALESCE(i.display_name, i.name) AS insider_name, t.trade_type,
-                   SUM(t.value) AS value, MAX(t.filing_date) AS filing_date
+                   SUM(t.value) AS value, SUM(t.qty) AS qty, MAX(t.filing_date) AS filing_date
               FROM trades t
               LEFT JOIN insiders i ON i.insider_id = t.insider_id
              WHERE t.filing_date >= ?
@@ -219,9 +251,9 @@ def _top_filings(conn, days: int, limit: int = 5) -> list[dict]:
              GROUP BY t.ticker, t.insider_id, i.display_name, i.name, t.trade_type
              ORDER BY SUM(t.value) DESC
              LIMIT ?""",
-        (cutoff, *classes, limit),
+        (cutoff, *classes, limit * 3),
     ).fetchall()
-    return [dict(r) for r in rows]
+    return _drop_foreign_priced(conn, [dict(r) for r in rows])[:limit]
 
 
 # ───────────────────────────────────────────────────────────────────
