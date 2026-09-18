@@ -19,6 +19,7 @@ is complete, and skipped on the next run. Runs on the Studio:
     python3 pipelines/silver/backfill_10b51.py            # all quarters not yet done
     python3 pipelines/silver/backfill_10b51.py --quarter 2024QTR1
     python3 pipelines/silver/backfill_10b51.py --dry-run  # count, write nothing
+    python3 pipelines/silver/backfill_10b51.py --pending  # only unflagged lines (hourly, via keep_up.py)
 """
 from __future__ import annotations
 
@@ -85,6 +86,28 @@ def plan_flag(content: str) -> bool:
     return False
 
 
+PENDING_SQL = f"""
+WITH f AS (
+    SELECT s.accession, {FLAG_EXPR} AS flag
+      FROM bronze.edgar_submission s
+     WHERE s.accession IN (SELECT DISTINCT accession FROM silver.form4_transaction WHERE aff_10b5_1 IS NULL)
+)
+UPDATE silver.form4_transaction t SET aff_10b5_1 = f.flag
+  FROM f
+ WHERE f.accession = t.accession AND t.aff_10b5_1 IS NULL
+"""
+
+
+def run_pending(conn) -> int:
+    """Flag every line the hourly Silver build has added since the last
+    pass (aff_10b5_1 IS NULL). The steady-state path; quarters are the backfill."""
+    conn.execute("SET statement_timeout = '1800s'")
+    cur = conn.execute(PENDING_SQL)
+    n = cur.rowcount
+    conn.commit()
+    return n
+
+
 def run_quarter(conn, quarter: str, dry_run: bool) -> tuple[int, int, int]:
     """(submissions, flagged filings, silver lines updated)."""
     conn.execute("SET statement_timeout = '1800s'")
@@ -108,9 +131,15 @@ def run_quarter(conn, quarter: str, dry_run: bool) -> tuple[int, int, int]:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--quarter", help="one quarter, e.g. 2024QTR1 (default: every quarter not yet done)")
+    ap.add_argument("--pending", action="store_true",
+                    help="only lines with no flag yet (what the hourly build added); the steady-state mode")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
     conn = get_connection()
+    if args.pending:
+        n = run_pending(conn)
+        logger.info("pending: %d silver lines flagged", n)
+        return 0
     if args.quarter:
         quarters = [args.quarter]
     else:

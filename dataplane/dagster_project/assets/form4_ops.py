@@ -283,6 +283,23 @@ def ops_edgar_index_refresh(context: AssetExecutionContext) -> Output:
     return _run(context, [BREW, f"{REPO}/scripts/fetch_sec_index.py"], timeout=900)
 
 
+@asset(group_name=GROUP, compute_kind="python",
+       description="Silver keeps up with Bronze: build new submissions, assess "
+                   "prices, flag 10b5-1 on new lines. New in 2026-09-18.")
+def ops_silver_keep_up(context: AssetExecutionContext) -> Output:
+    # Each step's work list is "rows the previous layer has that this one
+    # lacks", so an hourly run is a no-op when nothing arrived and self-heals
+    # when something was missed. Until 2026-09-18 none of it ran on a
+    # schedule and Silver stopped at what Bronze held on 09-14.
+    return _run(context, _wrapped("silver_keep_up", BREW, f"{REPO}/pipelines/silver/keep_up.py"), timeout=3300)
+
+
+@asset(group_name=GROUP, compute_kind="python",
+       description="Rebuild gold.form4_line from Silver (REFRESH MATERIALIZED VIEW). New in 2026-09-18.")
+def ops_gold_refresh(context: AssetExecutionContext) -> Output:
+    return _run(context, _wrapped("gold_refresh", BREW, f"{REPO}/pipelines/silver/keep_up.py", "--refresh-gold"), timeout=3600)
+
+
 # ── weekly ─────────────────────────────────────────────────────────────────
 
 @asset(group_name=GROUP, compute_kind="python",
@@ -375,7 +392,7 @@ form4_ops_assets = [
     ops_runner_quality_notrend, ops_runner_quality_momentum,
     ops_runner_reversal_dip,
     ops_insider_similarity,
-    ops_bronze_topup, ops_edgar_index_refresh,
+    ops_bronze_topup, ops_edgar_index_refresh, ops_silver_keep_up, ops_gold_refresh,
     ops_form4_notifications, ops_refresh_open_position_prices,
     ops_strategy_intraday,
 ]
@@ -416,6 +433,10 @@ form4_ops_schedules = [
     _sched("ops_bronze_topup_hourly", [ops_bronze_topup],       "20 * * * *"),
     # :05 every six hours, ahead of the :20 top-up. SEC rewrites form.idx daily.
     _sched("ops_edgar_index_refresh_6h", [ops_edgar_index_refresh], "5 */6 * * *"),
+    # :40 hourly, after the :20 top-up has fetched what the :05 index found.
+    _sched("ops_silver_keep_up_hourly", [ops_silver_keep_up], "40 * * * *"),
+    # 02:30 daily, off the market and after the nightly recomputes.
+    _sched("ops_gold_refresh_daily", [ops_gold_refresh], "30 2 * * *"),
 
     # Cadence preserved exactly from the plists they replace. This change is
     # orchestration, not behaviour: narrowing them to market hours the way the

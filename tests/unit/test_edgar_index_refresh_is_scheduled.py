@@ -31,3 +31,14 @@ def test_it_is_in_the_registry():
 
 def test_the_loader_rereads_the_current_quarter():
     assert "qtr != current_q" in LOADER, "a completed current quarter would never be re-read"
+
+
+def test_silver_keeps_up_hourly_and_gold_refreshes_nightly():
+    assert "def ops_silver_keep_up(" in OPS and "def ops_gold_refresh(" in OPS
+    assert '_sched("ops_silver_keep_up_hourly", [ops_silver_keep_up], "40 * * * *")' in OPS
+    assert '_sched("ops_gold_refresh_daily", [ops_gold_refresh], "30 2 * * *")' in OPS
+    assert "ops_silver_keep_up, ops_gold_refresh," in OPS
+    assert "name: silver-keep-up" in REG and "name: gold-refresh" in REG
+    keep = (ROOT / "pipelines" / "silver" / "keep_up.py").read_text(encoding="utf-8")
+    for step in ("build.py", "assess.py", "backfill_10b51.py", "--pending", "REFRESH MATERIALIZED VIEW gold.form4_line"):
+        assert step in keep

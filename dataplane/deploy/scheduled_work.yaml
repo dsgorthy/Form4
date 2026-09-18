@@ -55,6 +55,21 @@ dagster:
       been loaded exactly once, on 2026-09-06 -- so the top-up ran every hour
       with nothing to do and Bronze stopped at filings of 2026-09-04. Runs
       at :05 so the :20 top-up sees the new accessions.
+  - name: silver-keep-up
+    schedule: "40 * * * *"
+    replaced: []
+    note: >
+      NEW WORK, never had a plist. build.py (Bronze rows with no Silver
+      receipt), assess.py (unjudged prices, bounded), backfill_10b51.py
+      --pending (unflagged lines). Every work list is derived, so it heals.
+      Silver had stopped at what Bronze held on 2026-09-14.
+  - name: gold-refresh
+    schedule: "30 2 * * *"
+    replaced: []
+    note: >
+      NEW WORK. REFRESH MATERIALIZED VIEW gold.form4_line, ~2.5 minutes.
+      Gold is the parity bridge before any cutover; a nightly snapshot is
+      what the report and any reader see.
   - name: bronze-topup
     schedule: "20 * * * *"
     replaced: []
