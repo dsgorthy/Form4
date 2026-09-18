@@ -165,16 +165,22 @@ DEDUPE_COUNT_SQL = """
        AND o.rptowner_cik IS NOT NULL AND o.trade_id IN (SELECT trade_id FROM {backup} WHERE {win})
 """
 DEDUPE_SQL = """
+    -- The same join as DEDUPE_COUNT_SQL, so the guard's equality holds by
+    -- construction. This was a correlated EXISTS: the planner ran it as a
+    -- nested-loop semi join over a seq scan and it was cancelled by the
+    -- 1800 s statement timeout on 2026-09-18 (the fill had already
+    -- committed). As a join it hashes 27k sec_form345 rows against the
+    -- filled set and finishes in seconds.
     UPDATE trades s SET is_duplicate = 1
-     WHERE s.source = 'sec_form345' AND coalesce(s.is_duplicate, 0) = 0
-       AND EXISTS (
-           SELECT 1 FROM trades o
-            WHERE o.accession = s.accession AND o.insider_id = s.insider_id
-              AND o.trans_code = s.trans_code AND o.trade_date = s.trade_date
-              AND o.qty = s.qty AND abs(o.price - s.price) < 0.006
-              AND o.source = 'edgar_live' AND coalesce(o.is_duplicate, 0) = 0
-              AND o.rptowner_cik IS NOT NULL
-              AND o.trade_id IN (SELECT trade_id FROM {backup} WHERE {win}))
+      FROM (SELECT DISTINCT s2.trade_id
+              FROM trades s2
+              JOIN trades o ON o.accession = s2.accession AND o.insider_id = s2.insider_id
+                           AND o.trans_code = s2.trans_code AND o.trade_date = s2.trade_date
+                           AND o.qty = s2.qty AND abs(o.price - s2.price) < 0.006
+             WHERE s2.source = 'sec_form345' AND coalesce(s2.is_duplicate, 0) = 0
+               AND o.source = 'edgar_live' AND coalesce(o.is_duplicate, 0) = 0
+               AND o.rptowner_cik IS NOT NULL AND o.trade_id IN (SELECT trade_id FROM {backup} WHERE {win})) d
+     WHERE s.trade_id = d.trade_id
 """
 
 
