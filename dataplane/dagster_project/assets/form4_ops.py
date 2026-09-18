@@ -266,6 +266,23 @@ def ops_bronze_topup(context: AssetExecutionContext) -> Output:
                           "--retry-failed", "--limit", "4000"], timeout=1800)
 
 
+@asset(group_name=GROUP, compute_kind="python",
+       description="Re-read the current quarter's EDGAR form.idx into "
+                   "bronze.edgar_index. New in 2026-09-18.")
+def ops_edgar_index_refresh(context: AssetExecutionContext) -> Output:
+    # THE TOP-UP'S WORK LIST IS THE INDEX, AND NOTHING WAS REFRESHING THE
+    # INDEX. fetch_bronze.py fetches "accessions in bronze.edgar_index with
+    # no submission"; the index was loaded once (2026-09-06, latest filing
+    # 09-04) and never again, so the hourly top-up succeeded every hour with
+    # nothing to do while 3,849 of the last 14 days' 4,236 filings sat
+    # outside Bronze. Found 2026-09-18 by the Gold parity report's 2026 tail.
+    #
+    # fetch_sec_index.py skips completed past quarters and always re-reads
+    # the current one (ON CONFLICT DO NOTHING), so a plain run is the
+    # refresh. One request to SEC per run.
+    return _run(context, [BREW, f"{REPO}/scripts/fetch_sec_index.py"], timeout=900)
+
+
 # ── weekly ─────────────────────────────────────────────────────────────────
 
 @asset(group_name=GROUP, compute_kind="python",
@@ -358,7 +375,7 @@ form4_ops_assets = [
     ops_runner_quality_notrend, ops_runner_quality_momentum,
     ops_runner_reversal_dip,
     ops_insider_similarity,
-    ops_bronze_topup,
+    ops_bronze_topup, ops_edgar_index_refresh,
     ops_form4_notifications, ops_refresh_open_position_prices,
     ops_strategy_intraday,
 ]
@@ -397,6 +414,8 @@ form4_ops_schedules = [
     _sched("ops_pit_shadow_daily",  [ops_pit_shadow],            "0 18 * * *"),
     _sched("ops_similarity_weekly", [ops_insider_similarity],    "0 4 * * 0"),
     _sched("ops_bronze_topup_hourly", [ops_bronze_topup],       "20 * * * *"),
+    # :05 every six hours, ahead of the :20 top-up. SEC rewrites form.idx daily.
+    _sched("ops_edgar_index_refresh_6h", [ops_edgar_index_refresh], "5 */6 * * *"),
 
     # Cadence preserved exactly from the plists they replace. This change is
     # orchestration, not behaviour: narrowing them to market hours the way the

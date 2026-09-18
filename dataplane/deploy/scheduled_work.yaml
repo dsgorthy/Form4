@@ -45,6 +45,16 @@ dagster:
 
       The other three StartInterval jobs stay `exempt` and get a calendar
       schedule instead — see the note on form4-uptime.
+  - name: edgar-index-refresh
+    schedule: "5 */6 * * *"
+    replaced: []
+    note: >
+      NEW WORK, never had a plist. Re-reads the current quarter's EDGAR
+      form.idx into bronze.edgar_index (one request; completed past quarters
+      are skipped). The bronze top-up's work list is this index, and it had
+      been loaded exactly once, on 2026-09-06 -- so the top-up ran every hour
+      with nothing to do and Bronze stopped at filings of 2026-09-04. Runs
+      at :05 so the :20 top-up sees the new accessions.
   - name: bronze-topup
     schedule: "20 * * * *"
     replaced: []
