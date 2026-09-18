@@ -76,13 +76,19 @@ SELECT COUNT(DISTINCT COALESCE(filing_key, accession)) FILTER (WHERE signal_clas
    AND signal_class IN ({",".join("?" * len(MEANINGFUL))}) AND is_derivative = 0
 """
 
+# No is_joint_copy filter here, deliberately. A joint filing is one
+# transaction on the COMPANY page (distinct accession already collapses it)
+# but it belongs on EVERY co-filer's page: Boaz Weinstein's 4,949 lines are all
+# co-filed with Saba entities, and with the filter his page read 0 buys
+# against 1,178 in trades. Ordering the copies by CIK and keeping the first
+# is a company-count device, not an ownership claim.
 GOLD_INSIDER_SQL = f"""
 SELECT COUNT(DISTINCT accession) FILTER (WHERE signal_class = 'discretionary_buy')  AS buys,
        COUNT(DISTINCT accession) FILTER (WHERE signal_class = 'discretionary_sell') AS sells,
        MAX(filed_at)::date::text AS last_filing
   FROM gold.form4_line
  WHERE insider_id = ?
-   AND NOT is_joint_copy AND superseded_by IS NULL
+   AND superseded_by IS NULL
    AND signal_class IN ({",".join("?" * len(MEANINGFUL))}) AND NOT is_derivative
 """
 
