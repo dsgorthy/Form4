@@ -49,7 +49,8 @@ def test_pre_2023_filings_have_no_box_and_rely_on_text():
     assert bf.plan_flag(old)
 
 
-def test_the_candidate_query_excludes_the_element_name():
-    assert "10b5([^Oo]|$)" in bf.CANDIDATE_SQL
-    assert "<aff10b5One>" in bf.CANDIDATE_SQL
-    assert "?" not in bf.CANDIDATE_SQL, "the compat layer turns ? into a placeholder"
+def test_the_sql_rule_is_the_python_rule_and_never_matches_the_element_name():
+    for piece in ("<aff10b5One>", "<remarks>[^<]*10b5", "<footnote[^>]*>[^<]*10b5"):
+        assert piece in bf.FLAG_EXPR
+    assert "?" not in bf.APPLY_SQL and "?" not in bf.COUNT_SQL, "the compat layer turns ? into a placeholder"
+    assert "%s" in bf.APPLY_SQL and bf.APPLY_SQL.count("%s") == 1

@@ -9,9 +9,9 @@ that Gold classifies planned trades the way the product already does:
              or "10b5" appears in any <footnote>
 
 Filing-level: every line of a flagged filing is true, every line of an
-unflagged one false. Candidates are found in SQL (a regex over Bronze runs
-~3 s per quarter of ~60k submissions) and only candidates are parsed here,
-with regexes -- no XML parse, no Silver rebuild.
+unflagged one false. The whole rule runs in SQL, one quarter at a time
+(three regexes over ~60k submissions in seconds; no filing text leaves the
+database, no XML parse, no Silver rebuild).
 
 Resumable: a quarter is recorded in silver.backfill_10b51_progress when it
 is complete, and skipped on the next run. Runs on the Studio:
@@ -35,18 +35,36 @@ from config.database import get_connection  # noqa: E402
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-# The element name itself contains "10b5", so a bare content match is every
-# filing since 2023. "10b5 followed by anything but an O" keeps "10b5One"
-# out; the checkbox is tested separately. No "?" anywhere in this SQL: the
-# compat layer turns every one into a placeholder, and a regex lookahead
-# cost the first run an IndexError. A positional %s survives it (the layer
-# wraps a dict into a tuple, so named params do not).
-CANDIDATE_SQL = """
-SELECT s.accession, s.content
+# THE RULE, IN SQL, SO NO FILING TEXT LEAVES THE DATABASE. Shipping the
+# candidate submissions to Python cost 2m24s per quarter (~3 h for the
+# corpus); the three regexes over one quarter of Bronze run in seconds.
+#   checkbox   <aff10b5One>1</aff10b5One> (2023+)
+#   remarks    "10b5" inside <remarks>
+#   footnote   "10b5" inside any <footnote>
+# "[^<]*" scopes the match to the element's own text; footnotes and remarks
+# carry no child elements. No "?" anywhere in this SQL: the compat layer
+# turns every one into a placeholder.
+FLAG_EXPR = """(s.content ~  '<aff10b5One>\\s*(1|true)'
+             OR s.content ~* '<remarks>[^<]*10b5'
+             OR s.content ~* '<footnote[^>]*>[^<]*10b5')"""
+
+COUNT_SQL = f"""
+SELECT count(*) AS submissions, count(*) FILTER (WHERE {FLAG_EXPR}) AS flagged
   FROM bronze.edgar_submission s
   JOIN bronze.edgar_index i USING (accession)
  WHERE i.quarter = %s
-   AND (s.content ~ '<aff10b5One>\\s*(1|true)' OR s.content ~* '10b5([^Oo]|$)')
+"""
+
+APPLY_SQL = f"""
+WITH f AS (
+    SELECT s.accession, {FLAG_EXPR} AS flag
+      FROM bronze.edgar_submission s
+      JOIN bronze.edgar_index i USING (accession)
+     WHERE i.quarter = %s
+)
+UPDATE silver.form4_transaction t SET aff_10b5_1 = f.flag
+  FROM f
+ WHERE f.accession = t.accession
 """
 
 _BOX = re.compile(r"<aff10b5One>\s*(1|true)\s*</aff10b5One>", re.I)
@@ -55,7 +73,7 @@ _FOOTNOTE = re.compile(r"<footnote\b[^>]*>(.*?)</footnote>", re.S | re.I)
 
 
 def plan_flag(content: str) -> bool:
-    """trades' rule, on the raw submission text. Pure."""
+    """The same rule, in Python, for tests and spot checks. Pure."""
     if _BOX.search(content):
         return True
     for m in _REMARKS.finditer(content):
@@ -67,34 +85,24 @@ def plan_flag(content: str) -> bool:
     return False
 
 
-def run_quarter(conn, quarter: str, dry_run: bool) -> tuple[int, int]:
-    """(submissions in the quarter, filings flagged)."""
-    n_sub = conn.execute("SELECT count(*) AS n FROM bronze.edgar_index WHERE quarter = ?", (quarter,)).fetchone()["n"]
-    flagged = [r["accession"] for r in conn.execute(CANDIDATE_SQL, (quarter,)).fetchall() if plan_flag(r["content"])]
-    if dry_run:
-        return n_sub, len(flagged)
+def run_quarter(conn, quarter: str, dry_run: bool) -> tuple[int, int, int]:
+    """(submissions, flagged filings, silver lines updated)."""
     conn.execute("SET statement_timeout = '1800s'")
-    # Every line of a flagged filing true, every other line in the quarter false.
-    if flagged:
-        conn.execute(
-            "UPDATE silver.form4_transaction SET aff_10b5_1 = TRUE WHERE accession = ANY(?)",
-            (flagged,),
-        )
-    conn.execute(
-        """UPDATE silver.form4_transaction t SET aff_10b5_1 = FALSE
-             FROM bronze.edgar_index i
-            WHERE i.accession = t.accession AND i.quarter = ? AND t.aff_10b5_1 IS NULL""",
-        (quarter,),
-    )
+    r = conn.execute(COUNT_SQL, (quarter,)).fetchone()
+    n_sub, flagged = r["submissions"], r["flagged"]
+    if dry_run:
+        return n_sub, flagged, 0
+    cur = conn.execute(APPLY_SQL, (quarter,))
+    lines = cur.rowcount
     conn.execute(
         """INSERT INTO silver.backfill_10b51_progress (quarter, submissions, flagged)
            VALUES (?, ?, ?)
            ON CONFLICT (quarter) DO UPDATE SET submissions = excluded.submissions,
                                                flagged = excluded.flagged, done_at = now()""",
-        (quarter, n_sub, len(flagged)),
+        (quarter, n_sub, flagged),
     )
     conn.commit()
-    return n_sub, len(flagged)
+    return n_sub, flagged, lines
 
 
 def main() -> int:
@@ -112,9 +120,9 @@ def main() -> int:
     logger.info("%d quarter(s) to do%s", len(quarters), " (dry run)" if args.dry_run else "")
     total_flagged = 0
     for q in quarters:
-        n, f = run_quarter(conn, q, args.dry_run)
+        n, f, lines = run_quarter(conn, q, args.dry_run)
         total_flagged += f
-        logger.info("%s: %d submissions, %d flagged 10b5-1", q, n, f)
+        logger.info("%s: %d submissions, %d flagged 10b5-1, %d silver lines set", q, n, f, lines)
     logger.info("done: %d filings flagged across %d quarter(s)", total_flagged, len(quarters))
     return 0
 
