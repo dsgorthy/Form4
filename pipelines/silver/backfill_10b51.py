@@ -39,12 +39,13 @@ logger = logging.getLogger(__name__)
 # filing since 2023. "10b5 followed by anything but an O" keeps "10b5One"
 # out; the checkbox is tested separately. No "?" anywhere in this SQL: the
 # compat layer turns every one into a placeholder, and a regex lookahead
-# cost the first run an IndexError.
+# cost the first run an IndexError. A positional %s survives it (the layer
+# wraps a dict into a tuple, so named params do not).
 CANDIDATE_SQL = """
 SELECT s.accession, s.content
   FROM bronze.edgar_submission s
   JOIN bronze.edgar_index i USING (accession)
- WHERE i.quarter = %(quarter)s
+ WHERE i.quarter = %s
    AND (s.content ~ '<aff10b5One>\\s*(1|true)' OR s.content ~* '10b5([^Oo]|$)')
 """
 
@@ -69,7 +70,7 @@ def plan_flag(content: str) -> bool:
 def run_quarter(conn, quarter: str, dry_run: bool) -> tuple[int, int]:
     """(submissions in the quarter, filings flagged)."""
     n_sub = conn.execute("SELECT count(*) AS n FROM bronze.edgar_index WHERE quarter = ?", (quarter,)).fetchone()["n"]
-    flagged = [r["accession"] for r in conn.execute(CANDIDATE_SQL, {"quarter": quarter}).fetchall() if plan_flag(r["content"])]
+    flagged = [r["accession"] for r in conn.execute(CANDIDATE_SQL, (quarter,)).fetchall() if plan_flag(r["content"])]
     if dry_run:
         return n_sub, len(flagged)
     conn.execute("SET statement_timeout = '1800s'")
