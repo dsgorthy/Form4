@@ -48,6 +48,22 @@ SELECT rptowner_cik AS cik, insider_id
 ALTER TABLE gold.insider_by_cik ADD PRIMARY KEY (cik);
 COMMENT ON TABLE gold.insider_by_cik IS 'CIK -> insider_id as trades has it; the majority insider_id per CIK. Rebuilt with the view.';
 
+-- The symbol the product knows an issuer by. Silver's ticker is the
+-- issuerTradingSymbol as the filer typed it -- "ISCA, ISCB", "ABI/CRA",
+-- "(NYSE:FBC)", 10,057 accessions under "NONE" -- which is the whole
+-- "trades has more filings" bucket of the first parity report. The majority
+-- symbol per issuer CIK in trades is the one every page is built on.
+DROP TABLE IF EXISTS gold.ticker_by_issuer;
+CREATE TABLE gold.ticker_by_issuer AS
+SELECT issuer_cik, ticker
+  FROM (SELECT issuer_cik, ticker,
+               row_number() OVER (PARTITION BY issuer_cik ORDER BY count(*) DESC, ticker) AS rn
+          FROM trades
+         WHERE issuer_cik IS NOT NULL AND ticker IS NOT NULL AND ticker NOT IN ('', 'NONE', 'NA', 'N/A')
+         GROUP BY issuer_cik, ticker) x
+ WHERE rn = 1;
+ALTER TABLE gold.ticker_by_issuer ADD PRIMARY KEY (issuer_cik);
+
 DROP MATERIALIZED VIEW IF EXISTS gold.form4_line;
 CREATE MATERIALIZED VIEW gold.form4_line AS
 WITH hdr AS (
@@ -74,7 +90,10 @@ amend AS (
      GROUP BY o.accession
 )
 SELECT s.accession, s.rptowner_cik, s.line_no, s.is_derivative,
-       s.issuer_cik, s.ticker, s.period_of_report, s.filed_at, s.document_type, s.is_amendment,
+       s.issuer_cik,
+       COALESCE(tb.ticker, NULLIF(upper(trim(s.ticker)), '')) AS ticker,
+       s.ticker AS ticker_as_filed,
+       s.period_of_report, s.filed_at, s.document_type, s.is_amendment,
        s.rptowner_name, s.rptowner_title,
        s.security_title, s.trans_date, s.trans_code, s.trans_acquired_disp,
        s.shares, s.price_per_share, s.value, s.shares_owned_after, s.direct_indirect,
@@ -88,11 +107,12 @@ SELECT s.accession, s.rptowner_cik, s.line_no, s.is_derivative,
                           (CASE WHEN s.is_derivative THEN 1 ELSE 0 END)::bigint) AS signal_class
   FROM silver.form4_transaction s
   LEFT JOIN gold.insider_by_cik m ON m.cik = s.rptowner_cik
+  LEFT JOIN gold.ticker_by_issuer tb ON tb.issuer_cik = s.issuer_cik
   LEFT JOIN amend am ON am.original = s.accession;
 
 CREATE INDEX gold_form4_line_ticker_date ON gold.form4_line (ticker, trans_date);
 CREATE INDEX gold_form4_line_insider     ON gold.form4_line (insider_id);
 CREATE INDEX gold_form4_line_accession   ON gold.form4_line (accession);
 COMMENT ON MATERIALIZED VIEW gold.form4_line IS
-  'Silver lines plus insider_id, is_joint_copy, superseded_by and signal_class (10b5-1 unknown: gap). Read-only bridge for the parity report before any cutover.';
+  'Silver lines plus insider_id, the product''s ticker for the issuer, is_joint_copy, superseded_by and signal_class (with Silver''s aff_10b5_1). Read-only bridge for the parity report before any cutover.';
 ANALYZE gold.form4_line;

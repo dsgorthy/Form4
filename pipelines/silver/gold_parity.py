@@ -17,7 +17,8 @@ Predicates, side by side (trades -> gold):
     signal_class IN meaningful  -> signal_class IN meaningful   (Gold cannot see 10b5-1 yet; see the plan)
     is_derivative = 0           -> NOT is_derivative
     value filter: NOT value_suspect AND price_quality <> implausible
-                                -> price_quality <> 'implausible'
+                                -> price_quality NOT IN ('implausible', 'outside_band')
+                                   (Silver's 3x band is the analogue of trades' value_suspect heuristic)
 """
 from __future__ import annotations
 
@@ -54,9 +55,9 @@ GOLD_COMPANY_SQL = f"""
 SELECT COUNT(DISTINCT accession) AS filings,
        COUNT(DISTINCT COALESCE(insider_id::text, 'cik:' || rptowner_cik)) AS insiders,
        COALESCE(SUM(CASE WHEN trans_code = 'P' AND trans_date >= ?::date THEN value ELSE 0 END)
-           FILTER (WHERE price_quality IS DISTINCT FROM 'implausible'), 0) AS buy_6mo,
+           FILTER (WHERE price_quality IS NULL OR price_quality NOT IN ('implausible', 'outside_band')), 0) AS buy_6mo,
        COALESCE(SUM(CASE WHEN trans_code = 'S' AND trans_date >= ?::date THEN value ELSE 0 END)
-           FILTER (WHERE price_quality IS DISTINCT FROM 'implausible'), 0) AS sell_6mo,
+           FILTER (WHERE price_quality IS NULL OR price_quality NOT IN ('implausible', 'outside_band')), 0) AS sell_6mo,
        MIN(trans_date)::text AS first_trade, MAX(trans_date)::text AS last_trade
   FROM gold.form4_line
  WHERE ticker = ?
