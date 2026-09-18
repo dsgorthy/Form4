@@ -65,10 +65,16 @@ Open-market filings per year agree within ~1–2% from 2020 on; 2016–2019
    (3× off the band). EQT's 6-month sells read +6,096%. Gold's trusted value
    should exclude `outside_band` too; measure against `value_suspect` on the
    `value_differs` bucket before deciding.
-5. **Bronze completeness at the edges.** 2016–2019 `trades` has more
-   filings per year than Gold (`sec_form345` bulk rows Bronze's index fetch
-   may not cover, or paper-only filings); 2026 is behind by 1.6k because the
-   Bronze fetcher trails live ingest. Both need a named cause before cutover.
+5. **The edges — resolved 2026-09-18.** 2016–2019: every `trades` filing
+   has a Silver receipt; the yearly surplus is `trades` counting per
+   `filing_key` (accession + trade date + insider), so a filing with two
+   trade dates or two co-filers counts twice. Gold's per-accession count is
+   the right one. 2026: nothing refreshed `bronze.edgar_index` after
+   2026-09-06, so the hourly top-up had nothing to fetch and Bronze stopped
+   at filings of 09-04 — and nothing ran Silver's build or assess on a
+   schedule at all. Now: index refresh :05 every 6 h, top-up :20 hourly,
+   `keep_up.py` (build → assess → 10b5-1 on new lines) :40 hourly, Gold
+   refresh 02:30 nightly. Dagster assets, all in the registry.
 
 Also surfaced: `insiders` holds duplicate identities for one CIK ("GOLDMAN
 SACHS GROUP INC" and "…INC/", same CIK 0000886982; three Abrams entities).
@@ -79,11 +85,11 @@ cutover has to merge the pages.
 
 | # | step | est. | what it closes |
 |---|---|---|---|
-| 1 | **Silver `aff_10b5_1`**: add the column; a backfill that scans Bronze for `aff10b5One` (LIKE over content, ~600k submissions), re-parses those lines, sets the flag; Gold's `signal_class` call takes it. Refresh Gold. | ½ day + hours of run | gap 1 — the largest |
-| 2 | **`gold.ticker_by_issuer`**: canonical ticker per `issuer_cik` from `trades` (majority), fallback the as-filed symbol cleaned. Gold exposes `ticker` = canonical. | 2 h | gap 2 |
+| 1 | ✅ **Silver `aff_10b5_1`** (2026-09-18): filing-level flag by `trades`' own rule (checkbox, or "10b5" in remarks/footnotes), the rule in SQL per quarter of Bronze (2 s per quarter to count; the Silver UPDATE dominates); `--pending` hourly for new lines. Gold's `signal_class` takes it. | done; backfill ran 09-18 | gap 1 — the largest |
+| 2 | ✅ **`gold.ticker_by_issuer`** (2026-09-18): majority ticker per `issuer_cik` from `trades`; Gold's `ticker` is canonical, `ticker_as_filed` kept. | done | gap 2 |
 | 3 | Re-run parity. Target: `same` ≥ 90% of the SEO sample on filing counts. | ½ h | — |
 | 4 | **Trusted value** in Gold: decide the `price_quality` set that sums; compare to `value_suspect` on the value_differs bucket. | 2 h | gap 4 |
-| 5 | **Edges**: name the 2016–2019 and 2026 differences; fix the fetcher lag (it is a freshness contract, not a Gold problem). | ½ day | gap 5 |
+| 5 | ✅ **Edges** (2026-09-18): named (see gap 5) and the pipeline scheduled end to end. | done | gap 5 |
 | 6 | **Identity merges** in `insiders` (same CIK, several rows). | ½ day | insider pages |
 | 7 | **Cutover design**: `trades` as a projection of Gold — which columns the derivation pipelines (PIT grades, signals, returns) actually need, and a reload path that keeps `trade_id` stable for `strategy_portfolio`, `trade_returns`, `social_posts`. **Derek's call; nothing before step 3 is worth discussing.** | 1 day to write | — |
 
