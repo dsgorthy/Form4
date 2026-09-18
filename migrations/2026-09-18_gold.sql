@@ -33,6 +33,9 @@ SET lock_timeout = '5s';
 
 CREATE SCHEMA IF NOT EXISTS gold;
 
+-- The view depends on both tables below, so it goes first on a rebuild.
+DROP MATERIALIZED VIEW IF EXISTS gold.form4_line;
+
 -- The CIK -> insider_id map the product already uses, taken from trades.
 -- 4,171 CIKs map to more than one insider_id (name-order variants); the
 -- most frequent wins, which is the one the product's pages are built on.
@@ -64,7 +67,6 @@ SELECT issuer_cik, ticker
  WHERE rn = 1;
 ALTER TABLE gold.ticker_by_issuer ADD PRIMARY KEY (issuer_cik);
 
-DROP MATERIALIZED VIEW IF EXISTS gold.form4_line;
 CREATE MATERIALIZED VIEW gold.form4_line AS
 WITH hdr AS (
     SELECT accession,
