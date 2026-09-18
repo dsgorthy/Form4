@@ -14,7 +14,7 @@ writes a report a person can read before any cutover conversation.
 Predicates, side by side (trades -> gold):
     is_duplicate = 0            -> NOT is_joint_copy
     superseded_by IS NULL       -> superseded_by IS NULL
-    signal_class IN meaningful  -> signal_class IN meaningful   (Gold cannot see 10b5-1 yet; see the plan)
+    signal_class IN meaningful  -> signal_class IN meaningful   (Gold's flag is Silver's aff_10b5_1)
     is_derivative = 0           -> NOT is_derivative
     value filter: NOT value_suspect AND price_quality <> implausible
                                 -> price_quality NOT IN ('implausible', 'outside_band')
@@ -93,6 +93,25 @@ SELECT COUNT(DISTINCT accession) FILTER (WHERE signal_class = 'discretionary_buy
    AND signal_class IN ({",".join("?" * len(MEANINGFUL))}) AND NOT is_derivative
 """
 
+# trades' 10b5-1 flag against Silver's, on the rows the product classifies.
+# The rule is the same (checkbox, or "10b5" in remarks/footnotes); what
+# differs is coverage: trades' edgar_live and edgar_bulk rows for 2016-2019
+# carry no flag at all (only sec_form345 rows do, from the SEC dataset's own
+# field), so planned sales show as decisions there and planned purchases
+# sit in the grading population the 2026-08-24 A-List rule excluded.
+TENB51_SQL = """
+WITH g AS (SELECT DISTINCT accession FROM gold.form4_line WHERE aff_10b5_1)
+SELECT substr(t.filing_date, 1, 4) AS yr,
+       count(*) AS rows_unflagged_in_trades,
+       count(DISTINCT t.accession) AS filings,
+       count(*) FILTER (WHERE t.signal_class = 'discretionary_buy') AS planned_buys_shown_as_decisions,
+       count(*) FILTER (WHERE t.signal_class = 'discretionary_sell') AS planned_sells_shown_as_decisions
+  FROM trades t JOIN g USING (accession)
+ WHERE t.trans_code IN ('P', 'S') AND t.is_derivative = 0 AND COALESCE(t.is_10b5_1, 0) = 0
+   AND t.filing_date >= '2016'
+ GROUP BY 1 ORDER BY 1
+"""
+
 YEARLY_SQL = """
 SELECT yr, SUM(t) AS trades_filings, SUM(g) AS gold_filings FROM (
     SELECT substr(filing_date, 1, 4) AS yr, COUNT(DISTINCT COALESCE(filing_key, accession)) AS t, 0 AS g
@@ -166,6 +185,7 @@ def main() -> int:
                       "same": t["buys"] == g["buys"] and t["sells"] == g["sells"]})
 
     yearly = [dict(r) for r in conn.execute(YEARLY_SQL).fetchall()]
+    tenb51 = [dict(r) for r in conn.execute(TENB51_SQL).fetchall()]
     gaps = dict(conn.execute("""
         SELECT COUNT(*) AS lines, COUNT(insider_id) AS with_insider,
                COUNT(*) FILTER (WHERE superseded_by IS NOT NULL) AS superseded,
@@ -177,16 +197,16 @@ def main() -> int:
     with csv_path.open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0].keys())); w.writeheader(); w.writerows(rows)
 
-    from collections import Counter
-    buckets = Counter(r["bucket"] for r in rows)
-    seo = [r for r in rows if r["in_seo_sample"]]
-    seo_buckets = Counter(r["bucket"] for r in seo)
-
     def table(hdr, data, keys, limit=None):
         lines = ["| " + " | ".join(hdr) + " |", "|" + "---|" * len(hdr)]
         for r in (data if limit is None else data[:limit]):
             lines.append("| " + " | ".join(str(r.get(k, "")) for k in keys) + " |")
         return "\n".join(lines)
+
+    from collections import Counter
+    buckets = Counter(r["bucket"] for r in rows)
+    seo = [r for r in rows if r["in_seo_sample"]]
+    seo_buckets = Counter(r["bucket"] for r in seo)
 
     md = [f"# Gold parity — {date.today().isoformat()}", "",
           "What the product would show if it read `gold.form4_line` (Silver + identity, joint-copy, amendment and classification) instead of `trades`. "
@@ -194,7 +214,12 @@ def main() -> int:
           "## Gold, at a glance", "",
           f"- {gaps['lines']:,} lines; {gaps['with_insider']:,} carry an `insider_id` ({100.0*gaps['with_insider']/gaps['lines']:.1f}%); "
           f"{gaps['joint_copies']:,} are joint-filer copies; {gaps['superseded']:,} lines are superseded by an amendment.",
-          "- Known gap: Gold classifies every P/S as discretionary — Silver does not carry the 10b5-1 attribute yet. Where `trades` says `planned_*`, Gold counts it as a decision.", "",
+          "- `signal_class` is `form4_signal_class()` fed Silver's `aff_10b5_1` (the checkbox, or \"10b5\" in remarks/footnotes — trades' own rule). Tickers are the product's symbol per issuer, not the string the filer typed.", "",
+          "## 10b5-1: rows trades classifies as decisions that Silver says were planned", "",
+          "trades' own rule, applied to Silver's text, flags these filings; trades' rows carry no flag (its 2016–2019 `edgar_live`/`edgar_bulk` rows have none at all). Setting `is_10b5_1` from Silver would move every one of them to `planned_*` through the existing trigger.", "",
+          table(["year", "rows", "filings", "planned buys shown as decisions", "planned sells shown as decisions"], tenb51,
+                ["yr", "rows_unflagged_in_trades", "filings", "planned_buys_shown_as_decisions", "planned_sells_shown_as_decisions"]),
+          f"", f"Total: {sum(r['rows_unflagged_in_trades'] for r in tenb51):,} rows, {sum(r['planned_buys_shown_as_decisions'] for r in tenb51):,} of them purchases in the grading population.", "",
           "## Open-market filings per year (P/S, one per accession)", "",
           table(["year", "trades", "gold", "gold − trades"], [{**r, "d": (r["gold_filings"] or 0) - (r["trades_filings"] or 0)} for r in yearly], ["yr", "trades_filings", "gold_filings", "d"]), "",
           f"## Company pages — {len(rows)} tickers ({len(seo)} from the last 60 days of search landings + top {args.top} by volume)", "",
