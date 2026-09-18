@@ -704,6 +704,15 @@ def span_phrase(days: int) -> str:
     return "a month" if days <= 34 else f"{days} days"
 
 
+def drop_excluded(rows: list[dict], excluded) -> list[dict]:
+    """--exclude: tickers a human reading the schedule has struck. The daily
+    budget counts what is recorded, so without this the only way to replace a
+    struck post was to delete its ledger row and watch the same ticker come
+    straight back as the top candidate (UMC, 2026-09-17)."""
+    ex = {t.strip().upper() for t in excluded if t and t.strip()}
+    return [r for r in rows if (r.get("ticker") or "").upper() not in ex] if ex else rows
+
+
 def _name_key(name) -> frozenset:
     """A person, as a set of name tokens. Form 4 filers appear under
     several insider_ids when the same name is filed in different orders --
@@ -1335,6 +1344,8 @@ def main() -> int:
     ap.add_argument("--write", action="store_true",
                     help="Also write data/content/stocktwits_{date}.txt (on the "
                          "Mini: generated on the Studio over ssh, written here)")
+    ap.add_argument("--exclude", default="",
+                    help="Comma-separated tickers to leave out of today's picks (a human struck them)")
     ap.add_argument("--no-record", action="store_true",
                     help="Skip writing to social_posts (dry run)")
     args = ap.parse_args()
@@ -1349,6 +1360,7 @@ def main() -> int:
         return 0
 
     rows = drop_foreign_priced(conn, rows, day)
+    rows = drop_excluded(rows, args.exclude.split(","))
     if not rows:
         logger.info("every candidate for %s was foreign-priced or untaggable", day)
         return 0

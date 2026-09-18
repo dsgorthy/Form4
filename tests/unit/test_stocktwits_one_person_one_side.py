@@ -42,3 +42,20 @@ def test_a_filer_on_both_sides_is_dropped():
 def test_the_two_sided_query_counts_both_classes_per_filer():
     assert "HAVING COUNT(DISTINCT x.signal_class) = 2" in gen.CTX_TWO_SIDED
     assert gen.LOOKBACK_TWO_SIDED_DAYS == 5
+
+
+def test_a_one_day_window_is_not_the_last_1_days():
+    import importlib.util as _iu
+    spec = _iu.spec_from_file_location("annotate_trade", Path(__file__).resolve().parents[2] / "pipelines" / "insider_study" / "annotate_trade.py")
+    at = _iu.module_from_spec(spec); spec.loader.exec_module(at)
+    assert at._last_days(1) == "in a single day"
+    assert at._last_days(0) == "in a single day"
+    assert at._last_days(2) == "in the last 2 days"
+    assert at._last_days(None) == "in a single day"
+    src = Path(at.__file__).read_text(encoding="utf-8")
+    assert "in the last {t.get('win_cluster_span_days', 30)} days" not in src
+
+def test_excluded_tickers_are_left_out_of_the_day():
+    rows = [{"ticker": "ICLR"}, {"ticker": "STNG"}, {"ticker": "TFC"}]
+    assert [r["ticker"] for r in gen.drop_excluded(rows, ["iclr", " "])] == ["STNG", "TFC"]
+    assert gen.drop_excluded(rows, [""]) == rows

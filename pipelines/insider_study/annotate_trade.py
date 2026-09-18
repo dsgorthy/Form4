@@ -58,6 +58,16 @@ def _shares(v: float) -> str:
     return f"{v:,.0f}"
 
 
+def _last_days(days) -> str:
+    """"in a single day", "in the last 2 days" -- never "in the last 1 days",
+    which a one-day window printed on 2026-09-18."""
+    try:
+        days = int(days or 1)
+    except (TypeError, ValueError):
+        days = 30
+    return "in a single day" if days <= 1 else f"in the last {days} days"
+
+
 def _money(v: Optional[float]) -> str:
     if not v:
         return "$0"
@@ -180,7 +190,7 @@ def context_lines(t: dict) -> list[str]:
         if not t.get("_cluster_led"):
             n_ins = t["win_cluster_n"]
             out.append(f"{n_ins} insiders have {side} {_money(t.get('win_cluster_value'))} "
-                       f"here in the last {t.get('win_cluster_span_days', 30)} days.")
+                       f"here {_last_days(t.get('win_cluster_span_days', 30))}.")
 
     # --- Regime. A purchase where the record holds nothing but exercises and
     # sales is a different event from a purchase in a company that is always
