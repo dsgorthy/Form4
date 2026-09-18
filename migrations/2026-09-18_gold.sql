@@ -20,11 +20,10 @@
 --   superseded_by    a 4/A for the same issuer, owner and period replaces the
 --                    original. trades marks 1,906 rows; Silver holds ~250k
 --                    amendment lines, so expect the parity report to move here.
---   signal_class     the same SQL function trades' trigger uses. GAP: Silver
---                    does not yet carry the aff10b5One attribute (present in
---                    ~15% of submissions, true in ~1.4%), so every P/S line
---                    classifies as discretionary here. Planned trades are the
---                    one thing this view cannot see yet; see the cutover plan.
+--   signal_class     the same SQL function trades' trigger uses, fed
+--                    Silver's aff_10b5_1 (migrations/2026-09-18_silver_10b51.sql,
+--                    trades' own rule: the checkbox or "10b5" in remarks or
+--                    footnotes). NULL until the backfill has run a quarter.
 --
 -- Materialized, because it is 11.6M rows with two window/join passes and the
 -- parity script queries it per ticker. Refresh: REFRESH MATERIALIZED VIEW
@@ -79,11 +78,13 @@ SELECT s.accession, s.rptowner_cik, s.line_no, s.is_derivative,
        s.rptowner_name, s.rptowner_title,
        s.security_title, s.trans_date, s.trans_code, s.trans_acquired_disp,
        s.shares, s.price_per_share, s.value, s.shares_owned_after, s.direct_indirect,
-       s.price_quality, s.bronze_sha256, s.parser_version,
+       s.price_quality, s.aff_10b5_1, s.bronze_sha256, s.parser_version,
        m.insider_id,
        (row_number() OVER (PARTITION BY s.accession, s.line_no ORDER BY s.rptowner_cik)) > 1 AS is_joint_copy,
        am.amendment AS superseded_by,
-       form4_signal_class(s.trans_code, 0::bigint, s.trans_acquired_disp,
+       form4_signal_class(s.trans_code,
+                          (CASE WHEN s.aff_10b5_1 THEN 1 ELSE 0 END)::bigint,
+                          s.trans_acquired_disp,
                           (CASE WHEN s.is_derivative THEN 1 ELSE 0 END)::bigint) AS signal_class
   FROM silver.form4_transaction s
   LEFT JOIN gold.insider_by_cik m ON m.cik = s.rptowner_cik
