@@ -81,13 +81,48 @@ SACHS GROUP INC" and "…INC/", same CIK 0000886982; three Abrams entities).
 Gold's CIK map picks the majority insider_id, which is the right merge; the
 cutover has to merge the pages.
 
+## Round 2 (2026-09-18, evening): with the 10b5-1 flag and canonical tickers
+
+| bucket | all (242) | SEO sample (94) |
+|---|---|---|
+| same | 19 | 15 |
+| gold_has_more_filings | 22 | 17 |
+| trades_has_more_filings | 150 | 44 |
+| value_differs | 51 | 18 |
+
+The buckets inverted, and the reason is the finding of the day: **`trades`
+under-flags 10b5-1.** Its `edgar_live` and `edgar_bulk` rows for 2016–2019
+carry no flag at all (0 of ~345k; only `sec_form345` rows have one, from the
+SEC dataset's own field), and 2026 `edgar_live` rows are flagged at 29%
+against Silver's 37%. Silver applies `trades`' own rule to the filing text
+and lands at 29–41% per year, every year, which is what the SEC's rate looks
+like. The reverse direction — `trades` flagged, Silver not — is 10 rows.
+
+What that means on the product today: **300,018 `trades` rows (122,687
+filings) that Silver says were planned are classified as decisions** —
+290,233 `discretionary_sell` and **9,731 `discretionary_buy`**. The buys sit
+in the grading population and the strategy books' candidate pool that the
+2026-08-24 A-List rule ("planned purchases are no longer admitted") was
+meant to exclude. AAPL's company page: 261 "open-market" filings in
+`trades`, 145 in Gold. The per-`filing_key` over-count is a separate,
+small effect (506,364 vs 486,136 by accession since 2016, +4%).
+
+**Decision for Derek — an interim repair to `trades`, before any cutover:**
+`UPDATE trades SET is_10b5_1 = 1` for the 122,687 accessions Silver flags
+(the trigger moves `signal_class` to `planned_*`). One statement, reversible
+(the accession list is derivable), and it changes numbers people see —
+company/insider counts drop, the feed's default view thins — and the
+grading inputs, so `pit_scoring` / career grades and the books' candidate
+pool must be recomputed after it. Recommended: yes, and recompute the same
+night. Not done without a yes.
+
 ## The work, in order
 
 | # | step | est. | what it closes |
 |---|---|---|---|
 | 1 | ✅ **Silver `aff_10b5_1`** (2026-09-18): filing-level flag by `trades`' own rule (checkbox, or "10b5" in remarks/footnotes), the rule in SQL per quarter of Bronze (2 s per quarter to count; the Silver UPDATE dominates); `--pending` hourly for new lines. Gold's `signal_class` takes it. | done; backfill ran 09-18 | gap 1 — the largest |
 | 2 | ✅ **`gold.ticker_by_issuer`** (2026-09-18): majority ticker per `issuer_cik` from `trades`; Gold's `ticker` is canonical, `ticker_as_filed` kept. | done | gap 2 |
-| 3 | Re-run parity. Target: `same` ≥ 90% of the SEO sample on filing counts. | ½ h | — |
+| 3 | Re-run parity — done twice 09-18. The remaining gap is `trades`' missing 10b5-1 flags (above), not Gold. After the interim repair, re-run; expect `same` to dominate. | — | — |
 | 4 | **Trusted value** in Gold: decide the `price_quality` set that sums; compare to `value_suspect` on the value_differs bucket. | 2 h | gap 4 |
 | 5 | ✅ **Edges** (2026-09-18): named (see gap 5) and the pipeline scheduled end to end. | done | gap 5 |
 | 6 | **Identity merges** in `insiders` (same CIK, several rows). | ½ day | insider pages |
