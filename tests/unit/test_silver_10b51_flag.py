@@ -50,5 +50,6 @@ def test_pre_2023_filings_have_no_box_and_rely_on_text():
 
 
 def test_the_candidate_query_excludes_the_element_name():
-    assert "10b5(?!one)" in bf.CANDIDATE_SQL
+    assert "10b5([^Oo]|$)" in bf.CANDIDATE_SQL
     assert "<aff10b5One>" in bf.CANDIDATE_SQL
+    assert "?" not in bf.CANDIDATE_SQL, "the compat layer turns ? into a placeholder"
