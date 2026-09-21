@@ -37,6 +37,16 @@
 # Bash 3.2 (the macOS default): no associative arrays, no mapfile.
 set -u
 
+# THE MASTER HOLDS ONE FD PER FORWARDED CONNECTION FOR THREE SITES, AND A
+# LAUNCHD AGENT STARTS WITH A SOFT LIMIT OF 256 OPEN FILES. Under bot bursts
+# (AhrefsBot alone runs 6,000 requests a day here) the master hit the limit
+# and logged "accept: Too many open files" 302 times between 2026-09-16 and
+# 09-20 -- each one a dropped connection, i.e. a 502 or a timeout at the
+# edge, for every visitor and for Googlebot. Lima's own master never had
+# this problem because the hostagent raises its limit. The plist raises the
+# rlimit too (SoftResourceLimits); this is the belt to that brace.
+ulimit -n 65536 2>/dev/null || ulimit -n 10240 2>/dev/null || true
+
 CFG="${LIMA_SSH_CONFIG:-$HOME/.colima/_lima/colima/ssh.config}"
 HOST="${LIMA_SSH_HOST:-lima-colima}"
 DOCKER_SOCK="${COLIMA_DOCKER_SOCK:-$HOME/.colima/default/docker.sock}"
@@ -70,8 +80,13 @@ docker_ok() { "$DOCKER" version >/dev/null 2>&1; }
 
 reconcile() {
     if ! docker_ok; then
-        # Lima forwards the socket only at VM start. A stale socket file makes
-        # the master's bind fail, so clear it first (nothing answers on it).
+        # The master may already hold this forward -- ours does from birth --
+        # and a second request for the same path is refused as a duplicate.
+        # Cancel first, THEN clear the file, then re-forward. Doing the rm
+        # without the cancel (the first version) unlinked the master's own
+        # listener and left the duplicate refusal permanent: the Docker CLI
+        # was dead on the host from 2026-09-19 13:30 until fixed by hand.
+        ssh -F "$CFG" -O cancel -L "$DOCKER_SOCK:/var/run/docker.sock" "$HOST" >/dev/null 2>&1 || true
         rm -f "$DOCKER_SOCK"
         if ssh -F "$CFG" -O forward -L "$DOCKER_SOCK:/var/run/docker.sock" "$HOST" >/dev/null 2>&1 && docker_ok; then
             log "forwarded docker socket"
@@ -137,13 +152,22 @@ reap_our_master() {
     fi
 }
 
+# Every 20 cycles (5 min at the default), how many fds the master holds. A
+# number near the limit is the warning the 09-16..20 drops never gave.
+FD_EVERY=20
+
 main() {
-    log "start: cfg=$CFG cycle=${CYCLE}s"
-    local last=""
+    log "start: cfg=$CFG cycle=${CYCLE}s nofile=$(ulimit -n)"
+    local last="" tick=0
     while true; do
         local m
         reap_our_master
         m=$(master_pid)
+        tick=$((tick + 1))
+        if [ -n "$m" ] && [ $((tick % FD_EVERY)) -eq 0 ]; then
+            local fds; fds=$(lsof -p "$m" 2>/dev/null | wc -l | tr -d " ")
+            [ "${fds:-0}" -gt 200 ] && log "master $m holds $fds fds"
+        fi
         if [ -z "$m" ]; then
             log "no live ControlMaster; taking over"
             become_master && m=$(master_pid)

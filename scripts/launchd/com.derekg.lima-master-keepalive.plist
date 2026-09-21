@@ -13,6 +13,7 @@
 
   Install (on the Studio, from the repo):
     cp scripts/launchd/com.derekg.lima-master-keepalive.plist ~/Library/LaunchAgents/
+    launchctl bootout gui/$(id -u)/com.derekg.lima-master-keepalive 2>/dev/null   # on an upgrade: rlimits load with the plist
     launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.derekg.lima-master-keepalive.plist
     launchctl kickstart -k gui/$(id -u)/com.derekg.lima-master-keepalive
   The kickstart is not optional on this box: bootstrap loaded the job as
@@ -42,6 +43,20 @@
     <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     <key>HOME</key>
     <string>/Users/derekg</string>
+  </dict>
+
+  <!-- The master holds one fd per forwarded connection for three sites; a
+       launchd agent's default soft limit is 256, and it ran out under bot
+       bursts (302 dropped connections, 2026-09-16..20). -->
+  <key>SoftResourceLimits</key>
+  <dict>
+    <key>NumberOfFiles</key>
+    <integer>65536</integer>
+  </dict>
+  <key>HardResourceLimits</key>
+  <dict>
+    <key>NumberOfFiles</key>
+    <integer>65536</integer>
   </dict>
 
   <key>RunAtLoad</key>
