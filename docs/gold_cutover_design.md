@@ -105,10 +105,18 @@ are made once:
    a splits table); until then any "X% since their fill" line on a stock that
    later split is wrong, and the StockTwits generator's foreign-price guard
    will drop those filings rather than misstate them.
-5. **Identities merge.** 2,515 CIK groups fold (name variants); 1,659 need a
-   human — renames like Blackstone Group L.P. → Blackstone Inc., and joint
-   filings whose lines carry one owner's CIK (5,624 accessions: fix the CIK
-   from Silver, do not merge).
+5. **Identities merge, and joint filings stop being attributed to one
+   owner.** 2,515 CIK groups fold (name variants); 1,659 need a human —
+   renames like Blackstone Group L.P. → Blackstone Inc. Measured 2026-09-21
+   on a 5% sample of 2016+ open-market rows: 88.6% carry the same owner CIK
+   as their Silver line, **1.6% carry a co-filer's CIK** (99.5% of those
+   are another owner on the same filing, not a stranger), and 9.8% are joint
+   lines the one-row-per-line model cannot attribute at all. Of the 10,216
+   accessions where one CIK maps to several insider rows, 8,861 are
+   single-owner filings (a name-variant problem, merged by step 6) and
+   1,355 are joint. There is no correct repair of the 1.6% inside `trades`
+   — a joint line belongs to every co-filer — which is why Gold keeps one
+   row per line per owner and the projection inherits it.
 
 ## What this does not solve
 
