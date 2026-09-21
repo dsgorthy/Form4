@@ -26,6 +26,11 @@ BATCH_SIZE = 5000
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--since", help="Only backfill trades with filing_date >= this date")
+    parser.add_argument("--rebuild", action="store_true",
+                        help="Overwrite pit_grade / pit_blended_score on every row in the "
+                             "window, not just rows that lack one. Without it a rebuild of "
+                             "insider_ticker_scores changes nothing on trades, because every "
+                             "row already carries the grade being replaced.")
     args = parser.parse_args()
 
     db = get_connection()
@@ -53,8 +58,11 @@ def main():
 
     print(f"  {len(rows):,} PIT scores for {len(pit_data):,} insider+ticker combos ({time.time()-t0:.1f}s)", flush=True)
 
-    # Load trades needing pit_grade
-    where = "WHERE pit_grade IS NULL AND pit_blended_score IS NULL"
+    # Load trades needing pit_grade. With --rebuild, every row in the window:
+    # an unmatched row is then written back as NULL, so a grade that no
+    # longer has a score behind it (the population change of 2026-09-21
+    # stopped scoring as_of grant and exercise dates) does not linger.
+    where = "WHERE 1 = 1" if args.rebuild else "WHERE pit_grade IS NULL AND pit_blended_score IS NULL"
     if args.since:
         where += f" AND filing_date >= '{args.since}'"
 

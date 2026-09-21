@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from backfill import migrate_schema
-from pit_scoring import upsert_score
+from pit_scoring import upsert_score, MEANINGFUL_BUY_CLASSES, MEANINGFUL_CLASSES
 
 if TYPE_CHECKING:
     # compute_score_v2 annotates -> "ScoringResult" but only imported
@@ -61,29 +61,50 @@ class RunningAggregates:
     """
 
     def __init__(self):
-        # Per insider: list of (trade_date, ticker, abnormal_7d, abnormal_30d, abnormal_90d)
+        # Per insider: list of (trade_date, filing_date, ticker, abnormal_7d, abnormal_30d, abnormal_90d)
         self.insider_trades: dict[int, list[tuple]] = defaultdict(list)
-        # Per insider+ticker: list of (trade_date, abnormal_7d, abnormal_30d, abnormal_90d)
+        # Per insider+ticker: list of (trade_date, filing_date, abnormal_7d, abnormal_30d, abnormal_90d)
         self.insider_ticker_trades: dict[tuple[int, str], list[tuple]] = defaultdict(list)
         # Role lookup: (insider_id, ticker) → title
         self.roles: dict[tuple[int, str], str] = {}
-        # Primary company: insider_id → ticker with most trades
+        # Primary company: insider_id → ticker with most filings
         self.primary_ticker: dict[int, str] = {}
         self.ticker_counts: dict[int, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        # ONE OBSERVATION PER FILING. A Form 4 filled in five tranches is one
+        # decision; every tranche carries the same abnormal return, and
+        # counting the ladder made one lucky outcome look like a track record
+        # (the 2026-08-22 tranche correction, applied to the career scorer in
+        # pit_scoring._get_returns but never to this walk-forward copy).
+        self._seen_filings: set[tuple[int, str, str]] = set()
 
     def add_trade(self, insider_id: int, ticker: str, trade_date: str,
                   abnormal_7d: float | None, abnormal_30d: float | None,
-                  abnormal_90d: float | None, title: str | None):
-        """Record a new trade with 7d, 30d, and 90d returns."""
-        self.insider_trades[insider_id].append((trade_date, ticker, abnormal_7d, abnormal_30d, abnormal_90d))
-        self.insider_ticker_trades[(insider_id, ticker)].append((trade_date, abnormal_7d, abnormal_30d, abnormal_90d))
+                  abnormal_90d: float | None, title: str | None,
+                  filing_date: str | None = None,
+                  filing_key: str | None = None) -> bool:
+        """Record a filing with its 7d, 30d, and 90d returns.
 
+        Returns False when `filing_key` was already recorded for this
+        insider+ticker — a later execution lot of a filing already counted —
+        in which case nothing is added. Role bookkeeping still runs.
+        """
         if title:
             self.roles[(insider_id, ticker)] = title
+
+        fd = str(filing_date)[:10] if filing_date else str(trade_date)[:10]
+        key = (insider_id, ticker, str(filing_key) if filing_key else f"{trade_date}")
+        if key in self._seen_filings:
+            return False
+        self._seen_filings.add(key)
+
+        td = str(trade_date)[:10]
+        self.insider_trades[insider_id].append((td, fd, ticker, abnormal_7d, abnormal_30d, abnormal_90d))
+        self.insider_ticker_trades[(insider_id, ticker)].append((td, fd, abnormal_7d, abnormal_30d, abnormal_90d))
 
         self.ticker_counts[insider_id][ticker] += 1
         counts = self.ticker_counts[insider_id]
         self.primary_ticker[insider_id] = max(counts, key=counts.get)
+        return True
 
     def get_observable_returns(self, insider_id: int, ticker: str | None,
                                as_of_date: str, window: str = "7d"
@@ -93,24 +114,39 @@ class RunningAggregates:
 
         Returns tuples for recency weighting in BayesianScorerV2.
         window: "7d" (lag=10 days) or "30d" (lag=40 days)
+
+        TWO GUARDS, BOTH REQUIRED. `trade_date <= as_of - lag` makes the
+        forward return observable at all. `filing_date < as_of_date` — STRICT —
+        is what keeps a trade out of its own grade: the score is stamped as_of
+        the trade's own filing_date, so a Form 4 lodged 124 days after
+        execution clears every maturity cutoff and, without this guard, grades
+        itself on its own realised return. pit_scoring._get_returns got this
+        guard on 2026-08-30 (measured: late-filed A+/A/B rows carried a 90d
+        return of +36.59% against −6.94% for C/D, a 43.5-point gap that clean
+        rows do not show); this walk-forward copy did not, and it is the copy
+        that produces `pit_grade`, which conviction reads. Strict `<` also
+        drops same-day siblings, which is right: a filing published in the
+        same session cannot inform the score used to judge it.
         """
         from datetime import datetime, timedelta
         lag = {"7d": RETURN_OBSERVABLE_LAG, "30d": 40, "90d": 100}.get(window, RETURN_OBSERVABLE_LAG)
         cutoff_dt = datetime.strptime(as_of_date, "%Y-%m-%d") - timedelta(days=lag)
         cutoff = cutoff_dt.strftime("%Y-%m-%d")
 
-        # Index into the tuple: (trade_date, [ticker,] abnormal_7d, abnormal_30d, abnormal_90d)
-        field_idx = {"7d": 2, "30d": 3, "90d": 4}[window]
+        # Index into the tuple: (trade_date, filing_date, [ticker,] abnormal_7d, abnormal_30d, abnormal_90d)
+        field_idx = {"7d": 3, "30d": 4, "90d": 5}[window]
 
         if ticker is None:
             trades = self.insider_trades.get(insider_id, [])
             return [(td, t[field_idx]) for t in trades
-                    if (td := t[0]) <= cutoff and t[field_idx] is not None]
+                    if (td := t[0]) <= cutoff and t[1] < as_of_date
+                    and t[field_idx] is not None]
         else:
             trades = self.insider_ticker_trades.get((insider_id, ticker), [])
             # ticker_trades don't have the ticker field, so index is field_idx - 1
             return [(td, t[field_idx - 1]) for t in trades
-                    if (td := t[0]) <= cutoff and t[field_idx - 1] is not None]
+                    if (td := t[0]) <= cutoff and t[1] < as_of_date
+                    and t[field_idx - 1] is not None]
 
     # Legacy compatibility: return flat list of floats
     def get_observable_returns_flat(self, insider_id: int, ticker: str | None,
@@ -156,18 +192,30 @@ def build_walkforward_scores(
     """
     logger.info("Building walk-forward PIT scores (%s to %s)...", start_date, end_date)
 
-    # Load all trades with their returns, ordered by filing_date
-    trade_type_filter = "AND t.trade_type = 'buy'" if buy_only else ""
+    # Load all filings with their returns, ordered by filing_date.
+    #
+    # A GRADE MEASURES DECISIONS, NOT COMPENSATION. This gated on
+    # `trade_type = 'buy'` until 2026-09-21, which admits 184k compensation
+    # grants and 221k option exercises — the population the 2026-08-25 fix
+    # removed from the career scorer (pit_scoring._get_returns) and that
+    # CLAUDE.md says never to gate on trade_type. signal_class is derived,
+    # never typed, and the three hygiene predicates match every other reader.
+    classes = tuple(MEANINGFUL_BUY_CLASSES if buy_only else MEANINGFUL_CLASSES)
+    cls_ph = ", ".join("?" for _ in classes)
     trades = conn.execute(f"""
         SELECT t.trade_id, t.insider_id, t.ticker, t.trade_date, t.filing_date,
                t.title, t.trade_type,
-               tr.abnormal_7d, tr.abnormal_30d, tr.abnormal_90d
+               tr.abnormal_7d, tr.abnormal_30d, tr.abnormal_90d,
+               COALESCE(t.filing_key, t.accession, t.trade_date::text) AS filing_key
         FROM trades t
         LEFT JOIN trade_returns tr ON t.trade_id = tr.trade_id
         WHERE t.filing_date >= ? AND t.filing_date <= ?
-              {trade_type_filter}
+          AND t.signal_class IN ({cls_ph})
+          AND t.superseded_by IS NULL
+          AND t.is_derivative = 0
+          AND (t.is_duplicate = 0 OR t.is_duplicate IS NULL)
         ORDER BY t.filing_date ASC, t.trade_date ASC
-    """, (start_date, end_date)).fetchall()
+    """, (start_date, end_date, *classes)).fetchall()
 
     logger.info("Processing %d trades...", len(trades))
 
@@ -193,12 +241,21 @@ def build_walkforward_scores(
     start_time = time.monotonic()
 
     for i, row in enumerate(trades):
-        trade_id, insider_id, ticker, trade_date, filing_date, title, trade_type, abnormal_7d, abnormal_30d, abnormal_90d = row
+        (trade_id, insider_id, ticker, trade_date, filing_date, title, trade_type,
+         abnormal_7d, abnormal_30d, abnormal_90d, filing_key) = row
+        filing_date = str(filing_date)[:10]
 
-        # Add trade to running aggregates (v2: includes 30d and 90d returns)
-        agg.add_trade(insider_id, ticker, trade_date, abnormal_7d, abnormal_30d, abnormal_90d, title)
+        # Add the filing to the running aggregates. A second execution lot of
+        # a filing already recorded adds nothing and is not scored again: the
+        # score at (insider, ticker, filing_date) is one number per filing.
+        is_new = agg.add_trade(insider_id, ticker, trade_date,
+                               abnormal_7d, abnormal_30d, abnormal_90d, title,
+                               filing_date=filing_date, filing_key=filing_key)
+        if not is_new:
+            continue
 
-        # Compute PIT score using Bayesian v2 scorer
+        # Compute PIT score using Bayesian v2 scorer. The filing just added is
+        # excluded from its own score by the strict filing_date guard.
         score = agg.compute_score_v2(insider_id, ticker, filing_date)
         upsert_score(conn, score, trigger_trade_id=trade_id)
         scored += 1
@@ -311,9 +368,29 @@ def main():
         migrate_schema(conn)
 
     if args.clear:
-        logger.info("Clearing existing scores...")
-        conn.execute("DELETE FROM insider_ticker_scores")
-        conn.execute("DELETE FROM score_history")
+        # Reset the V2 walk-forward columns in the window WITHOUT deleting the
+        # rows. compute_career_grades owns career_blended_score / career_grade
+        # on these same rows and takes four hours to write them; a DELETE here
+        # erased that work whenever this job ran after it, and forced the
+        # rebuild chain into an order it does not otherwise need. Rows the new
+        # population no longer triggers keep their career columns and read as
+        # unscored (sufficient_data = 0, blended_score NULL), which every V2
+        # reader already treats as "no opinion". score_history is this job's
+        # own log and is cleared outright.
+        logger.info("Resetting V2 scores in %s..%s (career columns preserved)...",
+                    args.start, args.end)
+        conn.execute("""
+            UPDATE insider_ticker_scores
+               SET ticker_trade_count = NULL, ticker_win_rate_7d = NULL,
+                   ticker_avg_abnormal_7d = NULL, ticker_score = NULL,
+                   global_trade_count = NULL, global_win_rate_7d = NULL,
+                   global_avg_abnormal_7d = NULL, global_score = NULL,
+                   blended_score = NULL, sufficient_data = 0
+             WHERE as_of_date >= ? AND as_of_date <= ?
+        """, (args.start, args.end))
+        conn.execute(
+            "DELETE FROM score_history WHERE as_of_date >= ? AND as_of_date <= ?",
+            (args.start, args.end))
         conn.commit()
 
     buy_only = not args.all_types

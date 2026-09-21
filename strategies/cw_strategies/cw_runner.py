@@ -101,6 +101,49 @@ def _is_market_hours() -> bool:
     return True
 
 
+# ── Stops are evaluated on the CLOSE, the way the published book does it ──
+#
+# simulate_strategy_portfolio checks `close_today <= stop_price` once per
+# session. This runner checked `pnl_pct <= stop_loss` against the latest
+# trade on every ten-minute scan, which is a different, tighter rule: PRTS on
+# 2026-09-10 closed −17.6% (no stop in the book) and was stopped live at
+# −24.4% on an intraday low. CLAUDE.md records what the close rule is worth —
+# PDYN +286.9%, the best trade in Insider Breakout, traded through −20%
+# intraday and closed above it. The alerts must apply the rule the book
+# publishes. The scan schedule runs to 13:50 PT, so the 16:10–16:50 ET scans
+# see the official close.
+STOP_EVAL_AFTER_ET = (16, 5)
+
+
+def _stop_evaluation_open(now: "datetime | None" = None) -> bool:
+    """True once the session has closed and the official close is available."""
+    now = now or _now_et()
+    return (now.hour, now.minute) >= STOP_EVAL_AFTER_ET
+
+
+def _get_session_close(alpaca: "PaperBackend", ticker: str, session_date: str) -> Optional[float]:
+    """Official close of `session_date` from the daily bar, or None."""
+    _params = {"timeframe": "1Day", "start": session_date, "limit": 5}
+    data = None
+    try:
+        data = alpaca._request("GET", f"/../../v2/stocks/{ticker}/bars", params=_params)
+    except Exception:
+        import requests as _req
+        try:
+            resp = _req.get(
+                f"https://data.alpaca.markets/v2/stocks/{ticker}/bars",
+                headers=_data_api_headers(), params=_params, timeout=15,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+        except Exception:
+            data = None
+    for bar in (data or {}).get("bars", []) or []:
+        if str(bar.get("t", ""))[:10] == session_date and bar.get("c"):
+            return float(bar["c"])
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Config loader
 # ---------------------------------------------------------------------------
@@ -397,11 +440,23 @@ def ensure_portfolio_row(conn, config: dict) -> int:
 # ---------------------------------------------------------------------------
 
 def get_theoretical_equity(conn, config: dict) -> float:
-    """Starting capital + cumulative closed P&L for this strategy."""
+    """Starting capital + cumulative closed P&L of THIS RUNNER'S ledger.
+
+    Only paper / live / alert rows count. The simulator writes ten years of
+    `simulated` rows into the same table, and until 2026-09-21 this summed
+    those too: A-List read $616k of equity against a $100k stake, sized a
+    33% position at $203,290, and the $25k guardrail rejected every candidate
+    it ever saw — the book had never emitted an alert. Insider Breakout's six
+    alerts all fired at 07:00:0x PT, inside the window where the simulator
+    had just wiped its rows, so equity briefly read $100,000. The capacity
+    and dedup queries in this file already scoped to the ledger; this one
+    did not.
+    """
     row = conn.execute(
         """SELECT COALESCE(SUM(pnl_dollar), 0) AS total_pnl
            FROM strategy_portfolio
-           WHERE strategy = ? AND status = 'closed'""",
+           WHERE strategy = ? AND status = 'closed'
+             AND execution_source IN ('paper', 'live', 'alert')""",
         (config["strategy_name"],),
     ).fetchone()
     return config["starting_capital"] + (row["total_pnl"] or 0)
@@ -473,6 +528,7 @@ def _scan_signals_engine(
     conn, config: dict,
     used_trade_ids: set[int],
     held_tickers: set[str],
+    used_filings: "set[tuple[str, str]] | None" = None,
 ) -> list[dict]:
     """Engine-driven scan_signals.
 
@@ -541,6 +597,14 @@ def _scan_signals_engine(
                 run_id, strategy_name, d.ticker, d.trade_id, d.filing_date,
                 thesis_name, "dedup", False,
                 "trade_id already seen this strategy",
+                None, None, None,
+            ))
+            continue
+        if used_filings and (d.ticker, str(d.filing_date)[:10]) in used_filings:
+            audit_buffer.append((
+                run_id, strategy_name, d.ticker, d.trade_id, d.filing_date,
+                thesis_name, "dedup", False,
+                "filing already acted on this strategy",
                 None, None, None,
             ))
             continue
@@ -909,6 +973,20 @@ def scan_signals(conn, config: dict) -> list[dict]:
         ).fetchall()
         if r["trade_id"] is not None
     }
+    # FILINGS already acted on. A trade row is an execution lot; a filing is
+    # the decision. Dedup on trade_id alone let PRTS re-enter on 2026-09-11 —
+    # a second lot of the 09-09 filing that had been stopped out the day
+    # before — so the subscriber got the same filing twice. The simulator
+    # cannot do this (all lots of a filing land on one day and `entered_today`
+    # blocks the rest); the runner scans a two-day window and must remember.
+    used_filings = {
+        (r["ticker"], str(r["filing_date"])[:10])
+        for r in conn.execute(
+            "SELECT ticker, filing_date FROM strategy_portfolio "
+            "WHERE strategy = ? AND filing_date IS NOT NULL",
+            (strategy_name,),
+        ).fetchall()
+    }
 
     # PIT engine path (Phase 3 cutover, 2026-05-17, default-on).
     # Filter + conviction decisions come from the PITStrategy class instead
@@ -916,7 +994,8 @@ def scan_signals(conn, config: dict) -> list[dict]:
     # Disable via .env: PIT_ENGINE_LEGACY=1
     if _is_pit_engine_enabled():
         try:
-            return _scan_signals_engine(conn, config, used_trade_ids, held_tickers)
+            return _scan_signals_engine(conn, config, used_trade_ids, held_tickers,
+                                        used_filings=used_filings)
         except Exception as exc:
             logger.exception("PIT engine scan failed, falling back to V1 SQL path: %s", exc)
             # Fall through to V1 — never silently halt entries on engine bug
@@ -982,6 +1061,10 @@ def scan_signals(conn, config: dict) -> list[dict]:
             if tid in used_trade_ids or tid in seen_trade_ids:
                 _audit("dedup", ticker, tid, r["filing_date"], False,
                        reason="trade_id already seen this strategy")
+                continue
+            if (ticker, str(r["filing_date"])[:10]) in used_filings:
+                _audit("dedup", ticker, tid, r["filing_date"], False,
+                       reason="filing already acted on this strategy")
                 continue
             if ticker in held_tickers:
                 _audit("dedup", ticker, tid, r["filing_date"], False,
@@ -2223,15 +2306,28 @@ def check_exits(
                 if stop_loss is None:
                     stop_loss = pos.get("stop_pct")
                 # A stop must be negative; 0 / None / positive all mean "no stop".
-                if stop_loss is not None and stop_loss < 0 and pnl_pct <= stop_loss:
-                    exit_reason = "stop_loss"
-                    should_exit = True
-                elif planned_str and planned_str <= today:
-                    exit_reason = "time_exit"
-                    should_exit = True
-                elif not planned_str and trading_days_held >= target_hold:
-                    exit_reason = "time_exit"
-                    should_exit = True
+                #
+                # Evaluated on the session CLOSE, never on an intraday print —
+                # see _stop_evaluation_open. Before 16:05 ET the stop is not
+                # consulted at all; after it, the official close replaces the
+                # latest trade as the price the stop (and the exit) is measured
+                # on. Falls back to the latest trade only if the daily bar is
+                # not available yet.
+                if stop_loss is not None and stop_loss < 0 and _stop_evaluation_open():
+                    session_close = _get_session_close(alpaca, ticker, today)
+                    if session_close:
+                        current_price = session_close
+                        pnl_pct = (current_price - entry_price) / entry_price if entry_price > 0 else 0.0
+                    if pnl_pct <= stop_loss:
+                        exit_reason = "stop_loss"
+                        should_exit = True
+                if not should_exit:
+                    if planned_str and planned_str <= today:
+                        exit_reason = "time_exit"
+                        should_exit = True
+                    elif not planned_str and trading_days_held >= target_hold:
+                        exit_reason = "time_exit"
+                        should_exit = True
 
             elif exit_strategy == "trailing_stop":
                 stop_pct = exit_cfg.get("stop_pct", 0.15)

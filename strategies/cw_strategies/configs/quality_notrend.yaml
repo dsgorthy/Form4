@@ -105,10 +105,21 @@ at_capacity: skip
 circuit_breaker_dd_pct: 0.15
 
 guardrails:
+  # CAPS SIZED FOR A NOTIONAL BOOK THAT COMPOUNDS — reset 2026-09-21.
+  #
+  # These were 25_000 / 10_000, written for a $10k live account that no
+  # longer exists (Alpaca has been data-only since 2026-08-12). On a $100k
+  # alert-only stake a designed position is already $20-33k, so the dollar
+  # cap sat below the position the yaml itself asks for and every candidate
+  # that passed conviction died at the risk stage; the qty cap did the same
+  # to any stock under ~$3. The relative check in framework/risk/guardrails
+  # (max_position_pct_of_equity, default 50%) is the one that catches a
+  # sizing bug; these absolute values are a backstop a real book would need
+  # years to reach.
   min_dollar_amount: 100.0
-  max_dollar_amount: 25_000.0
+  max_dollar_amount: 150_000.0
   min_qty: 1
-  max_qty: 10_000
+  max_qty: 100_000
   min_price: 0.50
   max_price: 5_000.0
   max_daily_buys: 10

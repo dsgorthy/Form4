@@ -694,8 +694,11 @@ def simulate_one_strategy(
 
 # ── Persistence ─────────────────────────────────────────────────────────
 
-def wipe_strategy(conn, strategy_name: str) -> int:
+def wipe_strategy(conn, strategy_name: str, *, commit: bool = True) -> int:
     """Wipe the SIMULATED book. Never the live alert history.
+
+    `commit=False` leaves the delete open so persist_positions can put the
+    new rows in the same transaction — readers then never see an empty book.
 
     This deleted every row for the strategy regardless of source. Harmless
     while `strategy_portfolio` held nothing but simulated rows — but
@@ -709,7 +712,8 @@ def wipe_strategy(conn, strategy_name: str) -> int:
         "WHERE strategy = ? AND execution_source = 'simulated'",
         (strategy_name,),
     ).rowcount
-    conn.commit()
+    if commit:
+        conn.commit()
     return n or 0
 
 
@@ -738,8 +742,20 @@ def persist_positions(
     stop_pct: Optional[float] = None,
     hold_td: int = 0,
 ):
-    """Write all positions to strategy_portfolio."""
+    """Replace the simulated book in strategy_portfolio — atomically.
+
+    The old rows are deleted and the new ones inserted in ONE transaction.
+    Until 2026-09-21 run() deleted and committed first, then simulated for
+    ~5 minutes, then inserted: every reader in that window saw an empty
+    book. The public /portfolio page flashed empty at 07:00 PT daily, and
+    cw_runner, whose equity summed every closed row, read $100,000 of equity
+    for a strategy that otherwise showed $542k — which is the only reason its
+    alerts ever got past the $25k guardrail.
+    """
     portfolio_id = ensure_portfolio_row(conn, strategy_name)
+    n_deleted = wipe_strategy(conn, strategy_name, commit=False)
+    logger.info("[%s] replacing %d simulated rows in one transaction",
+                strategy_name, n_deleted)
     # stop_pct is NOT NULL in strategy_portfolio; 0 is how "no stop" is stored.
     stop_col = 0.0 if stop_pct is None else abs(stop_pct)
 
@@ -861,27 +877,17 @@ def run(strategy_name: str, mode: str, end_date: str) -> Dict[str, int]:
     sc = STRATEGY_CONFIG[strategy_name]
     cfg = yaml.safe_load(sc["yaml"].read_text())
 
-    if mode == "rebuild":
-        n_deleted = wipe_strategy(conn, strategy_name)
-        logger.info("[%s] wiped %d existing rows", strategy_name, n_deleted)
-        start = sc["start_date"]
-    elif mode == "extend":
-        # Full wipe of every simulated row for this strategy, then re-run from
-        # start_date. The previous 90d-window DELETE left pre-cutoff rows in
-        # place and the re-sim re-inserted them, causing daily duplicate
-        # accumulation (audited 2026-05-22). Full wipe costs ~30s/strategy
-        # which is fine for a daily job.
-        n_deleted = conn.execute(
-            f"""DELETE FROM {_valid_table(OUTPUT_TABLE)}
-               WHERE strategy = ? AND execution_source = 'simulated'""",
-            (strategy_name,),
-        ).rowcount
-        conn.commit()
-        logger.info("[%s] extend mode: wiped %d simulated rows",
-                    strategy_name, n_deleted or 0)
-        start = sc["start_date"]
-    else:
+    if mode not in ("rebuild", "extend"):
         raise ValueError(mode)
+    # Both modes re-simulate from start_date and REPLACE every simulated row
+    # for the strategy. The replacement is done by persist_positions, in the
+    # same transaction as the inserts, so no reader ever sees the book
+    # empty. (Extend used to delete-and-commit here, then simulate for ~5
+    # minutes before inserting — a daily window in which the public page
+    # showed nothing and the live runner mis-sized every position. The full
+    # re-sim itself is deliberate: a 90-day-window delete accumulated
+    # duplicates, audited 2026-05-22.)
+    start = sc["start_date"]
 
     t0 = time.monotonic()
     closed, open_at_end, final_equity = simulate_one_strategy(

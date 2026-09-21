@@ -116,7 +116,11 @@ STEPS = [
     ("pit_scores",       [PY, "-m", "strategies.insider_catalog.build_pit_scores",
                           "--start", PRICE_START, "--end", "2026-12-31",
                           "--clear", "--skip-migrate"]),
-    ("pit_grades",       [PY, str(STUDY / "backfill_pit_grades.py")]),
+    # --rebuild: backfill_pit_grades otherwise fills only NULL grades, which
+    # is right for the nightly top-up and a no-op on a rebuild, where every
+    # row already carries the grade being replaced.
+    ("pit_grades",       [PY, str(STUDY / "backfill_pit_grades.py"),
+                          "--since", PRICE_START, "--rebuild"]),
     ("career_grades",    [PY, str(STUDY / "compute_career_grades.py"),
                           "--since", PRICE_START, "--rebuild"]),
     ("signals",          [PY, str(STUDY / "compute_signals.py")]),

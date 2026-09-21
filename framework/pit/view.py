@@ -116,13 +116,32 @@ class PITDataView:
         career_grade = row[3] or (
             pit_score_to_grade(career_blended) if career_blended is not None else None
         )
+        # The V2 score is "latest KNOWN", not "latest row". Since 2026-09-21
+        # build_pit_scores only triggers on discretionary buys, so the newest
+        # row for a pair can be a career-only row (a grant or exercise stamped
+        # by compute_career_grades) with no V2 score behind it. Taking it
+        # blindly read as "no opinion" for a pair graded a week earlier —
+        # api/pit_helpers.get_ticker_pit_grade documents the same trap.
+        blended = row[1]
+        if blended is None or not row[6]:
+            scored = self.conn.execute(
+                """
+                SELECT blended_score
+                FROM insider_ticker_scores
+                WHERE insider_id = ? AND ticker = ? AND as_of_date <= ?
+                  AND sufficient_data = 1 AND blended_score IS NOT NULL
+                ORDER BY as_of_date DESC LIMIT 1
+                """,
+                (insider_id, ticker, self.clock.as_of_date),
+            ).fetchone()
+            blended = scored[0] if scored else None
         return InsiderScore(
             insider_id=insider_id,
             ticker=ticker,
             as_of_date=as_of,
-            blended_score=row[1],
+            blended_score=blended,
             career_blended_score=career_blended,
-            pit_grade=pit_score_to_grade(row[1]) if row[1] is not None else None,
+            pit_grade=pit_score_to_grade(blended) if blended is not None else None,
             career_grade=career_grade,
             ticker_trade_count=int(row[4] or 0),
             global_trade_count=int(row[5] or 0),

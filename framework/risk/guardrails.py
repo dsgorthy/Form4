@@ -36,6 +36,10 @@ DEFAULT_GUARDRAILS = {
     # Per-trade size
     "min_dollar_amount": 100.0,        # below this, the trade isn't material
     "max_dollar_amount": 50_000.0,     # absolute hard cap regardless of equity
+    # Per-trade size RELATIVE to the book. This is the check that catches a
+    # sizing bug: no strategy yaml sizes a position above 33% of equity, so
+    # half the book in one name is a defect whatever the dollar amount.
+    "max_position_pct_of_equity": 0.50,
     # Per-trade share count
     "min_qty": 1,
     "max_qty": 10_000,                 # huge for a single insider position
@@ -84,6 +88,10 @@ def validate_entry_order(
     if dollar_amount > cfg["max_dollar_amount"]:
         return False, (f"dollar_amount=${dollar_amount:,.0f} > "
                        f"max ${cfg['max_dollar_amount']:,.0f} (defense in depth)")
+    max_pct = float(cfg.get("max_position_pct_of_equity") or 0)
+    if max_pct > 0 and equity > 0 and dollar_amount > max_pct * equity:
+        return False, (f"dollar_amount=${dollar_amount:,.0f} > "
+                       f"{max_pct:.0%} of equity ${equity:,.0f}")
 
     if current_price < cfg["min_price"]:
         return False, (f"price=${current_price:.2f} < min "
@@ -123,9 +131,11 @@ def _count_orders_today(conn, strategy: str, side: str) -> int:
 
       - `strategy_portfolio` is the canonical position state — every
         successful entry lands here even when order_audit write fails. Used
-        as the fallback floor. Only counts paper/live (not simulated) for
-        the `buy` side; `sell` has no equivalent same-day-fired counter on
-        strategy_portfolio, so falls back to order_audit alone.
+        as the fallback floor. Counts paper/live/alert (never simulated) for
+        the `buy` side — an alert-only strategy writes no order_audit row, so
+        without 'alert' here its daily cap was unenforced; `sell` has no
+        equivalent same-day-fired counter on strategy_portfolio, so falls
+        back to order_audit alone.
     """
     audit_count = 0
     portfolio_count = 0
@@ -148,7 +158,7 @@ def _count_orders_today(conn, strategy: str, side: str) -> int:
                 """SELECT COUNT(*) AS n FROM strategy_portfolio
                     WHERE strategy = ?
                       AND entry_date = CURRENT_DATE::text
-                      AND execution_source IN ('paper', 'live')""",
+                      AND execution_source IN ('paper', 'live', 'alert')""",
                 (strategy,),
             ).fetchone()
             if row:
