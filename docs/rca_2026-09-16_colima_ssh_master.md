@@ -224,3 +224,41 @@ for whatever else that actor might be killing.
    23:25:37. Until known: treat every Colima restart as a full-service restart.
 5. The runner's plist has no KeepAlive at all; the tunnels' KeepAlive did not
    help either, so adding one is not the fix — the watchdog check is.
+
+
+## Addendum, 2026-09-20: the fix had a limit of its own
+
+The supervised master worked as designed — every death since 09-16 was a
+seven-second blip — and introduced a slower failure. A launchd agent starts
+with a soft limit of **256 open files**, and the master holds one fd per
+forwarded connection for three sites. Under crawler bursts (AhrefsBot ran
+6,176 requests in the last 24 h alone; Claude-SearchBot 1,510; Amazonbot
+643) it hit the limit and logged `accept: Too many open files` **302 times**:
+145 on 09-16 (the afternoon after the takeover), 85 on 09-19, 72 on 09-20.
+Each one is a connection refused at the edge — a 502 or a timeout for
+whoever was connecting, visitor or Googlebot. The uptime monitor caught only
+the densest bursts (09-19 13:25–13:32, all endpoints `000`; 09-20 17:32),
+because it samples once a minute. Lima's own master never had this problem;
+the hostagent raises its limit before starting it.
+
+A second defect surfaced in the same burst: when `-O check` failed to reach
+the master (the accept of the mux client itself failed), `docker_ok` failed,
+the script `rm -f`'d the docker socket file — unlinking the master's own
+listener — and every later re-forward was refused as a duplicate. The Docker
+CLI on the host was dead from 09-19 13:30 until fixed by hand on 09-20.
+
+**Fixed 09-20 23:58:** `SoftResourceLimits`/`HardResourceLimits` 65,536 in
+the plist and `ulimit -n` in the script (the start line now logs `nofile=`);
+docker-socket recovery cancels the forward before clearing the file; the
+script logs the master's fd count every five minutes once it passes 200.
+Reloaded with bootout/bootstrap/kickstart: new master, all ports and the
+socket back in **2 seconds**. `robots.txt` now asks AhrefsBot and SemrushBot
+for a 10-second crawl delay.
+
+**Why this matters beyond uptime:** Google visitors fell from 13–16/day
+(09-08..10) to 4–9 (09-11..17) to **zero from 09-18**. Googlebot got five
+hours of 502 on 09-16 and intermittent connection failures on 09-16, 09-19
+and 09-20. It still crawls (65 fetches in the last 7 h, all 200), the pages
+are 200 with canonicals and no `noindex`, robots and the sitemaps serve. The
+one thing that reads Google's side of this — crawl-error counts and index
+coverage by day — is Search Console, which Derek has to open.
