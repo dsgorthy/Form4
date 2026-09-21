@@ -50,6 +50,45 @@ ENDPOINTS = {
     "trytailorly.com": "https://trytailorly.com/",
 }
 
+# The pages Google sends people to, fetched the way Googlebot fetches them.
+# Between 2026-09-16 and 09-20 the edge dropped connections in bursts that
+# the home-page probe above never hit, and Google visitors went to zero; the
+# home page was 200 every time it was asked. These ask for what Google asks
+# for, and check that the page still says what Google needs to hear.
+GOOGLEBOT_UA = ("Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; "
+                "Googlebot/2.1; +http://www.google.com/bot.html) Chrome/126.0 Safari/537.36")
+PAGE_PROBES = {
+    "insider page (as Googlebot)": "https://form4.app/insider/gianluca-romano",
+    "company page (as Googlebot)": "https://form4.app/company/NVDA",
+    "robots.txt (as Googlebot)": "https://form4.app/robots.txt",
+    "sitemap index (as Googlebot)": "https://form4.app/sitemap.xml",
+}
+
+
+def check_page(url: str, code: int, body: str) -> list[str]:
+    """What is wrong with this response, for Google. Empty means nothing. Pure."""
+    problems = []
+    if code != 200:
+        return [f"HTTP {code}"]
+    if url.endswith("robots.txt"):
+        if "Sitemap:" not in body:
+            problems.append("robots.txt has no Sitemap line")
+        if "Disallow: /\n" in body or body.rstrip().endswith("Disallow: /"):
+            problems.append("robots.txt disallows everything")
+        return problems
+    if url.endswith("sitemap.xml"):
+        if "<sitemapindex" not in body or "<loc>" not in body:
+            problems.append("sitemap index is not a sitemapindex with locs")
+        return problems
+    low = body.lower()
+    if "noindex" in low:
+        problems.append("page carries noindex")
+    if 'rel="canonical"' not in low:
+        problems.append("page has no canonical")
+    if len(body) < 20_000:
+        problems.append(f"page is only {len(body)} bytes; the record did not render")
+    return problems
+
 # (label, database, SQL returning one date/text, max age in days)
 # Budgets are generous enough not to fire on a normal weekend but tight
 # enough that a 14-day silence is impossible.
@@ -522,6 +561,17 @@ def main() -> int:
         print(f"  {'OK  ' if ok else 'FAIL'} {name}: HTTP {code}")
         if not ok:
             problems.append(f"{name} returned HTTP {code}")
+
+    for name, url in PAGE_PROBES.items():
+        req = urllib.request.Request(url, headers={"User-Agent": GOOGLEBOT_UA, "Accept": "text/html,application/xml"})
+        try:
+            with urllib.request.urlopen(req, timeout=25) as r:
+                code, body = r.status, r.read(600_000).decode("utf-8", "replace")
+        except Exception as exc:  # noqa: BLE001
+            code, body = (getattr(exc, "code", 0) or 0), ""
+        found = check_page(url, code, body)
+        print(f"  {'OK  ' if not found else 'FAIL'} {name}: HTTP {code}" + (f" -- {'; '.join(found)}" if found else ""))
+        problems.extend(f"{name}: {f}" for f in found)
 
     reachable = ssh_psql("postgres", "SELECT 1") == "1"
     print(f"  {'OK  ' if reachable else 'FAIL'} studio reachable: {reachable}")
