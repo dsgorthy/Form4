@@ -133,3 +133,18 @@ def test_chunked_sections_filter_before_slicing():
         "the insiders branch slices before filtering; a filtered-out row would "
         "then leave a hole at the chunk boundary"
     )
+
+
+def test_the_index_does_not_pull_the_url_list():
+    """The index only names sections; pulling 5 MB to count filings chunks
+    made every crawler's index fetch cost three queries (2026-09-20)."""
+    index = (ROUTE_TS.parents[2] / "sitemap.xml" / "route.ts").read_text()
+    assert "fetchSitemapData" not in index
+    assert "renderIndex(SECTIONS" in index
+
+
+def test_the_api_serves_the_url_list_from_a_one_hour_cache():
+    api = API_PY.read_text()
+    assert "_CACHE_TTL_S = 3600" in api
+    assert "_sitemap_urls_uncached(" in api
+    assert 'if result["counts"]["tickers"]:' in api, "an empty answer from a DB hiccup must not be cached for an hour"

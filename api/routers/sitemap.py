@@ -5,6 +5,8 @@ No auth required — this data is public (tickers and IDs only, no scores/PII).
 """
 from __future__ import annotations
 
+import time
+
 from fastapi import APIRouter, Query
 
 from api.db import get_db
@@ -12,9 +14,34 @@ from api.id_encoding import encode_insider_id
 
 router = APIRouter(prefix="/api/v1/sitemap", tags=["sitemap"])
 
+# ONE COMPUTATION AN HOUR, NOT ONE PER FILE. The response is ~5 MB (51,747
+# insiders, every ticker, 90 days of filings) and Next.js refuses to cache a
+# fetch over 2 MB, so every request for any of the seven sitemap files -- and
+# every crawler's request for the index -- ran the three queries again.
+# Measured 2026-09-20: AhrefsBot, Googlebot and Bingbot between them fetched
+# sitemap files hundreds of times a day. Keyed on the two parameters; the
+# data changes daily, so an hour is fine.
+_CACHE_TTL_S = 3600
+_cache: dict[tuple[int, int], tuple[float, dict]] = {}
+
 
 @router.get("/urls")
 def sitemap_urls(
+    limit_insiders: int = Query(default=45000, ge=100, le=200000),
+    filing_days: int = Query(default=90, ge=7, le=365),
+) -> dict:
+    key = (int(limit_insiders), int(filing_days))
+    hit = _cache.get(key)
+    now = time.monotonic()
+    if hit and hit[0] > now:
+        return hit[1]
+    result = _sitemap_urls_uncached(key[0], key[1])
+    if result["counts"]["tickers"]:          # never cache an empty answer from a DB hiccup
+        _cache[key] = (now + _CACHE_TTL_S, result)
+    return result
+
+
+def _sitemap_urls_uncached(
     # Ceiling raised 50,000 -> 200,000 on 2026-09-10. The old one was set to
     # the SITEMAP PROTOCOL cap, which only worked while the client emitted one
     # file; it now chunks insiders, so the protocol cap is a per-file property

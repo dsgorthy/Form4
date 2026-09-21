@@ -100,6 +100,15 @@ SELECT s.accession, s.rptowner_cik, s.line_no, s.is_derivative,
        s.security_title, s.trans_date, s.trans_code, s.trans_acquired_disp,
        s.shares, s.price_per_share, s.value, s.shares_owned_after, s.direct_indirect,
        s.price_quality, s.aff_10b5_1, s.bronze_sha256, s.parser_version,
+       -- THE VALUE A PAGE MAY SUM. Decided 2026-09-21 (docs/gold_cutover_plan.md,
+       -- step 4): exclude 'implausible' (>= 100x the month's band, the rule
+       -- trades' price_quality uses) and anything over $5B (trades' own
+       -- value_suspect cap). NOT 'outside_band': prices.daily_prices is
+       -- split-adjusted history (Alpaca adjustment=split) and filed prices are
+       -- not, so a 3x-30x gap is mostly a later split -- the ratios spike at
+       -- 4, 5, 8, 10, 20 -- and excluding it would drop LCID's $1.8B PIF
+       -- purchase and every pre-split filing of every stock that split.
+       CASE WHEN s.price_quality = 'implausible' OR s.value > 5e9 THEN NULL ELSE s.value END AS trusted_value,
        m.insider_id,
        (row_number() OVER (PARTITION BY s.accession, s.line_no ORDER BY s.rptowner_cik)) > 1 AS is_joint_copy,
        am.amendment AS superseded_by,
