@@ -35,7 +35,12 @@ RUN addgroup --system --gid 1001 nodejs && \
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
-RUN mkdir -p .next/cache && chown -R nextjs:nodejs .next/cache
+# The whole of .next, not just .next/cache: Next writes ISR output to
+# .next/server/app/*.body and *.html at request time, and with those owned by
+# root every regeneration of /sitemap.xml and /insider-buying logged
+# "Failed to update prerender cache ... EACCES" and re-rendered on the next
+# request (seen 2026-09-20; the sitemap pulls 5 MB from the API each time).
+RUN mkdir -p .next/cache && chown -R nextjs:nodejs .next
 
 USER nextjs
 EXPOSE 3000
