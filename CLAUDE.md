@@ -181,9 +181,44 @@ to move.
 
 | Key | Public name | Status | CAGR | Key Metric |
 |-----|-------------|--------|------|------------|
-| quality_notrend | **A-List Buys** | LIVE alert-only | 69.8% blended (+50.9 vs SPY), 3x33% | A+/A insider buys, no chart condition. 44 closed sim trades. The strongest book: the trend filter QM applies costs more in trades foregone than it saves — but measured as slot occupancy the two are close, QM filling 3.40 of its 5 slots against notrend's 2.06 of 3 (68% deployed either way). |
-| quality_momentum | **Insider Breakout** | LIVE alert-only | 64.1% blended (+43.0 vs SPY), 5x20%, A+/A/B, -20% stop, 43.8% max DD daily | Same insider grade, plus above SMA50 and SMA200. 80 closed sim trades. Kept as the A/B control. |
-| reversal_dip | **Insider Dip Buys** | LIVE alert-only | 37.9% blended (+16.4 vs SPY), 4x25%, ON WATCH (verified 2026-08-23) | 10+ consecutive sells then a buy, into a 25%+ 3-month drawdown. Genuinely lumpy — went dark Dec 2025–Feb 2026 and again Jun–Aug 2026, then fired 3 in a month. Sparse alerts are expected, not a fault. |
+| quality_notrend | **A-List Buys** | LIVE alert-only — **measured NEGATIVE since the 2026-09-21 rebuild; retirement decision pending** | **−0.9%** blended vs SPY 13.4% (API; −1.6% by the overlay), sleeve −5.1%, 3x33%, 2016→ | A+/A career-graded insider buys, no chart condition. 164 closed sim trades, 51% win, 9 stops, **77% max DD daily**, −53.7% in 2018 and −48.7% in 2022. On clean grades it beat SPY in 0 of its rolling 3-year windows. |
+| quality_momentum | **Insider Breakout** | LIVE alert-only | **19.4%** blended vs SPY 13.8% (API, +5.6; **17.1%** by the overlay, +3.3 — see the two-blend note below), sleeve 17.1%, 5x20%, A+/A/B, −20% stop, 52% max DD daily, 2016→ | Same insider grade, plus above SMA50 and SMA200. 288 closed sim trades, 46.5% win, 65 stops. Beat SPY in 80% of rolling 3-year windows (worst −11%); the top 10 trades are 167% of P&L, so the other 278 net a loss. 2026 YTD +5.7% vs SPY +13.2%. |
+| reversal_dip | **Insider Dip Buys** | LIVE alert-only, ON WATCH — 14 trades ever, last entry 2025-04-14 | 15.4% blended vs SPY 16.7% (−1.2), sleeve −0.1%, 4x25% | 10+ consecutive sells then a buy into a 25%+ 3-month drawdown. Byte-identical before and after the rebuild. A retirement decision, not a window one. |
+
+**2026-09-21 — THE BOOKS WERE REBUILT ON CLEAN GRADES AND A-LIST DID NOT
+SURVIVE. Everything from here down to "Retired 2026-08-18" describes books
+that no longer exist; it stays as the record of how each defect was found.
+The current figures are the table above (read off the API 21:30 PT) and
+`docs/published_returns_methodology.md` § "2026-09-21".** What changed:
+`build_pit_scores` — the V2 walk-forward that produces `pit_grade`, the grade
+conviction reads — had missed all three grade corrections (it counted lots,
+admitted grants and exercises, and let a late filing enter its own score),
+and the career scorer's strict filing guard of 2026-08-30 had never been
+applied to history. Both were rebuilt in full. 11,585 of 358,448 purchase
+rows changed career grade; `pit_grade` A+ fell 10,533 → 3,091 and unrated
+rose 42,852 → 119,707. A-List dropped 65 positions and admitted 72 — only 6
+to the career filter (VIE, TERN, LPI among them) and 4 to conviction; **55
+were slot cascades**, including TLRY 2018 (+306%, its best trade ever), which
+now finds its three slots held by TURN, DSS and OPK. Breakout churned 128 out
+and 132 in and kept its CAGR. The published A-List figure was contaminated
+grades plus capacity luck; the yaml already called the book unvalidated.
+Restore points on Studio: `strategy_portfolio_pre_strict_20260921`,
+`trades_grades_pre_strict_20260921`, `insider_ticker_scores_pre_strict_20260921`.
+
+**TWO BLENDED FIGURES, AND THEY NO LONGER AGREE.** `summary.blended_cagr`
+(the homepage) sizes each position at the SIMULATOR's dollar amount, marks it
+daily and lets idle cash earn SPY; `/portfolio/overlay` sizes at
+`position_size × blended equity`, capped at 100%, and realises P&L at exit.
+They matched to a tenth on the old books and now differ by 2.3 points on
+Breakout (19.4 vs 17.1) and 0.7 on A-List (−0.9 vs −1.6). The overlay is the
+book the rules describe; the API figure under-allocates as the book grows and
+decays toward SPY. Which one is published is Derek's decision. Until then
+quote both, and never one alone.
+
+**The alert pipeline was also broken until 2026-09-21** (commit `b805476`):
+the runner sized positions off the simulated book, so A-List had never sent an
+alert and Breakout's only got through a 07:00 PT race; the live stop was
+intraday while the book's is close-evaluated; dedup was by lot. See Gotchas.
 
 **A-List rebuilt 2026-08-24: 10b5-1 PLANNED PURCHASES ARE NO LONGER ADMITTED.**
 The books already refused `planned_sell`; admitting `planned_buy` was an
@@ -538,5 +573,11 @@ in three weeks is one bet, and counting it as 14 produced two false alarms on
 - Board `run_board.py` strips `CLAUDECODE` env var to allow nested Claude subprocesses
 - Options pricing: `_reprice_option` tries real data first, falls back to Black-Scholes
 - Alpaca paper trading requires `.env` with per-strategy trading credentials (`ALPACA_API_KEY_QUALITY_MOMENTUM`, `ALPACA_API_KEY_REVERSAL_DIP`) and shared read-only data credentials (`ALPACA_DATA_API_KEY` / `ALPACA_DATA_API_SECRET`). See `.env` header comment for the convention
-- Three runners are live via `com.openclaw.quality-notrend`, `com.openclaw.quality-momentum` and `com.openclaw.reversal-dip` launchd services (all run `cw_runner.py`) — do not stop without approval. `com.openclaw.tenb51-surprise` was unloaded 2026-08-18 and its plist archived to `~/retired_plists/` on Studio
+- Three runners are live as Dagster one-shots — `ops_runner_quality_notrend` / `_quality_momentum` / `_reversal_dip` in `dataplane/dagster_project/assets/form4_ops.py`, `*/10 6-13 * * 1-5` PT, each running `cw_runner.py --once` — do not pause without approval. The `com.openclaw.*` runner plists on Studio are unloaded and must stay so (loading one double-scans). `com.openclaw.tenb51-surprise` was unloaded 2026-08-18 and its plist archived to `~/retired_plists/` on Studio
+- **cw_runner sizes off its OWN ledger** (`execution_source IN ('paper','live','alert')`). Until 2026-09-21 `get_theoretical_equity` summed the simulated book too: A-List read $616k, sized a $203k position and the $25k guardrail rejected every candidate — the book had never alerted. `tests/unit/test_runner_equity_is_own_ledger.py`
+- **The live stop is evaluated on the session CLOSE, after 16:05 ET**, from the daily bar (`_get_session_close`), never on an intraday print — the same rule the simulator applies. `tests/unit/test_runner_stop_is_close_evaluated.py`. Time exits still fire at the first scan of the planned day
+- **Dedup is by filing** — `(ticker, filing_date)` in the strategy's ledger — as well as by trade_id. A second lot of a filing must not re-alert after a stop (PRTS, 2026-09-11). `tests/unit/test_runner_dedups_by_filing.py`
+- **The simulator replaces a book in ONE transaction** (`persist_positions` wipes with `commit=False`). It used to delete-and-commit, then simulate for ~5 min: the public page showed an empty book at 07:00 PT daily and the runner read $100k of equity. `tests/unit/test_simulator_persist_is_atomic.py`
+- **Guardrails**: `max_position_pct_of_equity` (default 0.50) is the check that catches a sizing bug; the yaml absolute caps are 150k / 100k shares, sized for a notional book that compounds. `tests/unit/test_guardrails_fit_the_book.py`
+- **`build_pit_scores` applies the same three rules as the career scorer** (strict `filing_date < as_of`, one observation per filing, `signal_class` population). `--clear` resets the V2 columns in the window and never deletes rows — `compute_career_grades` owns the career columns on the same rows. `backfill_pit_grades --rebuild` overwrites; without it a rebuild changes nothing. `tests/unit/test_pit_scores_walkforward_guards.py`
 - **Studio-only launch agents — must never autoload on Mini.** Running the same launchd service on both machines against the same Alpaca paper account risks duplicate order submission (`submit_order` in `framework/execution/paper.py` passes no `client_order_id`, so Alpaca has no server-side dedup). The services confined to Studio: `quality-momentum`, `quality-notrend`, `reversal-dip`, `trial-emails`, `backfill-returns`, `breaking-signal`, `ceowatcher-reader`, `daily-content`, `insider-fetch`, `intraday-backfill`, `position-rules-test`, `strategy-health`, `form4-error-tail`, `form4-notifications`, `form4-seed-positions`, `form4-uptime`, `tailorly-tunnel`, `dagster-daemon`, `dagster-webserver` (dataplane orchestration — plists + install script in `dataplane/deploy/`; UI on `100.78.9.66:3030`, tailnet only; port 3000 is held by `pyrrho-staging-frontend` container), `pyrrho-desk` (Pyrrho Dataplane Desk dashboard — `100.78.9.66:3031`, tailnet only; install script `install_pyrrho_desk_service.sh`), `pg-backup` (nightly verified `pg_dump` of form4/pyrrho_data_dev/pyrrho_prod/dagster_runs at 03:15 PT, rsynced off-box to the Mini — `scripts/backup_databases.sh`, plist in `scripts/launchd/`). `~/.local/bin/studio` has a `guard_studio_only_plists` pre-check that fails `studio deploy form4` / `studio deploy pm` if any `com.openclaw.*` plist other than `claude-agent`, `etsy-bot`, `prank-mail-bot` is present on the deploying machine.

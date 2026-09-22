@@ -122,22 +122,30 @@ def _stop_evaluation_open(now: "datetime | None" = None) -> bool:
 
 
 def _get_session_close(alpaca: "PaperBackend", ticker: str, session_date: str) -> Optional[float]:
-    """Official close of `session_date` from the daily bar, or None."""
+    """Official close of `session_date` from the daily bar, or None.
+
+    Goes straight to the data API. The `/../../v2/stocks` path-traversal
+    route through the trading backend has 404'd since ~2026-05-26 (see
+    _get_latest_price); trying it first only adds two warnings per position
+    per scan before the same fallback runs. Verified 2026-09-21 after the
+    close: TISI daily close 28.01 against a 27.775 after-hours print — the
+    0.8% the stop must not be measured on.
+    """
+    import requests as _req
     _params = {"timeframe": "1Day", "start": session_date, "limit": 5}
-    data = None
     try:
-        data = alpaca._request("GET", f"/../../v2/stocks/{ticker}/bars", params=_params)
-    except Exception:
-        import requests as _req
-        try:
-            resp = _req.get(
-                f"https://data.alpaca.markets/v2/stocks/{ticker}/bars",
-                headers=_data_api_headers(), params=_params, timeout=15,
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-        except Exception:
-            data = None
+        resp = _req.get(
+            f"https://data.alpaca.markets/v2/stocks/{ticker}/bars",
+            headers=_data_api_headers(), params=_params, timeout=15,
+        )
+        if resp.status_code != 200:
+            logger.warning("Daily bar fetch HTTP %d for %s: %s",
+                           resp.status_code, ticker, resp.text[:120])
+            return None
+        data = resp.json()
+    except Exception as exc:
+        logger.warning("Daily bar fetch failed for %s: %s", ticker, exc)
+        return None
     for bar in (data or {}).get("bars", []) or []:
         if str(bar.get("t", ""))[:10] == session_date and bar.get("c"):
             return float(bar["c"])

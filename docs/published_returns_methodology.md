@@ -15,16 +15,32 @@ number *meant*. Every move traced to a definitional gap, not a market event.
 **Blended CAGR, always shown against SPY over the identical window, with the
 excess as the emphasised figure.**
 
+| | blended CAGR (API) | blended CAGR (overlay) | SPY | **excess (API / overlay)** | sleeve | max DD, trade-row | **max DD, daily** | closed trades |
+|---|---|---|---|---|---|---|---|---|
+| A-List Buys (`quality_notrend`) | **−0.9%** | −1.6% | 13.4% | **−14.3 / −15.0** | −5.1% | 71.9% | **77.4%** | 164 |
+| Insider Breakout (`quality_momentum`) | **19.4%** | 17.1% | 13.8% | **+5.6 / +3.3** | 17.1% | 25.9% | **52.3%** | 288 |
+| Insider Dip Buys (`reversal_dip`) | 15.4% | — | 16.7% | **−1.2** | −0.1% | 5.2% | 34.2% | 14 |
+
+Read off the live API at 21:30 PT on **2026-09-21**, after the books were
+rebuilt on clean grades (§ "2026-09-21" at the end of this document). The
+window is each book's first trade → today: 2016-01-05 for A-List, 2016-10-19
+for Breakout, 2018-12-24 for Dip Buys. Two blended columns because the two
+implementations no longer agree; see that section before quoting either.
+
+The table below is what this document carried from 2026-08-24 until the
+rebuild, kept so the rest of the document — which explains how each of those
+figures was reached — still reads:
+
 | | blended CAGR | SPY | **excess** | max DD, trade-row | **max DD, daily** | avg deployed |
 |---|---|---|---|---|---|---|
 | A-List Buys (`quality_notrend`) | 69.8% | 19.0% | **+50.9** | 11.4% | **23.7%** | 68% |
 | Insider Breakout (`quality_momentum`) | 64.1% | 21.0% | **+43.0** | 20.2% | **43.8%** | 68% |
 | Insider Dip Buys (`reversal_dip`) | 37.9% | 21.6% | **+16.4** | 11.3% | **21.5%** | 23% |
 
-Read off the live API on 2026-08-24, after 10b5-1 planned purchases were
-excluded from the books (see below). Only A-List moved: it was the one book
-that had ever admitted one. SPY shifts of a tenth are the window ending a day
-later, not a methodology change.
+Those were read off the live API on 2026-08-24, after 10b5-1 planned purchases
+were excluded from the books (see below), over a 2023-01-03 window. They were
+superseded twice: by the SEC reload of 2026-08-27 (coverage 48.6% → 83.7%,
+window extended to 2016) and by the 2026-09-21 grade rebuild.
 
 `avg deployed` is **mean concurrent open positions x nominal position size**,
 averaged over SPY's trading calendar from each book's start -- the same
@@ -430,6 +446,8 @@ surface drops the exclusion or the NULL guard.
 | 2026-08-23 | Breakout stop −50% → −20% | a working stop: daily drawdown 49.9% → 43.8% with CAGR up. 19 of its 85 positions now exit on it |
 | 2026-08-23 | **no change** — per-trade audit | all 172 positions re-derived from source, 2,040 checks, zero exceptions. The figures survived verification rather than moving |
 | 2026-08-24 | A-List 64.6% → 69.8% | `planned_buy` admitted on the buy side while `planned_sell` was refused on the sell side. One position ever, COE, −43.2% |
+| 2026-08-27 | A-List 69.8% → 18.5%, Breakout 64.1% → 19.0%, Dip 37.9% → −0.1% (sleeve) | the SEC reload: coverage 48.6% → 83.7%, window 2023 → 2016; and the 08-25 grade-population fix applied to history for the first time |
+| 2026-09-21 | **A-List 21.5% → −0.9%**, Breakout 20.1% → 19.4%, Dip unchanged | the V2 walk-forward scorer (`pit_grade`, which conviction reads) had missed all three grade corrections; the career scorer's strict filing guard had never been applied to history. Both rebuilt. See § "2026-09-21" |
 
 Every move before 2026-08-20 was a definitional or data defect, none a market
 event, and each now has a regression test: `test_entry_timing_eastern`,
@@ -515,3 +533,122 @@ it closed above a level it had already traded through. That is not an argument
 for changing the rule — it is an argument for knowing how much of the figure
 sits on one position, which the concentration caveat above quantifies at 88%
 for the top ten.
+
+
+---
+
+## 2026-09-21 — rebuilt on clean grades: A-List is negative, Breakout holds, and the two blends disagree
+
+### What was wrong
+
+Two scorers write the grades the books read. `compute_career_grades` produces
+`career_grade` (the filter) through `pit_scoring._get_returns`, which received
+three corrections in August: one observation per filing (08-22), only
+discretionary buys in the population (08-25), and a strict `filing_date <
+as_of_date` guard so a late filing cannot enter its own score (08-30). The
+08-30 guard was committed with the note "nothing is republished on the back
+of it" and was never applied to history.
+
+`build_pit_scores` produces `pit_grade`, the "Recent Form" V2 grade, through a
+walk-forward with its OWN copy of the history query. It had received none of
+the three. It counted lots, gated on `trade_type = 'buy'` (184k grants and
+221k exercises), and added each trade to the running aggregates before scoring
+it — so a filing lodged months after execution graded itself on its own
+realised return. `pit_grade` is the grade `compute_conviction` reads (+1.0 for
+A+/A, +0.5 for B in the composite theses; up to +3.5 in reversal), so it
+gates admission on every book.
+
+Re-scoring the books' late-filed positions with the strict career scorer
+before the rebuild gave the prediction: ELYS A+ → A (still admitted), VIE A →
+unrated, TERN A → B, LPI A → B on A-List; PRCH B → C, APPS B → D on Breakout.
+The rebuild reproduced all six exactly.
+
+### What was rebuilt, in order
+
+Restore points first (`strategy_portfolio_pre_strict_20260921`,
+`trades_grades_pre_strict_20260921`, `insider_ticker_scores_pre_strict_20260921`).
+Then `compute_career_grades --since 2016-01-01 --rebuild` (5.3 h),
+`build_pit_scores --clear` under the fixed code (3.5 min — the population is
+157,667 discretionary-buy filings, not 2.5M rows), `backfill_pit_grades
+--rebuild`, `compute_signals`, `simulate_strategy_portfolio --all --rebuild`.
+
+| | before | after |
+|---|---|---|
+| career_grade changed, purchases since 2016 | | 11,585 of 358,448 |
+| `pit_grade` A+ / A / B on purchases | 10,533 / 11,464 / 45,796 | 3,091 / 5,867 / 34,825 |
+| `pit_grade` unrated on purchases | 42,852 | 119,707 |
+| V2 rows with a score | 976,821 | 102,703 |
+
+The V2 collapse is the population rule: a score now needs prior discretionary
+buys with matured returns, and most insiders only ever receive grants. The
+insider pages' Recent Form grade therefore appears on far fewer insiders than
+before. That is the honest output, not a regression.
+
+### What it did to the books
+
+| book | positions out | positions in | P&L | blended (API) | sleeve |
+|---|---|---|---|---|---|
+| A-List | 65 | 72 | $539,907 → **−$42,712** | 21.5% → **−0.9%** | 18.6% → −5.1% |
+| Breakout | 128 | 132 | $475,924 → $375,830 | 20.1% → 19.4% | 19.4% → 17.1% |
+| Dip Buys | 3 | 3 | unchanged | unchanged | unchanged |
+
+Attribution of A-List's 65 dropped positions: 6 to the career filter (the
+late-filed set, $97k of P&L), 4 to conviction (lost the `pit_grade` bonus,
+$22k), and **55 to slot cascades** (−$18k net). The 72 admitted: 4 by a career
+grade rising into the gate (−$25k), 35 by a `pit_grade` bonus gained (+$7k),
+33 by a freed slot (−$85k). The single largest loss of value was a cascade,
+not a grade: TLRY, entered 2018-07-26 and closed +306%, keeps its A+ career
+grade and now scores a BETTER pit grade (D → B) — it is excluded because
+TURN, DSS and OPK hold the three slots that day. The published A-List figure
+was contaminated grades plus capacity luck. The new book is negative in 2018
+(−53.7%), 2022 (−48.7%), 2023 and 2025, has a 77% daily drawdown, and beat SPY
+in none of its rolling three-year windows. The yaml's own note said the book
+"should be treated as unvalidated until it has a second, independent filter".
+It is now measured, and it does not work.
+
+Breakout churned 45% of its positions and kept its CAGR: 15 out to the career
+filter (APPS, PRCH among them, $131k), 17 to conviction, 96 to cascades; 7 in
+by career grade (−$59k), 57 by a pit bonus gained (+$136k), 68 by freed slots
+(+$91k). Concentration got worse: the top ten trades are now 167% of P&L
+(103% before), so the other 278 net a loss; DAVE 2023 alone is 30%. Rolling
+3-year windows still beat SPY 80% of the time (worst −11%); 2026 YTD is +5.7%
+against SPY +13.2%.
+
+### Two blended figures
+
+`summary.blended_cagr` (what the homepage shows) and `/portfolio/overlay`
+compute the blend differently and matched to a tenth on every book until
+tonight:
+
+- the API sizes each position at the simulator's `dollar_amount` (33% or 20%
+  of the SIMULATOR's equity at entry), marks it to market daily, and lets idle
+  cash earn SPY. As blended equity outgrows simulator equity the positions
+  shrink as a share of the book, which decays the figure toward SPY;
+- the overlay sizes at `position_size × blended equity`, capped at 100%, and
+  realises `pnl_pct` at exit. That is the book the rules describe.
+
+| | API | overlay |
+|---|---|---|
+| A-List | −0.9% | −1.6% |
+| Breakout | 19.4% | 17.1% |
+
+The overlay is the defensible definition. Moving the published field to it is
+a product decision, so it is recorded here and not made. **Quote both until it
+is made.**
+
+### The pipeline defects fixed the same day (`b805476`)
+
+- `cw_runner.get_theoretical_equity` summed every closed row including ten
+  years of simulated ones. A-List read $616k against a $100k stake, asked for
+  a $203k position, and the $25k yaml guardrail rejected every candidate — it
+  had never sent an alert. Breakout's six alerts all fired 07:00:07–22 PT,
+  inside the window where the simulator had deleted its rows before
+  re-simulating and equity read $100,000. Fixed: the ledger only; the
+  simulator replaces a book in one transaction; the guardrails gain
+  `max_position_pct_of_equity` and the yaml caps are 150k / 100k shares.
+- the live stop was measured on the latest trade every ten minutes; the
+  book's is measured on the close. PRTS 2026-09-10 closed −17.6% and was
+  stopped live at −24.4%, then re-alerted next morning on a second lot. Fixed:
+  after 16:05 ET, on the daily bar; dedup by `(ticker, filing_date)`.
+
+Every fix has a test; they are named in CLAUDE.md § Gotchas.
