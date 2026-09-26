@@ -117,6 +117,116 @@ candidate are run to show the sensitivity band, not to be picked from.
 
 ---
 
+# What the train-window screens said (2016-01-01 .. 2021-12-31)
+
+163,269 filings collapse to 53,386 episodes. Baseline: mean **+0.76%** abnormal
+at 21td, median −0.47%, win 47%. (Negative medians are normal for single-stock
+excess return against an index; a portfolio compounds the mean.)
+
+## 1. The career grade barely orders tradeable returns at all
+
+Episode-level, filing-anchored, A+/A minus C/D in percentage points:
+
+| 3td | 5td | 7td | 10td | 21td | 42td |
+|---|---|---|---|---|---|
+| −0.03 | −0.04 | +0.05 | −0.13 | +0.82 | +0.23 |
+
+A+/A is 1,388 episodes at a 48–54% win rate; B is comparable or better at short
+horizons (+0.81% at 3td against A+/A's +0.55%). As a standalone gate, A+/A
+gives mean +1.44% at **t = +1.43** — not significant. **That is the entire
+current book**, and it is why it returns −0.9%: the gate is close to selecting
+at random from the discretionary-buy population, and 3 × 33% sizing then turns
+ordinary variance into a 77% drawdown.
+
+## 2. Three signals clear the corrected threshold
+
+Ticker-clustered, Bonferroni-corrected for 19 signals (|t| > 3.01):
+
+| signal | spread | t |
+|---|---|---|
+| `above_sma50` | +1.26 pp | **+4.62** |
+| `value_pct_of_adv` | +0.92 pp | **+4.57** |
+| `is_largest_ever` | +0.77 pp | **+4.10** |
+| `above_sma200` | +0.89 pp | **+3.15** |
+| `dip_1mo` | +0.71 pp | +2.99 |
+| `pct_off_52w_high` | −0.51 pp | −2.09 |
+| `dip_3mo` | +0.33 pp | +1.28 |
+| `consecutive_sells_before` | +0.13 pp | +0.40 |
+| `filing_lag_days` | −0.03 pp | −0.17 |
+
+**The dip does not replicate.** The 2026-08-27 panel put `dip_3mo <= -40%` at a
++10.60 spread — measured on `abnormal_90d`, which is trade-date anchored and
+inflated. On the tradeable label it is +0.33 at t = +1.28. That panel's own
+caveat said levels were not quotable; the rank does not survive either. So the
+"dip" thesis is not available as a rescue for this book, and `reversal_dip`'s
+`consecutive_sells_before` gate is worth +0.13 pp at t = +0.40.
+
+## 3. Liquidity-relative size is monotone, and it is not the trend
+
+`value_pct_of_adv` = trade value / 20-session average dollar volume, anchored on
+the last session that had closed when the filing was accepted. Deciles, mean
+abnormal at 21td:
+
+| d1 | d2 | d3 | d4 | d5 | d6 | d7 | d8 | d9 | d10 |
+|---|---|---|---|---|---|---|---|---|---|
+| 0.33 | −0.06 | 0.29 | 0.60 | 0.66 | 0.40 | **1.14** | **1.22** | **1.52** | **1.62** |
+
+It turns at decile 7, which is `>= 0.026` — the purchase is at least 2.6% of a
+day's dollar volume. Top minus bottom decile +1.30 pp, clustered t = +2.45.
+
+Crossed with the trend, the two are **independently additive, not one setup**:
+
+| value/ADV ↓ , above SMA50 → | below | above |
+|---|---|---|
+| bottom third | −0.21% | +0.42% |
+| middle third | +0.21% | +1.43% |
+| **top third** | **+1.16%** | **+2.91%** |
+
+## 4. Candidate supply, per year on train
+
+| filter | episodes | mean | clustered t | per year |
+|---|---|---|---|---|
+| `grade A+,A` (the current book) | 1,366 | +1.44% | +1.43 | 125–473 |
+| `grade A+,A,B` | 6,978 | +0.96% | +0.89 | 915–1,616 |
+| `adv >= 0.026` | 21,077 | +1.40% | **+4.83** | 2,957–3,957 |
+| `grade A+,A,B` + `adv >= 0.026` | 2,924 | +1.53% | +2.18 | 351–688 |
+| `adv >= 0.026` + `above_sma50` | 5,832 | +2.80% | **+7.02** | 769–1,122 |
+| `grade A+,A,B` + `adv >= 0.026` + `above_sma50` | 855 | +3.49% | +3.67 | 104–226 |
+
+The grade floor raises the mean about 0.7 pp and costs 85% of the candidates.
+Every row supplies far more than a 3–8 slot book can hold, so supply does not
+constrain the choice.
+
+`pct_off_52w_high` is **not** used: its edge lives almost entirely in one
+decile (stocks more than 61% off their high, +2.98% against 0.2–0.7% for
+deciles 2–9), which is exactly where the two known biases concentrate — ~2% of
+candidates are dropped for missing prices and that always removes the worst
+outcomes, and a position whose price series ends is marked to its last close
+rather than to zero.
+
+# Candidate configs — registered before any was simulated
+
+All keep `hold_days: 42`, `min_conviction: 1.5`, `exclude_recurring`,
+`exclude_tax_sales`, and `at_capacity: skip`. Sizing is always
+`position_size_pct × max_concurrent = 1.0`, so no variant can lever.
+
+| | gate | sizing | stop |
+|---|---|---|---|
+| **C0** control | `A+,A` (shipped) | 3 × 33% | −0.50 |
+| **C1** | `A+,A,B` + `adv >= 0.026` | 5 × 20% | −0.50 |
+| **C2** | C1 + `above_sma50` | 5 × 20% | −0.50 |
+| **C3** | C1 gate | 3 × 33% | −0.50 |
+| **C4** | C1 gate | 8 × 12.5% | −0.50 |
+| **C5** | `A+,A,B` + `adv >= 0.11` | 5 × 20% | −0.50 |
+| **C6** | C1 gate | 5 × 20% | −0.25 |
+
+C3 and C4 isolate sizing against the same gate; C5 tests whether the 0.026
+threshold is a knife edge; C6 tests the stop. **Which of these becomes the
+proposal is decided by the objective registered above, not chosen by eye**, and
+the holdout is then read once.
+
+---
+
 # RESULTS
 
 *(appended after the fact; see git history of this file for the order)*

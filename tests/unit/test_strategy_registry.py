@@ -61,7 +61,14 @@ def test_labels_are_distinct_and_non_empty():
 
 
 def test_strategy_label_falls_back_to_the_key():
-    assert strategy_label("quality_notrend") == "A-List Buys"
+    # Reads the label off the registry rather than retyping it. This assertion
+    # used to spell "A-List Buys" in full, which made the file that exists to
+    # stop names being retyped the last place one was retyped: renaming the book
+    # on 2026-09-25 failed here for no reason but that. What is worth pinning is
+    # the BEHAVIOUR — a known key resolves to its registered label, an unknown
+    # key resolves to itself — and that is what this now checks.
+    for key in ACTIVE_STRATEGIES:
+        assert strategy_label(key) == STRATEGIES[key]["label"]
     assert strategy_label("not_a_strategy") == "not_a_strategy"
 
 

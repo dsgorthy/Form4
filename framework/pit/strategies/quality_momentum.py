@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from framework.decision.filters import evaluate_filters
 from framework.pit.events import Decision, TradeEvent
 from framework.pit.strategy import PITStrategy
 from framework.pit.view import PITDataView
@@ -37,21 +38,26 @@ class QualityMomentumStrategy(PITStrategy):
         filters = self.config.get("filters", {})
         min_conv = float(self.config.get("min_conviction", 1.5))
 
-        # ── Stage 1: filter ──────────────────────────────────────────
-        failures = []
-        wanted_grades = filters.get("career_grade")
-        if wanted_grades and event.career_grade not in wanted_grades:
-            failures.append(f"career_grade={event.career_grade!r} not in {wanted_grades}")
-        if filters.get("above_sma50") and event.above_sma50 != 1:
-            failures.append(f"above_sma50={event.above_sma50} != 1")
-        if filters.get("above_sma200") and event.above_sma200 != 1:
-            failures.append(f"above_sma200={event.above_sma200} != 1")
-        if filters.get("exclude_recurring") and event.is_recurring:
-            failures.append("is_recurring=1")
-        if filters.get("exclude_tax_sales") and event.is_tax_sale:
-            failures.append("is_tax_sale=1")
+        # ── Stage 1: filter — DELEGATED, never hand-coded ────────────
+        #
+        # This block used to check five conditions by hand: career_grade,
+        # above_sma50, above_sma200, exclude_recurring, exclude_tax_sales. Any
+        # OTHER filter a yaml declared was silently ignored on the live path
+        # while the simulator applied it, which is the drift that
+        # framework/decision/filters.py exists to close and that its own
+        # docstring listed cw_runner as still owing. It became load-bearing on
+        # 2026-09-25 when A-List adopted min_value_pct_of_adv: hand-coded, the
+        # published book would have gated on trade size and the alerts would
+        # not have.
+        #
+        # evaluate_filters is a superset of the five and applies each only when
+        # the yaml declares it, so quality_momentum's behaviour is unchanged
+        # (it declares exactly those five). The one addition is an
+        # unconditional is_duplicate check, which events_filed_on already
+        # enforces in SQL.
+        ok, failures = evaluate_filters(filters, event)
 
-        if failures:
+        if not ok:
             return Decision(
                 trade_id=event.trade_id, ticker=event.ticker,
                 filing_date=event.filing_date, strategy=self.name,

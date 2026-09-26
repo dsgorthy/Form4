@@ -16,6 +16,7 @@ Yaml inputs (from `strategies/cw_strategies/configs/reversal_dip.yaml`):
 """
 from __future__ import annotations
 
+from framework.decision.filters import evaluate_filters
 from framework.pit.events import Decision, TradeEvent
 from framework.pit.strategy import PITStrategy
 from framework.pit.view import PITDataView
@@ -26,30 +27,13 @@ class ReversalDipStrategy(PITStrategy):
         filters = self.config.get("filters", {})
         min_conv = float(self.config.get("min_conviction", 3.0))
 
-        # Stage 1: filter
-        failures = []
-        if filters.get("is_rare_reversal") and not event.is_rare_reversal:
-            failures.append("is_rare_reversal != 1")
-        min_csb = filters.get("min_consecutive_sells")
-        if min_csb is not None:
-            csb = event.consecutive_sells_before
-            if csb is None or csb < int(min_csb):
-                failures.append(f"consecutive_sells_before={csb} < {min_csb}")
-        min_dip = filters.get("min_dip_3mo")
-        if min_dip is not None:
-            d3 = event.dip_3mo
-            if d3 is None or d3 > float(min_dip):
-                failures.append(f"dip_3mo={d3} > {min_dip}")
-        if filters.get("exclude_recurring") and event.is_recurring:
-            failures.append("is_recurring=1")
-        if filters.get("exclude_tax_sales") and event.is_tax_sale:
-            failures.append("is_tax_sale=1")
-        if filters.get("exclude_routine") and event.cohen_routine:
-            failures.append("cohen_routine=1")
-        if filters.get("exclude_10b5_1") and event.is_10b5_1:
-            failures.append("is_10b5_1=1")
+        # Stage 1: filter — DELEGATED to the shared evaluator, not hand-coded.
+        # Same reasoning as quality_momentum: seven conditions by hand meant any
+        # other filter the yaml declared was applied by the simulator and
+        # ignored by the live runner. evaluate_filters covers all seven.
+        ok, failures = evaluate_filters(filters, event)
 
-        if failures:
+        if not ok:
             return Decision(
                 trade_id=event.trade_id, ticker=event.ticker,
                 filing_date=event.filing_date, strategy=self.name,

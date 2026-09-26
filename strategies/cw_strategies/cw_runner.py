@@ -783,6 +783,31 @@ def _build_thesis_query(thesis: dict, lookback_days: int) -> tuple[str, list]:
     if filters.get("is_largest_ever"):
         clauses.append("t.is_largest_ever = 1")
 
+    # ── The three signals added 2026-08-29, absent here until 2026-09-25 ──
+    #
+    # evaluate_filters (the simulator's path) has honoured these since they were
+    # built; this builder did not, so a yaml declaring one produced a published
+    # book that gated on it and alerts that did not. A-List adopting
+    # min_value_pct_of_adv is what made that live.
+    #
+    # NULL semantics match the Python evaluator deliberately: there, a None
+    # value fails the candidate; here, `NULL >= x` is NULL and the row is not
+    # returned. Both reject a candidate whose signal is unknown.
+    if "min_value_pct_of_adv" in filters:
+        clauses.append("t.value_pct_of_adv >= ?")
+        params.append(float(filters["min_value_pct_of_adv"]))
+
+    if "max_pct_off_52w_high" in filters:
+        clauses.append("t.pct_off_52w_high <= ?")
+        params.append(float(filters["max_pct_off_52w_high"]))
+
+    # Supported so the two paths agree, NOT endorsed: the measured edge behind
+    # min_filing_lag_days was the self-grading bug. See framework/decision/
+    # filters.py and tests/unit/test_filing_lag_filter_is_not_used.py.
+    if "min_filing_lag_days" in filters:
+        clauses.append("t.filing_lag_days >= ?")
+        params.append(int(filters["min_filing_lag_days"]))
+
     if "min_signal_grade" in filters:
         grade = filters["min_signal_grade"].upper()
         allowed = []
@@ -1042,7 +1067,8 @@ def scan_signals(conn, config: dict) -> list[dict]:
                 t.above_sma50,
                 t.above_sma200,
                 t.is_csuite,
-                t.is_largest_ever
+                t.is_largest_ever,
+                t.value_pct_of_adv
             FROM trades t
             JOIN insiders i ON t.insider_id = i.insider_id
             {join_clause}

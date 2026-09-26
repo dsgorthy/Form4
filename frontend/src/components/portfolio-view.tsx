@@ -151,8 +151,10 @@ function StatCard({ label, value, sub, color }: { label: string; value: string; 
 // Each name describes what actually fires the alert, because a subscriber
 // picks from these three and has to know which one is which:
 //
-//   A-List Buys       a graded insider buys. No price condition at all.
-//   Insider Breakout  the same, but the stock is already above both averages.
+//   Outsized Buys     a graded insider buys big for how much the stock trades,
+//                     and the stock is above its 50-day average.
+//   Insider Breakout  the same grade, but the stock is above BOTH averages and
+//                     nothing is asked about the size of the purchase.
 //   Insider Dip Buys  someone who has only sold, for ten filings running, buys.
 //
 // Deliberately not "Breakout" for the second. It reads as a move through
@@ -163,12 +165,12 @@ function StatCard({ label, value, sub, color }: { label: string; value: string; 
 const STRATEGIES = [
   {
     value: "quality_notrend",
-    label: "A-List Buys",
-    brief: "A proven insider just bought. The person is the whole signal — no chart condition.",
+    label: "Outsized Buys",
+    brief: "An insider buys an amount that is large for how much the stock trades, while the stock is turning up.",
     rules: [
-      "Buys when an insider graded A+ or A on their own past trades makes an open-market purchase. Nothing is required of the stock price.",
-      "10% of equity per position, 10 positions at most. Sells after 42 trading days.",
-      "Holds 6.4 positions on average against Insider Breakout's 2.6, so 59% of the book is invested rather than 21%. That deployment, not better stock-picking, is where its edge comes from.",
+      "Buys when an insider graded A+, A or B on their own past trades makes an open-market purchase worth at least 2.6% of the stock's average daily dollar volume, and the stock is above its 50-day average.",
+      "20% of equity per position, 5 positions at most. Sells after 42 trading days, or on a 50% loss.",
+      "Rebuilt on 2026-09-25. The rule before it asked only for an A+/A insider and nothing of the stock, and it lost to the S&P 500 in both halves of its history. Purchase size relative to volume is what replaced it.",
     ],
   },
   {
@@ -415,7 +417,7 @@ export function PortfolioView() {
   // Honour ?strategy= before falling back to the default. Onboarding ends with
   // router.push(`/portfolio?strategy=${chosen}`), and this component ignored
   // the param entirely — so the one question onboarding asks was thrown away
-  // the moment it was answered, and every new user landed on A-List whatever
+  // the moment it was answered, and every new user landed on the default book whatever
   // they picked.
   //
   // Validated against the published list rather than trusted: the value
@@ -426,8 +428,11 @@ export function PortfolioView() {
   const initialStrategy =
     requested && STRATEGIES.some((s) => s.value === requested)
       ? requested
-      // A-List Buys is the default: the strongest book, the only one above
-      // 50% deployed, and STRATEGIES[0] — the landing page leads with it.
+      // Outsized Buys is the default: the widest measured excess over SPY of
+      // the three (+11.7 points over the full period) and STRATEGIES[0], which
+      // is what the landing page leads with. It carried this default under its
+      // old rule too, when that rule was the WORST of the three — so if the
+      // ranking moves again, move this with it.
       : "quality_notrend";
   const [strategy, setStrategy] = useState(initialStrategy);
   const [summary, setSummary] = useState<Summary | null>(null);

@@ -37,7 +37,8 @@ def _valid_table(name: str) -> str:
 
 def blended_and_benchmark(conn, strategy: str, starting: float, years: float,
                           table: str = "strategy_portfolio",
-                          end: str | None = None):
+                          end: str | None = None,
+                          start: str | None = None):
     """Blended CAGR (idle cash in SPY), SPY's CAGR, DAILY max drawdown, annuals.
 
     Returns None when the price data is not there — a missing benchmark must
@@ -49,6 +50,16 @@ def blended_and_benchmark(conn, strategy: str, starting: float, years: float,
     boundary while idle cash goes on compounding in SPY to the present, and
     the resulting equity gets annualised over the fold's length — a 2016-2018
     fold would be credited with eight years of index return.
+
+    `start` bounds the series from below (default: the book's first entry,
+    which is what the live page wants). PASS IT WHENEVER THE TABLE HOLDS MORE
+    HISTORY THAN THE WINDOW BEING MEASURED. Without it, asking a
+    2016-2026 table for its 2022-onward performance silently returns the
+    2016-onward answer — measured on the live A-List book, "the holdout" came
+    back as −1.17% with a 77.4% drawdown, which are the full-period figures.
+    A sweep is safe either way because the simulator only wrote the fold, but
+    safe-by-accident is not the property you want in the function that decides
+    whether a book ships.
     """
     from collections import defaultdict
 
@@ -63,6 +74,8 @@ def blended_and_benchmark(conn, strategy: str, starting: float, years: float,
         return None
 
     first = min(r["entry_date"] for r in rows if r["entry_date"])
+    if start and start > first:
+        first = start
     days = sorted(d for d in spy if d >= first and (end is None or d <= end))
     if len(days) < 30:
         return None

@@ -56,7 +56,15 @@ def conn():
             career_grade TEXT,
             pit_blended_score REAL,
             company TEXT,
-            is_duplicate INTEGER DEFAULT 0
+            is_duplicate INTEGER DEFAULT 0,
+            -- Added 2026-09-25 with the fields TradeEvent now carries. The
+            -- fixture must track the real schema: a missing column here makes
+            -- the view's SELECT fail loudly (good), but a missing FIELD on
+            -- TradeEvent makes a live filter silently no-op (bad), which is
+            -- why the columns were added in the first place.
+            value_pct_of_adv REAL,
+            pct_off_52w_high REAL,
+            filing_lag_days INTEGER
         )
     """)
     db.execute("""

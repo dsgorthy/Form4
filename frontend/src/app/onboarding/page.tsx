@@ -6,7 +6,7 @@ import OnboardingForm, { type StrategyChoice } from "./onboarding-form";
  * THE STATS ARE FETCHED, NEVER TYPED.
  *
  * They were typed until 2026-08-23 and were wrong on seven of nine numbers.
- * The worst was trade frequency: A-List Buys advertised "~40 trades/yr" and
+ * The worst was trade frequency: the first book advertised "~40 trades/yr" and
  * delivers ~14, so the first thing a new subscriber saw set their expectation
  * for alert volume at nearly three times reality. Insider Breakout claimed a
  * 70% win rate against an actual 56%.

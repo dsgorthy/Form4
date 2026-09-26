@@ -168,7 +168,9 @@ class PITDataView:
                    t.is_tax_sale, t.cohen_routine,
                    t.pit_grade, t.career_grade, t.pit_blended_score,
                    t.company,
-                   COALESCE(t.filing_key, t.accession, CAST(t.trade_date AS TEXT))
+                   COALESCE(t.filing_key, t.accession, CAST(t.trade_date AS TEXT)),
+                   t.is_duplicate, t.value_pct_of_adv, t.pct_off_52w_high,
+                   t.filing_lag_days
             FROM trades t
             WHERE t.insider_id = ?
               AND t.filing_date <= ?
@@ -198,6 +200,8 @@ class PITDataView:
                 is_tax_sale=r[17], cohen_routine=r[18],
                 pit_grade=r[19], career_grade=r[20], pit_blended_score=r[21],
                 company=r[22], filing_key=r[23],
+                is_duplicate=r[24], value_pct_of_adv=r[25],
+                pct_off_52w_high=r[26], filing_lag_days=r[27],
             ))
         return out
 
@@ -275,7 +279,9 @@ class PITDataView:
                    t.is_rare_reversal, t.is_10b5_1, t.is_recurring,
                    t.is_tax_sale, t.cohen_routine,
                    t.pit_grade, t.career_grade, t.pit_blended_score,
-                   t.company
+                   t.company,
+                   t.is_duplicate, t.value_pct_of_adv, t.pct_off_52w_high,
+                   t.filing_lag_days
             FROM trades t
             WHERE t.filing_date = ?
               AND t.trade_type = ?
@@ -296,5 +302,7 @@ class PITDataView:
                 is_tax_sale=r[17], cohen_routine=r[18],
                 pit_grade=r[19], career_grade=r[20], pit_blended_score=r[21],
                 company=r[22],
+                is_duplicate=r[23], value_pct_of_adv=r[24],
+                pct_off_52w_high=r[25], filing_lag_days=r[26],
             ))
         return out

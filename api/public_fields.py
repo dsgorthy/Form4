@@ -218,9 +218,16 @@ PRO_ALERT_FIELDS = frozenset(PRO_ALERT_EVENTS + PRO_ALERT_FILTERS)
 #       stock down 25%.
 
 STRATEGIES = {
+    # RENAMED 2026-09-25 with the rule it describes. "A-List" meant A+/A only
+    # and "no chart condition" was the book's whole premise; the rule now
+    # admits B and requires the stock to be above its 50-day average, so both
+    # halves of the old label were false. The KEY is deliberately unchanged —
+    # it is written into strategy_portfolio.strategy, plist labels, yaml
+    # filenames and env prefixes, so renaming a key is a data migration while
+    # the label is the cheap half. See docs/alist_rebuild_2026-09-25.md.
     "quality_notrend": {
-        "label": "A-List Buys",
-        "thesis": "A proven insider buys. No chart condition.",
+        "label": "Outsized Buys",
+        "thesis": "An insider buys big for the stock's daily volume, as it turns up",
         "active": True,
     },
     "quality_momentum": {

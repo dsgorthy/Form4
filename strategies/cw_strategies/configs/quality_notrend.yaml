@@ -1,5 +1,5 @@
 strategy_name: quality_notrend
-display_name: "Form4 A-List Buys"
+display_name: "Form4 Outsized Buys"
 alert_prefix: "[QNT]"
 # No Alpaca account. execution_mode is alert_only and Alpaca has been
 # data-only since 2026-08-12, so this strategy needs no dedicated trading
@@ -8,29 +8,98 @@ alert_prefix: "[QNT]"
 # account each" rule in CLAUDE.md is about order-submitting strategies.
 alpaca_env_prefix: null
 starting_capital: 100000
-# RESIZED 2026-08-22, when the grading bug below was fixed.
+# ══════════════════════════════════════════════════════════════════════════
+# REBUILT 2026-09-25. The old rule was a measured losing book.
 #
-# pit_scoring counted execution tranches as independent observations, so a
-# purchase filled in five lots scored as five successful trades. Grouping by
-# filing removed 58% of this book's A+/A candidates and average concurrent
-# positions fell 6.8 -> 3.6, leaving 10x10% only 20% deployed.
+# Full account, including the design registered before any result was read:
+# docs/alist_rebuild_2026-09-25.md
 #
-# Swept 10x10, 8x12.5, 6x16.7, 5x20, 4x25, 3x33 on the corrected grades:
-# 3x33% was best at 46.5% CAGR / +25.3 vs SPY / 48% deployed.
+# WHAT WAS WRONG. This book gated on `career_grade IN (A+, A)` and nothing
+# else. On the only tradeable label (abnormal_*td_from_filing — every other
+# abnormal_* column is anchored to trade_date, which nobody can act on), that
+# gate orders almost nothing: over 2016-2021, episode-level and
+# ticker-clustered, A+/A minus C/D is -0.03 / -0.04 / +0.05 / -0.13 / +0.82 /
+# +0.23 pp at 3/5/7/10/21/42 trading days, and A+/A as a standalone gate is
+# mean +1.44% at t = +1.43. A gate that barely sorts, sized at 3 x 33%, is how
+# the book published -0.9% blended CAGR against SPY 13.4% with a 77% drawdown.
+# It lost to SPY by 12 points on 2016-2021 AND 20 points on 2022-2026, so this
+# was not bad luck in one regime.
 #
-# THIS BOOK IS WORSE UNDER CORRECTED GRADES AND NO SIZING RECOVERS IT.
-# 62.6% / +41.3 became 46.5% / +25.3 — the old figure was computed on grades
-# derived from a miscount. A-List gates on career_grade and NOTHING else, so
-# it absorbs the full error; Insider Breakout has SMA filters and survived.
-# That dependence is the real finding and this book should be treated as
-# unvalidated until it has a second, independent filter.
-position_size_pct: 0.33
-max_concurrent: 3
+# The book's own note (kept below) already said it "should be treated as
+# unvalidated until it has a second, independent filter". This is that filter.
+#
+# WHAT REPLACED IT. Two signals, each screened independently over the train
+# window with ticker-clustered standard errors and a Bonferroni threshold of
+# |t| > 3.01 for 19 signals:
+#
+#     above_sma50         +1.26 pp   t = +4.62
+#     value_pct_of_adv    +0.92 pp   t = +4.57
+#
+# and they are additive rather than one setup — mean 21td abnormal by cell:
+#
+#                        below SMA50   above SMA50
+#     bottom third          -0.21%        +0.42%
+#     middle third          +0.21%        +1.43%
+#     top third             +1.16%        +2.91%      (baseline +0.76%)
+#
+# SIZING 3 x 33% -> 5 x 20%. The concentration, not the signal, is what made
+# the drawdown 77%. Gross stays capped at 100% so the book still cannot lever.
+#
+# WHAT WAS TRIED AND REJECTED, so nobody re-derives it:
+#   - the dip. The 2026-08-27 panel put dip_3mo <= -40% at a +10.60 spread,
+#     measured on trade-date-anchored returns. On the tradeable label dip_3mo
+#     is +0.33 pp at t = +1.28. It does not replicate.
+#   - is_largest_ever as a gate (screen t = +4.10). In the book it is not
+#     stable: train folds +25.6 / +47.5 / -9.6 excess, and with the size gate
+#     +3.7 / +32.8 / -37.7.
+#   - the size gate WITHOUT the trend filter: -19.4 excess on train.
+#   - the trend filter WITHOUT the size gate: +7.6 on train and positive in
+#     all three folds, but -2.9 on the holdout. Parsimony pointed at it and
+#     the holdout rejected it; the registered objective picked the config that
+#     survived. That is the whole reason the objective was written down first.
+#   - "up short-term, down long-term" (above_sma50 and not above_sma200):
+#     339 episodes in six years at t = +0.15. Nothing.
+#
+# THE VALIDATED RESULT. Train 2016-2021: +13.50 excess, 47.8% daily drawdown,
+# 144 trades, positive in all three folds (+30.9 / +6.0 / +5.8). HOLDOUT
+# 2022-01-01 onward, read ONCE: blended 21.15% against SPY 11.40%, +9.76
+# excess, 37.0% drawdown, 99 trades. Full period: 25.1% against SPY 13.5%,
+# +11.7 excess, 47.8% drawdown, 248 trades, +16.1 after a 1% round trip.
+# Top ten trades are 102% of P&L, against 167% for Insider Breakout and 216%
+# for the book this replaces — less carried by a handful, not more. Positive
+# in 9 of 11 years; the two losses are small (2018 -$8.0k, 2022 -$12.4k).
+#
+# STILL TRUE AND STILL UNCOMFORTABLE:
+#   - a 47.8% drawdown is not a holdable product for most people. It is better
+#     than the 77% it replaces and comparable to Breakout's 52%, and that is
+#     all that can be claimed.
+#   - 13 configs were simulated. C2 was selected by an objective registered
+#     before any of them ran and validated on a holdout read once, which is the
+#     best discipline available, not a guarantee. The honest range is the fold
+#     band: +5.8 to +30.9 excess.
+#   - a TIGHTER STOP measured better on the train folds (-0.20: +32.3/+5.2/
+#     +10.0 with drawdowns 8.6/37.1/44.3; -0.30 similar) but was chosen AFTER
+#     seeing results, so it is in-sample and is NOT adopted here. It needs its
+#     own out-of-sample read.
+#   - 32% of this book's positions are also taken by Insider Breakout (80 of
+#     253). Two thirds are its own.
+# ══════════════════════════════════════════════════════════════════════════
+position_size_pct: 0.20
+max_concurrent: 5
 filing_lookback_days: 2
 
 execution_mode: alert_only
 
-# WHY THIS EXISTS
+# WHY THIS EXISTED — AND WHY THE PREMISE BELOW IS FALSIFIED (2026-09-25)
+#
+# Everything in this block is the original argument for a no-trend book. It is
+# kept because it is the record of how the book came to be, and because the
+# table in it is exactly the trap: those figures were measured on
+# trade-date-anchored returns, which include the move between the transaction
+# and the filing — a move nobody can capture, worth +2.05% on average and
+# +2.68% for A+/A trades. Re-measured on filing-anchored returns, the trend
+# filter is the STRONGEST signal available (+1.26 pp, t = +4.62), not the
+# weaker half. The book now requires above_sma50.
 #
 # quality_momentum is career_grade A+/A AND above_sma50 AND above_sma200.
 # A variant sweep through the real simulator (2023-01 .. 2026-08, stop loss,
@@ -76,9 +145,35 @@ min_conviction_above_soft: 7.0
 min_conviction_at_hard: 7.0
 
 filters:
-  # Identical to quality_momentum with above_sma50 / above_sma200 removed.
-  # Everything else is held constant so the comparison isolates one variable.
-  career_grade: ["A+", "A"]
+  # WIDENED to A+/A/B on 2026-09-25. The grade's only demonstrable work on
+  # tradeable returns is separating C/D from everything above it; A+/A against
+  # B is negative at every horizon measured. Holding the A+/A bar cost 85% of
+  # the candidates (6,978 graded episodes against 1,366) and bought nothing.
+  career_grade: ["A+", "A", "B"]
+
+  # THE SECOND FILTER THIS BOOK ALWAYS NEEDED. Trade value divided by the
+  # stock's 20-session average dollar volume — a $100k purchase means something
+  # different in a name trading $50k a day than in one trading $50m. PIT by
+  # construction: the window ends at the last session that had CLOSED when the
+  # filing was accepted, which is why it uses filed_at and not filing_date
+  # (27.3% of buys are accepted intraday, so a date-only anchor reads six hours
+  # into the future).
+  #
+  # 0.026 is the decile-7 boundary on the train window, which is where the
+  # decile curve turns. Deciles 1-6 average +0.40% at 21td; 7-10 average
+  # +1.38%:
+  #   0.33  -0.06  0.29  0.60  0.66  0.40 | 1.14  1.22  1.52  1.62
+  # Not a knife edge in the signal, though the BOOK is sensitive to it: at 0.11
+  # (decile 9) the no-trend variant swung from -19 to +16 excess, which is what
+  # a few positions look like. Tightening it is not free.
+  min_value_pct_of_adv: 0.026
+
+  # The strongest signal screened, and the reason this book is no longer the
+  # "no chart condition" book: that premise is falsified on tradeable returns.
+  # above_sma200 is deliberately NOT required — that is Insider Breakout's
+  # rule, and requiring both would make this a duplicate of it.
+  above_sma50: 1
+
   exclude_recurring: true
   exclude_tax_sales: true
 

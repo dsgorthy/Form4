@@ -154,19 +154,23 @@ def published_metrics(strategy: str, table: str, start: str, end: str) -> dict:
         logger.warning("scoring: no DB connection (%s)", exc)
         return blank
     try:
+        # Bounded to the window on BOTH sides. The table can hold more history
+        # than the window (the live book does), and an unbounded count would
+        # report the whole book's win rate next to one fold's CAGR.
         agg = conn.execute(
             f"SELECT MIN(entry_date) AS first_entry, COUNT(*) AS n, "
             f"       SUM(CASE WHEN pnl_pct > 0 THEN 1 ELSE 0 END) AS wins, "
             f"       SUM(CASE WHEN status = 'closed' THEN 1 ELSE 0 END) AS n_closed "
-            f"  FROM {table} WHERE strategy = ? AND execution_source = 'simulated'",
-            (strategy,)).fetchone()
+            f"  FROM {table} WHERE strategy = ? AND execution_source = 'simulated' "
+            f"    AND entry_date >= ? AND entry_date <= ?",
+            (strategy, start, end)).fetchone()
         first_entry = agg["first_entry"] if agg else None
         if not first_entry:
             return blank
         years = max((date.fromisoformat(end) - date.fromisoformat(first_entry[:10])).days
                     / 365.25, 0.01)
         bl = blended_and_benchmark(conn, strategy, 100_000.0, years,
-                                   table=table, end=end)
+                                   table=table, end=end, start=start)
         if not bl:
             return blank
         n_closed = int(agg["n_closed"] or 0)

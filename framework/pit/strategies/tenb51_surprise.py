@@ -12,6 +12,7 @@ Yaml inputs (from `strategies/cw_strategies/configs/tenb51_surprise.yaml`):
 """
 from __future__ import annotations
 
+from framework.decision.filters import evaluate_filters
 from framework.pit.events import Decision, TradeEvent
 from framework.pit.strategy import PITStrategy
 from framework.pit.view import PITDataView
@@ -22,13 +23,14 @@ class Tenb51SurpriseStrategy(PITStrategy):
         filters = self.config.get("filters", {})
         min_conv = float(self.config.get("min_conviction", 0.5))
 
-        # Stage 1: simple filters first
-        failures = []
-        if filters.get("exclude_recurring") and event.is_recurring:
-            failures.append("is_recurring=1")
-        if filters.get("exclude_tax_sales") and event.is_tax_sale:
-            failures.append("is_tax_sale=1")
-        if failures:
+        # Stage 1: simple filters first — DELEGATED, not hand-coded, so that a
+        # yaml filter cannot be applied by the simulator and ignored here. This
+        # strategy is retired (2026-08-18) and its yaml declares only the two
+        # exclusions, so behaviour is unchanged; it is converted with its
+        # siblings because a retired class that someone re-activates is exactly
+        # where a stale hand-coded filter list does its damage.
+        ok, failures = evaluate_filters(filters, event)
+        if not ok:
             return Decision(
                 trade_id=event.trade_id, ticker=event.ticker,
                 filing_date=event.filing_date, strategy=self.name,

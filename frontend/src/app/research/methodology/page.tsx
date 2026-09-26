@@ -399,7 +399,7 @@ export default async function ScoringPage() {
 
           <div className="space-y-4 mb-8">
             {[
-              { name: "A-List Buys", hold: "42 trading days", thesis: "An A+/A-graded insider buys, and that is the whole test — no condition on the chart at all. The trend filter the other book applies turns out to cost more in trades foregone than it saves in bad ones." },
+              { name: "Outsized Buys", hold: "42 trading days", thesis: "A graded insider buys an amount that is large for how much the stock trades — at least 2.6% of its average daily dollar volume — while the stock sits above its 50-day average. Rebuilt in September 2026: the rule before it asked only for an A+/A insider and nothing of the stock, and it underperformed the index in both halves of its history." },
               { name: "Insider Breakout", hold: "42 trading days", thesis: "The same graded insider, but the stock is already above its 50- and 200-day averages. Conviction and price pointing the same way, at the cost of a much smaller book." },
               { name: "Insider Dip Buys", hold: "21 trading days", thesis: "An insider who has sold 10+ consecutive times finally buys, while the stock is down 25%+ over three months. A behavioural reversal with a margin of safety attached." },
             ].map((s) => (
@@ -424,7 +424,7 @@ export default async function ScoringPage() {
             </p>
             <div className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/40 p-4 font-mono text-xs">
               <div className="flex justify-between py-1 border-b border-[#2A2A3A]/60">
-                <span className="text-[#8888A0]">A-List Buys</span>
+                <span className="text-[#8888A0]">Outsized Buys</span>
                 <span className="text-[#E8E8ED]">&minus;50% &middot; backstop, never triggered</span>
               </div>
               <div className="flex justify-between py-1 border-b border-[#2A2A3A]/60">

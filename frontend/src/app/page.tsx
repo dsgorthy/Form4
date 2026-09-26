@@ -89,10 +89,13 @@ async function getJson(path: string, revalidate = 300) {
 }
 
 // Display names; the key is the internal identifier. Order is deliberate — the
-// A-List leads because it is the strongest book, and the landing page reads the
-// first entry for the hero chart.
+// landing page reads the first entry for the hero chart, and Outsized Buys
+// leads on the widest excess over SPY across the full period (+11.7 points
+// against Insider Breakout's +5.6). It was rebuilt on 2026-09-25; the rule it
+// replaced had published a NEGATIVE return, so if this order is ever revisited,
+// revisit it on the measured excess and not on which book is oldest.
 const STRATEGIES = [
-  { key: "quality_notrend", name: "A-List Buys", thesis: "A proven insider buys. No chart condition." },
+  { key: "quality_notrend", name: "Outsized Buys", thesis: "An insider buys big for the stock's daily volume, as it turns up" },
   { key: "quality_momentum", name: "Insider Breakout", thesis: "A proven insider buys a stock already trending up" },
   { key: "reversal_dip", name: "Insider Dip Buys", thesis: "A serial seller finally buys, into a 25% drawdown" },
 ];

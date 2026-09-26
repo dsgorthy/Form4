@@ -49,6 +49,25 @@ class TradeEvent:
     is_tax_sale: Optional[int] = None
     cohen_routine: Optional[int] = None
 
+    # ── Everything else `framework.decision.evaluate_filters` can read ──
+    #
+    # These are here so that no filter a strategy yaml may legally declare can
+    # silently no-op on the LIVE path. `_get` in that module falls back to
+    # getattr(..., None), and a numeric filter treats None as a failure, so a
+    # missing field does not fail loudly — it rejects every candidate, or (when
+    # the strategy class hand-codes its own checks instead) admits every one.
+    #
+    # That is not hypothetical. min_value_pct_of_adv, max_pct_off_52w_high and
+    # min_filing_lag_days were added to evaluate_filters on 2026-08-29 and
+    # existed in NEITHER live path until 2026-09-25, so a yaml declaring one
+    # would have had the published book apply it while subscribers' alerts
+    # ignored it — the same shape as the -30% stop that only the simulator
+    # applied for three months.
+    is_duplicate: Optional[int] = None
+    value_pct_of_adv: Optional[float] = None
+    pct_off_52w_high: Optional[float] = None
+    filing_lag_days: Optional[int] = None
+
     # Static grade columns — these are PIT-stamped at filing_date by
     # backfill_pit_grades.py / backfill_v3_missing_trades.py
     pit_grade: Optional[str] = None
