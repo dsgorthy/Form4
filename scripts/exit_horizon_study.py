@@ -59,19 +59,24 @@ GRADE_BANDS = [
 ]
 
 
-def fetch(conn, since: str):
+def fetch(conn, since: str, until: str | None = None):
     cols = ", ".join(f"r.abnormal_{h}td_from_filing AS h{h}" for h in HORIZONS)
+    until_clause = "AND t.filing_date <= ?" if until else ""
     sql = f"""
         SELECT t.insider_id, t.ticker, t.filing_date, t.career_grade, {cols}
           FROM trades t JOIN trade_returns r USING (trade_id)
          WHERE t.signal_class = 'discretionary_buy'
            AND NOT COALESCE(t.value_suspect, FALSE)
            AND t.filing_date >= ?
+           {until_clause}
            AND t.career_grade IS NOT NULL
            AND r.abnormal_21td_from_filing IS NOT NULL
          ORDER BY t.insider_id, t.ticker, t.filing_date
     """
-    return conn.execute(sql, (since,)).fetchall()
+    params = [since]
+    if until:
+        params.append(until)
+    return conn.execute(sql, tuple(params)).fetchall()
 
 
 def to_episodes(rows):
@@ -95,12 +100,16 @@ def to_episodes(rows):
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--since", default="2016-01-01")
+    ap.add_argument("--until", default=None,
+                    help="last filing_date to include — pass the TRAIN window "
+                         "end when the answer will choose a hold length")
     args = ap.parse_args()
 
     conn = get_connection(readonly=True)
-    rows = fetch(conn, args.since)
+    rows = fetch(conn, args.since, args.until)
     eps = to_episodes(rows)
-    print(f"Exit-horizon study, discretionary buys filed {args.since} onward")
+    print(f"Exit-horizon study, discretionary buys filed "
+          f"{args.since}..{args.until or 'today'}")
     print(f"{len(rows):,} filings collapse to {len(eps):,} episodes "
           f"({len(rows)/max(len(eps),1):.2f} filings per bet)\n")
     print("Abnormal return vs SPY, by career grade at filing. "

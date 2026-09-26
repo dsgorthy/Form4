@@ -78,6 +78,31 @@ def evaluate_filters(thesis_filters: dict, trade: Any) -> Tuple[bool, list]:
     # filers are not penny stocks (median price $13.32 against $13.25 prompt,
     # 24.0% under $5 against 23.8%).
     #
+    # ══ DO NOT USE. The evidence above was the self-grading bug. ══
+    #
+    # Corrected 2026-09-25. The caution note below was right and understated.
+    # One day after it was written, `pit_scoring._get_returns` was found to
+    # gather an insider's history with two guards, NEITHER of which excluded
+    # the trade being graded: the score is stamped as_of the trade's own
+    # filing_date, so a Form 4 lodged months after execution cleared every
+    # maturity cutoff and entered its own track record carrying its own
+    # realised return. LATE FILINGS ARE EXACTLY THE POPULATION THIS FILTER
+    # SELECTS, so the measured edge is the defect.
+    #
+    # Measured then: a trade's own 90d abnormal return by the grade it received
+    # --  clean (lag <= 100d) A+/A/B 0.69% vs C/D 1.65%, gap -0.96pp
+    #     late  (lag > 100d)  A+/A/B 36.59% vs C/D -6.94%, gap +43.53pp
+    # A `min_filing_lag_days=21` book backtested at 115.6/55.2/98.8% CAGR
+    # across three folds and turned $100k into $146.7M on that.
+    #
+    # The guard is strict now (commit 25eb2d0) and history was re-scored
+    # 2026-09-21, so the grades themselves are fixed. But nothing has
+    # re-measured this filter on the corrected grades, the screen on
+    # 2016-2021 filing-anchored episodes gives it t = -0.17, and the
+    # docstring below is kept only so nobody re-derives the same trap.
+    # tests/unit/test_filing_lag_filter_is_not_used.py fails the build if a
+    # shipped config declares it.
+    #
     # TREAT WITH CAUTION ANYWAY. A signal this large on a population this small
     # is exactly the shape of a data artefact, and it has not yet been through
     # the simulator. It is exposed as a filter so it CAN be, not because it is

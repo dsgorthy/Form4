@@ -157,27 +157,40 @@ def _bonferroni_t(n_tests: int) -> float:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--since", default="2016-01-01")
+    ap.add_argument("--until", default=None,
+                    help="last filing_date to include. REQUIRED for any screen "
+                         "whose result will choose a parameter: without it a "
+                         "screen reads the holdout and there is no out-of-sample "
+                         "left to validate on.")
+    ap.add_argument("--horizon", type=int, default=HORIZON,
+                    choices=(3, 5, 7, 10, 21, 42, 63, 126, 189, 252),
+                    help="trading days from filing (default 21)")
     ap.add_argument("--grade", default=None,
                     help="restrict to a grade band, e.g. 'A+,A,B'")
     args = ap.parse_args()
+    horizon = args.horizon
 
     cols = ", ".join(f"t.{c}" for c, _ in SIGNALS)
     where_grade = ""
+    where_until = ""
     params = [args.since]
+    if args.until:
+        where_until = " AND t.filing_date <= ?"
+        params.append(args.until)
     if args.grade:
         marks = ",".join("?" for _ in args.grade.split(","))
         where_grade = f" AND t.career_grade IN ({marks})"
-        params += args.grade.split(",")
+        params += args.grade.split(",")   # appended AFTER --until, matching clause order
 
     conn = get_connection(readonly=True)
     rows = conn.execute(f"""
         SELECT t.insider_id, t.ticker, t.filing_date, {cols},
-               r.abnormal_{HORIZON}td_from_filing AS y
+               r.abnormal_{horizon}td_from_filing AS y
           FROM trades t JOIN trade_returns r USING (trade_id)
          WHERE t.signal_class = 'discretionary_buy'
            AND NOT COALESCE(t.value_suspect, FALSE)
-           AND t.filing_date >= ?{where_grade}
-           AND r.abnormal_{HORIZON}td_from_filing IS NOT NULL
+           AND t.filing_date >= ?{where_until}{where_grade}
+           AND r.abnormal_{horizon}td_from_filing IS NOT NULL
          ORDER BY t.insider_id, t.ticker, t.filing_date
     """, tuple(params)).fetchall()
 
@@ -192,8 +205,9 @@ def main() -> int:
         last = fd
 
     band = args.grade or "all grades"
+    window = f"{args.since}..{args.until or 'today'}"
     print(f"Signal screen — {len(rows):,} filings -> {len(eps):,} episodes, "
-          f"{band}, {HORIZON}td abnormal return\n")
+          f"{band}, {horizon}td abnormal return, filed {window}\n")
     print(f"{'signal':<26}{'n_hi':>7}{'n_lo':>7}{'hi %':>8}{'lo %':>8}"
           f"{'spread':>9}{'t':>7}")
     print("-" * 72)

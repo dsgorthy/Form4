@@ -25,6 +25,17 @@ THREE RULES THIS ENFORCES
    so a +/-0.25 nudge pushes a whole cohort across the gate. Sweeps report
    every fold so the spread is visible rather than a single flattering number.
 
+4. SCORE WHAT THE SITE PUBLISHES. Added 2026-09-25. This used to report only
+   the SLEEVE CAGR parsed out of the simulator's log line — uninvested capital
+   earning nothing, no benchmark, no drawdown. Three ways that picks the wrong
+   config: it flatters a book for being idle, it cannot see that A-List's 3x33%
+   sizing costs a 77% drawdown, and it has no idea whether the book beat SPY.
+   Every fold now reports blended CAGR, SPY over the identical window, the
+   excess, and the DAILY max drawdown, all from
+   framework.analysis.blended — the same function that computes
+   summary.blended_cagr for the site. A sweep that scores a different quantity
+   than the site publishes cannot choose a config for the site.
+
 Usage:
     python3 scripts/strategy_sweep.py --strategy reversal_dip \\
         --set filters.min_consecutive_sells=5,10 \\
@@ -48,6 +59,9 @@ import yaml
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+
+from config.database import get_connection  # noqa: E402
+from framework.analysis.blended import blended_and_benchmark  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -115,9 +129,60 @@ def run_one(strategy: str, yaml_path: Path, table: str,
     years = max((date.fromisoformat(end) - date.fromisoformat(start)).days / 365.25, 0.01)
     row = {"closed": closed, "open": open_, "final_equity": eq,
            "total_return_pct": round(100.0 * (eq / 100_000.0 - 1), 2),
-           "cagr_gross_pct": round(100.0 * ((eq / 100_000.0) ** (1 / years) - 1), 2)}
+           "cagr_sleeve_pct": round(100.0 * ((eq / 100_000.0) ** (1 / years) - 1), 2)}
     row.update(cost_adjusted(eq / 100_000.0, closed, slots, years))
+    row.update(published_metrics(strategy, table, start, end))
     return row
+
+
+def published_metrics(strategy: str, table: str, start: str, end: str) -> dict:
+    """Blended CAGR, SPY over the identical window, excess, daily max drawdown.
+
+    Read from the SANDBOX table through the same function that computes
+    `summary.blended_cagr` for the site, so a sweep and the published page
+    cannot disagree about what a book returned.
+
+    `years` mirrors the API exactly: FIRST ENTRY -> the window's end, not the
+    window's whole length. A book that starts trading late is measured over the
+    span it actually ran, and one that stops early still carries the idle tail.
+    """
+    blank = {"blended_cagr_pct": None, "spy_cagr_pct": None,
+             "excess_pct": None, "max_dd_daily_pct": None, "win_rate_pct": None}
+    try:
+        conn = get_connection(readonly=True)
+    except Exception as exc:                       # pragma: no cover
+        logger.warning("scoring: no DB connection (%s)", exc)
+        return blank
+    try:
+        agg = conn.execute(
+            f"SELECT MIN(entry_date) AS first_entry, COUNT(*) AS n, "
+            f"       SUM(CASE WHEN pnl_pct > 0 THEN 1 ELSE 0 END) AS wins, "
+            f"       SUM(CASE WHEN status = 'closed' THEN 1 ELSE 0 END) AS n_closed "
+            f"  FROM {table} WHERE strategy = ? AND execution_source = 'simulated'",
+            (strategy,)).fetchone()
+        first_entry = agg["first_entry"] if agg else None
+        if not first_entry:
+            return blank
+        years = max((date.fromisoformat(end) - date.fromisoformat(first_entry[:10])).days
+                    / 365.25, 0.01)
+        bl = blended_and_benchmark(conn, strategy, 100_000.0, years,
+                                   table=table, end=end)
+        if not bl:
+            return blank
+        n_closed = int(agg["n_closed"] or 0)
+        return {
+            "blended_cagr_pct": round(bl["cagr"], 2),
+            "spy_cagr_pct": round(bl["spy"], 2),
+            "excess_pct": round(bl["cagr"] - bl["spy"], 2),
+            "max_dd_daily_pct": bl["max_dd_daily"],
+            "win_rate_pct": (round(100.0 * int(agg["wins"] or 0) / n_closed, 1)
+                             if n_closed else None),
+        }
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def cost_adjusted(growth: float, n_trades: int, slots: int, years: float) -> dict:
@@ -171,6 +236,10 @@ def cost_adjusted(growth: float, n_trades: int, slots: int, years: float) -> dic
     return out
 
 
+def _n(v) -> str:
+    return "--" if v is None else f"{v:+.1f}"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--strategy", required=True)
@@ -180,7 +249,11 @@ def main() -> int:
     ap.add_argument("--end", default=date.today().isoformat())
     ap.add_argument("--folds", type=int, default=1)
     ap.add_argument("--table", default="strategy_portfolio_exp")
+    ap.add_argument("--json-out", default=None,
+                    help="write the full result list here as well as stdout")
     args = ap.parse_args()
+    if args.table == "strategy_portfolio":
+        ap.error("--table must be a sandbox, never the published book")
 
     base = yaml.safe_load((BASE_YAML / f"{args.strategy}.yaml").read_text())
 
@@ -214,11 +287,16 @@ def main() -> int:
             results.append(row)
             fs = " | ".join(
                 f"{f.get('closed','--'):>4}tr "
-                f"{f.get('cagr_gross_pct','--'):>7}%g "
-                f"{f.get('cagr_at_10bp_pct','--'):>7}%@1%"
+                f"bl {_n(f.get('blended_cagr_pct')):>7} "
+                f"spy {_n(f.get('spy_cagr_pct')):>6} "
+                f"exc {_n(f.get('excess_pct')):>7} "
+                f"dd {_n(f.get('max_dd_daily_pct')):>5} "
+                f"slv@1% {_n(f.get('cagr_at_10bp_pct')):>7}"
                 for f in row["folds"])
             logger.info("  %-46s %s", row["config"], fs)
 
+    if args.json_out:
+        Path(args.json_out).write_text(json.dumps(results, indent=2))
     print(json.dumps(results, indent=2))
     return 0
 
