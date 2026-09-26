@@ -181,9 +181,42 @@ to move.
 
 | Key | Public name | Status | CAGR | Key Metric |
 |-----|-------------|--------|------|------------|
-| quality_notrend | **A-List Buys** | LIVE alert-only — **measured NEGATIVE since the 2026-09-21 rebuild; retirement decision pending** | **−0.9%** blended vs SPY 13.4% (API; −1.6% by the overlay), sleeve −5.1%, 3x33%, 2016→ | A+/A career-graded insider buys, no chart condition. 164 closed sim trades, 51% win, 9 stops, **77% max DD daily**, −53.7% in 2018 and −48.7% in 2022. On clean grades it beat SPY in 0 of its rolling 3-year windows. |
+| quality_notrend | **Outsized Buys** | LIVE alert-only — **REBUILT 2026-09-25** | **25.1%** blended vs SPY 13.5% (**+11.7**), sleeve 22.3%, 5x20%, 42td, −50% backstop, 47.8% max DD daily, 2016→ | A+/A/B career grade **AND** purchase ≥ 2.6% of the stock's 20-session average dollar volume **AND** above SMA50. 244 closed sim trades, 54.5% win, 3 stops, ahead of SPY in 8 of 11 years. Top ten trades are 102% of P&L — less concentrated than either sibling. Was "A-List Buys" (A+/A grade alone, no chart condition) and published −0.9% against SPY 13.4%. See `docs/alist_rebuild_2026-09-25.md`. |
 | quality_momentum | **Insider Breakout** | LIVE alert-only | **19.4%** blended vs SPY 13.8% (API, +5.6; **17.1%** by the overlay, +3.3 — see the two-blend note below), sleeve 17.1%, 5x20%, A+/A/B, −20% stop, 52% max DD daily, 2016→ | Same insider grade, plus above SMA50 and SMA200. 288 closed sim trades, 46.5% win, 65 stops. Beat SPY in 80% of rolling 3-year windows (worst −11%); the top 10 trades are 167% of P&L, so the other 278 net a loss. 2026 YTD +5.7% vs SPY +13.2%. |
 | reversal_dip | **Insider Dip Buys** | LIVE alert-only, ON WATCH — 14 trades ever, last entry 2025-04-14 | 15.4% blended vs SPY 16.7% (−1.2), sleeve −0.1%, 4x25% | 10+ consecutive sells then a buy into a 25%+ 3-month drawdown. Byte-identical before and after the rebuild. A retirement decision, not a window one. |
+
+**2026-09-25 — A-LIST WAS REBUILT AND RENAMED "OUTSIZED BUYS". Its founding
+premise is falsified.** The old rule gated on `career_grade IN (A+,A)` and
+nothing else. On the ONLY tradeable label (`abnormal_*td_from_filing`) that
+gate barely orders anything: episode-level and ticker-clustered over
+2016-2021, A+/A minus C/D is −0.03/−0.04/+0.05/−0.13/+0.82/+0.23 pp at
+3/5/7/10/21/42td, and A+/A standalone is +1.44% at **t = +1.43**. The book lost
+to SPY by 12 points on train AND 20 on the holdout, so it was broken, not
+unlucky. The variant table in its yaml that justified dropping the trend filter
+was measured on **trade-date-anchored** returns, which include the +2.05%
+average move between transaction and filing that nobody can capture; on
+filing-anchored returns `above_sma50` is the STRONGEST signal available
+(+1.26 pp, t = +4.62), not the weaker half.
+
+Replaced by `A+/A/B` + `value_pct_of_adv ≥ 0.026` + `above_sma50` at 5×20%.
+Both signals clear a Bonferroni |t| > 3.01 and are additive rather than one
+setup. Train +13.50 excess (folds +30.9/+6.0/+5.8); **holdout read once: +9.76
+excess, 37.0% DD, 99 trades**; full period +11.7 excess.
+
+**THE PRE-REGISTRATION IS WHY THIS IS RIGHT, AND IT REVERSED THE OBVIOUS
+ANSWER.** The parsimonious variant — the trend filter without the size gate —
+was positive in all three train folds and looked more robust, and it returned
+**−2.88 excess on the holdout**. Judgement would have shipped it. Read
+`docs/alist_rebuild_2026-09-25.md` before touching any book's rule; it also
+records what was measured and REJECTED, so nobody re-derives it: the dip
+(+10.60 spread on the inflated basis becomes +0.33 at t=+1.28), `is_largest_ever`
+as a gate (folds +25.6/+47.5/**−9.6**), the size gate without the trend (−19.4),
+and "up short-term, down long-term" (339 episodes, t=+0.15).
+
+**NOT adopted, deliberately:** a tighter stop measured better on the train folds
+(−0.20 gives +32.3/+5.2/+10.0 at 8.6/37.1/44.3 DD) but was chosen AFTER seeing
+results, so it is in-sample. It needs its own holdout read — the highest-value
+follow-up here.
 
 **2026-09-21 — THE BOOKS WERE REBUILT ON CLEAN GRADES AND A-LIST DID NOT
 SURVIVE. Everything from here down to "Retired 2026-08-18" describes books

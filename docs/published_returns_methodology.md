@@ -17,7 +17,8 @@ excess as the emphasised figure.**
 
 | | blended CAGR (API) | blended CAGR (overlay) | SPY | **excess (API / overlay)** | sleeve | max DD, trade-row | **max DD, daily** | closed trades |
 |---|---|---|---|---|---|---|---|---|
-| A-List Buys (`quality_notrend`) | **−0.9%** | −1.6% | 13.4% | **−14.3 / −15.0** | −5.1% | 71.9% | **77.4%** | 164 |
+| Outsized Buys (`quality_notrend`) | **25.1%** | see note | 13.5% | **+11.7** | 22.3% | 37.4% | **47.8%** | 244 |
+| *(the same book before 2026-09-25, as "A-List Buys")* | *−0.9%* | *−1.6%* | *13.4%* | *−14.3 / −15.0* | *−5.1%* | *71.9%* | *77.4%* | *164* |
 | Insider Breakout (`quality_momentum`) | **19.4%** | 17.1% | 13.8% | **+5.6 / +3.3** | 17.1% | 25.9% | **52.3%** | 288 |
 | Insider Dip Buys (`reversal_dip`) | 15.4% | — | 16.7% | **−1.2** | −0.1% | 5.2% | 34.2% | 14 |
 
@@ -448,6 +449,7 @@ surface drops the exclusion or the NULL guard.
 | 2026-08-24 | A-List 64.6% → 69.8% | `planned_buy` admitted on the buy side while `planned_sell` was refused on the sell side. One position ever, COE, −43.2% |
 | 2026-08-27 | A-List 69.8% → 18.5%, Breakout 64.1% → 19.0%, Dip 37.9% → −0.1% (sleeve) | the SEC reload: coverage 48.6% → 83.7%, window 2023 → 2016; and the 08-25 grade-population fix applied to history for the first time |
 | 2026-09-21 | **A-List 21.5% → −0.9%**, Breakout 20.1% → 19.4%, Dip unchanged | the V2 walk-forward scorer (`pit_grade`, which conviction reads) had missed all three grade corrections; the career scorer's strict filing guard had never been applied to history. Both rebuilt. See § "2026-09-21" |
+| 2026-09-25 | **A-List −0.9% → 25.1%, renamed Outsized Buys** | not a correction — a DELIBERATE rule change. The old gate (A+/A career grade, nothing else) orders almost nothing on the tradeable label and lost to SPY in both halves of its history. Replaced by A+/A/B + `value_pct_of_adv ≥ 0.026` + `above_sma50`, chosen by an objective registered before any config ran and validated on a holdout read once (+9.76 excess). Full account, including what was rejected: `docs/alist_rebuild_2026-09-25.md` |
 
 Every move before 2026-08-20 was a definitional or data defect, none a market
 event, and each now has a regression test: `test_entry_timing_eastern`,

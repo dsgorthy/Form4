@@ -229,4 +229,150 @@ the holdout is then read once.
 
 # RESULTS
 
-*(appended after the fact; see git history of this file for the order)*
+## The control: the book was broken in both windows, not unlucky in one
+
+Measured off the live table with each window scored on its own:
+
+| window | blended | SPY | excess | daily DD |
+|---|---|---|---|---|
+| train 2016-2021 | 3.24% | 15.41% | **−12.17** | 77.4% |
+| holdout 2022-2026 | −9.01% | 10.68% | **−19.68** | 64.9% |
+| full | −1.17% | 13.35% | **−14.51** | 77.4% |
+
+Insider Breakout over the same windows: **+6.29**, **+12.44**, **+5.61**. So
+the universe and the plumbing were fine; the admission rule was not.
+
+## Train window, the registered candidates
+
+One fold over 2016-01-01 .. 2021-12-31:
+
+| | trades | blended | SPY | excess | daily DD | win% | sleeve @1% |
+|---|---|---|---|---|---|---|---|
+| C0 control | 98 | 3.24 | 15.41 | −12.17 | 77.4 | 55.1 | −4.89 |
+| C1 size only, 5×20 | 169 | −4.00 | 15.41 | −19.41 | 64.8 | 52.7 | −9.52 |
+| **C2 size + SMA50** | 144 | 29.19 | 15.68 | **+13.50** | **47.8** | 59.0 | +20.17 |
+| C3 size only, 3×33 | 102 | −4.47 | 15.41 | −19.88 | 69.9 | 52.0 | −9.99 |
+| C4 size only, 8×12.5 | 264 | 10.47 | 15.41 | −4.94 | 60.4 | 54.9 | +4.49 |
+| C5 size ≥0.11 | 152 | 32.71 | 16.69 | +16.02 | **50.8** | 54.6 | +21.83 |
+| C6 size + stop −0.25 | 185 | −2.71 | 15.41 | −18.12 | 70.5 | 47.0 | −10.02 |
+
+**C5 scored highest on excess and was disqualified by the registered drawdown
+cap** (50.8% > 50%). That is the constraint earning its keep: its folds are
++9.66 / +83.59 / −27.69, which is not a strategy, it is a handful of positions.
+The objective's winner is **C2**.
+
+## Attribution controls (added to interpret C2, not to pick from)
+
+| | train excess | DD | trades | folds |
+|---|---|---|---|---|
+| C2 size + SMA50 + grade | +13.50 | 47.8 | 144 | +30.88 / +5.97 / +5.80 |
+| C7 SMA50 + grade, no size | +7.60 | 52.1 | 164 | +19.23 / +8.60 / +19.44 |
+| C8 size + SMA50, no grade | +3.53 | 37.2 | 70 | — |
+
+On train this reads as *the size gate does not earn its place*: C2 beats C7 only
+in fold 1 and loses folds 2 and 3. Parsimony and fold-stability both pointed at
+C7.
+
+## The last non-trend idea, and why it failed
+
+`is_largest_ever` screened at +4.10 and neither shipped book uses it, so it was
+the one remaining way to keep this a non-trend book. Train folds, excess:
+
+| | fold 1 | fold 2 | fold 3 |
+|---|---|---|---|
+| grade + largest_ever | +25.63 | +47.54 | **−9.64** |
+| + size gate | +3.67 | +32.79 | **−37.70** |
+| at 8 × 12.5% | +23.44 | +36.21 | **−19.63** |
+
+Every one loses fold 3, and fold 2 returns +33 to +48 excess against an index
+that did 8.5% — the signature of a few large winners, not an edge. Rejected.
+
+Also rejected: **"up short-term, down long-term"** (`above_sma50` and not
+`above_sma200`), the documented best cell from August. On the train window it is
+339 episodes in six years, mean +0.94%, win 43%, clustered **t = +0.15**.
+
+## The holdout, read once — and it reversed the train reading
+
+| | blended | SPY | excess | DD | trades | verdict |
+|---|---|---|---|---|---|---|
+| **C2** | 21.15 | 11.40 | **+9.76** | 37.0 | 99 | **passes all three** |
+| C7 | 7.81 | 10.69 | −2.88 | 36.2 | 120 | fails — loses to SPY |
+| C7 at 8 × 12.5% | 10.62 | 10.69 | −0.07 | 31.1 | 182 | fails — ties SPY |
+
+**The config that looked more robust on train is the one that fails out of
+sample.** Had the objective not been written down first, judgement would have
+shipped C7 on its clean three-fold record and published a book that trails the
+index. This is the single most useful thing the pre-registration bought, and it
+is worth more than the result it selected.
+
+## What was adopted
+
+`career_grade ∈ {A+, A, B}` **and** `value_pct_of_adv ≥ 0.026` **and**
+`above_sma50`, at 5 × 20%, 42 trading days, −50% backstop.
+
+Full period, read off the live API after the published book was rebuilt:
+
+| | value |
+|---|---|
+| blended CAGR | **25.1%** |
+| SPY, identical window | 13.5% |
+| excess | **+11.7** |
+| sleeve (idle cash at 0%) | 22.3% |
+| daily max drawdown | 47.8% |
+| trade-row max drawdown | 37.4% |
+| closed trades | 244 |
+| win rate | 54.5% |
+| stops fired | 3 |
+
+Annual, book against SPY: 2016 +45/+9, 2017 +39/+19, 2018 **−28/−7**,
+2019 +69/+29, 2020 +46/+15, 2021 **+23/+29**, 2022 **−20/−20**, 2023 +30/+25,
+2024 +38/+24, 2025 +40/+17, 2026 +27/+13. Ahead in 8 of 11 years.
+
+The sweep predicted 25.12 / 13.45 / +11.66 / 47.8 before the rebuild and the API
+returned 25.1 / 13.5 / +11.7 / 47.8 after it. The harness and the site agree
+because they now call the same function.
+
+## What is still wrong with this book
+
+1. **A 47.8% drawdown is not holdable for most people.** It is better than the
+   77.4% it replaces and slightly better than Insider Breakout's 52.3%, and
+   that is the whole claim.
+2. **13 configs were simulated.** One objective, registered first, chose among
+   them; one holdout read validated the choice. That is the best discipline
+   available, not a guarantee. The honest range is the fold band: **+5.8 to
+   +30.9** excess.
+3. **A tighter stop measured better and was NOT adopted**, because it was chosen
+   after seeing results. Train folds at −0.20: +32.31 / +5.24 / +10.02 with
+   drawdowns 8.6 / 37.1 / 44.3, against the adopted −0.50's +30.88 / +5.97 /
+   +5.80 and 8.6 / 40.6 / 48.2. It needs its own out-of-sample read. Doing that
+   read is the highest-value follow-up here.
+4. **32% of its positions are also Insider Breakout's** (80 of 253). Two thirds
+   are its own, which is why it ships as a separate book rather than a rename of
+   that one.
+5. **The 2.6% threshold is not a knife edge in the signal** (deciles 7-10 are
+   1.14 / 1.22 / 1.52 / 1.62) **but the book is sensitive to it**: at 0.11 the
+   no-trend variant swung from −19 to +16 excess. Do not tune it casually.
+6. **The conviction floor does most of the remaining selection, and it was not
+   re-examined.** Of 15 recent gate-passing candidates only 3 clear
+   `min_conviction: 1.5`. That floor is applied identically by the simulator, so
+   the validated result already includes it — but two of its rules now pull
+   against this book's gate and both were calibrated on the inflated basis:
+
+   - `compute_conviction` returns **0.0 for any composite-thesis trade of
+     $2,000,000 or more** ("-1.5% avg, 42% WR — actively bad"). This book gates
+     on purchase size relative to liquidity, so the largest purchases it finds
+     are killed by conviction: GME's $26.4M buy scored 0.00 while the $402k buy
+     on the same ticker and day scored 2.00. On the tradeable label raw `value`
+     screens at +0.30 pp (t = +1.50) — weakly positive, not "actively bad".
+   - conviction awards up to **+2.0 for `pit_cluster_size`**, which screens at
+     **−0.39 pp (t = −1.74)** on the full corpus and −0.56 within the graded
+     population. It is paying for a signal that is, if anything, negative.
+
+   Both are shared by all three books, so changing either is a separate study
+   with its own holdout. Neither invalidates what is published here.
+
+7. **`is_largest_ever` remains unexplained.** It screens at t = +4.10 on 53,386
+   episodes and cannot hold a book together across three folds. Either the
+   screen is picking up something the portfolio cannot capture, or the folds are
+   too short to judge it. Worth understanding before the next rebuild trusts a
+   screen alone.
