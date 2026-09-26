@@ -57,13 +57,37 @@ writers:
     sla_hours: 26
     required_for: [reversal_dip]
 
+  - column: trades.value_pct_of_adv
+    script: pipelines/insider_study/compute_derived_features.py
+    write_function: main
+    plists: [com.openclaw.refresh-features]
+    schedule: "daily 17:30 PT via Dagster form4_features -> refresh_features_daily.sh"
+    sla_hours: 30
+    required_for: [quality_notrend]
+
+  - column: trades.pct_off_52w_high
+    script: pipelines/insider_study/compute_derived_features.py
+    write_function: main
+    plists: [com.openclaw.refresh-features]
+    schedule: "daily 17:30 PT via Dagster form4_features -> refresh_features_daily.sh"
+    sla_hours: 48
+    required_for: []
+
+  - column: trades.filing_lag_days
+    script: pipelines/insider_study/compute_derived_features.py
+    write_function: main
+    plists: [com.openclaw.refresh-features]
+    schedule: "daily 17:30 PT via Dagster form4_features -> refresh_features_daily.sh"
+    sla_hours: 48
+    required_for: []
+
   - column: trades.above_sma50
     script: pipelines/insider_study/compute_cw_indicators.py
     write_function: compute_sma_context
     plists: [com.openclaw.refresh-features, com.openclaw.insider-fetch]
     schedule: "daily 06:00 PT + every 5 min"
     sla_hours: 26
-    required_for: [quality_momentum]
+    required_for: [quality_momentum, quality_notrend]
 
   - column: trades.above_sma200
     script: pipelines/insider_study/compute_cw_indicators.py

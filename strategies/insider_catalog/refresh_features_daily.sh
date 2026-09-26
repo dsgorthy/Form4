@@ -67,6 +67,15 @@ PYTHONUNBUFFERED=1 $PY $REPO/pipelines/insider_study/backfill_pit_grades.py --si
 echo "--- step 4b/6: compute_career_grades --since $SINCE ---"
 PYTHONUNBUFFERED=1 $PY $REPO/pipelines/insider_study/compute_career_grades.py --since "$SINCE"
 
+# value_pct_of_adv is quality_notrend's admission filter as of 2026-09-25, and
+# pct_off_52w_high / filing_lag_days / the pre-filing returns are available to
+# any strategy. None of them had a scheduled writer before today: the columns
+# were populated by a one-off backfill in August, so every filing since then
+# would have carried NULL and a numeric filter rejects NULL — the book would
+# have gone silent, not wrong. Runs before the strategy books are simulated.
+echo "--- step 4b2/6: compute_derived_features --since $SINCE (value_pct_of_adv — Outsized Buys gate) ---"
+PYTHONUNBUFFERED=1 $PY -m pipelines.insider_study.compute_derived_features --since "$SINCE"
+
 echo "--- step 4c/6: compute_switch_rate --since $SINCE (is_rare_reversal — RD signal) ---"
 PYTHONUNBUFFERED=1 $PY $REPO/pipelines/insider_study/compute_switch_rate.py --since "$SINCE"
 

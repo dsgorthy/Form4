@@ -45,9 +45,10 @@ trades.dip_1mo:
 
 trades.above_sma50:
   max_staleness_hours: 26
-  required_for: [quality_momentum]
+  required_for: [quality_momentum, quality_notrend]
   description: "Boolean: trade price above 50-day SMA at trade_date"
   populated_by: pipelines/insider_study/compute_cw_indicators.py
+  notes: "quality_notrend added 2026-09-25 — its rebuilt rule requires above_sma50."
 
 trades.above_sma200:
   max_staleness_hours: 26
@@ -112,6 +113,31 @@ trades.pit_grade:
   description: "PIT-derived grade A+/A/B/C/D from insider_ticker_scores (V2 Bayesian scorer)"
   populated_by: pipelines/insider_study/backfill_pit_grades.py
 
+# ── Derived features (populated by compute_derived_features) ──
+#
+# Added to the contract file 2026-09-25, when value_pct_of_adv became a live
+# admission filter. They were built 2026-08-28 and had NO contract and NO
+# scheduled writer until today, which is the combination that silences a book:
+# a numeric filter rejects NULL, so a strategy gating on an unrefreshed column
+# stops alerting rather than alerting wrongly.
+trades.value_pct_of_adv:
+  max_staleness_hours: 30
+  required_for: [quality_notrend]
+  description: "Trade value / 20-session average dollar volume, anchored on the last session closed when the filing was ACCEPTED. Outsized Buys' size gate (>= 0.026)."
+  populated_by: pipelines/insider_study/compute_derived_features.py
+
+trades.pct_off_52w_high:
+  max_staleness_hours: 48
+  required_for: []  # available to strategies; none gates on it today
+  description: "Close / trailing 252-session high - 1, so a negative fraction. Measured NOT to be used by Outsized Buys: its edge sits almost entirely in the decile more than 61% off the high, where the missing-price and last-close-not-zero biases concentrate."
+  populated_by: pipelines/insider_study/compute_derived_features.py
+
+trades.filing_lag_days:
+  max_staleness_hours: 48
+  required_for: []
+  description: "Days between transaction and disclosure. NOT to be used as a filter — the edge once measured on it was the self-grading bug. See tests/unit/test_filing_lag_filter_is_not_used.py."
+  populated_by: pipelines/insider_study/compute_derived_features.py
+
 trades.week52_proximity:
   max_staleness_hours: 48
   required_for: []  # informational — used by api/trade_grade.py and content pipelines, not strategy gating
@@ -121,8 +147,8 @@ trades.week52_proximity:
 
 trades.career_grade:
   max_staleness_hours: 30
-  required_for: [quality_momentum]
-  description: "PIT-derived grade A+/A/B/C/D from V3 career-track-record scorer (5y half-life vs V2's 1.5y). QM's primary admission filter."
+  required_for: [quality_momentum, quality_notrend]
+  description: "PIT-derived grade A+/A/B/C/D from V3 career-track-record scorer (5y half-life vs V2's 1.5y). The admission floor on BOTH trend books — quality_notrend added 2026-09-25, having gated on it since it was built without ever declaring it here."
   populated_by: pipelines/insider_study/compute_career_grades.py
   notes: "Added 2026-05-17. Was orphaned 2026-04-09 → 2026-05-16 — QM produced 0 candidates for 5 trading days because the V3 block lived only inside backfill_live.main() which insider-fetch doesn't invoke."
 

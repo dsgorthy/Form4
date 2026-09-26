@@ -300,6 +300,27 @@ def main() -> int:
     logger.info("Coverage on discretionary buys (n=%d): holding %.1f%%, lag %.1f%%, "
                 "ret20 %.1f%%, off52w %.1f%%, adv %.1f%%",
                 cov[0], *[100.0 * cov[i] / max(cov[0], 1) for i in range(1, 6)])
+
+    # FRESHNESS. Added 2026-09-25, when `value_pct_of_adv` became a live
+    # admission filter for quality_notrend. Until then these columns had no
+    # contract and no scheduled writer, so a strategy gating on one would have
+    # been reading whatever the last manual backfill left behind — and because a
+    # numeric filter rejects NULL, the book would have gone quiet rather than
+    # wrong. Silence is the failure mode that takes weeks to notice: reversal_dip
+    # was silenced for eight weeks by a contract that was green for the wrong
+    # reason.
+    #
+    # Written in the same transaction as the data (single commit below), which
+    # is what makes "we know when this ran" true rather than hopeful.
+    if not args.dry_run and n_simple + n_px > 0:
+        from framework.contracts.freshness_writer import write_freshness
+        for col in ("value_pct_of_adv", "pct_off_52w_high", "filing_lag_days",
+                    "ret_20d_pre_filing", "ret_60d_pre_filing",
+                    "ret_trade_to_filing", "pct_of_prior_holding"):
+            write_freshness(conn, table="trades", column=col,
+                            n_rows_affected=n_simple + n_px,
+                            populated_by="pipelines/insider_study/compute_derived_features.py")
+        conn.commit()
     return 0
 
 

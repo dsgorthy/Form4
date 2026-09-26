@@ -425,7 +425,7 @@ export default async function ScoringPage() {
             <div className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/40 p-4 font-mono text-xs">
               <div className="flex justify-between py-1 border-b border-[#2A2A3A]/60">
                 <span className="text-[#8888A0]">Outsized Buys</span>
-                <span className="text-[#E8E8ED]">&minus;50% &middot; backstop, never triggered</span>
+                <span className="text-[#E8E8ED]">&minus;50% &middot; backstop, 3 of 248 exits</span>
               </div>
               <div className="flex justify-between py-1 border-b border-[#2A2A3A]/60">
                 <span className="text-[#8888A0]">Insider Breakout</span>
@@ -447,9 +447,12 @@ export default async function ScoringPage() {
             <p>
               The other two books concentrate less and recover more reliably, so
               their &minus;50% is a catastrophe backstop rather than a trading
-              rule. Neither has ever triggered it, though not by a wide margin
-              &mdash; the worst position A-List has held closed at{" "}
-              <strong className="text-[#E8E8ED]">&minus;47.5%</strong>.
+              rule. Insider Dip Buys has never triggered it. Outsized Buys has,
+              three times in 248 closed positions, and the worst of those exited
+              at{" "}
+              <strong className="text-[#E8E8ED]">&minus;59.3%</strong> &mdash;
+              below the level, because the stock gapped through it overnight. A
+              backstop bounds the rule, not the outcome.
             </p>
             <p>
               The stop is checked on the{" "}
