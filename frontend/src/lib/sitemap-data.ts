@@ -27,6 +27,40 @@ const API =
 // needs another file.
 export const CHUNK = 20000;
 
+// ── INDIVIDUAL FILINGS ARE NO LONGER SUBMITTED FOR INDEXING (2026-09-27) ──
+//
+// Derek's call, and the numbers back it. Clicks per thousand submitted URLs over
+// the 28 days to 2026-09-20: companies 2.7, insiders 2.0, individual filings
+// 0.77. Filings are a third as productive per URL and were a third of
+// everything submitted — 30,014 of 99,690.
+//
+// WHY THAT MATTERS MORE THAN THE CLICK COUNT. Search Console, 2026-09-25:
+// 255,350 crawl requests in 90 days against those 99,690 URLs, split
+// Discovery 67% / Refresh 33%. Two thirds of a ~2,800/day budget was going to
+// finding new filing URLs while the company pages that actually ranked went
+// unvisited — /company/BVH had ranked at position 16 and its last successful
+// crawl was 2026-09-05, twenty-two days before this change. Submitting fewer
+// URLs is how those get re-crawled sooner. Counterintuitive, and it is the
+// mechanism.
+//
+// THIS IS DELIBERATE, NOT THE SILENT-SHRINK BUG. The header above and the
+// code deleted in db2b849 both warn about filings vanishing from the sitemap by
+// accident, because an empty chunk is indistinguishable from a failed API fetch.
+// That guard still applies to companies and insiders. Filings are now absent BY
+// DECLARATION, which is a different thing: flip PUBLISH_FILINGS to restore them
+// and nothing else needs to change.
+//
+// Filing pages remain crawlable and indexable — they are linked from every
+// company and insider page and carry a self-canonical. We have stopped PUSHING
+// them, not hidden them. A `noindex` would be the stronger version of this
+// decision and would forfeit the 12% of clicks they still produce.
+export const PUBLISH_FILINGS = false;
+
+// Retained at 4 even while unpublished: Google already knows
+// /sitemaps/filings-0..3.xml, and those children still resolve and serve an
+// empty urlset rather than 404. A 404 on a sitemap it read yesterday is an
+// error state that sits in the report for weeks; an empty urlset is the
+// protocol's way of saying "nothing here now".
 export const FILING_CHUNKS = 4;
 
 // INSIDERS IS CHUNKED TOO, AS OF 2026-09-10.
@@ -51,6 +85,10 @@ export const INSIDER_CHUNKS = 3;
 // INSIDER_CHUNKS in step; the API clamps to its own ceiling independently.
 export const INSIDER_LIMIT = INSIDER_CHUNKS * CHUNK;
 
+/** The filings children, published or not. */
+export const FILING_SECTIONS = Array.from(
+  { length: FILING_CHUNKS }, (_, i) => `filings-${i}`);
+
 export const SECTIONS = [
   "core",
   "companies",
@@ -59,8 +97,15 @@ export const SECTIONS = [
   // on every fetch, and a stale alias would be a second URL serving the same
   // 20,000 entries as insiders-0.
   ...Array.from({ length: INSIDER_CHUNKS }, (_, i) => `insiders-${i}`),
-  ...Array.from({ length: FILING_CHUNKS }, (_, i) => `filings-${i}`),
+  ...(PUBLISH_FILINGS ? FILING_SECTIONS : []),
 ];
+
+/**
+ * Sections Google already knows that we no longer publish. The route resolves
+ * them and serves an empty urlset, so a crawler that still holds the old index
+ * gets a valid answer instead of a 404.
+ */
+export const RETIRED_SECTIONS = PUBLISH_FILINGS ? [] : FILING_SECTIONS;
 
 export interface SitemapEntry {
   loc: string;

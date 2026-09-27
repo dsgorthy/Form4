@@ -76,6 +76,15 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
     return {
       title,
       description,
+      // SELF-CANONICAL. Absent until 2026-09-27, on all 30,014 filing URLs,
+      // while /insider and /company both declared one. Thirty thousand
+      // structurally identical pages with no declared canonical is how Google
+      // picks its own and reports a URL as not indexed while a live fetch looks
+      // perfect. Still required now that filings are out of the sitemap: they
+      // stay linked from every company and insider page, so they are crawled,
+      // and a filing clustered under its company page would attribute the wrong
+      // URL.
+      alternates: { canonical: `https://form4.app/filing/${id}` },
       openGraph: { title, description, siteName: "Form4", type: "article" },
       // Third page with this gap. Page metadata that sets only openGraph
       // inherits the root layout's site-wide twitter block, so every filing

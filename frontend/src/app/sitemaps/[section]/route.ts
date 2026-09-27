@@ -3,6 +3,7 @@ import { insiderPath } from "@/lib/insider-url";
 import {
   BASE,
   CHUNK,
+  RETIRED_SECTIONS,
   SECTIONS,
   fetchSitemapData,
   isPublishableTicker,
@@ -42,6 +43,20 @@ export async function GET(
 ) {
   const { section: raw } = await params;
   const section = raw.replace(/\.xml$/, "");
+
+  // A retired section resolves to an EMPTY urlset, and short-circuits before
+  // fetchSitemapData so an unpublished section costs the API nothing. Google
+  // holds /sitemaps/filings-0..3.xml from the index it read on 2026-09-26; a
+  // 404 on those would sit in the report as an error for weeks, while an empty
+  // urlset is how the protocol says "nothing here now".
+  if (RETIRED_SECTIONS.includes(section)) {
+    return new Response(renderUrlset([]), {
+      headers: {
+        "Content-Type": "application/xml; charset=utf-8",
+        "Cache-Control": "public, max-age=3600, s-maxage=3600",
+      },
+    });
+  }
 
   if (!SECTIONS.includes(section)) {
     return new Response("Not found", { status: 404 });
@@ -108,6 +123,8 @@ export async function GET(
           priority: 0.6,
         }));
     } else if (section.startsWith("filings-")) {
+      // Only reachable when PUBLISH_FILINGS is true; a retired section returns
+      // above. Kept intact so restoring filings is one flag, not a rewrite.
       const n = Number(section.slice("filings-".length));
       entries = data.filings
         .slice(n * CHUNK, (n + 1) * CHUNK)

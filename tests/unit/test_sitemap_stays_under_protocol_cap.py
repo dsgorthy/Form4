@@ -70,11 +70,18 @@ def test_insider_request_fits_in_the_files_it_is_written_into(data_ts):
 
 
 def test_no_growing_section_is_emitted_as_a_single_file(data_ts):
-    """Sections sourced from a growing population must be chunked.
+    """Sections sourced from a growing population must be chunked IF PUBLISHED.
 
     'insiders' and 'filings' both scale with the database. A bare entry in
     SECTIONS means one file for the whole population, which is the shape that
     caused the outage.
+
+    Absent is also fine, and since 2026-09-27 filings ARE absent: they were a
+    third of everything submitted and a third as productive per URL, and
+    dropping them redirects crawl budget from Discovery to Refresh. The
+    invariant being pinned is "never one file for an unbounded population",
+    not "must be submitted" — the first version of this test conflated the two
+    and failed on the retirement.
     """
     m = re.search(r"export const SECTIONS = \[(.*?)\];", data_ts, re.S)
     assert m, "SECTIONS not found"
@@ -85,7 +92,55 @@ def test_no_growing_section_is_emitted_as_a_single_file(data_ts):
             "population that grows without bound. Emit it as "
             f'`{name}-${{i}}` chunks instead.'
         )
-        assert f"{name}-$" in body, f"no chunked {name} entries in SECTIONS"
+    # Insiders must be published and chunked; there is nothing else serving them.
+    assert "insiders-$" in body or "INSIDER_SECTIONS" in body, (
+        "no chunked insider entries in SECTIONS"
+    )
+
+
+def test_filings_are_retired_cleanly_rather_than_404ing(data_ts):
+    """Unpublishing a section Google already read must not 404.
+
+    Google holds /sitemaps/filings-0..3.xml from the index it read on
+    2026-09-26. A 404 on those sits in the report as an error for weeks; an
+    empty urlset is how the protocol says "nothing here now". The route must
+    also answer them WITHOUT calling fetchSitemapData, or an unpublished
+    section still costs the API its query.
+    """
+    if "PUBLISH_FILINGS = true" in data_ts:
+        pytest.skip("filings are published again; nothing to retire")
+    assert "export const RETIRED_SECTIONS" in data_ts, (
+        "filings are unpublished but no RETIRED_SECTIONS list resolves the "
+        "children Google already knows"
+    )
+    route = ROUTE_TS.read_text()
+    assert "RETIRED_SECTIONS.includes(section)" in route, (
+        "the section route does not resolve retired sections, so previously "
+        "submitted filings sitemaps now 404"
+    )
+    retired_at = route.index("RETIRED_SECTIONS.includes(section)")
+    fetch_at = route.index("await fetchSitemapData()")
+    assert retired_at < fetch_at, (
+        "the retired-section branch runs after fetchSitemapData, so an "
+        "unpublished section still pays for the URL list"
+    )
+    not_found_at = route.index('status: 404')
+    assert retired_at < not_found_at, (
+        "the 404 branch precedes the retired branch, so retired sections 404"
+    )
+
+
+def test_filing_pages_still_declare_a_self_canonical(data_ts):
+    """Out of the sitemap is not out of the index.
+
+    Filing pages stay linked from every company and insider page, so they are
+    still crawled. Thirty thousand structurally identical pages with no declared
+    canonical is how Google picks its own and attributes the wrong URL.
+    """
+    page = (ROOT / "frontend" / "src" / "app" / "filing" / "[id]" / "page.tsx").read_text()
+    assert "alternates:" in page and "canonical:" in page, (
+        "the filing page no longer declares a canonical"
+    )
 
 
 def test_api_ceiling_admits_what_the_client_asks_for():
