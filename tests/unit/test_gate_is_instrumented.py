@@ -57,7 +57,11 @@ def test_the_hook_precedes_every_early_return():
     """Rules of hooks. This component has three conditional returns before the
     CTA is even computed, and the effect must sit above all of them."""
     lines = GATE.read_text(encoding="utf-8").splitlines()
-    body = next(i for i, l in enumerate(lines) if "export function ProGate" in l)
+    # Anchor on the OPEN PAREN. Since 2026-09-27 the file also exports
+    # `ProGateNotice`, which is declared above ProGate and has an early return
+    # of its own — a substring match on "export function ProGate" found that one
+    # and then measured ProGate's hook against the notice's return.
+    body = next(i for i, l in enumerate(lines) if "export function ProGate(" in l)
 
     effect = next((i for i, l in enumerate(lines)
                    if i > body and "useEffect(" in l), None)
@@ -80,7 +84,12 @@ def test_the_impression_is_conditioned_inside_the_effect():
     src = GATE.read_text(encoding="utf-8")
     eff = src[src.index("useEffect("):]
     eff = eff[:eff.index("}, [")]
-    assert "return" in eff and ("isPro" in eff or "cleared" in eff), (
+    # `gated` joined the accepted spellings on 2026-09-27, when the cleared test
+    # moved into the shared `useGateState` hook so that ProGateNotice could not
+    # drift from ProGate. The property under test is unchanged: the effect must
+    # not report an impression for a gate that cleared.
+    assert "return" in eff and any(
+        tok in eff for tok in ("isPro", "cleared", "gated")), (
         "the effect does not check whether the gate actually gated. Every "
         "Pro user rendering this component would be logged as a paywall "
         "impression."

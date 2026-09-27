@@ -7,7 +7,7 @@ import Link from "next/link";
 import { formatCurrency } from "@/lib/format";
 import { titleSummary, titleTags } from "@/lib/title-format";
 import { InsiderGradeBadge } from "@/components/insider-grade-badge";
-import { ProGate } from "@/components/pro-gate";
+import { ProGate, ProGateNotice } from "@/components/pro-gate";
 import { Pagination } from "@/components/pagination";
 
 const PAGE_SIZE = 10;
@@ -199,6 +199,9 @@ export function InsiderRoster({ insiders, gated = false }: InsiderRosterProps) {
         offset={offset}
         onPageChange={setOffset}
       />
+      {gated && (
+        <ProGateNotice what="Insider ratings beyond the first are part of Pro. The roster, roles and filing counts are free." />
+      )}
     </div>
   );
 }

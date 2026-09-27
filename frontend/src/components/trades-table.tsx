@@ -6,7 +6,7 @@ import Link from "next/link";
 import { formatCurrency, formatPercent } from "@/lib/format";
 import { InsiderGradeBadge } from "@/components/insider-grade-badge";
 import { Badge } from "@/components/ui/badge";
-import { ProGate } from "@/components/pro-gate";
+import { ProGate, ProGateNotice } from "@/components/pro-gate";
 import { Pagination } from "@/components/pagination";
 import { TradeGradeBadge } from "@/components/trade-grade-badge";
 import type { Filing, PaginatedResponse } from "@/lib/types";
@@ -211,7 +211,7 @@ export function TradesTable({ ticker, initialData }: TradesTableProps) {
             </tr>
           </thead>
           <tbody>
-            {data.items.map((t) => (
+            {data.items.map((t, rowIdx) => (
               <tr
                 key={t.trade_id}
                 className={`border-b border-[#2A2A3A]/50 hover:bg-[#1A1A26]/30 transition-colors ${t.gated ? "select-none" : ""}`}
@@ -263,21 +263,32 @@ export function TradesTable({ ticker, initialData }: TradesTableProps) {
                   const isGoodSignal =
                     ret != null &&
                     (t.trade_type === "buy" ? ret >= 0 : ret <= 0);
+                  // ONE UNBLURRED ROW, the way insider-roster already does it:
+                  // the newest filing on the first page shows its returns. A
+                  // wall over every row asserts that numbers exist; showing one
+                  // proves they do, are specific to this company, and are not
+                  // placeholders — which makes the rest an offer rather than a
+                  // claim. First page only, because a proof row that follows
+                  // the reader through pagination is just an ungated column.
+                  // Skipped when the server has gated the row itself, so the
+                  // proof never contradicts the row it sits in.
+                  const isProofRow = offset === 0 && rowIdx === 0 && !t.gated;
+                  const cell = (
+                    <span
+                      className={
+                        ret != null
+                          ? isGoodSignal
+                            ? "text-[#22C55E]"
+                            : "text-[#EF4444]"
+                          : "text-[#81819A]"
+                      }
+                    >
+                      {formatPercent(ret)}
+                    </span>
+                  );
                   return (
                     <td key={i} className={`${hiddenClass}px-3 py-3 text-right font-mono`}>
-                      <ProGate compact>
-                        <span
-                          className={
-                            ret != null
-                              ? isGoodSignal
-                                ? "text-[#22C55E]"
-                                : "text-[#EF4444]"
-                              : "text-[#81819A]"
-                          }
-                        >
-                          {formatPercent(ret)}
-                        </span>
-                      </ProGate>
+                      {isProofRow ? cell : <ProGate compact>{cell}</ProGate>}
                     </td>
                   );
                 })}
@@ -292,6 +303,7 @@ export function TradesTable({ ticker, initialData }: TradesTableProps) {
         offset={offset}
         onPageChange={fetchPage}
       />
+      <ProGateNotice what="The 7-, 30- and 90-day price moves after each filing are part of Pro. Everything else on this page is free." />
     </div>
   );
 }

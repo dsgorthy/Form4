@@ -38,6 +38,95 @@ interface ProGateProps {
 }
 
 /**
+ * Is this viewer gated, by the same rule the blur uses?
+ *
+ * Exported so `ProGateNotice` cannot drift from `ProGate`. Two copies of
+ * "cleared" is how a notice ends up advertising Pro to a subscriber.
+ */
+export function useGateState(requires: "pro" | "auth" = "pro") {
+  const { isSignedIn, isLoaded } = useAuth();
+  const { user } = useUser();
+  const cleared = requires === "auth" ? !!isSignedIn : isPro(user);
+  return { isLoaded, isSignedIn: !!isSignedIn, gated: isLoaded && !cleared };
+}
+
+/**
+ * ONE impression per page per gate, not one per table row.
+ *
+ * `gate_shown` fired once per mounted ProGate. The compact gate is rendered per
+ * CELL, so /explore emitted 50-75 events for a single pageview: the only real
+ * user of the product generated 453 of them over four days, and the funnel read
+ * as enormous gate exposure with zero conversion when the truth was about twenty
+ * page visits. Counting per pathname makes the denominator mean something.
+ *
+ * Module-scoped because every instance mounts inside the same client render, and
+ * cleared on navigation because a SPA does not reload.
+ */
+let _impressionPath: string | null = null;
+const _impressionsSeen = new Set<string>();
+
+function firstImpressionOnThisPage(key: string, path: string): boolean {
+  if (_impressionPath !== path) {
+    _impressionPath = path;
+    _impressionsSeen.clear();
+  }
+  if (_impressionsSeen.has(key)) return false;
+  _impressionsSeen.add(key);
+  return true;
+}
+
+/**
+ * A single quiet line naming what the blur covers, with one link to the offer.
+ *
+ * WHY THIS EXISTS. `compact` mode is a blurred span with `pointer-events-none`
+ * and no CTA, by design — fifty call-to-actions in a fifty-row table is not a
+ * design. But /explore uses ONLY compact gates, so there was no path from the
+ * blur to the offer anywhere on the page. Measured on the one real user we
+ * have: about twenty encounters with the blur across four days and ZERO visits
+ * to /pricing, ever. The gate was not unpersuasive; there was nothing to click.
+ *
+ * Deliberately NOT a wall, a modal, or an interstitial, and it hides nothing
+ * extra. One sentence under the table that says what is behind the blur and
+ * links to the page that explains it. Everyone goes to /pricing, including
+ * signed-out visitors: a free account does not unlock a `requires="pro"` block,
+ * so sending them to /sign-up for it would be a promise the product breaks.
+ */
+export function ProGateNotice({
+  what,
+  requires = "pro",
+  className = "",
+}: {
+  what: string;
+  requires?: "pro" | "auth";
+  className?: string;
+}) {
+  const { isLoaded, isSignedIn, gated } = useGateState(requires);
+  if (!isLoaded || !gated) return null;
+  return (
+    <p className={`mt-3 text-xs text-[#81819A] ${className}`}>
+      {what}{" "}
+      <Link
+        href="/pricing"
+        onClick={() =>
+          posthog?.capture?.("gate_cta_clicked", {
+            gate: "pro_gate_notice",
+            requires,
+            signed_in: isSignedIn,
+            destination: "/pricing",
+            path:
+              typeof window !== "undefined" ? window.location.pathname : null,
+          })
+        }
+        className="text-[#3B82F6] underline decoration-dotted underline-offset-2 hover:text-[#60A5FA]"
+      >
+        See what Pro includes
+      </Link>
+      .
+    </p>
+  );
+}
+
+/**
  * Inline blurred overlay for gated content within free pages.
  * Wraps children with blur + gradient fade + centered CTA.
  */
@@ -48,8 +137,7 @@ export function ProGate({
   requires = "pro",
   watch,
 }: ProGateProps) {
-  const { isSignedIn, isLoaded } = useAuth();
-  const { user } = useUser();
+  const { isLoaded, isSignedIn, gated } = useGateState(requires);
 
   // Pre-hydration, and therefore what the server renders and a crawler reads
   // without executing JS. Children show unblurred — blurring here and clearing
@@ -76,15 +164,22 @@ export function ProGate({
   // effect instead, which is where it belongs.
   useEffect(() => {
     if (!isLoaded) return;              // auth unresolved: not an impression
-    if (requires === "auth" ? !!isSignedIn : isPro(user)) return;  // not gated
+    if (!gated) return;                 // subscriber: nothing is blurred
+    const path =
+      typeof window !== "undefined" ? window.location.pathname : "(ssr)";
+    // One per page per gate identity. See firstImpressionOnThisPage.
+    if (!firstImpressionOnThisPage(
+          `${requires}|${compact ? "compact" : "full"}|${label}`, path)) {
+      return;
+    }
     posthog?.capture?.("gate_shown", {
       gate: "pro_gate",
       requires,
       compact: !!compact,
-      signed_in: !!isSignedIn,
+      signed_in: isSignedIn,
       watch_entity: watch ?? null,
       label: label ?? null,
-      path: typeof window !== "undefined" ? window.location.pathname : null,
+      path,
     });
     // Fires once auth has resolved and the gate is genuinely blurring
     // something. Re-renders from unrelated state are not new impressions.
@@ -95,8 +190,7 @@ export function ProGate({
     return <div className={`${GATED_CLASS} relative`}>{children}</div>;
   }
 
-  const cleared = requires === "auth" ? !!isSignedIn : isPro(user);
-  if (cleared) {
+  if (!gated) {
     return <>{children}</>;
   }
 

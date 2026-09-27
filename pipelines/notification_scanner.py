@@ -821,6 +821,50 @@ def should_notify_watchlist(signal_class: str | None,
     return True
 
 
+def _watchlist_email_worth_sending(pref: dict, total_value) -> bool:
+    """Does this watchlist filing clear the user's floor well enough to EMAIL?
+
+    THE ROW STILL LANDS IN THE FEED EITHER WAY. This decides only whether the
+    scarce channel is spent, which is the same shape as the daily-cap check in
+    `_try_send_realtime`: "Over the cap the notification still lands in the
+    FEED; only the email is withheld."
+
+    WHY. `min_trade_value` was consulted by `high_value_filing` and, after a
+    later fix, by `activity_spike` -- whose comment reads "the user's own floor,
+    which this path ignored completely... someone who set min_trade_value to $1M
+    was still being sent $40k spikes". Nobody came back for this path. Measured
+    2026-09-26 on the only real user the product has: he was EMAILED "Watchlist:
+    LUCK - President and CFO bought $2,119" against a $100,000 floor, 47x under
+    it, and did not open it. Four sends in his first four days, one of them that.
+
+    WHY THE EMAIL AND NOT THE NOTIFICATION. $100,000 is the schema DEFAULT and
+    five of six users carry exactly it, so it is mostly the product's choice and
+    not the user's -- suppressing the notification outright would silence real
+    activity on a ticker someone deliberately followed, on the strength of a
+    number they never picked. The feed is pulled and generous, email is pushed
+    and scarce; this is the line that belongs between them. And it is the feed
+    that is demonstrably working: that same user opened the bell three days
+    after the fact and clicked through to the company page.
+
+    `watchlist_all_filings` remains the opt-out, consistent with its existing
+    meaning for signal_class: it already means "send me everything on my
+    watchlist".
+
+    Unknown value fails OPEN. A filing reported in shares with no dollar value
+    cannot be compared to a floor, and this module's stated preference is that
+    the cost of guessing wrong is one extra email while the cost of the opposite
+    guess is silencing someone who is paying.
+    """
+    if pref.get("watchlist_all_filings"):
+        return True
+    floor = pref.get("min_trade_value") or 0
+    if not floor:
+        return True
+    if total_value is None:
+        return True
+    return float(total_value) >= float(floor)
+
+
 def scan_watchlist_activity(iconn: ConnectionWrapper, nconn: ConnectionWrapper, latest: str) -> int:
     """Notify users about new filings on the tickers AND insiders they follow.
 
@@ -848,8 +892,13 @@ def scan_watchlist_activity(iconn: ConnectionWrapper, nconn: ConnectionWrapper, 
         _default_watermark(latest)
     )
 
+    # Preferences come back with the subscriptions, so the delivery decision
+    # below needs no per-(filing, user) query. The old shape re-read
+    # notification_preferences inside the loop, once per notification inserted.
     subs = nconn.execute(
-        """SELECT w.user_id, w.ticker, w.insider_id
+        """SELECT w.user_id, w.ticker, w.insider_id,
+                  np.min_trade_value, np.watchlist_all_filings,
+                  np.email_enabled, np.email_frequency
              FROM watchlist w
              JOIN notification_preferences np ON w.user_id = np.user_id
             WHERE np.watchlist_activity = 1""",
@@ -861,11 +910,18 @@ def scan_watchlist_activity(iconn: ConnectionWrapper, nconn: ConnectionWrapper, 
 
     by_ticker: dict[str, set[str]] = {}
     by_insider: dict[int, set[str]] = {}
+    prefs_by_user: dict[str, dict] = {}
     for r in subs:
         if r["ticker"]:
             by_ticker.setdefault(r["ticker"], set()).add(r["user_id"])
         if r["insider_id"] is not None:
             by_insider.setdefault(int(r["insider_id"]), set()).add(r["user_id"])
+        prefs_by_user.setdefault(r["user_id"], {
+            "min_trade_value": r["min_trade_value"],
+            "watchlist_all_filings": r["watchlist_all_filings"],
+            "email_enabled": r["email_enabled"],
+            "email_frequency": r["email_frequency"],
+        })
 
     # One query per target type — each hits its own index. Filings are grouped
     # to the FILING, not the lot: a purchase filled in five tranches is one
@@ -920,12 +976,11 @@ def scan_watchlist_activity(iconn: ConnectionWrapper, nconn: ConnectionWrapper, 
         ph = ",".join("?" for _ in by_insider)
         _load(f"t.insider_id IN ({ph})", list(by_insider))
 
-    # Per-user opt-out from the meaningful default.
+    # Per-user opt-out from the meaningful default. Read off prefs_by_user
+    # rather than a second query over the whole table.
     unfiltered_users = {
-        r["user_id"] for r in nconn.execute(
-            "SELECT user_id FROM notification_preferences "
-            "WHERE watchlist_all_filings = 1"
-        ).fetchall()
+        uid for uid, p in prefs_by_user.items()
+        if p.get("watchlist_all_filings")
     }
 
     count = 0
@@ -954,12 +1009,8 @@ def scan_watchlist_activity(iconn: ConnectionWrapper, nconn: ConnectionWrapper, 
                                         title, body, r["ticker"], dedup)
             if _nid:
                 count += 1
-                pref = nconn.execute(
-                    "SELECT email_enabled, email_frequency FROM "
-                    "notification_preferences WHERE user_id = ?",
-                    (user_id,),
-                ).fetchone()
-                if pref:
+                pref = prefs_by_user.get(user_id)
+                if pref and _watchlist_email_worth_sending(pref, r["total_value"]):
                     _try_send_realtime(
                         nconn, dict(pref) | {"user_id": user_id}, title, body,
                         "watchlist_activity", _nid)
