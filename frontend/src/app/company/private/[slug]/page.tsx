@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { fetchAPIAuth } from "@/lib/auth";
+import { fetchAPIAuth, isEntityMissing } from "@/lib/auth";
 import { formatCurrency } from "@/lib/format";
 import { InsiderRoster } from "@/components/insider-roster";
 import { PrivateTradesTable } from "@/components/private-trades-table";
@@ -48,7 +48,12 @@ export default async function PrivateCompanyPage({ params }: { params: Promise<{
       fetchAPIAuth<PrivateCompanyOverview>(`/private-companies/${slug}`),
       fetchAPIAuth<PaginatedResponse<Filing>>(`/private-companies/${slug}/trades`, { limit: String(TRADES_LIMIT) }),
     ]);
-  } catch {
+  } catch (e) {
+    // ONLY a definite 404 may render a not-found page. Anything else must
+    // become a 500: the not-found route answers 200 with noindex, so treating a
+    // backend blip as an absence tells Google to REMOVE this URL, and a
+    // successful fetch gives it no reason to come back. See lib/auth.ts.
+    if (!isEntityMissing(e)) throw e;
     notFound();
   }
 

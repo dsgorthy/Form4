@@ -5,7 +5,7 @@ import { insiderPath } from "@/lib/insider-url";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { fetchAPI } from "@/lib/api";
-import { fetchAPIAuth } from "@/lib/auth";
+import { fetchAPIAuth, isEntityMissing } from "@/lib/auth";
 import { RelatedCompanies, type RelatedCompany } from "@/components/related-companies";
 import { EntityLinkList } from "@/components/entity-link-list";
 import { ProGate } from "@/components/pro-gate";
@@ -114,7 +114,12 @@ export default async function CompanyPage({ params }: { params: Promise<{ ticker
       fetchAPIAuth<CompanyOverview>(`/companies/${ticker}`),
       fetchAPIAuth<PaginatedResponse<Filing>>(`/companies/${ticker}/trades`, { limit: String(TRADES_LIMIT) }),
     ]);
-  } catch {
+  } catch (e) {
+    // ONLY a definite 404 may render a not-found page. Anything else must
+    // become a 500: the not-found route answers 200 with noindex, so treating a
+    // backend blip as an absence tells Google to REMOVE this URL, and a
+    // successful fetch gives it no reason to come back. See lib/auth.ts.
+    if (!isEntityMissing(e)) throw e;
     notFound();
   }
 

@@ -6,7 +6,7 @@ import { notFound } from "next/navigation";
 import { RelatedInsiders, type RelatedInsider } from "@/components/related-insiders";
 import { InsiderVerdict } from "@/components/insider-verdict";
 import { fetchAPI } from "@/lib/api";
-import { fetchAPIAuth } from "@/lib/auth";
+import { fetchAPIAuth, isEntityMissing, ApiError, ApiUnreachable } from "@/lib/auth";
 import { formatCurrency, formatPercent } from "@/lib/format";
 import { formatTitle, titleSummary, titleTags } from "@/lib/title-format";
 import { InsiderGradeBadge } from "@/components/insider-grade-badge";
@@ -33,6 +33,12 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
     );
     if (res.status === 403) {
       return { title: "Insider Profile" };
+    }
+    if (res.status >= 500) {
+      // A 5xx here must NOT produce a noindex document. Throwing makes Next
+      // serve a 500, which Google retries; returning a noindex title would ask
+      // it to drop a page that exists.
+      throw new ApiError(res.status);
     }
     if (!res.ok) {
       return { title: "Insider Not Found", robots: { index: false, follow: true } };
@@ -163,6 +169,12 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
       related = await fetchAPIAuth(`/insiders/${id}/related`);
     } catch {}
   } catch (e: any) {
+    // ONLY a definite 404 may render a not-found page; see the `notFound()`
+    // below and lib/auth.ts. A backend blip that reached it there answered 200
+    // with noindex, which told Google to remove the URL.
+    if (e instanceof ApiUnreachable || (e instanceof ApiError && e.status >= 500)) {
+      throw e;
+    }
     if (e.message?.includes("403")) {
       return (
         <div>
@@ -190,6 +202,9 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
         </div>
       );
     }
+    // Anything left is a 404 or a client-side status we cannot render. Only a
+    // definite 404 is an absence; the rest must not be published as one.
+    if (!isEntityMissing(e)) throw e;
     notFound();
   }
 
