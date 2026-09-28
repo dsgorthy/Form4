@@ -146,7 +146,7 @@ dagster:
       That is the same loss found independently against EDGAR on 2026-08-26.
 
   - name: form4_ops
-    schedule: "23 schedules, 25 assets — see assets/form4_ops.py"
+    schedule: "24 schedules, 26 assets — see assets/form4_ops.py"
     replaced: [enrich-narratives, breaking-signal, trial-emails,
                ceowatcher-reader, monday-paper-monitor, alpaca-reconcile,
                thesis-monitor, post-deploy-audit, daily-summary,
@@ -172,6 +172,12 @@ dagster:
       being submitted in the sitemap at a derived URL instead of their stored
       canonical one. It is write-once, so running it daily only touches rows
       that have no slug.
+
+      ops_crawler_activity (hourly at :10) persists per-hour crawler counts out
+      of the Caddy access log, which rotates after about a day. Added 2026-09-28
+      because the ten days it took to find the deindexing bug were ten days
+      without the one number that would have shown it: Googlebot's request rate.
+      Search engines are counted BY IP, since the user agent is spoofable.
 
 pending:
   # Ordered by what it costs to leave alone.

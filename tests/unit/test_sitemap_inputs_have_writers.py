@@ -33,6 +33,10 @@ REGISTRY = ROOT / "dataplane" / "deploy" / "scheduled_work.yaml"
 REQUIRED = {
     "ops_insider_slugs": "ops_insider_slugs_daily",
     "ops_sitemap_quality": "ops_sitemap_quality_daily",
+    # Not a sitemap input — the record of whether anyone is READING the sitemap.
+    # The ten days it took to find the 2026-09-27 deindexing bug were ten days
+    # without Googlebot's request rate, because the access log rotates daily.
+    "ops_crawler_activity": "ops_crawler_activity_hourly",
 }
 
 
@@ -71,6 +75,42 @@ def test_each_asset_has_a_schedule():
         m = re.search(rf'_sched\("{sched}",\s*\[([^\]]*)\]', src, re.S)
         assert m, f"{fn} has no schedule named {sched}"
         assert fn in m.group(1), f"schedule {sched} does not select {fn}"
+
+
+def test_the_crawler_counter_runs_more_often_than_the_log_rotates():
+    """The Caddy log is json-file, max-size 10m, max-file 3 — about one day at
+    current volume. A daily job is one rotation away from the blind spot this
+    table exists to close."""
+    src = _ops()
+    cron = _cron_of(src, REQUIRED["ops_crawler_activity"])
+    minute = cron.split()[0]
+    hour = cron.split()[1]
+    assert hour == "*" or hour.startswith("*/"), (
+        f"crawler activity runs at {cron!r}, which is at most daily; it has to "
+        "run within the log's retention window"
+    )
+    assert minute.isdigit() or minute.startswith("*/"), cron
+
+
+def test_the_crawler_counter_verifies_search_engines_by_address():
+    """A Googlebot user agent is a free-text header, and this very session sent
+    one dozens of times while testing the fix. A UA-based count would have
+    recorded its own traffic as a crawl recovery."""
+    src = (ROOT / "scripts" / "record_crawler_activity.py").read_text()
+    assert "GOOGLE_PREFIXES" in src and "66.249." in src, (
+        "Googlebot is no longer identified by IP range"
+    )
+    body = src[src.index("def classify("): src.index("def read_log(")]
+    ip_at = body.index("GOOGLE_PREFIXES")
+    ua_at = body.index("googlebot_ua_only")
+    assert ip_at < ua_at, (
+        "the user-agent check runs before the address check, so a spoofed UA "
+        "would be counted as a verified crawl"
+    )
+    assert "googlebot_ua_only" in src, (
+        "unverified claims are folded into the real number instead of being "
+        "recorded separately"
+    )
 
 
 def test_slugs_are_assigned_before_the_quality_tables_are_read():

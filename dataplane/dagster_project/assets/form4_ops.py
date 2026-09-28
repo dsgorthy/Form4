@@ -385,6 +385,24 @@ def ops_strategy_intraday(context: AssetExecutionContext) -> Output:
 
 
 @asset(group_name=GROUP, compute_kind="python",
+       description="Persist per-hour crawler counts from the Caddy access log. "
+                   "The log holds ~1 day; this is the only history there is.")
+def ops_crawler_activity(context: AssetExecutionContext) -> Output:
+    # Google traffic went to zero on 2026-09-17 and the cause was not found
+    # until 09-27. The most useful number in that window — how many requests
+    # Googlebot was making — did not exist, because the Caddy container logs to
+    # json-file at max-size 10m / max-file 3, which is about one day at current
+    # volume. Search Console has the number on a 2-3 day lag and only as a chart.
+    #
+    # HOURLY, not daily: a daily job is one rotation away from the same blind
+    # spot. The write upserts on (day, hour, crawler), so overlap is free and a
+    # missed run costs nothing.
+    return _run(context, _wrapped("crawler_activity", BREW,
+                                  f"{REPO}/scripts/record_crawler_activity.py",
+                                  "--hours", "6"), timeout=900)
+
+
+@asset(group_name=GROUP, compute_kind="python",
        description="Assign URL slugs to insiders that have none (write-once). "
                    "Runs ahead of ops_sitemap_quality so new insiders are "
                    "submitted at their canonical URL, not a derived one.")
@@ -431,7 +449,7 @@ form4_ops_assets = [
     ops_bronze_topup, ops_edgar_index_refresh, ops_silver_keep_up, ops_gold_refresh,
     ops_form4_notifications, ops_refresh_open_position_prices,
     ops_strategy_intraday,
-    ops_insider_slugs, ops_sitemap_quality,
+    ops_insider_slugs, ops_sitemap_quality, ops_crawler_activity,
 ]
 
 PT = "America/Los_Angeles"
@@ -492,6 +510,9 @@ form4_ops_schedules = [
     # 02:45 then 03:00 PT, in that order and not as one job: the slug pass must
     # finish before the quality tables are read, or a new insider is submitted
     # at a derived URL for a day.
+    # :10 hourly. Reads the last 6 hours and upserts, so a missed run is
+    # recovered by the next one and nothing depends on it being on time.
+    _sched("ops_crawler_activity_hourly", [ops_crawler_activity], "10 * * * *"),
     _sched("ops_insider_slugs_daily", [ops_insider_slugs], "45 2 * * *"),
     _sched("ops_sitemap_quality_daily", [ops_sitemap_quality], "0 3 * * *"),
 ]
