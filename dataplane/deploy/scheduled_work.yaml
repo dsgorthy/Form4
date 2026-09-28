@@ -146,7 +146,7 @@ dagster:
       That is the same loss found independently against EDGAR on 2026-08-26.
 
   - name: form4_ops
-    schedule: "10 schedules, 12 assets — see assets/form4_ops.py"
+    schedule: "22 schedules, 24 assets — see assets/form4_ops.py"
     replaced: [enrich-narratives, breaking-signal, trial-emails,
                ceowatcher-reader, monday-paper-monitor, alpaca-reconcile,
                thesis-monitor, post-deploy-audit, daily-summary,
@@ -156,6 +156,14 @@ dagster:
       exact command its plist ran, same interpreter and same time.
       framework.observability.wrap is kept on the ten that had it, so
       /admin/pipelines still sees them. Plists retired to ~/retired_plists.
+
+      Has since grown assets that replace NO plist, because the work is new:
+      the strategy runners and bronze/silver/gold keep-up, and as of
+      2026-09-27 ops_sitemap_quality (03:00 PT daily) which rebuilds the
+      decision-filing counts api/routers/sitemap.py uses to decide which pages
+      to submit. That one is safe to miss: the sitemap treats a table older
+      than 7 days as unusable and reverts to submitting everything, so a
+      missed run costs precision rather than the site.
 
 pending:
   # Ordered by what it costs to leave alone.

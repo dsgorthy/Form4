@@ -5,12 +5,17 @@ No auth required — this data is public (tickers and IDs only, no scores/PII).
 """
 from __future__ import annotations
 
+import re
 import time
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Query
 
 from api.db import get_db
 from api.id_encoding import encode_insider_id
+#: The suppression floor for the published track record. Imported, never
+#: retyped: if it moves, the set of pages worth submitting moves with it.
+from api.routers.insiders import MIN_SCORED_FILINGS
 
 router = APIRouter(prefix="/api/v1/sitemap", tags=["sitemap"])
 
@@ -23,6 +28,91 @@ router = APIRouter(prefix="/api/v1/sitemap", tags=["sitemap"])
 # data changes daily, so an hour is fine.
 _CACHE_TTL_S = 3600
 _cache: dict[tuple[int, int], tuple[float, dict]] = {}
+
+# ── WHAT WE SUBMIT, AND WHY IT IS LESS THAN WHAT EXISTS ──────────────────────
+#
+# Page indexing on 2026-09-20: 44.6K indexed, 126K NOT — and 91% of the
+# not-indexed total is "Discovered - currently not indexed" (59,022) plus
+# "Crawled - currently not indexed" (56,197). Google is finding these pages and
+# declining them. Crawl stats said it from the other side: 67% of budget went to
+# Discovery, 33% to Refresh, so the pages that could rank were re-read least.
+#
+# We were submitting ~70,000 URLs on a rule that could not tell a page from a
+# stub — `insider_track_records.buy_count >= 2`, where buy_count counts
+# EXECUTION LOTS. One purchase filled in five tranches scored five, so ">= 2"
+# admitted insiders who had made exactly one decision.
+#
+# The floor is now stated in terms of the thing that makes the page worth
+# indexing at all. Below MIN_SCORED_FILINGS the track record is SUPPRESSED, so
+# the page renders a name, a role and a filings table — byte-for-byte what
+# secform4, openinsider and marketbeat already publish with more authority.
+# Submitting it asks Google to rank a page with nothing of ours on it.
+#
+#   substantial      >= 10 decision filings, whatever the date
+#   recent and real  filed in the last 12 months AND >= 5 decision filings
+#
+# Measured 2026-09-27: 30,793 insiders and 11,036 companies, against 51,797 and
+# 18,267 before. Facts come from sitemap_quality_{insiders,companies}, rebuilt
+# daily by pipelines/insider_study/refresh_sitemap_quality.py; the THRESHOLDS
+# live here so the rule can move without a re-materialization.
+SUBSTANTIAL_FILINGS = 10
+#: Mirrors api.routers.insiders.MIN_SCORED_FILINGS — the count below which the
+#: track record is suppressed. Imported rather than typed.
+RECENT_MONTHS = 12
+
+#: How stale the quality tables may be before we stop trusting them. The daily
+#: refresh gives ~6 days of margin; past that we fall back to the old rule
+#: rather than publish a sitemap shaped by a frozen snapshot.
+QUALITY_MAX_AGE_DAYS = 7
+
+
+def _as_insider_list(rows) -> list[dict]:
+    """Shape rows for the client. Shared so the two query paths cannot drift."""
+    return [
+        {
+            "id": encode_insider_id(r["insider_id"]),
+            "name": r["name"] or "",
+            # Prefer the stored slug; the client only falls back to deriving
+            # one from the name when this is absent.
+            "slug": r["slug"] or "",
+        }
+        for r in rows if r["insider_id"]
+    ]
+
+
+def _quality_is_usable(conn, table: str) -> bool:
+    """Is `table` present and refreshed recently enough to shape the sitemap?
+
+    The refresh stamps `refreshed_at=<iso>` into the table comment. A missing
+    table, a missing stamp, or a stamp older than QUALITY_MAX_AGE_DAYS all read
+    as unusable, and the caller falls back to submitting everything.
+
+    Checked rather than assumed because the failure is invisible: a frozen
+    quality table does not error, it just quietly stops admitting the pages
+    that became eligible since it froze.
+    """
+    try:
+        row = conn.execute(
+            "SELECT obj_description(c.oid) AS c FROM pg_class c "
+            "JOIN pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE n.nspname = 'public' AND c.relname = ?",
+            (table,),
+        ).fetchone()
+    except Exception:
+        return False
+    if not row or not row["c"]:
+        return False
+    m = re.search(r"refreshed_at=(\S+)", str(row["c"]))
+    if not m:
+        return False
+    try:
+        when = datetime.fromisoformat(m.group(1))
+    except ValueError:
+        return False
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    age = datetime.now(timezone.utc) - when
+    return age <= timedelta(days=QUALITY_MAX_AGE_DAYS)
 
 
 @router.get("/urls")
@@ -54,9 +144,14 @@ def _sitemap_urls_uncached(
     """Return tickers, insider IDs, and recent filing IDs for sitemap generation.
 
     Returns:
-        tickers: list of all traded tickers
-        insiders: list of {id, name} for slugged URLs (top N by track record)
-        filings: list of encoded filing IDs (last N days)
+        tickers: companies clearing the submission floor
+        insiders: [{id, name, slug}] clearing the submission floor
+        filings: encoded filing IDs (last N days) — computed but NOT published
+                 since 2026-09-27; kept so flipping PUBLISH_FILINGS back on in
+                 frontend/src/lib/sitemap-data.ts restores them without an API
+                 change.
+
+    See the SUBSTANTIAL_FILINGS block above for what the floor is and why.
     """
     with get_db() as conn:
         from api.id_encoding import encode_trade_id
@@ -65,87 +160,95 @@ def _sitemap_urls_uncached(
         insiders: list[dict] = []
         filings: list[str] = []
 
-        # All tickers — use insider_companies as a corruption-safe fallback
-        try:
-            ticker_rows = conn.execute("""
-                SELECT DISTINCT ticker FROM trades
-                WHERE ticker IS NOT NULL AND ticker != '' AND ticker != 'NONE'
-                  AND trans_code IN ('P', 'S')
-                ORDER BY ticker
-            """).fetchall()
-            tickers = [r["ticker"] for r in ticker_rows]
-        except Exception:
-            # Fallback: use insider_companies table (no btree corruption)
-            ticker_rows = conn.execute("""
-                SELECT DISTINCT ticker FROM insider_companies
-                WHERE ticker IS NOT NULL AND ticker != '' AND ticker != 'NONE'
-                ORDER BY ticker
-            """).fetchall()
-            tickers = [r["ticker"] for r in ticker_rows]
+        # Companies that clear the floor. FAIL OPEN: if the quality table is
+        # missing, stale or empty, submit everything rather than nothing — a
+        # sitemap that silently collapses is a worse failure than one that is
+        # too generous, and this path has no other reader to notice.
+        tickers = []
+        if _quality_is_usable(conn, "sitemap_quality_companies"):
+            try:
+                ticker_rows = conn.execute(f"""
+                    SELECT ticker FROM sitemap_quality_companies
+                     WHERE decision_filings >= {SUBSTANTIAL_FILINGS}
+                        OR (decision_filings >= {MIN_SCORED_FILINGS}
+                            AND last_decision >=
+                                (CURRENT_DATE - INTERVAL '{RECENT_MONTHS} months')::text)
+                     ORDER BY ticker
+                """).fetchall()
+                tickers = [r["ticker"] for r in ticker_rows]
+            except Exception:
+                tickers = []
+        if not tickers:
+            try:
+                ticker_rows = conn.execute("""
+                    SELECT DISTINCT ticker FROM trades
+                    WHERE ticker IS NOT NULL AND ticker != '' AND ticker != 'NONE'
+                      AND trans_code IN ('P', 'S')
+                    ORDER BY ticker
+                """).fetchall()
+                tickers = [r["ticker"] for r in ticker_rows]
+            except Exception:
+                # Fallback: use insider_companies table (no btree corruption)
+                ticker_rows = conn.execute("""
+                    SELECT DISTINCT ticker FROM insider_companies
+                    WHERE ticker IS NOT NULL AND ticker != '' AND ticker != 'NONE'
+                    ORDER BY ticker
+                """).fetchall()
+                tickers = [r["ticker"] for r in ticker_rows]
 
-        # Top insiders by track record (avoids heavy trades GROUP BY)
-        try:
-            # Join the name in: insider URLs are /insider/{name-slug}-{id}
-            # for SEO, and a sitemap of bare IDs would publish the one URL
-            # shape search engines get nothing from.
-            insider_rows = conn.execute("""
-                SELECT tr.insider_id,
-                       COALESCE(i.display_name, i.name) AS name,
-                       i.slug
-                  FROM insider_track_records tr
-                  LEFT JOIN insiders i ON i.insider_id = tr.insider_id
-                 WHERE tr.buy_count >= 2
-                 -- Tiebreakers are load-bearing, not tidiness. 13,090 insiders
-                 -- are eligible and 6,335 of them have a NULL score, so the
-                 -- LIMIT cuts through the middle of one enormous tied block.
-                 -- Ordering by score alone leaves Postgres free to return a
-                 -- different subset every run: measured 2026-08-15, 1,347
-                 -- insider URLs (13%) churned in and out of the sitemap
-                 -- between two generations. A URL that appears and vanishes
-                 -- between crawls is a stability signal we do not want to
-                 -- send, and it left which insiders get indexed to chance.
-                 --
-                 -- buy_count before insider_id so the unscored insiders we do
-                 -- include are the most active ones rather than the
-                 -- lowest-numbered.
-                 -- RAISED 10,000 -> 45,000 on 2026-09-03. 42,195 insiders
-                 -- have two or more discretionary buy FILINGS, so the old cap
-                 -- submitted 24% of the pages that qualify under our own rule
-                 -- and the ordering decided the rest. It was not a staleness
-                 -- problem: measured the same day, only 4 qualifying insiders
-                 -- were missing from insider_track_records entirely, so the
-                 -- table is being refreshed -- the cap was simply the binding
-                 -- constraint.
-                 --
-                 -- Deliberately not unbounded: the buy_count >= 2 floor is
-                 -- what keeps single-filing stubs out, and that floor matters
-                 -- more than the ceiling.
-                 --
-                 -- 2026-09-10: the note that used to sit here — "still under
-                 -- the 50,000-URL sitemap limit, and the client chunks at
-                 -- CHUNK anyway" — was wrong on the second half and made the
-                 -- first half load-bearing without anyone noticing. The client
-                 -- chunked FILINGS; insiders were emitted as one file, so
-                 -- 45,000 was the only thing keeping that document under the
-                 -- protocol cap. Eligibility has since reached 51,747, which
-                 -- would have produced a rejected sitemap the moment the cap
-                 -- moved. Insiders are chunked now and the limit is set from
-                 -- INSIDER_CHUNKS * CHUNK in frontend/src/lib/sitemap-data.ts.
-                 ORDER BY tr.score DESC NULLS LAST, tr.buy_count DESC, tr.insider_id
-                 LIMIT ?
-            """, (limit_insiders,)).fetchall()
-            insiders = [
-                {
-                    "id": encode_insider_id(r["insider_id"]),
-                    "name": r["name"] or "",
-                    # Prefer the stored slug; the client only falls back to
-                    # deriving one from the name when this is absent.
-                    "slug": r["slug"] or "",
-                }
-                for r in insider_rows if r["insider_id"]
-            ]
-        except Exception:
-            pass
+        # Insiders that clear the floor, newest activity first.
+        #
+        # The old query read insider_track_records.buy_count >= 2 and ordered by
+        # tr.score. Two things were wrong with it and one was load-bearing:
+        # buy_count counts EXECUTION LOTS (insider 14368: 1,167 decision filings
+        # against a buy_count+sell_count of 24,994), and the ordering had to be
+        # stabilised with explicit tiebreakers because 6,335 eligible insiders
+        # shared a NULL score and the LIMIT cut through the tied block — 1,347
+        # URLs (13%) churned in and out between two generations.
+        #
+        # Both go away here. The floor is a filing count, and the ORDER BY is
+        # (last_decision, decision_filings, insider_id), which is total: no ties
+        # to break and no dependence on a score column that is refreshed by a
+        # different job. The LIMIT is now a backstop rather than the rule.
+        insiders = []
+        if _quality_is_usable(conn, "sitemap_quality_insiders"):
+            try:
+                insider_rows = conn.execute(f"""
+                    SELECT q.insider_id,
+                           COALESCE(i.display_name, i.name) AS name,
+                           i.slug
+                      FROM sitemap_quality_insiders q
+                      JOIN insiders i ON i.insider_id = q.insider_id
+                     WHERE q.decision_filings >= {SUBSTANTIAL_FILINGS}
+                        OR (q.decision_filings >= {MIN_SCORED_FILINGS}
+                            AND q.last_decision >=
+                                (CURRENT_DATE - INTERVAL '{RECENT_MONTHS} months')::text)
+                     ORDER BY q.last_decision DESC NULLS LAST,
+                              q.decision_filings DESC,
+                              q.insider_id
+                     LIMIT ?
+                """, (limit_insiders,)).fetchall()
+                insiders = _as_insider_list(insider_rows)
+            except Exception:
+                insiders = []
+        if not insiders:
+            # FAIL OPEN to the previous rule. Same reasoning as the tickers
+            # above: too many URLs is recoverable, an empty sitemap is not.
+            try:
+                insider_rows = conn.execute("""
+                    SELECT tr.insider_id,
+                           COALESCE(i.display_name, i.name) AS name,
+                           i.slug
+                      FROM insider_track_records tr
+                      LEFT JOIN insiders i ON i.insider_id = tr.insider_id
+                     WHERE tr.buy_count >= 2
+                     ORDER BY tr.score DESC NULLS LAST, tr.buy_count DESC,
+                              tr.insider_id
+                     LIMIT ?
+                """, (limit_insiders,)).fetchall()
+                insiders = _as_insider_list(insider_rows)
+            except Exception:
+                pass
 
         # Recent filings
         try:

@@ -384,6 +384,19 @@ def ops_strategy_intraday(context: AssetExecutionContext) -> Output:
                                   "--all"), timeout=1800)
 
 
+@asset(group_name=GROUP, compute_kind="python",
+       description="Rebuild the sitemap quality tables (decision filings per "
+                   "insider and per ticker). Read by api/routers/sitemap.py to "
+                   "decide which pages are worth submitting.")
+def ops_sitemap_quality(context: AssetExecutionContext) -> Output:
+    # New in 2026-09-27, so it replaces no plist. The sitemap FAILS OPEN on a
+    # stale table (QUALITY_MAX_AGE_DAYS = 7) — it reverts to submitting
+    # everything rather than nothing — so a missed run costs precision, not the
+    # site. Which is also why this does not need to be the first job of the day.
+    return _run(context, _wrapped("sitemap_quality", BREW, "-m",
+                                  "pipelines.insider_study.refresh_sitemap_quality"),
+                timeout=3600)
+
 form4_ops_assets = [
     ops_enrich_narratives, ops_breaking_signal, ops_trial_emails,
     ops_ceowatcher_reader, ops_monday_paper_monitor, ops_alpaca_reconcile,
@@ -395,6 +408,7 @@ form4_ops_assets = [
     ops_bronze_topup, ops_edgar_index_refresh, ops_silver_keep_up, ops_gold_refresh,
     ops_form4_notifications, ops_refresh_open_position_prices,
     ops_strategy_intraday,
+    ops_sitemap_quality,
 ]
 
 PT = "America/Los_Angeles"
@@ -446,4 +460,11 @@ form4_ops_schedules = [
     _sched("ops_notifications_5min", [ops_form4_notifications],          "*/5 * * * *"),
     _sched("ops_position_prices_15min", [ops_refresh_open_position_prices], "*/15 * * * *"),
     _sched("ops_strategy_intraday_10min", [ops_strategy_intraday],       "*/10 * * * *"),
+
+    # 03:00 PT daily, after gold at 02:30 and before the 03:15 pg_dump. The
+    # counts move only when new filings land, and the API caches the URL list
+    # for an hour anyway, so once a day is the right cadence — the staleness
+    # window in api/routers/sitemap.py is 7 days, which gives six missed runs
+    # of margin before the sitemap widens back to everything.
+    _sched("ops_sitemap_quality_daily", [ops_sitemap_quality], "0 3 * * *"),
 ]

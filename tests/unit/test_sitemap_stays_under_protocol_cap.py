@@ -63,9 +63,22 @@ def test_insider_request_fits_in_the_files_it_is_written_into(data_ts):
         f"INSIDER_LIMIT is {expr!r}; derive it from INSIDER_CHUNKS * CHUNK so the "
         "request and the capacity cannot drift apart"
     )
-    assert chunks * chunk >= 51_747, (
-        f"capacity {chunks * chunk} is below the {51_747} insiders eligible as of "
-        "2026-09-10; raise INSIDER_CHUNKS"
+    # 30,793 insiders clear the submission floor as of 2026-09-27 (>= 10
+    # decision filings, or filed in the last 12 months with >= 5). That is down
+    # from 51,747 under the old buy_count >= 2 rule, which counted execution
+    # lots — see tests/unit/test_sitemap_submits_what_can_rank.py.
+    #
+    # Capacity is deliberately left well ABOVE eligibility rather than trimmed
+    # to fit. INSIDER_CHUNKS = 3 means the third file currently renders an empty
+    # urlset, which is valid and costs one crawler fetch. Trimming to 2 would
+    # tidy that up and leave only 9,200 of headroom against a rule whose
+    # recency arm admits every insider who files — and the failure mode on the
+    # other side is silent: the excess is dropped by the last .slice() with
+    # nothing to notice it. An empty file beats a missing one.
+    eligible_2026_09_27 = 30_793
+    assert chunks * chunk >= eligible_2026_09_27, (
+        f"capacity {chunks * chunk} is below the {eligible_2026_09_27} insiders "
+        "eligible as of 2026-09-27; raise INSIDER_CHUNKS"
     )
 
 
