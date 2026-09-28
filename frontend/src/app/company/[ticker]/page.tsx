@@ -1,11 +1,13 @@
 export const dynamic = "force-dynamic";
 
 import type { Metadata } from "next";
+import { insiderPath } from "@/lib/insider-url";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { fetchAPI } from "@/lib/api";
 import { fetchAPIAuth } from "@/lib/auth";
 import { RelatedCompanies, type RelatedCompany } from "@/components/related-companies";
+import { EntityLinkList } from "@/components/entity-link-list";
 import { ProGate } from "@/components/pro-gate";
 import { FollowCta, FollowInline } from "@/components/follow-cta";
 import { PendingFollow } from "@/components/pending-follow";
@@ -14,7 +16,7 @@ import { titleSummary } from "@/lib/title-format";
 import { WatchButton } from "@/components/watch-button";
 import { CompanySummary } from "@/components/entity-summary";
 import { companyJsonLd, jsonLdScript } from "@/lib/structured-data";
-import { InsiderRoster } from "@/components/insider-roster";
+import { InsiderRoster, PAGE_SIZE as INSIDER_ROSTER_PAGE_SIZE } from "@/components/insider-roster";
 import type { Filing, PaginatedResponse } from "@/lib/types";
 import { SectionLabel } from "@/components/ui/section-label";
 
@@ -36,6 +38,7 @@ interface CompanyOverview {
     insider_id: string;
     name: string;
     cik: string;
+    slug?: string | null;
     title: string;
     normalized_title: string | null;
     is_entity?: number;
@@ -256,6 +259,24 @@ export default async function CompanyPage({ params }: { params: Promise<{ ticker
             grade stays visible as proof. Blurring the whole roster hid the
             content Google came for. */}
         <InsiderRoster insiders={overview.insiders} gated />
+        {/* The roster above paginates client-side at 10, so only the first 10
+            links reach the delivered HTML however long the roster is — 80% of
+            the company pages we submit have more than 10 insiders, and two
+            thirds of the company->insider edges existed only in the data.
+            See entity-link-list.tsx for the measurement. */}
+        <EntityLinkList
+          summary={`Every insider who has filed at ${ticker.toUpperCase()} (${overview.insiders.length})`}
+          alreadyShown={INSIDER_ROSTER_PAGE_SIZE}
+          items={[...overview.insiders]
+            .sort((a, b) => (b.trade_count ?? 0) - (a.trade_count ?? 0))
+            .map((i) => ({
+              href: insiderPath(i.name, i.cik || i.insider_id, i.slug),
+              label: i.name,
+              detail: i.trade_count
+                ? `${i.trade_count} ${i.trade_count === 1 ? "filing" : "filings"}`
+                : null,
+            }))}
+        />
         {/* PendingFollow completes a follow carried through sign-up, and
             renders nothing when there is no `?follow=` to act on. It has to be
             on this page for the same reason the token below has to be passed:

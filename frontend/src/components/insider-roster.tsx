@@ -11,7 +11,13 @@ import { InsiderGradeBadge } from "@/components/insider-grade-badge";
 import { ProGate, ProGateNotice } from "@/components/pro-gate";
 import { Pagination } from "@/components/pagination";
 
-const PAGE_SIZE = 10;
+/**
+ * Rows rendered per page — and therefore how many insider links reach the
+ * delivered HTML, since the pagination is client-side. EXPORTED so the company
+ * page's complete link list knows where this one stops; two copies of the
+ * number would silently start listing 10 names twice or skipping some.
+ */
+export const PAGE_SIZE = 10;
 
 interface Insider {
   insider_id: string;
