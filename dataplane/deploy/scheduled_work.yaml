@@ -146,7 +146,7 @@ dagster:
       That is the same loss found independently against EDGAR on 2026-08-26.
 
   - name: form4_ops
-    schedule: "22 schedules, 24 assets — see assets/form4_ops.py"
+    schedule: "23 schedules, 25 assets — see assets/form4_ops.py"
     replaced: [enrich-narratives, breaking-signal, trial-emails,
                ceowatcher-reader, monday-paper-monitor, alpaca-reconcile,
                thesis-monitor, post-deploy-audit, daily-summary,
@@ -159,11 +159,19 @@ dagster:
 
       Has since grown assets that replace NO plist, because the work is new:
       the strategy runners and bronze/silver/gold keep-up, and as of
-      2026-09-27 ops_sitemap_quality (03:00 PT daily) which rebuilds the
-      decision-filing counts api/routers/sitemap.py uses to decide which pages
-      to submit. That one is safe to miss: the sitemap treats a table older
-      than 7 days as unusable and reverts to submitting everything, so a
-      missed run costs precision rather than the site.
+      2026-09-27 ops_insider_slugs (02:45 PT) and ops_sitemap_quality
+      (03:00 PT), in that order. The second rebuilds the decision-filing counts
+      api/routers/sitemap.py uses to decide which pages to submit, and is safe
+      to miss: the sitemap treats a table older than 7 days as unusable and
+      reverts to submitting everything, so a missed run costs precision rather
+      than the site.
+
+      ops_insider_slugs is a writer that had never been scheduled at all.
+      scripts/backfill_insider_slugs.py was built to be run by hand, so 84,414
+      of 213,238 insiders had no slug on 2026-09-27 and 5,034 of those were
+      being submitted in the sitemap at a derived URL instead of their stored
+      canonical one. It is write-once, so running it daily only touches rows
+      that have no slug.
 
 pending:
   # Ordered by what it costs to leave alone.

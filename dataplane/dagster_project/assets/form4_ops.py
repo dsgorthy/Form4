@@ -385,6 +385,29 @@ def ops_strategy_intraday(context: AssetExecutionContext) -> Output:
 
 
 @asset(group_name=GROUP, compute_kind="python",
+       description="Assign URL slugs to insiders that have none (write-once). "
+                   "Runs ahead of ops_sitemap_quality so new insiders are "
+                   "submitted at their canonical URL, not a derived one.")
+def ops_insider_slugs(context: AssetExecutionContext) -> Output:
+    # NOTHING HAD EVER SCHEDULED THIS. scripts/backfill_insider_slugs.py was
+    # written to be run by hand, so every insider added since the last manual
+    # run had no slug: 84,414 of 213,238 on 2026-09-27, including 5,034 that
+    # the sitemap was actively submitting. Those were published at the derived
+    # /insider/{name}-{sqid} form instead of the stored canonical
+    # /insider/{name}, which is the shape everything else prefers.
+    #
+    # Same orphan-writer shape as value_pct_of_adv in 2026-09: a column the
+    # product reads with no job that writes it. See the memory
+    # `feedback_writer_registry_pattern`.
+    #
+    # WRITE-ONCE, so this is cheap to run daily — it only touches rows with no
+    # slug, and never rewrites a live URL.
+    return _run(context, _wrapped("insider_slugs", BREW,
+                                  f"{REPO}/scripts/backfill_insider_slugs.py",
+                                  "--apply"), timeout=3600)
+
+
+@asset(group_name=GROUP, compute_kind="python",
        description="Rebuild the sitemap quality tables (decision filings per "
                    "insider and per ticker). Read by api/routers/sitemap.py to "
                    "decide which pages are worth submitting.")
@@ -408,7 +431,7 @@ form4_ops_assets = [
     ops_bronze_topup, ops_edgar_index_refresh, ops_silver_keep_up, ops_gold_refresh,
     ops_form4_notifications, ops_refresh_open_position_prices,
     ops_strategy_intraday,
-    ops_sitemap_quality,
+    ops_insider_slugs, ops_sitemap_quality,
 ]
 
 PT = "America/Los_Angeles"
@@ -466,5 +489,9 @@ form4_ops_schedules = [
     # for an hour anyway, so once a day is the right cadence — the staleness
     # window in api/routers/sitemap.py is 7 days, which gives six missed runs
     # of margin before the sitemap widens back to everything.
+    # 02:45 then 03:00 PT, in that order and not as one job: the slug pass must
+    # finish before the quality tables are read, or a new insider is submitted
+    # at a derived URL for a day.
+    _sched("ops_insider_slugs_daily", [ops_insider_slugs], "45 2 * * *"),
     _sched("ops_sitemap_quality_daily", [ops_sitemap_quality], "0 3 * * *"),
 ]
