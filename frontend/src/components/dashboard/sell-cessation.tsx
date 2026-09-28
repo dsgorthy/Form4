@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { insiderPath } from "@/lib/insider-url";
 import { fetchAPIAuth } from "@/lib/auth";
 import { InsiderGradeBadge } from "@/components/insider-grade-badge";
 import type { SellCessationItem } from "@/lib/types";
@@ -55,7 +56,7 @@ export async function SellCessation() {
                     <span className="text-[#E8E8ED]/40 blur-[3px] truncate block max-w-[120px]">{item.name}</span>
                   ) : (
                     <Link
-                      href={`/insider/${item.cik || item.insider_id}`}
+                      href={insiderPath(item.name, item.cik || item.insider_id, (item as any).slug)}
                       className="text-[#E8E8ED] hover:text-blue-400 transition-colors truncate block max-w-[120px]"
                     >
                       {item.name}

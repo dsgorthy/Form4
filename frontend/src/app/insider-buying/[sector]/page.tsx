@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { insiderPath } from "@/lib/insider-url";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { fetchAPI } from "@/lib/api";
@@ -159,7 +160,7 @@ export default async function SectorPage(
                     <td className="hidden px-2 py-2 sm:table-cell sm:px-4">
                       <div className="max-w-[8rem] truncate sm:max-w-[220px]">
                         {b.insider_id ? (
-                          <Link href={`/insider/${b.insider_slug || b.insider_id}`} className="text-blue-400 hover:text-blue-300">
+                          <Link href={insiderPath(b.insider_name, b.insider_id, b.insider_slug)} className="text-blue-400 hover:text-blue-300">
                             {b.insider_name || "Unknown"}
                           </Link>
                         ) : (
@@ -223,7 +224,7 @@ export default async function SectorPage(
           <ul className="m-0 list-none p-0">
             {d.top_insiders.map((p) => (
               <li key={p.insider_id} className="border-b border-[#1D1D26] last:border-0">
-                <Link href={`/insider/${p.slug || p.insider_id}`}
+                <Link href={insiderPath(p.name, p.insider_id, p.slug)}
                   className="flex items-baseline gap-4 py-3 transition-colors hover:bg-[#14141C]/60">
                   <span className="min-w-0 flex-1 truncate text-[14px] text-[#E8E8ED]">
                     {p.name || "Unknown"}

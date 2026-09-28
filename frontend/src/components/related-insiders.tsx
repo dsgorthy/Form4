@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { insiderPath } from "@/lib/insider-url";
 
 /**
  * "Related insiders" — a navigation aid, not a ranking.
@@ -68,7 +69,7 @@ export function RelatedInsiders({ items }: { items: RelatedInsider[] }) {
         {items.map((r) => (
           <li key={r.insider_id} className="border-b border-[#1D1D26] last:border-0">
             <Link
-              href={`/insider/${r.slug || r.insider_id}`}
+              href={insiderPath(r.name, r.insider_id, r.slug)}
               className="flex items-baseline gap-4 py-3 transition-colors hover:bg-[#14141C]/60"
             >
               <span className="min-w-0 flex-1 truncate text-[14px] text-[#E8E8ED]">

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useCallback } from "react";
+import { insiderPath } from "@/lib/insider-url";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { InsiderGradeBadge } from "@/components/insider-grade-badge";
@@ -150,7 +151,7 @@ export function FilingDetailPanel({ filing, onClose }: FilingDetailPanelProps) {
               <div className="rounded-lg border border-[#2A2A3A] bg-[#1A1A26]/50 px-4 py-2">
                 <InfoRow label="Name">
                   <Link
-                    href={`/insider/${filing.cik || filing.insider_id}`}
+                    href={insiderPath(filing.insider_name, filing.cik || filing.insider_id, filing.insider_slug)}
                     className="text-blue-400 hover:text-blue-300"
                   >
                     {filing.insider_name}
@@ -229,7 +230,7 @@ export function FilingDetailPanel({ filing, onClose }: FilingDetailPanelProps) {
                 </Link>
               )}
               <Link
-                href={`/insider/${filing.cik || filing.insider_id}`}
+                href={insiderPath(filing.insider_name, filing.cik || filing.insider_id, filing.insider_slug)}
                 className="flex items-center justify-center rounded-lg border border-[#2A2A3A] bg-[#1A1A26] px-4 py-2.5 text-sm font-medium text-[#E8E8ED] hover:bg-[#2A2A3A]/60 transition-colors"
               >
                 View Insider

@@ -45,7 +45,11 @@ def test_trial_copy_still_lives_on_pricing():
 
 
 def test_the_ask_is_in_the_first_viewport_on_both_pages():
-    for name, page in (("insider", INSIDER), ("company", COMPANY)):
+    # _code() first: a comment that MENTIONS <h1> is not an <h1>. The insider
+    # page grew one on 2026-09-27 ("the title cannot name a different employer
+    # than the <h1>") and this test failed on prose, 200 lines above the real
+    # header, while the page was unchanged.
+    for name, page in (("insider", _code(INSIDER)), ("company", _code(COMPANY))):
         top = page.find("<FollowInline")
         band = page.find("<FollowCta")
         assert top != -1, f"{name} page has no first-viewport follow ask"

@@ -77,6 +77,8 @@ export interface InsiderLd {
   company?: string | null;
   ticker?: string | null;
   totalTrades?: number | null;
+  /** Digits only or zero-padded; used for the EDGAR sameAs link. */
+  cik?: string | null;
 }
 
 /**
@@ -85,6 +87,21 @@ export interface InsiderLd {
  * a generic page.
  */
 export function insiderJsonLd(i: InsiderLd) {
+  // sameAs is the entity-resolution signal, and it was missing. 85% of this
+  // page type's search impressions are person-name queries, where the whole
+  // question Google is answering is "which Richard Ogawa is this". A CIK is an
+  // authoritative, government-issued identifier for exactly one filer, and its
+  // EDGAR browse page is a public URL that names them — which is what sameAs is
+  // for. Nothing else on the page disambiguates a common name.
+  const cik = (i.cik || "").replace(/\D/g, "");
+  const identity = cik
+    ? {
+        identifier: cik.padStart(10, "0"),
+        sameAs: [
+          `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${cik.padStart(10, "0")}&type=4&dateb=&owner=include&count=40`,
+        ],
+      }
+    : {};
   const worksFor = i.company
     ? {
         worksFor: {
@@ -102,7 +119,10 @@ export function insiderJsonLd(i: InsiderLd) {
     hasPart: gatedPart(),
     mainEntity: {
       "@type": "Person",
+      "@id": `${BASE}/insider/${i.slug}#person`,
+      url: `${BASE}/insider/${i.slug}`,
       name: i.name,
+      ...identity,
       ...(i.title ? { jobTitle: i.title } : {}),
       ...worksFor,
       description:

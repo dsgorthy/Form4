@@ -5,6 +5,7 @@ import { useUser } from "@clerk/nextjs";
 import { isPro } from "@/lib/subscription";
 import Link from "next/link";
 import { formatCurrency } from "@/lib/format";
+import { insiderPath } from "@/lib/insider-url";
 import { titleSummary, titleTags } from "@/lib/title-format";
 import { InsiderGradeBadge } from "@/components/insider-grade-badge";
 import { ProGate, ProGateNotice } from "@/components/pro-gate";
@@ -16,6 +17,8 @@ interface Insider {
   insider_id: string;
   name: string;
   cik: string;
+  /** Canonical URL segment. Absent on older payloads; see insiderPath. */
+  slug?: string | null;
   title: string;
   normalized_title: string | null;
   is_entity?: number;
@@ -72,7 +75,7 @@ export function InsiderRoster({ insiders, gated = false }: InsiderRosterProps) {
         {page.map((ins, i) => (
           <Link
             key={ins.insider_id}
-            href={`/insider/${ins.cik || ins.insider_id}`}
+            href={insiderPath(ins.name, ins.cik || ins.insider_id, ins.slug)}
             className="block rounded-lg border border-[#2A2A3A] bg-[#12121A] p-3 hover:bg-[#1A1A26]/60 transition-colors"
           >
             <div className="flex items-center justify-between gap-2">
@@ -125,7 +128,7 @@ export function InsiderRoster({ insiders, gated = false }: InsiderRosterProps) {
               >
                 <td className="px-4 py-3">
                   <Link
-                    href={`/insider/${ins.cik || ins.insider_id}`}
+                    href={insiderPath(ins.name, ins.cik || ins.insider_id, ins.slug)}
                     className="font-medium text-blue-400 hover:text-blue-300"
                   >
                     {ins.name}
@@ -134,7 +137,7 @@ export function InsiderRoster({ insiders, gated = false }: InsiderRosterProps) {
                     <div className="text-[10px] text-[#81819A] mt-0.5">
                       via{" "}
                       <Link
-                        href={`/insider/${ins.controlled_by.insider_id}`}
+                        href={insiderPath(ins.controlled_by.name, ins.controlled_by.insider_id)}
                         className="text-[#8888A0] hover:text-blue-300"
                       >
                         {ins.controlled_by.name}

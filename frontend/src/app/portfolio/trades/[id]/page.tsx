@@ -324,8 +324,12 @@ export default async function TradeDetailPage({
             {trade.insider_name && (
               <span className="text-[#81819A]">
                 {" — "}
-                {trade.insider_id ? (
-                  <Link href={insiderPath(trade.insider_name, trade.insider_id)} className="hover:text-[#8888A0]">{trade.insider_name}</Link>
+                {/* Slug only. `insider_id` here is the raw numeric row id
+                    and /api/v1/insiders/3847 is a 404 — the page then renders
+                    its not-found state with a 200, so the link looked fine
+                    and went nowhere. Verified 2026-09-27. */}
+                {trade.insider_slug ? (
+                  <Link href={insiderPath(trade.insider_name, trade.insider_slug, trade.insider_slug)} className="hover:text-[#8888A0]">{trade.insider_name}</Link>
                 ) : trade.insider_name}
               </span>
             )}
@@ -421,11 +425,14 @@ export default async function TradeDetailPage({
         {/* Insider Track Record */}
         <Section title="Insider at Time of Entry">
           <Row label="Name" value={
-            /* slug first, encoded id as the fallback. This linked the raw
+            /* Slug ONLY. The previous fallback to `insider_id` was the raw
                numeric row id, which /insider/{identifier} does not resolve —
-               every one of these links was a 404. */
-            (trade.insider_slug || trade.insider_id) ? (
-              <Link href={`/insider/${trade.insider_slug || trade.insider_id}`} className="text-[#3B82F6] hover:text-[#60A5FA]">
+               so the fallback branch was still a dead link, which is what the
+               earlier fix here missed. Re-verified 2026-09-27: the API 404s
+               /insiders/3847 while the page answers 200 with a not-found
+               body, which is why it read as working. */
+            trade.insider_slug ? (
+              <Link href={insiderPath(trade.insider_name, trade.insider_slug, trade.insider_slug)} className="text-[#3B82F6] hover:text-[#60A5FA]">
                 {trade.insider_name}
               </Link>
             ) : trade.insider_name

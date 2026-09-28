@@ -109,6 +109,11 @@ def get_company(ticker: str, user: UserContext = Depends(get_current_user)) -> d
             _meaningful("""
             SELECT
                 ic.insider_id, COALESCE(i.display_name, i.name) AS name, i.cik,
+                -- The slug is what /insider/{slug} canonicalises to. Without it
+                -- the roster links by CIK, which 200s at a non-canonical URL
+                -- rather than redirecting, so every company page hands Google
+                -- ~39 URLs to crawl and then discard. 2026-09-27.
+                i.slug,
                 COALESCE(i.is_entity, 0) as is_entity,
                 ic.title,
                 (SELECT t.normalized_title FROM trades t

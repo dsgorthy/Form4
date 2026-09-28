@@ -36,13 +36,29 @@ def _unquoted_escapes(src: str) -> list[tuple[int, str]]:
     the escape is processed by JS; anywhere else it is literal markup.
     Comments are stripped first so prose about the bug is not mistaken for it.
     """
-    src = re.sub(r"/\*.*?\*/", lambda m: "\n" * m.group(0).count("\n"),
-                 src, flags=re.S)
-    src = re.sub(r"//[^\n]*", "", src)
-
     found, quote, line, i = [], None, 1, 0
     while i < len(src):
         c = src[i]
+        # Comments are recognised HERE, inside the same state machine, and only
+        # when not already in a string. Stripping them with a regex first was
+        # wrong: `//` occurs inside every URL literal
+        # ("http://localhost:8000/api/v1"), so the strip ate the rest of the
+        # line INCLUDING the template literal's closing backtick. A backtick
+        # deliberately survives newlines, so one URL flipped the quote state
+        # for the whole remainder of the file and every escape below it was
+        # misjudged -- reported as 3 failures on a page whose JSX never
+        # changed (2026-09-27), and it would equally have HIDDEN a real one.
+        if quote is None and c == "/" and i + 1 < len(src):
+            if src[i + 1] == "/":
+                while i < len(src) and src[i] != "\n":
+                    i += 1
+                continue
+            if src[i + 1] == "*":
+                end = src.find("*/", i + 2)
+                end = len(src) if end == -1 else end + 2
+                line += src[i:end].count("\n")
+                i = end
+                continue
         if c == "\n":
             line += 1
             # A ' or " string cannot span a newline, so reset. Without this a

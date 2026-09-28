@@ -17,6 +17,7 @@ import { InsiderScoreChart } from "@/components/insider-score-chart";
 import { TickerDisplay, companyToSlug } from "@/components/ui/ticker-display";
 import type { InsiderProfile, InsiderCompany, Filing, PaginatedResponse } from "@/lib/types";
 import { insiderPath, idFromSlug } from "@/lib/insider-url";
+import { insiderPageTitle, insiderPageDescription } from "@/lib/page-titles";
 import { InsiderSummary } from "@/components/entity-summary";
 import { FollowCta, FollowInline } from "@/components/follow-cta";
 import { PendingFollow } from "@/components/pending-follow";
@@ -38,30 +39,66 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
     }
     const profile: InsiderProfile = await res.json();
     const tr = profile.track_record;
+
+    // The employer, for the title. 85% of this page type's impressions are
+    // person-name queries and the ones with buying intent are NAME + COMPANY
+    // ("gianluca romano seagate", "joy liu vertex") — which the old title,
+    // `"{name} — Insider Profile"`, matched on neither half.
+    //
+    // Derived by trade COUNT, the same rule the page body and the JSON-LD use,
+    // so the title cannot name a different employer than the <h1>. A failure
+    // here degrades the title rather than losing the page: primary_ticker is
+    // already on the profile, so the ticker form survives even if this call
+    // does not.
+    let company: string | null = null;
+    let ticker: string | null = tr?.primary_ticker || null;
+    try {
+      const cRes = await fetch(
+        `${process.env.API_URL_INTERNAL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1"}/insiders/${id}/companies`,
+        { next: { revalidate: 300 } },
+      );
+      if (cRes.ok) {
+        const list = ((await cRes.json())?.companies ?? []) as {
+          company?: string; ticker?: string; trade_count?: number;
+        }[];
+        const primary = [...list].sort(
+          (a, b) => (b.trade_count ?? 0) - (a.trade_count ?? 0))[0];
+        if (primary) {
+          company = primary.company ?? null;
+          ticker = primary.ticker || ticker;
+        }
+      }
+    } catch {
+      // keep the ticker from the profile
+    }
     // career_grade, not pit_grade: the page's own badge renders the career
     // grade, so describing the page with the other scale made the meta
     // description disagree with the page it describes.
     const grade = (profile as any).best_career_grade;
-    const parts: string[] = [];
-    if (grade) parts.push(`Grade ${grade}`);
-    if (tr) parts.push(`${tr.buy_count + tr.sell_count} trades across ${tr.n_tickers} companies`);
-    const description = parts.length > 0
-      ? `${profile.name} insider trading profile. ${parts.join(". ")}. SEC Form 4 analysis on Form4.app.`
-      : `${profile.name} insider trading profile on Form4.app.`;
+    const description = insiderPageDescription(profile.name, {
+      company,
+      ticker,
+      jobTitle: tr?.primary_title || null,
+      buys: tr?.buy_count ?? null,
+      sells: tr?.sell_count ?? null,
+      nTickers: tr?.n_tickers ?? null,
+      grade,
+    });
+    const pageTitle = insiderPageTitle(profile.name, company, ticker);
     return {
       // Canonical points at the slugged form so the bare-ID URL (still valid,
       // and what older links use) does not split ranking signal with it.
       alternates: { canonical: `https://form4.app${insiderPath(profile.name, idFromSlug(id), (profile as any).slug)}` },
-      title: `${profile.name} — Insider Profile`,
+      title: pageTitle,
       description,
-      openGraph: { title: `${profile.name} — Insider Profile`, description,
+      openGraph: { title: pageTitle, description,
                    siteName: "Form4", type: "profile" },
       // Same reason as the company page: the root layout declares a site-wide
       // twitter block, and page metadata that sets only openGraph inherits it
       // — so every insider profile unfurled as the generic Form4 card.
       twitter: {
         card: "summary_large_image",
-        title: `${profile.name} — Insider Profile`,
+        title: pageTitle,
         description,
       },
     };
@@ -189,6 +226,7 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
             title: primaryTitle,
             company: primaryCompany?.company,
             ticker: primaryCompany?.ticker,
+            cik: profile.cik,
             totalTrades: (tr?.buy_count ?? 0) + (tr?.sell_count ?? 0),
           }),
         )}
@@ -579,8 +617,8 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                     <tr className="text-[#81819A]">
                       <th className="text-left font-medium pb-1.5"></th>
                       {["7d", "30d", "90d"].map(w => (
-                        <th key={w} className={`text-right font-medium pb-1.5 ${tr.best_window === w ? "text-[#3B82F6]" : ""}`}>
-                          {w}{tr.best_window === w ? " *" : ""}
+                        <th key={w} className="text-right font-medium pb-1.5">
+                          {w}
                         </th>
                       ))}
                     </tr>
@@ -621,9 +659,17 @@ export default async function InsiderPage({ params }: { params: Promise<{ id: st
                 ) : (
                   <div className="text-xs text-[#81819A]">{tooFew(buyBasis)}</div>
                 )}
-                {tr.best_window && buyScorable && (
-                  <div className="text-[10px] text-[#81819A] mt-2">* Best window</div>
-                )}
+                {/* The "* Best window" marker was removed on 2026-09-27.
+                    `best_window` is read from insider_track_records and is
+                    still computed on the RETIRED lot-based basis —
+                    docs/insider_track_record.md lists it under "Deliberately
+                    not changed" because redefining "best" is a product
+                    decision. That was tolerable while this grid was Pro-only.
+                    It is not now the block is public: on
+                    /insider/michael-l-ashner the asterisk marked 7d as best
+                    beside an accuracy of 3% and an average move of −3.4%,
+                    which the 30d column beats on both. Removing a claim we
+                    cannot support is not the same as redefining it. */}
                 <div className="text-[10px] text-[#81819A] mt-2">{BUY_BASIS_NOTE}</div>
               </div>
             </div>
