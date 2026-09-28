@@ -5,10 +5,21 @@ WHY THIS EXISTS
 
 Google traffic went to zero on 2026-09-17 and the cause was not found until
 2026-09-27. Ten days. The single most useful number during that period — how many
-requests Googlebot was actually making — was unavailable, because the Caddy
-container logs to json-file with `max-size 10m` and `max-file 3`, so 30 MB of
-access log at roughly 23 MB a day retains a little over one day. By the time
-anyone looked, the window that did the damage was gone.
+requests Googlebot was actually making — did not exist anywhere.
+
+**MEASURED 2026-09-28: the Caddy access log retains NINETEEN MINUTES.** Not a
+day. json-file with `max-size 10m` and `max-file 3` is 30 MB, and Caddy logs
+every request header, so a line runs about 1.6 KB and current bot volume is
+~29,000 requests an hour. 9,176 lines spanned 16:03 to 16:22. A first version of
+this script recorded per-HOUR counts on an hourly schedule, which would have seen
+roughly a third of each hour and — because the upsert REPLACES the count — would
+have overwritten a fuller count with a partial one. Both wrong, and wrong
+quietly.
+
+So the unit is a TEN-MINUTE SLOT, written every ten minutes. A slot is always
+fully inside the retention window, so each is counted exactly once and daily
+totals are an honest SUM. `docker-compose.prod.yml` also now keeps more log, but
+this design does not depend on that: it is correct at nineteen minutes.
 
 Search Console reports crawl stats, but on a two-to-three day lag and only in a
 chart you cannot difference. This table answers "is Google crawling us today, and
@@ -27,11 +38,10 @@ and it is worth knowing about rather than silently folding into the real number.
 Everything else is counted by user agent, because Applebot and GPTBot do not
 matter enough to verify and their address ranges move.
 
-IDEMPOTENT, AND RUNS HOURLY FOR A REASON. Each run re-counts the recent past and
-upserts on (day, hour, crawler), so running twice changes nothing and a missed
-run loses nothing as long as the next one lands inside the retention window.
-Running daily would be one rotation away from the same blind spot this table
-exists to close.
+IDEMPOTENT. Each run re-counts the last 20 minutes and upserts on (slot,
+crawler), so running twice changes nothing and one missed run is recovered by the
+next. Two consecutive misses lose those slots, which Dagster will have recorded
+as failures.
 """
 from __future__ import annotations
 
@@ -77,17 +87,22 @@ UA_AGENTS = (
     ("dotbot", "DotBot"),
 )
 
+#: Ten minutes. Small enough to sit inside a nineteen-minute retention window,
+#: big enough that a day is 144 rows per crawler rather than 1,440.
+SLOT_MINUTES = 10
+
 DDL = """
 CREATE TABLE IF NOT EXISTS crawler_activity (
-    day       date NOT NULL,
-    hour      int  NOT NULL CHECK (hour BETWEEN 0 AND 23),
-    crawler   text NOT NULL,
-    requests  int  NOT NULL,
-    errors    int  NOT NULL DEFAULT 0,
+    slot       timestamptz NOT NULL,
+    crawler    text        NOT NULL,
+    requests   int         NOT NULL,
+    errors     int         NOT NULL DEFAULT 0,
     updated_at timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (day, hour, crawler)
+    PRIMARY KEY (slot, crawler)
 )
 """
+DDL_INDEX = ("CREATE INDEX IF NOT EXISTS crawler_activity_slot_idx "
+             "ON crawler_activity (slot DESC)")
 
 
 def classify(ua: str, client_ip: str) -> str | None:
@@ -109,12 +124,12 @@ def classify(ua: str, client_ip: str) -> str | None:
     return None
 
 
-def read_log(hours: int) -> list[dict]:
-    """The access log, as far back as `hours`. Empty on any docker failure —
+def read_log(minutes: int) -> list[dict]:
+    """The access log, as far back as `minutes`. Empty on any docker failure —
     this is observability, and it must never be the reason a job fails."""
     try:
         proc = subprocess.run(
-            [DOCKER, "logs", "--since", f"{hours}h", CONTAINER],
+            [DOCKER, "logs", "--since", f"{minutes}m", CONTAINER],
             capture_output=True, text=True, timeout=600,
         )
     except (OSError, subprocess.TimeoutExpired) as e:
@@ -132,7 +147,7 @@ def read_log(hours: int) -> list[dict]:
     return out
 
 
-def tally(entries: list[dict]) -> dict[tuple[str, int, str], tuple[int, int]]:
+def tally(entries: list[dict]) -> dict[tuple[datetime, str], tuple[int, int]]:
     counts: Counter = Counter()
     errors: Counter = Counter()
     for d in entries:
@@ -150,7 +165,9 @@ def tally(entries: list[dict]) -> dict[tuple[str, int, str], tuple[int, int]]:
         if ts is None:
             continue
         when = datetime.fromtimestamp(ts)
-        key = (when.strftime("%Y-%m-%d"), when.hour, who)
+        slot = when.replace(minute=(when.minute // SLOT_MINUTES) * SLOT_MINUTES,
+                            second=0, microsecond=0)
+        key = (slot, who)
         counts[key] += 1
         status = d.get("status") or 0
         if status >= 400:
@@ -160,12 +177,12 @@ def tally(entries: list[dict]) -> dict[tuple[str, int, str], tuple[int, int]]:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--hours", type=int, default=6,
+    ap.add_argument("--minutes", type=int, default=20,
                     help="how far back to re-count; upserts, so overlap is free")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
-    rows = tally(read_log(args.hours))
+    rows = tally(read_log(args.minutes))
     if not rows:
         # Not an error. A quiet hour on a container that just restarted is
         # indistinguishable from this, and neither should page anyone.
@@ -173,8 +190,8 @@ def main() -> int:
         return 0
 
     if args.dry_run:
-        for (day, hour, who), (n, err) in sorted(rows.items()):
-            print(f"{day} {hour:02d}:00  {who:22} {n:>6}  errors {err}")
+        for (slot, who), (n, err) in sorted(rows.items()):
+            print(f"{slot:%Y-%m-%d %H:%M}  {who:22} {n:>6}  errors {err}")
         return 0
 
     conn = get_connection()
@@ -182,23 +199,29 @@ def main() -> int:
         cur = conn.cursor()
         cur.execute("SET lock_timeout = '10s'")
         cur.execute(DDL)
-        for (day, hour, who), (n, err) in rows.items():
+        cur.execute(DDL_INDEX)
+        for (slot, who), (n, err) in rows.items():
+            # GREATEST, not assignment. The newest slot is still filling when a
+            # run lands mid-slot, so a later partial read must never lower a
+            # count an earlier fuller read already established.
             cur.execute(
-                """INSERT INTO crawler_activity (day, hour, crawler, requests, errors)
-                   VALUES (%s, %s, %s, %s, %s)
-                   ON CONFLICT (day, hour, crawler) DO UPDATE
-                     SET requests = EXCLUDED.requests,
-                         errors = EXCLUDED.errors,
+                """INSERT INTO crawler_activity (slot, crawler, requests, errors)
+                   VALUES (%s, %s, %s, %s)
+                   ON CONFLICT (slot, crawler) DO UPDATE
+                     SET requests = GREATEST(crawler_activity.requests,
+                                             EXCLUDED.requests),
+                         errors = GREATEST(crawler_activity.errors,
+                                           EXCLUDED.errors),
                          updated_at = now()""",
-                (day, hour, who, n, err),
+                (slot, who, n, err),
             )
         conn.commit()
     finally:
         conn.close()
 
     total = sum(n for n, _ in rows.values())
-    goog = sum(n for (_, _, w), (n, _) in rows.items() if w == "googlebot")
-    print(f"recorded {len(rows)} (day, hour, crawler) rows, {total} requests; "
+    goog = sum(n for (_, w), (n, _) in rows.items() if w == "googlebot")
+    print(f"recorded {len(rows)} (slot, crawler) rows, {total} requests; "
           f"googlebot (IP-verified) {goog}")
     return 0
 

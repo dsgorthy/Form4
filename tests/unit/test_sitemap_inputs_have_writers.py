@@ -36,7 +36,7 @@ REQUIRED = {
     # Not a sitemap input — the record of whether anyone is READING the sitemap.
     # The ten days it took to find the 2026-09-27 deindexing bug were ten days
     # without Googlebot's request rate, because the access log rotates daily.
-    "ops_crawler_activity": "ops_crawler_activity_hourly",
+    "ops_crawler_activity": "ops_crawler_activity_10min",
 }
 
 
@@ -77,19 +77,49 @@ def test_each_asset_has_a_schedule():
         assert fn in m.group(1), f"schedule {sched} does not select {fn}"
 
 
-def test_the_crawler_counter_runs_more_often_than_the_log_rotates():
-    """The Caddy log is json-file, max-size 10m, max-file 3 — about one day at
-    current volume. A daily job is one rotation away from the blind spot this
-    table exists to close."""
+def test_the_crawler_counter_runs_inside_the_logs_retention_window():
+    """MEASURED 2026-09-28: the access log retains NINETEEN MINUTES — 9,176
+    lines spanning 16:03 to 16:22, because Caddy logs every request header at
+    ~1.6 KB a line against a 30 MB cap, at ~29,000 bot requests an hour.
+
+    So the schedule must fire at least as often as the slot size, or slots go
+    unobserved. A first version ran hourly and recorded per-hour counts, which
+    would have seen a third of each hour AND overwritten fuller counts with
+    partial ones. Both wrong, and wrong quietly.
+    """
     src = _ops()
     cron = _cron_of(src, REQUIRED["ops_crawler_activity"])
-    minute = cron.split()[0]
-    hour = cron.split()[1]
-    assert hour == "*" or hour.startswith("*/"), (
-        f"crawler activity runs at {cron!r}, which is at most daily; it has to "
-        "run within the log's retention window"
+    minute, hour = cron.split()[0], cron.split()[1]
+    assert hour == "*", f"crawler activity runs at {cron!r}, not every hour"
+    m = re.fullmatch(r"\*/(\d+)", minute)
+    assert m, (
+        f"crawler activity runs at minute {minute!r}; it has to be a */N step so "
+        "it fires inside the retention window"
     )
-    assert minute.isdigit() or minute.startswith("*/"), cron
+    step = int(m.group(1))
+    script = (ROOT / "scripts" / "record_crawler_activity.py").read_text()
+    slot = int(re.search(r"SLOT_MINUTES = (\d+)", script).group(1))
+    assert step <= slot, (
+        f"the job runs every {step} min but writes {slot}-min slots; slots would "
+        "go unobserved"
+    )
+    assert step <= 19, f"every {step} minutes is outside the 19-minute retention"
+
+
+def test_a_partial_read_can_never_lower_a_count():
+    """The newest slot is still filling. An assigning upsert would let a later
+    partial read overwrite a fuller earlier one."""
+    src = (ROOT / "scripts" / "record_crawler_activity.py").read_text()
+    up = src[src.index("ON CONFLICT (slot, crawler)"):]
+    up = up[: up.index('"""', 1)] if '"""' in up else up[:600]
+    # Per COLUMN. A bare "GREATEST in up" passed while `requests` had been
+    # changed to a plain assignment, because `errors` still used GREATEST.
+    # Mutation testing caught it.
+    for col in ("requests", "errors"):
+        assert re.search(rf"{col} = GREATEST", up), (
+            f"the upsert assigns {col} instead of taking GREATEST, so a mid-slot "
+            "run can lower a count that a fuller run already recorded"
+        )
 
 
 def test_the_crawler_counter_verifies_search_engines_by_address():
@@ -97,11 +127,18 @@ def test_the_crawler_counter_verifies_search_engines_by_address():
     one dozens of times while testing the fix. A UA-based count would have
     recorded its own traffic as a crawl recovery."""
     src = (ROOT / "scripts" / "record_crawler_activity.py").read_text()
-    assert "GOOGLE_PREFIXES" in src and "66.249." in src, (
-        "Googlebot is no longer identified by IP range"
+    # Anchored on the definition and the USE, not the bare name: renaming the
+    # constant to GOOGLE_PREFIXES_UNUSED left the substring intact and this
+    # assertion passed against a script that no longer verified anything.
+    assert re.search(r"^GOOGLE_PREFIXES = \(", src, re.M), (
+        "GOOGLE_PREFIXES is no longer defined; Googlebot is not IP-verified"
     )
+    assert "66.249." in src, "Google's main crawl range is gone"
     body = src[src.index("def classify("): src.index("def read_log(")]
-    ip_at = body.index("GOOGLE_PREFIXES")
+    assert "startswith(GOOGLE_PREFIXES)" in body, (
+        "classify() no longer checks the client address against Google's ranges"
+    )
+    ip_at = body.index("startswith(GOOGLE_PREFIXES)")
     ua_at = body.index("googlebot_ua_only")
     assert ip_at < ua_at, (
         "the user-agent check runs before the address check, so a spoofed UA "

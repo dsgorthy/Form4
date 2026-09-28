@@ -41,7 +41,14 @@ services:
     logging:
       driver: json-file
       options:
-        max-size: "10m"
+        # 30 MB retained NINETEEN MINUTES of access log (measured 2026-09-28):
+        # Caddy logs every request header, so a line is ~1.6 KB, against ~29,000
+        # bot requests an hour. That is why the deindexing bug of 2026-09-17
+        # could not be dated — the window was gone before anyone looked.
+        #
+        # 600 MB buys roughly six hours. INSURANCE ONLY: the crawler recorder
+        # writes ten-minute slots every ten minutes and is correct at nineteen.
+        max-size: "200m"
         max-file: "3"
 
 volumes:

@@ -394,12 +394,15 @@ def ops_crawler_activity(context: AssetExecutionContext) -> Output:
     # json-file at max-size 10m / max-file 3, which is about one day at current
     # volume. Search Console has the number on a 2-3 day lag and only as a chart.
     #
-    # HOURLY, not daily: a daily job is one rotation away from the same blind
-    # spot. The write upserts on (day, hour, crawler), so overlap is free and a
-    # missed run costs nothing.
+    # EVERY TEN MINUTES, because the log retains NINETEEN (measured 2026-09-28:
+    # 9,176 lines spanning 16:03 to 16:22 — Caddy logs every request header, so a
+    # line is ~1.6 KB against a 30 MB cap, at ~29,000 requests an hour). The unit
+    # written is a ten-minute slot, which is always fully inside that window, so
+    # each is counted exactly once. An hourly job would have seen a third of each
+    # hour and overwritten fuller counts with partial ones.
     return _run(context, _wrapped("crawler_activity", BREW,
                                   f"{REPO}/scripts/record_crawler_activity.py",
-                                  "--hours", "6"), timeout=900)
+                                  "--minutes", "20"), timeout=600)
 
 
 @asset(group_name=GROUP, compute_kind="python",
@@ -510,9 +513,9 @@ form4_ops_schedules = [
     # 02:45 then 03:00 PT, in that order and not as one job: the slug pass must
     # finish before the quality tables are read, or a new insider is submitted
     # at a derived URL for a day.
-    # :10 hourly. Reads the last 6 hours and upserts, so a missed run is
-    # recovered by the next one and nothing depends on it being on time.
-    _sched("ops_crawler_activity_hourly", [ops_crawler_activity], "10 * * * *"),
+    # Every 10 minutes, reading 20 back, so one missed run is recovered by the
+    # next. See the asset for why it cannot be hourly.
+    _sched("ops_crawler_activity_10min", [ops_crawler_activity], "*/10 * * * *"),
     _sched("ops_insider_slugs_daily", [ops_insider_slugs], "45 2 * * *"),
     _sched("ops_sitemap_quality_daily", [ops_sitemap_quality], "0 3 * * *"),
 ]
