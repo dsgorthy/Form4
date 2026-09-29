@@ -41,7 +41,26 @@ logger = logging.getLogger(__name__)
 # yfinance is generous but courtesy throttle. 2 req/sec keeps us off the radar.
 SLEEP_BETWEEN_REQUESTS_S = 0.5
 # How long sector data is considered fresh before we re-fetch.
-STALENESS_DAYS = 7
+#
+# WAS 7, WHICH MADE THE JOB UNABLE TO EVER FINISH. The schedule is weekly, so a
+# 7-day window meant every ticker fell stale exactly as the job ran: 9,619 of
+# 18,269 were "stale" on 2026-09-29, and at ~1s per yfinance call that is 9,619
+# seconds against the 7,200s subprocess timeout. The job was killed mid-run on
+# both 09-20 and 09-27 — its last two attempts — and failed silently each time,
+# because a Dagster failure that nobody reads is a log line.
+#
+# Sector and industry are near-static: at a 90-day window exactly THREE tickers
+# were stale, against 18,266 of 18,269 already covered. Weekly churn over a field
+# that does not change bought nothing and cost the job its ability to complete.
+STALENESS_DAYS = 90
+
+# Wall-clock budget. The job exits 0 having done what it could and reports the
+# remainder, rather than being killed at the subprocess timeout — a partial
+# refresh is a normal outcome for a crawl against a third party, not a failure,
+# and the work is durable because the loop commits every 50 rows.
+#
+# Comfortably under the Dagster timeout so the process ends on its own terms.
+DEFAULT_MAX_SECONDS = 3000
 
 
 def get_tickers_needing_refresh(conn, full: bool, explicit: list[str] | None) -> list[str]:
@@ -127,6 +146,8 @@ def main():
                    help="Re-fetch EVERY ticker, not just stale/missing")
     p.add_argument("--tickers", default=None,
                    help="Comma-separated explicit tickers to refresh")
+    p.add_argument("--max-seconds", type=int, default=DEFAULT_MAX_SECONDS,
+                   help="stop cleanly after this long and report the remainder")
     p.add_argument("--limit", type=int, default=None,
                    help="Stop after this many tickers (smoke testing)")
     args = p.parse_args()
@@ -148,7 +169,16 @@ def main():
         errored = 0
         t0 = time.monotonic()
 
+        stopped_early = 0
         for i, ticker in enumerate(tickers, 1):
+            if args.max_seconds and (time.monotonic() - t0) > args.max_seconds:
+                stopped_early = len(tickers) - i + 1
+                logger.warning(
+                    "budget of %ds reached after %d/%d; %d ticker(s) left for the "
+                    "next run (already-written rows are committed)",
+                    args.max_seconds, i - 1, len(tickers), stopped_early,
+                )
+                break
             sector, industry, err = fetch_one(ticker)
             upsert_ticker(conn, ticker, sector, industry, err)
             if sector or industry:
@@ -182,6 +212,10 @@ def main():
             "empty": empty,
             "errored": errored,
             "total": len(tickers),
+            # Not zero means the budget was hit. Visible in /admin/pipelines
+            # rather than only as a killed subprocess.
+            "deferred_to_next_run": stopped_early,
+            "staleness_days": STALENESS_DAYS,
             "full": args.full,
         })
 

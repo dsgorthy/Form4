@@ -15,6 +15,21 @@ comparison averages a bad day away, and the gate is about consecutive days.
 Re-running a day overwrites it — a late-arriving filing that improves an
 earlier day should be reflected, not double-counted.
 
+THE GATE HERE IS DELIBERATELY ONE-DIRECTIONAL, AND IS NOT A LOSS DETECTOR.
+`recall = matched / distinct_b` asks "does the PLANE have everything the PRODUCT
+has", which is the cutover question. It answers ~100% every day and always will.
+The reverse figure is recorded as `coverage_a` and has run 87.8-97.3%, but it is
+NOT a loss rate: on 2026-09-29 the shortfall resolved to 325 derivative-only
+filings the product correctly skips, 127 grants and exercises, and 12 real
+filings of which 13 of 14 rows were already stored under a different accession.
+Genuine loss was one trade. Gating on `coverage_a` would give a permanently red
+alarm.
+
+For "is the product missing DECISIONS", use
+`scripts/check_ingest_completeness.py`, which restricts to non-derivative
+purchases and sales and matches on trade identity rather than accession. That one
+exits non-zero and pages.
+
 Usage (on Studio):
     python3 scripts/record_parity.py --from 2026-08-10 --to 2026-08-12
     python3 scripts/record_parity.py --days 5            # trailing window

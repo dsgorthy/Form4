@@ -385,6 +385,27 @@ def ops_strategy_intraday(context: AssetExecutionContext) -> Output:
 
 
 @asset(group_name=GROUP, compute_kind="python",
+       description="Fail if the product is missing DECISION rows Silver parsed. "
+                   "The direction record_parity.py does not gate on.")
+def ops_ingest_completeness(context: AssetExecutionContext) -> Output:
+    # record_parity.py gates on recall of the PRODUCT into the PLANE, which is
+    # ~100% every day and always will be. The reverse — the product missing
+    # filings — was recorded as coverage_a and gated on by nothing, so a real
+    # gap would have sat in a column for as long as anyone left it there.
+    #
+    # Scoped to non-derivative purchases and sales, matched on trade identity
+    # rather than accession, because the unique index on `trades` is not keyed on
+    # accession and the same trade legitimately arrives under a different one.
+    # Baseline 2026-09-29: ONE missing row over six trading days.
+    #
+    # Exits non-zero over the threshold, which the ntfy_on_run_failure sensor
+    # turns into a page. That is the whole point.
+    return _run(context, _wrapped("ingest_completeness", BREW,
+                                  f"{REPO}/scripts/check_ingest_completeness.py",
+                                  "--days", "7"), timeout=1800)
+
+
+@asset(group_name=GROUP, compute_kind="python",
        description="Persist per-hour crawler counts from the Caddy access log. "
                    "The log holds ~1 day; this is the only history there is.")
 def ops_crawler_activity(context: AssetExecutionContext) -> Output:
@@ -453,6 +474,7 @@ form4_ops_assets = [
     ops_form4_notifications, ops_refresh_open_position_prices,
     ops_strategy_intraday,
     ops_insider_slugs, ops_sitemap_quality, ops_crawler_activity,
+    ops_ingest_completeness,
 ]
 
 PT = "America/Los_Angeles"
@@ -516,6 +538,9 @@ form4_ops_schedules = [
     # Every 10 minutes, reading 20 back, so one missed run is recovered by the
     # next. See the asset for why it cannot be hourly.
     _sched("ops_crawler_activity_10min", [ops_crawler_activity], "*/10 * * * *"),
+    # 07:15 PT daily, after record_parity's 06:30 settle so both directions are
+    # measured against the same day's data.
+    _sched("ops_ingest_completeness_daily", [ops_ingest_completeness], "15 7 * * *"),
     _sched("ops_insider_slugs_daily", [ops_insider_slugs], "45 2 * * *"),
     _sched("ops_sitemap_quality_daily", [ops_sitemap_quality], "0 3 * * *"),
 ]

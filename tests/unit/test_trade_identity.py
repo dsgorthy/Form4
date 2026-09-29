@@ -148,6 +148,15 @@ def test_inserted_counts_rows_that_landed_not_attempts():
     indicator jobs and reports it as "inserted"."""
     i = PARSER_CODE.index("INSERT OR IGNORE INTO trades")
     tail = PARSER_CODE[i:i + 4000]
-    assert "inserted += cur.rowcount" in tail, (
+    # The INTENT: the counter comes from rowcount, never from the loop. Pinned as
+    # "inserted += cur.rowcount" until 2026-09-29, when the same rowcount was
+    # bound to `landed` first so that a suppressed row could ALSO be counted as a
+    # duplicate — see test_ingest_records_what_landed. Asserting the expression
+    # made a correct refactor look like a regression.
+    assert re.search(r"landed = cur\.rowcount", tail) or "inserted += cur.rowcount" in tail, (
+        "the insert counter no longer derives from cur.rowcount, so it counts "
+        "attempts instead of rows that landed"
+    )
+    assert "inserted += 1" not in tail, (
         "the insert counter is back to a blind += 1, so it counts attempts"
     )

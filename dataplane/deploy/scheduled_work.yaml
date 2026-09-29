@@ -146,7 +146,7 @@ dagster:
       That is the same loss found independently against EDGAR on 2026-08-26.
 
   - name: form4_ops
-    schedule: "24 schedules, 26 assets — see assets/form4_ops.py"
+    schedule: "25 schedules, 27 assets — see assets/form4_ops.py"
     replaced: [enrich-narratives, breaking-signal, trial-emails,
                ceowatcher-reader, monday-paper-monitor, alpaca-reconcile,
                thesis-monitor, post-deploy-audit, daily-summary,
@@ -178,6 +178,11 @@ dagster:
       because the ten days it took to find the deindexing bug were ten days
       without the one number that would have shown it: Googlebot's request rate.
       Search engines are counted BY IP, since the user agent is spoofable.
+
+      ops_ingest_completeness (07:15 PT daily) fails if the product is missing
+      DECISION rows Silver parsed. Added 2026-09-29: record_parity.py gates on
+      recall of the product into the plane, ~100% every day, so the reverse
+      direction was recorded in a column and gated on by nothing.
 
 pending:
   # Ordered by what it costs to leave alone.

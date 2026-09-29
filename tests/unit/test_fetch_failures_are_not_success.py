@@ -42,7 +42,13 @@ SCHEMA = """
 CREATE TABLE processed_filings (
     accession TEXT PRIMARY KEY,
     filing_date TEXT,
+    -- trade_count is what LANDED. parsed_count and duplicate_count are what the
+    -- parser produced and what the unique index suppressed; their difference is
+    -- the only thing that separates "already had it" from "lost it", which is
+    -- what let a filing that stored NOTHING be recorded as `ok`. Added 2026-09-29.
     trade_count INTEGER DEFAULT 0,
+    parsed_count INTEGER,
+    duplicate_count INTEGER,
     processed_at TEXT DEFAULT (datetime('now')),
     status TEXT,
     attempts INTEGER DEFAULT 0,

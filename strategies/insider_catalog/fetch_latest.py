@@ -91,6 +91,11 @@ def ensure_processed_table(conn):
     #   abandoned failed MAX_FETCH_ATTEMPTS times; kept for audit, not retried
     for ddl in (
         "ALTER TABLE processed_filings ADD COLUMN IF NOT EXISTS status TEXT",
+        # What the parser produced, alongside trade_count = what landed. Both,
+        # because their DIFFERENCE is the only thing that distinguishes "already
+        # had it" from "lost it".
+        "ALTER TABLE processed_filings ADD COLUMN IF NOT EXISTS parsed_count INTEGER",
+        "ALTER TABLE processed_filings ADD COLUMN IF NOT EXISTS duplicate_count INTEGER",
         "ALTER TABLE processed_filings ADD COLUMN IF NOT EXISTS attempts INTEGER DEFAULT 0",
         "ALTER TABLE processed_filings ADD COLUMN IF NOT EXISTS last_error TEXT",
         "ALTER TABLE processed_filings ADD COLUMN IF NOT EXISTS last_attempt_at TEXT",
@@ -103,8 +108,19 @@ def ensure_processed_table(conn):
     ):
         try:
             conn.execute(ddl)
-        except Exception:  # pragma: no cover - older engines / already applied
-            pass
+        except Exception:  # pragma: no cover - already applied, or no IF NOT EXISTS
+            # SQLite has ALTER TABLE ... ADD COLUMN but NOT `IF NOT EXISTS`, so
+            # every one of these was a syntax error there and the column was
+            # never added — silently, because the handler swallowed it. Any
+            # INSERT naming a new column then failed only under SQLite, which is
+            # what the tests run on. Retry without the clause so both engines
+            # converge on the same schema; a genuinely duplicate column raises
+            # again and is correctly ignored.
+            if "IF NOT EXISTS" in ddl:
+                try:
+                    conn.execute(ddl.replace(" IF NOT EXISTS", "", 1))
+                except Exception:
+                    pass
     conn.execute("""
         CREATE TABLE IF NOT EXISTS sync_meta (
             key TEXT PRIMARY KEY,
@@ -160,7 +176,10 @@ def get_known_accessions(conn) -> set:
     rows = conn.execute(
         """SELECT accession FROM processed_filings
             WHERE status IS NULL
-               OR status IN ('ok', 'empty', 'abandoned')
+               -- `duplicate` is DONE, not pending: the trade is already stored
+               -- under another accession. Omitting it here would re-drive every
+               -- such filing through EDGAR on every run, forever.
+               OR status IN ('ok', 'empty', 'duplicate', 'abandoned')
                OR attempts >= ?""",
         (MAX_FETCH_ATTEMPTS,),
     ).fetchall()
@@ -179,26 +198,67 @@ def get_retryable(conn, limit: int) -> list:
     ).fetchall()
 
 
-def mark_processed(conn, accession: str, filing_date: str, trade_count: int):
+def mark_processed(conn, accession: str, filing_date: str, trade_count: int,
+                  stored: int | None = None, duplicate: int = 0):
     """Record a filing we actually READ. Never call this for a failed fetch.
 
     An upsert, not INSERT OR IGNORE: a filing that failed earlier already has
     a row, and the old statement would silently keep the failure and drop the
     successful retry on the floor.
+
+    STATUS COMES FROM WHAT LANDED, NOT FROM WHAT PARSED. It used to be
+    `"ok" if trade_count > 0`, with `trade_count = len(trades)` — the PARSED
+    count — so a filing whose every row was suppressed by the unique index was
+    recorded as `ok` with a positive count and zero rows in `trades`. Ten such
+    accessions were sampled on 2026-09-29 and every one showed `status=ok,
+    trade_count=1..3` against no rows at all.
+
+    That is benign when the rows are already stored under another accession,
+    which is what the unique index on
+    (insider_id, ticker, trade_date, trade_type, value) makes common, and it is
+    data loss when they are not — and the old row could not tell the two apart.
+    Three wrong conclusions came out of that ambiguity in one afternoon.
+
+        ok         rows landed
+        duplicate  nothing landed, and every parsed row was already present
+        empty      nothing to store
+        failed     nothing landed and that is NOT explained by duplicates --
+                   retried, because an unexplained zero-store is a failure
+
+    `stored` defaults to `trade_count` so older callers keep their behaviour.
     """
-    status = "ok" if trade_count > 0 else "empty"
+    if stored is None:
+        stored = trade_count
+    if trade_count == 0:
+        status = "empty"
+    elif stored > 0:
+        status = "ok"
+    elif duplicate >= trade_count:
+        status = "duplicate"
+    else:
+        # Parsed rows that neither landed nor were already present. Something
+        # ate them. Do not retire the filing.
+        status = "failed"
     conn.execute(
         """INSERT INTO processed_filings
-               (accession, filing_date, trade_count, status, attempts,
-                last_error, last_attempt_at)
-           VALUES (?, ?, ?, ?, 1, NULL, datetime('now'))
+               (accession, filing_date, trade_count, parsed_count,
+                duplicate_count, status, attempts, last_error, last_attempt_at,
+                processed_at)
+           VALUES (?, ?, ?, ?, ?, ?, 1, NULL, datetime('now'), datetime('now'))
            ON CONFLICT (accession) DO UPDATE SET
                trade_count     = excluded.trade_count,
+               parsed_count    = excluded.parsed_count,
+               duplicate_count = excluded.duplicate_count,
                status          = excluded.status,
                attempts        = processed_filings.attempts + 1,
                last_error      = NULL,
-               last_attempt_at = excluded.last_attempt_at""",
-        (accession, filing_date, trade_count, status),
+               last_attempt_at = excluded.last_attempt_at,
+               -- processed_at was NULL on every row this path wrote, because
+               -- the INSERT never named it and the column default only applies
+               -- to an omitted column on INSERT, not on UPDATE.
+               processed_at    = COALESCE(processed_filings.processed_at,
+                                          excluded.processed_at)""",
+        (accession, filing_date, stored, trade_count, duplicate, status),
     )
 
 
@@ -344,7 +404,9 @@ def _process_one(conn, filing: dict, dry_run: bool):
         return 0, ("ok" if trades else "empty"), len(trades), buys, sells
 
     insert_errors: list = []
-    inserted = (insert_trades(conn, trades, acc, filed_at=filed_at, errors=insert_errors)
+    ins_outcome: dict = {}
+    inserted = (insert_trades(conn, trades, acc, filed_at=filed_at,
+                              errors=insert_errors, outcome=ins_outcome)
                 if trades else 0)
     if insert_errors:
         # A PARSED FILING THAT DID NOT STORE IS A FAILURE, NOT A SUCCESS.
@@ -358,8 +420,17 @@ def _process_one(conn, filing: dict, dry_run: bool):
                             f"{insert_errors[0][:160]}",
                             cik=filing.get("cik"), company=filing.get("company"))
         return inserted, "failed", len(trades), buys, sells
-    mark_processed(conn, acc, fdate, len(trades))
-    return inserted, ("ok" if trades else "empty"), len(trades), buys, sells
+    mark_processed(conn, acc, fdate, len(trades), stored=inserted,
+                   duplicate=int(ins_outcome.get("duplicate", 0)))
+    # The OUTCOME the caller sees now matches what mark_processed recorded, so a
+    # run's summary line cannot claim filings it did not store.
+    if not trades:
+        return inserted, "empty", 0, buys, sells
+    if inserted > 0:
+        return inserted, "ok", len(trades), buys, sells
+    if int(ins_outcome.get("duplicate", 0)) >= len(trades):
+        return inserted, "duplicate", len(trades), buys, sells
+    return inserted, "failed", len(trades), buys, sells
 
 
 def _run_fetch_inner(start_date: str, end_date: str, dry_run: bool) -> dict:

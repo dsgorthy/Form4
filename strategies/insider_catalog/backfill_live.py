@@ -1009,11 +1009,37 @@ def parse_form4_xml_full(
 
 
 def insert_trades(conn, trades: List[dict], accession: str, filed_at: Optional[str] = None,
-                  errors: Optional[list] = None) -> int:
-    """Insert parsed trades into insiders.db. Returns count of new rows."""
+                  errors: Optional[list] = None,
+                  outcome: Optional[dict] = None) -> int:
+    """Insert parsed trades. Returns the count of rows that ACTUALLY LANDED.
+
+    `outcome`, when given, is filled with the full breakdown:
+
+        stored      rows this call wrote
+        duplicate   rows suppressed by the unique index because the same trade
+                    is already present, usually from a different accession
+        future      rows rejected for an impossible trade_date
+        parsed      rows handed to this function
+
+    WHY THE BREAKDOWN MATTERS. The unique index is on
+    (insider_id, ticker, trade_date, trade_type, value) -- NOT on accession --
+    so `INSERT OR IGNORE` suppresses a row WITHOUT RAISING when the same
+    economic trade already exists under another filing. `stored == 0` is
+    therefore ambiguous on its own: it means either "already had it" or "lost
+    it", and the caller was recording both as `ok`.
+
+    On 2026-09-29 that ambiguity cost three wrong conclusions in a row while
+    investigating an apparent 7% ingestion gap: 464 accessions present in
+    Silver and absent from `trades` turned out to be 325 derivative-only
+    filings the product correctly skips, 127 grants and exercises, and 12 with
+    real purchases of which 13 of 14 rows were already stored under a different
+    accession. One trade was genuinely missing. Distinguishing the two cases
+    here is what makes that answerable in one query instead of a day.
+    """
     from datetime import date as _date
     today = _date.today().isoformat()
     inserted = 0
+    duplicates = 0
     rejected_future = 0
     for t in trades:
         # Fetch-time guard against issuer year-typo bugs (P1.12, 2026-05-17).
@@ -1093,7 +1119,13 @@ def insert_trades(conn, trades: List[dict], accession: str, filed_at: Optional[s
             # uses this number to decide whether to run the indicator jobs and
             # reports it as "inserted". The sibling bulk loader hit exactly
             # this and documented it: "reported 120,732 where 63,264 landed".
-            inserted += cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+            landed = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+            inserted += landed
+            # rowcount 0 with no exception is ON CONFLICT DO NOTHING firing:
+            # the trade is already stored, under this accession or another one.
+            # Counted, not ignored — see the docstring.
+            if landed == 0:
+                duplicates += 1
         except _INSERT_CONFLICT as exc:
             # The idempotency guarantee working: this row is already stored.
             logger.debug("insert_trades(%s): row already present", accession)
@@ -1123,6 +1155,13 @@ def insert_trades(conn, trades: List[dict], accession: str, filed_at: Optional[s
         logger.warning(
             "insert_trades(%s): %d future-dated row(s) rejected", accession, rejected_future
         )
+    if outcome is not None:
+        outcome.update({
+            "stored": inserted,
+            "duplicate": duplicates,
+            "future": rejected_future,
+            "parsed": len(trades),
+        })
     return inserted
 
 

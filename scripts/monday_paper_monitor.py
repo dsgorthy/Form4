@@ -308,9 +308,37 @@ def check_unexpected_critical_alerts() -> CheckResult:
 
 
 def check_qm_scan_today() -> CheckResult:
-    """Today's QM scan should produce >0 rows in trade_decision_audit.
-    Even if no candidate passes the filter, the dedup/pit_lookup audit
-    rows confirm the scan ran. Zero rows = freshness halt or runner down."""
+    """Did the QM runner actually do a cycle today, and is a quiet day quiet?
+
+    THIS CHECK USED TO FAIL EVERY MONDAY ON A FALSE PREMISE. It asserted that
+    `trade_decision_audit` must hold >0 rows for quality_momentum today, on the
+    reasoning that "even if no candidate passes the filter, the dedup/pit_lookup
+    audit rows confirm the scan ran". That is not how the runner behaves: the
+    thesis query filters in SQL, so when nothing qualifies there is nothing to
+    audit at ANY stage and the table is legitimately empty.
+
+    Measured 2026-09-29: the audit table had been empty since 09-25 while all
+    three runners completed 77 cycles each in the previous day with status `ok`
+    and zero rows written — the healthy no-op. Meanwhile 0 of the day's 13
+    discretionary buys carried an A+/A/B career grade, and 1 of 64 the day
+    before. There was simply nothing to decide. The check failed on 09-14, 09-21
+    and 09-28, three Mondays running, which is how a monitor teaches people to
+    ignore it.
+
+    So it now asks the two questions separately:
+
+      1. DID THE LOOP TURN? `pipeline_runs` is the record of completed cycles.
+         Zero completed runs on a trading day is the real failure, and it is the
+         one the old check was reaching for.
+      2. IF THERE WAS SOMETHING TO DECIDE, IS IT AUDITED? A graded candidate in
+         today's filings with no audit row is suspicious. No graded candidate
+         explains an empty table completely.
+
+    Deliberately NOT asserting the audit table is non-empty on its own — see
+    `feedback_monitor_budgets_follow_schedules`: a threshold has to derive from
+    what the job would actually produce. Books that take about two trades a
+    month have many quiet days, and quiet is not broken.
+    """
     today_pt = (datetime.now(timezone.utc) - timedelta(hours=8)).date().isoformat()
     conn = get_connection()
     try:
@@ -323,27 +351,67 @@ def check_qm_scan_today() -> CheckResult:
                   AND source IN ('live', 'simulation')""",
             ("quality_momentum",),
         ).fetchone()
-        if row is None:
-            n_audit = 0
-            n_stages = 0
-            n_passed = 0
-        else:
-            n_audit = int(row[0] or 0)
-            n_stages = int(row[1] or 0)
-            n_passed = int(row[2] or 0)
+        n_audit = int(row[0] or 0) if row else 0
+        n_stages = int(row[1] or 0) if row else 0
+        n_passed = int(row[2] or 0) if row else 0
+
+        # Did the loop turn? This is the liveness evidence the old check wanted.
+        runs = conn.execute(
+            """SELECT COUNT(*) FILTER (WHERE status = 'ok') AS ok_runs,
+                      COUNT(*) AS all_runs
+                 FROM pipeline_runs
+                WHERE service = ?
+                  AND started_at::date = CURRENT_DATE""",
+            ("cw_runner_quality_momentum",),
+        ).fetchone()
+        ok_runs = int(runs[0] or 0) if runs else 0
+        all_runs = int(runs[1] or 0) if runs else 0
+
+        # A loose proxy for "was there anything the thesis could have looked at".
+        # Deliberately wider than the real rule (it ignores the chart and size
+        # conditions), because its job is only to explain an empty audit table,
+        # and over-counting here makes the check MORE likely to ask a question.
+        cand = conn.execute(
+            """SELECT COUNT(*) FROM trades
+                WHERE filing_date = CURRENT_DATE::text
+                  AND signal_class = 'discretionary_buy'
+                  AND superseded_by IS NULL
+                  AND is_derivative = 0
+                  AND (is_duplicate = 0 OR is_duplicate IS NULL)
+                  AND career_grade IN ('A+', 'A', 'B')"""
+        ).fetchone()
+        n_graded = int(cand[0] or 0) if cand else 0
     finally:
         conn.close()
-    if n_audit == 0:
+
+    if ok_runs == 0:
+        return CheckResult(
+            name="qm_scan_today", ok=False, severity="critical",
+            detail=f"quality_momentum completed NO runner cycles today (PT {today_pt}); "
+                   f"{all_runs} attempt(s) recorded in pipeline_runs — the loop is not turning",
+            extra={"ok_runs": ok_runs, "all_runs": all_runs},
+        )
+    if n_audit == 0 and n_graded > 0:
         return CheckResult(
             name="qm_scan_today", ok=False, severity="warn",
-            detail=f"trade_decision_audit has 0 rows for quality_momentum today (PT {today_pt}) "
-                   f"— preflight likely halted; check refresh_features_chain finding",
+            detail=f"{ok_runs} cycle(s) completed but trade_decision_audit is empty while "
+                   f"{n_graded} graded discretionary buy(s) were filed today (PT {today_pt}) "
+                   f"— candidates should have produced audit rows",
+            extra={"ok_runs": ok_runs, "n_graded_candidates": n_graded},
+        )
+    if n_audit == 0:
+        return CheckResult(
+            name="qm_scan_today", ok=True, severity="info",
+            detail=f"quiet day: {ok_runs} cycle(s) completed, no graded candidates filed, "
+                   f"so no decisions to audit (PT {today_pt})",
+            extra={"ok_runs": ok_runs, "n_graded_candidates": 0, "n_audit_rows": 0},
         )
     return CheckResult(
         name="qm_scan_today", ok=True, severity="info",
         detail=f"QM produced {n_audit} audit row(s) across {n_stages} stage(s); "
-               f"{n_passed} cleared conviction (PT {today_pt})",
-        extra={"n_audit_rows": n_audit, "n_stages": n_stages, "n_passed_conviction": n_passed},
+               f"{n_passed} cleared conviction over {ok_runs} cycle(s) (PT {today_pt})",
+        extra={"n_audit_rows": n_audit, "n_stages": n_stages,
+               "n_passed_conviction": n_passed, "ok_runs": ok_runs},
     )
 
 
