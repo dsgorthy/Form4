@@ -57,6 +57,40 @@ MARKET_HOURS_THRESHOLD_MIN = 30
 OFF_HOURS_THRESHOLD_MIN = 90
 DAILY_SUMMARY_MAX_AGE_HOURS = 36
 
+# WHEN THE RUNNERS ARE ACTUALLY DUE TO WRITE A HEARTBEAT.
+#
+# They are Dagster one-shots on `*/10 6-13 * * 1-5` PACIFIC — so the last fire
+# of the day is 13:50 PT = 16:50 ET, and nothing is scheduled again until 06:00
+# PT = 09:00 ET the next weekday. A flat off-hours threshold of 90 minutes
+# therefore pages EVERY WEEKDAY at 22:30 ET with "age=100m threshold=90m", and
+# again the next morning with "recovered" — six criticals a day, for ever, for a
+# system behaving exactly as scheduled.
+#
+# Measured 2026-09-29: 7 criticals a day every weekday since 09-21, which then
+# tripped the Monday monitor's `unexpected_criticals` check, which is why that
+# monitor had failed three Mondays running. An alarm that fires on correct
+# behaviour is worse than no alarm, because it buries the real ones — this is
+# `feedback_monitor_budgets_follow_schedules`: the budget comes from the cron,
+# never from a duration someone picked.
+#
+# Half an hour of grace past the last scheduled fire, so a slow final cycle does
+# not page either.
+RUNNER_SCHEDULE_START_ET = dt_time(9, 0)    # 06:00 PT
+RUNNER_SCHEDULE_END_ET = dt_time(17, 20)    # 13:50 PT last fire + 30min grace
+
+
+def _runner_is_due_now() -> bool:
+    """Is a heartbeat expected right now at all?
+
+    Outside the schedule window a stale heartbeat is the CORRECT state, not a
+    fault, and must not page. Returning False here is what makes the difference
+    between a monitor people trust and one they mute.
+    """
+    now = datetime.now(ET)
+    if now.weekday() >= 5:
+        return False
+    return RUNNER_SCHEDULE_START_ET <= now.time() <= RUNNER_SCHEDULE_END_ET
+
 
 def _is_market_hours_now() -> bool:
     now = datetime.now(ET)
@@ -111,6 +145,9 @@ def check_strategies() -> dict:
     live heartbeat is fine (live plist may not be loaded yet)."""
     market_hours = _is_market_hours_now()
     threshold = MARKET_HOURS_THRESHOLD_MIN if market_hours else OFF_HOURS_THRESHOLD_MIN
+    # Outside the runners' schedule nothing is due, so age cannot be a fault.
+    # See _runner_is_due_now for why this is not a flat duration.
+    due = _runner_is_due_now()
     out = {}
     for s in STRATEGIES:
         for mode, suffix in HEARTBEAT_MODES:
@@ -124,12 +161,16 @@ def check_strategies() -> dict:
                                 "threshold": threshold, "status": "not_loaded",
                                 "hb_status": None, "mode": mode, "strategy": s}
                 else:
-                    out[key] = {"ok": False, "age_min": None,
-                                "threshold": threshold, "status": "missing",
+                    out[key] = {"ok": not due, "age_min": None,
+                                "threshold": threshold,
+                                "status": "missing" if due else "off_schedule",
                                 "hb_status": None, "mode": mode, "strategy": s}
                 continue
             age = _heartbeat_age_minutes(hb)
-            fresh = age is not None and age <= threshold
+            # Off-schedule, age is not a signal: the last fire of the day is
+            # 13:50 PT and nothing is due again until 06:00 PT. Treating an
+            # expected gap as staleness is what produced six criticals a day.
+            fresh = (age is not None and age <= threshold) or not due
             # LIVENESS IS NOT HEALTH.
             #
             # A runner whose daily cycle throws keeps looping and keeps writing
@@ -144,6 +185,10 @@ def check_strategies() -> dict:
             ok = fresh and not cycle_failed
             if not fresh:
                 status = "stale"
+            elif not due and age is not None and age > threshold:
+                # Old, and correctly so. Named distinctly so the log says which
+                # it is rather than claiming freshness.
+                status = "off_schedule"
             elif cycle_failed:
                 status = "cycle_failed"
             else:
@@ -223,7 +268,12 @@ def main():
                     hb_status=r["hb_status"],
                 )
             else:
-                alert.critical(
+                # A RECOVERY IS NOT A CRITICAL. It was logged at critical
+                # severity, so every morning's restart added three more rows to
+                # the count that the Monday monitor's `unexpected_criticals`
+                # check reads — half of the six-a-day it was drowning in were
+                # announcements of things being FINE.
+                alert.info(
                     f"heartbeat_probe.{key}",
                     f"{label} heartbeat recovered (was {prev})",
                     strategy=r["strategy"], mode=r["mode"],

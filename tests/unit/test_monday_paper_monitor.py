@@ -51,15 +51,36 @@ def test_heartbeats_pass_when_all_fresh(hb_dir):
     assert "all 3 fresh" in r.detail
 
 
-def test_heartbeats_fail_when_one_stale(hb_dir):
-    from scripts.monday_paper_monitor import check_heartbeats
+def test_heartbeats_fail_when_one_stale(hb_dir, monkeypatch):
+    """Stale WHILE A BEAT IS DUE. The window is patched, not inherited from the
+    clock: since 2026-09-29 the check only treats age as a fault inside the
+    runners' schedule (`*/10 6-13 * * 1-5` PT), so an unpatched version of this
+    test passed or failed depending on what time the suite happened to run."""
+    import scripts.monday_paper_monitor as mpm
+    monkeypatch.setattr(mpm, "_runner_is_due_now", lambda: True)
     _write_heartbeat(hb_dir, "quality_momentum", age_min=2)
     _write_heartbeat(hb_dir, "reversal_dip", age_min=2)
     _write_heartbeat(hb_dir, "quality_notrend", age_min=90)
-    r = check_heartbeats()
+    r = mpm.check_heartbeats()
     assert r.ok is False
     assert r.severity == "warn"
     assert "quality_notrend" in r.detail
+
+
+def test_heartbeats_tolerate_age_outside_the_runner_schedule(hb_dir, monkeypatch):
+    """The last fire of the day is 13:50 PT and nothing is due until 06:00 PT, so
+    an overnight gap is the CORRECT state. Reporting it as a fault produced six
+    criticals a day and buried the real ones — the reason the Monday monitor had
+    failed three Mondays running."""
+    import scripts.monday_paper_monitor as mpm
+    monkeypatch.setattr(mpm, "_runner_is_due_now", lambda: False)
+    for strategy in ("quality_momentum", "reversal_dip", "quality_notrend"):
+        _write_heartbeat(hb_dir, strategy, age_min=900)
+    r = mpm.check_heartbeats()
+    assert r.ok is True, (
+        "a 15-hour-old heartbeat outside the schedule window is reported as a "
+        "fault; that is the alarm-on-correct-behaviour bug"
+    )
 
 
 def test_heartbeats_fail_when_file_missing(hb_dir):

@@ -58,6 +58,17 @@ logger = logging.getLogger(__name__)
 
 STRATEGIES = ["quality_notrend", "quality_momentum", "reversal_dip"]
 HEARTBEAT_MAX_AGE_MIN = 30   # cw_runner writes heartbeat every cycle
+
+# ONE definition of "is a heartbeat due right now", imported rather than
+# recreated. The runners are Dagster one-shots on `*/10 6-13 * * 1-5` PACIFIC, so
+# the last fire is 13:50 PT and nothing is due until 06:00 PT next weekday. This
+# check used a FLAT 30-minute threshold, so it reported all three runners stale
+# every afternoon and all weekend — including at 15:14 PT on 2026-09-29, when
+# every heartbeat was current to the last scheduled fire. A second copy of the
+# window here would drift from the probe's; see
+# `feedback_monitor_budgets_follow_schedules`.
+sys.path.insert(0, str(REPO / "scripts"))
+from heartbeat_probe import _runner_is_due_now  # noqa: E402
 ALERT_LOG = REPO / "logs" / "alerts.ndjson"
 DEPLOY_COMMIT_UTC = "2026-05-17T07:00:00+00:00"   # Phase 2 deploy reference
 
@@ -126,7 +137,7 @@ def check_heartbeats() -> CheckResult:
             "status": hb.get("status"),
             "pid": hb.get("pid"),
         }
-        if age_min > HEARTBEAT_MAX_AGE_MIN:
+        if age_min > HEARTBEAT_MAX_AGE_MIN and _runner_is_due_now():
             stale.append(f"{strategy}: heartbeat {age_min:.1f}min stale (status={hb.get('status')})")
     if stale:
         return CheckResult(

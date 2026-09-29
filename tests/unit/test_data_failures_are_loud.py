@@ -38,6 +38,7 @@ COMPLETENESS = ROOT / "scripts" / "check_ingest_completeness.py"
 TICKERS = ROOT / "scripts" / "refresh_ticker_metadata.py"
 MONDAY = ROOT / "scripts" / "monday_paper_monitor.py"
 OPS = ROOT / "dataplane" / "dagster_project" / "assets" / "form4_ops.py"
+PROBE = ROOT / "scripts" / "heartbeat_probe.py"
 
 
 def _code(src: str) -> str:
@@ -216,4 +217,57 @@ def test_a_quiet_day_passes_and_an_unexplained_empty_table_does_not():
     )
     assert re.search(r"n_audit == 0 and n_graded > 0[\s\S]{0,300}ok=False", body), (
         "a graded candidate with no audit row does not fail"
+    )
+
+
+# ── 4. The alarm that fired on correct behaviour ────────────────────────────
+
+def test_heartbeat_staleness_is_derived_from_the_runner_schedule():
+    """SIX CRITICALS A DAY, EVERY WEEKDAY, for a system behaving as scheduled.
+
+    The runners are Dagster one-shots on `*/10 6-13 * * 1-5` PACIFIC, so the
+    last fire is 13:50 PT and nothing is due until 06:00 PT next weekday. A flat
+    90-minute off-hours threshold therefore paged every weekday at 22:30 ET with
+    "age=100m threshold=90m", and again next morning with "recovered" — which was
+    ALSO logged at critical severity. Measured 2026-09-29: 7 criticals a day
+    since 09-21, which tripped the Monday monitor's `unexpected_criticals` check,
+    which is why that monitor had failed three Mondays running. The real signals
+    were buried under announcements of things being fine.
+    """
+    code = _code(PROBE.read_text())
+    assert "def _runner_is_due_now" in code, (
+        "the probe no longer knows when a heartbeat is DUE, so it is back to a "
+        "flat duration"
+    )
+    assert "RUNNER_SCHEDULE_END_ET" in code, "the schedule window is gone"
+    # The window has to be consulted by the freshness verdict, not merely defined.
+    assert re.search(r"fresh = \(age is not None and age <= threshold\) or not due",
+                     code), (
+        "the age verdict ignores the schedule window, so an expected overnight "
+        "gap is reported as staleness again"
+    )
+
+
+def test_a_recovery_is_not_logged_as_critical():
+    code = _code(PROBE.read_text())
+    at = code.index("heartbeat recovered")
+    before = code[max(0, at - 260): at]
+    assert "alert.info(" in before, (
+        "a heartbeat recovery is logged at critical severity again; half the "
+        "six-a-day were announcements that things were FINE"
+    )
+    assert "alert.critical(" not in before.split("alert.info(")[-1]
+
+
+def test_the_monday_monitor_shares_the_one_window():
+    """A second copy of the schedule window drifts from the probe's."""
+    code = _code(MONDAY.read_text())
+    assert "from heartbeat_probe import _runner_is_due_now" in code, (
+        "the Monday monitor defines its own staleness window instead of "
+        "importing the one the probe uses"
+    )
+    assert re.search(r"age_min > HEARTBEAT_MAX_AGE_MIN and _runner_is_due_now\(\)",
+                     code), (
+        "the Monday monitor's heartbeat check is back to a flat threshold, so it "
+        "reports every runner stale each afternoon and all weekend"
     )
