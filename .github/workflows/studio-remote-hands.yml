@@ -1,0 +1,139 @@
+# Remote hands on the Studio, for when the Studio cannot be reached.
+#
+# WHY THIS EXISTS
+#
+# On 2026-09-30 the Studio exhausted its ephemeral ports. The box stayed healthy
+# behind its Cloudflare tunnel — form4.app served 200 and Postgres answered in
+# 13ms — but every path that needs a NEW outbound connection broke, and that
+# included Tailscale. ssh and ping both failed for hours, so the only way to
+# touch the machine was physically.
+#
+# The self-hosted Actions runner does not have that problem. It POLLS GitHub
+# outbound, so it keeps working when nothing can reach in: its "Deploy to
+# production" job succeeded at 20:24 UTC in the middle of the outage.
+#
+# So this is a deliberately boring, manually-triggered job that runs READ-ONLY
+# diagnostics plus one narrow repair (`tailscale up`) on the box. It is the
+# break-glass channel, not a deploy path — the deploy already has one.
+#
+# Trigger:  gh workflow run studio-remote-hands.yml --repo dsgorthy/Form4
+# Read it:  gh run watch <id> --repo dsgorthy/Form4
+#           gh run view <id> --repo dsgorthy/Form4 --log
+name: Studio remote hands
+
+on:
+  workflow_dispatch:
+    inputs:
+      repair_tailscale:
+        description: "Attempt `tailscale up` if Tailscale is down"
+        type: boolean
+        default: true
+
+# Never run two of these at once on a box that is already unwell.
+concurrency:
+  group: studio-remote-hands
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    name: Diagnose the Studio
+    runs-on: self-hosted
+    timeout-minutes: 12
+    steps:
+      - name: Who and where
+        run: |
+          echo "host: $(hostname)"
+          echo "user: $(whoami)"
+          echo "uptime: $(uptime)"
+
+      - name: Ephemeral port headroom, ANCHORED
+        run: |
+          # ANCHORED ON THE COLUMN, not a substring. The count that drove the
+          # whole 2026-09-30 diagnosis used `grep '127.0.0.1.5432'`, which also
+          # matches ephemeral ports 54320-54329 — so "27 connections a second to
+          # Postgres" was not a number anyone should have acted on. netstat
+          # columns are: proto recv-q send-q local foreign state.
+          first=$(sysctl -n net.inet.ip.portrange.first)
+          last=$(sysctl -n net.inet.ip.portrange.last)
+          range=$(( last - first + 1 ))
+          tw=$(netstat -an | awk '$6=="TIME_WAIT"' | wc -l | tr -d ' ')
+          echo "ephemeral range      : $first-$last  ($range ports)"
+          echo "TIME_WAIT (total)    : $tw"
+          echo "headroom             : $(( range - tw ))"
+          echo "msl (ms)             : $(sysctl -n net.inet.tcp.msl)"
+          echo
+          echo "top TIME_WAIT foreign endpoints (exact, top 10):"
+          netstat -an | awk '$6=="TIME_WAIT" {print $5}' | sort | uniq -c | sort -rn | head -10
+          echo
+          echo "TIME_WAIT with foreign port EXACTLY 5432:"
+          netstat -an | awk '$6=="TIME_WAIT" && $5 ~ /\.5432$/' | wc -l
+
+      - name: Tailscale state
+        run: |
+          TS=""
+          for c in /Applications/Tailscale.app/Contents/MacOS/Tailscale \
+                   /usr/local/bin/tailscale /opt/homebrew/bin/tailscale; do
+            [ -x "$c" ] && TS="$c" && break
+          done
+          if [ -z "$TS" ]; then echo "tailscale CLI not found"; exit 0; fi
+          echo "cli: $TS"
+          "$TS" status 2>&1 | head -12 || true
+          echo "--- ip"
+          "$TS" ip -4 2>&1 | head -2 || true
+
+      - name: Repair Tailscale
+        if: inputs.repair_tailscale
+        run: |
+          TS=""
+          for c in /Applications/Tailscale.app/Contents/MacOS/Tailscale \
+                   /usr/local/bin/tailscale /opt/homebrew/bin/tailscale; do
+            [ -x "$c" ] && TS="$c" && break
+          done
+          [ -z "$TS" ] && { echo "no tailscale CLI; nothing to do"; exit 0; }
+          # `up` is idempotent and does not need root on the macsys build when
+          # the daemon is already running. If it needs root it fails loudly here
+          # rather than doing something clever.
+          "$TS" up --timeout 60s 2>&1 | head -12 || echo "tailscale up failed (may need root)"
+          echo "--- status after"
+          "$TS" status 2>&1 | head -8 || true
+
+      - name: What is pushing alerts
+        run: |
+          cd "${GITHUB_WORKSPACE}" || cd /Users/derekg/trading-framework
+          LOG=logs/alerts.ndjson
+          [ -f "$LOG" ] || { echo "no $LOG"; exit 0; }
+          echo "alerts in the last 3 hours, by source and severity:"
+          /opt/homebrew/bin/python3 - "$LOG" <<'PY'
+          import json, sys, collections
+          from datetime import datetime, timedelta, timezone
+          cut = datetime.now(timezone.utc) - timedelta(hours=3)
+          c = collections.Counter()
+          for line in open(sys.argv[1], errors="replace"):
+              try: d = json.loads(line)
+              except Exception: continue
+              ts = (d.get("ts") or d.get("timestamp") or "")[:19]
+              try: when = datetime.fromisoformat(ts).replace(tzinfo=timezone.utc)
+              except Exception: continue
+              if when < cut: continue
+              c[((d.get("severity") or "?").upper(),
+                 d.get("source") or d.get("component") or "?")] += 1
+          for (sev, src), n in c.most_common(15):
+              print(f"  {n:>5}  {sev:<9} {src}")
+          if not c: print("  (none in the last 3 hours)")
+          PY
+
+      - name: Dagster run failures in the last 3 hours
+        run: |
+          /opt/homebrew/bin/psql -h /tmp -d dagster_runs -At -F' | ' -c "
+            select status, count(*)
+              from runs
+             where create_timestamp > now() - interval '3 hours'
+             group by 1 order by 2 desc" 2>&1 | head -8 || echo "could not read dagster_runs"
+
+      - name: Service and container state
+        run: |
+          export PATH=/opt/homebrew/bin:$PATH
+          echo "--- containers"
+          docker ps --format '{{.Names}}|{{.Status}}' 2>&1 | head -12 || echo "docker unreachable"
+          echo "--- must-run agents"
+          launchctl list | grep -E 'dagster|cloudflared|colima|ollama|actions.runner' | head -10
