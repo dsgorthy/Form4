@@ -90,17 +90,22 @@ jobs:
             [ -x "$c" ] && TS="$c" && break
           done
           [ -z "$TS" ] && { echo "no tailscale CLI; nothing to do"; exit 0; }
-          # `up` is idempotent and does not need root on the macsys build when
-          # the daemon is already running. If it needs root it fails loudly here
-          # rather than doing something clever.
-          "$TS" up --timeout 60s 2>&1 | head -12 || echo "tailscale up failed (may need root)"
+          # --accept-routes IS REQUIRED, not optional. A bare `tailscale up`
+          # refuses with "changing settings via 'tailscale up' requires
+          # mentioning all non-default flags" and names this one, because it is
+          # already set on this node. Omitting it is a no-op that looks like a
+          # failure.
+          "$TS" up --timeout=60s --accept-routes 2>&1 | head -12 \
+            || echo "tailscale up failed (may need root)"
           echo "--- status after"
           "$TS" status 2>&1 | head -8 || true
 
       - name: What is pushing alerts
         run: |
-          cd "${GITHUB_WORKSPACE}" || cd /Users/derekg/trading-framework
-          LOG=logs/alerts.ndjson
+          # ABSOLUTE PATH. GITHUB_WORKSPACE is the runner's own checkout, which
+          # has no logs/ — the first version of this reported "no
+          # logs/alerts.ndjson" and told us nothing.
+          LOG=/Users/derekg/trading-framework/logs/alerts.ndjson
           [ -f "$LOG" ] || { echo "no $LOG"; exit 0; }
           echo "alerts in the last 3 hours, by source and severity:"
           /opt/homebrew/bin/python3 - "$LOG" <<'PY'
@@ -135,5 +140,17 @@ jobs:
           export PATH=/opt/homebrew/bin:$PATH
           echo "--- containers"
           docker ps --format '{{.Names}}|{{.Status}}' 2>&1 | head -12 || echo "docker unreachable"
-          echo "--- must-run agents"
-          launchctl list | grep -E 'dagster|cloudflared|colima|ollama|actions.runner' | head -10
+          echo "--- must-run agents (each named explicitly; a grep that misses"
+          echo "    one reads exactly like an agent that is fine)"
+          for l in com.cloudflare.cloudflared com.openclaw.tailorly-tunnel \
+                   com.cloudflare.cloudflared.designquiz homebrew.mxcl.colima \
+                   com.derekg.lima-master-keepalive com.openclaw.dagster-daemon \
+                   com.openclaw.dagster-webserver com.openclaw.pyrrho-desk \
+                   actions.runner.dsgorthy-Form4.dereks-mac-studio com.ollama.server; do
+            line=$(launchctl list | awk -v L="$l" '$3==L {print $1" exit="$2}')
+            if [ -z "$line" ]; then echo "  NOT LOADED  $l"
+            elif echo "$line" | grep -q '^-'; then echo "  NOT RUNNING $l ($line)"
+            else echo "  ok          $l (pid $line)"; fi
+          done
+          echo "--- can this runner sudo without a password?"
+          sudo -n true 2>/dev/null && echo "  YES" || echo "  no (sysctl changes need a human)"
