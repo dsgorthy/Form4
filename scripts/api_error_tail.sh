@@ -79,8 +79,34 @@ docker logs --follow --tail 0 "$CONTAINER" 2>&1 | while IFS= read -r line; do
 
         log "500: $endpoint"
 
-        # Dedupe by endpoint (so 100 hits to same broken route = 1 alert per 5min)
-        dedupe_key=$(echo "$endpoint" | sed 's/[?].*//')   # strip query string
+        # Dedupe by ROUTE TEMPLATE, not the concrete path.
+        #
+        # This stripped only the query string, so /api/v1/filings/xdfh9d and
+        # /api/v1/filings/vsvzxd were different keys — and every insider and
+        # filing id is a different key. The stated intent, "100 hits to the same
+        # broken route = 1 alert per 5min", was therefore never achieved on any
+        # parameterised route: ONE broken endpoint sent one push per distinct id,
+        # unbounded.
+        #
+        # Measured 2026-09-30 during the port-exhaustion outage: 94 pushes in six
+        # hours and 21 in five minutes, all "form4 API 500" on the same two or
+        # three routes with different ids, while a crawler walked thousands of
+        # insider pages. That is the flood, and a pager that does that is one
+        # people mute.
+        #
+        # Collapse the id-shaped segments so the key is the route: sqids
+        # (6+ chars of base58-ish), numeric ids, and slugs that carry a trailing
+        # sqid. Tickers stay — /companies/GME and /companies/AAPL failing are
+        # genuinely different facts.
+        # Order matters: drop the query string AND the " HTTP/1.1" suffix
+        # before collapsing, or a greedy [^/]+ eats the protocol too and
+        # /insiders/allan-bombard-gkpgbv becomes /insiders/{id}/1.1.
+        dedupe_key=$(echo "$endpoint" \
+          | sed 's/[?].*//' \
+          | sed -E 's# HTTP/[0-9.]+$##' \
+          | sed -E 's#/(filings|trades)/[A-Za-z0-9]{5,}#/\1/{id}#g' \
+          | sed -E 's#/insiders/[^/ ]+#/insiders/{id}#g' \
+          | sed -E 's#/[0-9]{3,}#/{n}#g')
         if should_alert "$dedupe_key"; then
             emit_alert "error" "form4 API 500 — $endpoint. Check: docker logs $CONTAINER --tail 50 | grep -B2 -A20 'Traceback'"
             log "ALERTED: $endpoint"
