@@ -576,37 +576,132 @@ def get_connection(readonly: bool = False) -> ConnectionWrapper:
 
 @contextmanager
 def get_db(readonly: bool = True) -> Generator[ConnectionWrapper, None, None]:
-    """Context manager for API database connections.
+    """Context manager for API database connections, POOLED.
 
-    Opens a fresh psycopg2 connection per request and closes it on exit.
-    This avoids all the pool-related bugs (dead connections, stuck pool,
-    connection pointer NULL) at the cost of ~5ms connection overhead per
-    request. Postgres has 100 max_connections and the API's real concurrency
-    is well below that, so no risk of exhaustion.
+    WHY THIS IS POOLED AGAIN, AND WHAT THE OLD COMMENT GOT WRONG
+
+    It opened a fresh connection per request, justified as: "avoids all the
+    pool-related bugs (dead connections, stuck pool, connection pointer NULL) at
+    the cost of ~5ms per request. Postgres has 100 max_connections and the API's
+    real concurrency is well below that, so no risk of exhaustion."
+
+    **max_connections was never the binding resource.** On 2026-09-30 the API
+    went down for over an hour with Postgres at 11 of 100 connections, up 49 days
+    and perfectly healthy. What ran out was the HOST'S EPHEMERAL PORT RANGE:
+    49152-65535, exactly 16,384 ports, of which 16,208 sat in TIME_WAIT to
+    127.0.0.1:5432 and did not drain.
+
+    The API runs in a Colima VM and reaches Postgres through Lima's loopback
+    relay, so **every connection consumes one host ephemeral port for 30 seconds
+    after it closes**. One connection per request therefore scales port
+    consumption with request rate, and the frontend calls this API server-side on
+    every page render — traffic Caddy never logs, because it goes over the Docker
+    network. Under crawler load (6,777 requests in ten minutes, 80% bots) that
+    saturates, and once saturated every new connection is refused, which makes
+    the API 500, which is where it was. Same mechanism as the 2026-08-11 outage,
+    where Dagster's NullPool ate the same 16,384 ports; Dagster was moved to the
+    unix socket and this path was not.
+
+    A pool caps port consumption at the pool size instead of the request rate.
+
+    THE THREE FAILURE MODES THE OLD COMMENT NAMED ARE HANDLED, NOT IGNORED:
+
+      dead connections   every checkout is validated with SELECT 1, and a
+                         connection that fails validation is discarded CLOSED
+                         rather than handed out or returned to the pool
+      stuck pool         if the pool cannot give a usable connection, this falls
+                         back to a direct connect, so the pool is never a single
+                         point of failure
+      leaked state       a pooled connection carries the previous caller's
+                         transaction, readonly flag and search_path; all three
+                         are reset on checkout, and any connection that raised
+                         is returned CLOSED so it cannot poison the next caller
     """
-    raw_conn = psycopg2.connect(
-        DATABASE_URL,
-        connect_timeout=5,
-        keepalives=1,
-        keepalives_idle=30,
-        keepalives_interval=10,
-        keepalives_count=5,
-    )
+    pool = None
     try:
-        if readonly:
-            raw_conn.set_session(readonly=True)
+        pool = get_pool()
+    except Exception:  # pragma: no cover - pool init failure must not 500
+        logger.warning("connection pool unavailable; falling back to direct connect",
+                       exc_info=True)
+
+    raw_conn = None
+    from_pool = False
+    if pool is not None:
+        # Two tries: one stale connection at the head of the pool is common
+        # after an idle period and must not surface as an error.
+        for _ in range(2):
+            try:
+                candidate = pool.getconn()
+            except Exception:
+                break
+            try:
+                candidate.rollback()          # discard the last caller's txn
+                cur = candidate.cursor()
+                cur.execute("SELECT 1")
+                cur.close()
+            except Exception:
+                try:
+                    pool.putconn(candidate, close=True)
+                except Exception:
+                    pass
+                continue
+            raw_conn, from_pool = candidate, True
+            break
+
+    if raw_conn is None:
+        raw_conn = psycopg2.connect(
+            DATABASE_URL,
+            connect_timeout=5,
+            keepalives=1,
+            keepalives_idle=30,
+            keepalives_interval=10,
+            keepalives_count=5,
+        )
+
+    try:
+        # Reset session state EVERY checkout. A pooled connection inherits the
+        # previous caller's readonly flag and search_path, so a writer handed a
+        # readonly connection fails and a reader handed a writable one silently
+        # gains permissions it should not have.
+        #
+        # ROLLBACK FIRST. autocommit is off, so the SELECT 1 validation above
+        # left a transaction open, and psycopg2 refuses set_session inside one
+        # with "cannot set transaction read-write mode during a transaction".
+        try:
+            raw_conn.rollback()
+        except Exception:
+            pass
+        raw_conn.set_session(readonly=readonly)
         raw_conn.cursor().execute("SET search_path TO public, prices, research, notifications")
         raw_conn.commit()
-        wrapper = ConnectionWrapper(raw_conn, from_pool=False)
+        wrapper = ConnectionWrapper(raw_conn, from_pool=from_pool)
         yield wrapper
     except Exception:
         try:
             raw_conn.rollback()
         except Exception:
             pass
+        # A connection that raised goes back CLOSED, never reused.
+        if from_pool and pool is not None:
+            try:
+                pool.putconn(raw_conn, close=True)
+            except Exception:
+                pass
+            raw_conn = None
         raise
     finally:
-        try:
-            raw_conn.close()
-        except Exception:
-            pass
+        if raw_conn is not None:
+            if from_pool and pool is not None:
+                try:
+                    raw_conn.rollback()
+                    pool.putconn(raw_conn)
+                except Exception:
+                    try:
+                        pool.putconn(raw_conn, close=True)
+                    except Exception:
+                        pass
+            else:
+                try:
+                    raw_conn.close()
+                except Exception:
+                    pass
