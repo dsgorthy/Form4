@@ -45,9 +45,17 @@ from pathlib import Path
 STUDIO = "100.78.9.66"
 SSH_TARGET = f"derekg@{STUDIO}"
 
+# RETIRED 2026-09-30: trytailorly.com. The service is wound down, so a page
+# probe against it is pure noise — and noise in a pager is worse than nothing,
+# because it trains the reader to swipe the whole topic away. It was pushing on
+# every cycle while the Studio was unreachable.
+#
+# NOTE FOR WHOEVER WINDS IT DOWN PROPERLY: as of 2026-09-30 the site still
+# answered 200 and job-search-project-{api,frontend,caddy} were all running on
+# Studio, so the containers and the tunnel are still live. Removing the monitor
+# does not stop the service; it only stops the alerts.
 ENDPOINTS = {
     "form4.app": "https://form4.app/",
-    "trytailorly.com": "https://trytailorly.com/",
 }
 
 # The pages Google sends people to, fetched the way Googlebot fetches them.
@@ -308,7 +316,9 @@ SERVICE_HEARTBEAT_SQL = (
 # check below caught the Dagster symptom; nothing named the cause. This does.
 MUST_RUN_AGENTS = [
     ("com.cloudflare.cloudflared", "form4.app tunnel"),
-    ("com.openclaw.tailorly-tunnel", "trytailorly.com tunnel"),
+    # com.openclaw.tailorly-tunnel removed 2026-09-30 — see ENDPOINTS above.
+    # It was one of the six agents that died in the 2026-09-15 Colima incident,
+    # which is why it was listed; the service it fronts is now wound down.
     ("com.cloudflare.cloudflared.designquiz", "interiordesignfordummies.com tunnel"),
     ("homebrew.mxcl.colima", "the Docker VM"),
     ("com.derekg.lima-master-keepalive", "the VM's port forwards"),

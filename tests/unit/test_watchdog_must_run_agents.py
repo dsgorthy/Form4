@@ -39,9 +39,18 @@ def test_all_running_is_clean():
     assert all(line.startswith("  OK  ") for line in report)
 
 
-def test_the_incident_listing_names_all_six_with_the_kickstart_command():
+def test_the_incident_listing_names_every_dead_agent_with_the_kickstart_command():
+    """Reproduces the 2026-09-15 23:25 Colima incident.
+
+    SIX agents died that night and stayed dead 12-19 hours: both non-form4
+    cloudflared tunnels, the GitHub deploy runner, dagster-daemon,
+    dagster-webserver and Ollama. One of the six was
+    `com.openclaw.tailorly-tunnel`, which was REMOVED FROM MONITORING on
+    2026-09-30 because the service it fronts is wound down and it was pushing
+    noise. So this now reproduces the same incident across the five we still
+    watch — the shape of the failure is what matters, not the count.
+    """
     dead = {
-        "com.openclaw.tailorly-tunnel": "-",
         "com.cloudflare.cloudflared.designquiz": "-",
         "actions.runner.dsgorthy-Form4.dereks-mac-studio": "-",
         "com.openclaw.dagster-daemon": "-",
@@ -49,7 +58,7 @@ def test_the_incident_listing_names_all_six_with_the_kickstart_command():
         "com.ollama.server": "-",
     }
     problems, report = watchdog.evaluate_must_run_agents(_listing(dead))
-    assert len(problems) == 6
+    assert len(problems) == len(dead)
     for label in dead:
         (p,) = [p for p in problems if p.startswith(label)]
         assert "NOT RUNNING" in p
@@ -79,3 +88,20 @@ def test_the_deploy_runner_and_the_scheduler_are_watched():
     assert "actions.runner.dsgorthy-Form4.dereks-mac-studio" in LABELS
     assert "com.openclaw.dagster-daemon" in LABELS
     assert "com.derekg.lima-master-keepalive" in LABELS
+
+
+def test_the_wound_down_service_is_not_monitored():
+    """Tailorly is retired. A monitor for a service nobody runs pushes noise on
+    every cycle, and noise teaches the reader to mute the whole topic — which
+    is how a real alert gets missed. Pinned so it cannot creep back in with a
+    copy-paste."""
+    assert not any("tailorly" in label.lower() for label, _ in watchdog.MUST_RUN_AGENTS), (
+        "the tailorly tunnel is back in MUST_RUN_AGENTS; the service is wound "
+        "down and this pushes on every cycle"
+    )
+    assert not any("tailorly" in k.lower() for k in watchdog.ENDPOINTS), (
+        "trytailorly.com is back in ENDPOINTS"
+    )
+    assert not any("tailorly" in v.lower() for v in watchdog.ENDPOINTS.values()), (
+        "a tailorly URL is back in ENDPOINTS under another key"
+    )
