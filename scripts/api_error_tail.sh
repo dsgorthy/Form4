@@ -11,6 +11,42 @@ ALERT_LOG="/Users/derekg/trading-framework/logs/alerts.ndjson"
 DEDUPE_DB="/tmp/form4-error-dedupe.txt"
 DEDUPE_WINDOW=300   # 5 minutes
 
+# ── A GLOBAL CAP, BECAUSE PER-ERROR DEDUPE IS NOT ENOUGH ────────────────────
+#
+# The dedupe below caps each DISTINCT error at one push per 5 minutes, which
+# does nothing when an outage produces many distinct errors. Over the 48h to
+# 2026-10-02 this pushed 150 times — 75% of every notification Derek received —
+# because each failing route template is its own key and a dead database makes
+# every route fail. Derek: "ive gotten a ton of push notifications".
+#
+# Thirty pushes and one push say the same thing about an outage. So: at most
+# PUSH_CAP pushes an hour, then ONE line saying how many were suppressed, then
+# silence until the hour rolls. The alert LOG is never capped — alerts.ndjson
+# still records every error, so nothing is lost for diagnosis.
+PUSH_LOG="/tmp/form4-error-pushes.txt"
+PUSH_CAP=6
+PUSH_WINDOW=3600
+touch "$PUSH_LOG"
+
+#: Returns 0 if we are under the hourly cap, 1 if we should stay quiet.
+#: Emits exactly one "suppressed" notice as it crosses the cap.
+push_budget_ok() {
+    local now=$(date +%s)
+    awk -v cutoff=$((now - PUSH_WINDOW)) '$1 >= cutoff' "$PUSH_LOG" > "$PUSH_LOG.new" 2>/dev/null
+    mv "$PUSH_LOG.new" "$PUSH_LOG" 2>/dev/null
+    local n
+    n=$(wc -l < "$PUSH_LOG" | tr -d ' ')
+    if [ "$n" -lt "$PUSH_CAP" ]; then
+        echo "$now" >> "$PUSH_LOG"
+        return 0
+    fi
+    if [ "$n" -eq "$PUSH_CAP" ]; then
+        echo "$now" >> "$PUSH_LOG"   # one over the cap: the notice itself
+        return 2                      # caller sends the suppression notice
+    fi
+    return 1
+}
+
 mkdir -p "$(dirname "$LOG_FILE")"
 touch "$DEDUPE_DB"
 
@@ -37,6 +73,15 @@ emit_alert() {
     # whose output nobody reads is indistinguishable from no monitor. Dedupe
     # above caps this at one push per distinct error per 5 minutes.
     if [ "$severity" = "error" ] || [ "$severity" = "critical" ]; then
+        push_budget_ok
+        local budget=$?
+        if [ "$budget" -eq 1 ]; then
+            log "PUSH SUPPRESSED (over ${PUSH_CAP}/hr cap): $message"
+            return 0
+        fi
+        if [ "$budget" -eq 2 ]; then
+            message="form4 API errors are still arriving — ${PUSH_CAP}/hr push cap reached, further pushes suppressed for the rest of the hour. Every error is still in logs/alerts.ndjson and logs/api-errors.log."
+        fi
         ( \
           /opt/homebrew/bin/python3 -c '
 import sys

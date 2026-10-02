@@ -937,16 +937,152 @@ def _parse_ts(val: str) -> "datetime | None":
     return ts if ts.tzinfo else ts.replace(tzinfo=_DB_TZ)
 
 
+# ── NOTIFY ON CHANGE, NOT ON STATE ──────────────────────────────────────────
+#
+# This used to push a high-priority ntfy on EVERY run that had any problem, and
+# it runs every thirty minutes. On 2026-10-01/02 five to eight problems sat
+# unresolved for about eighteen hours — three hung launchd jobs, a stale
+# congress feed, a pipeline that had missed two ticks — and each one was
+# re-pushed 36 times. Derek's words: "ive gotten a ton of push notifications".
+#
+# None of those pushes carried new information, and that is the damage: a pager
+# that repeats itself teaches the reader to swipe the topic away, which is how
+# the one that matters gets missed. Same reasoning that retired the Tailorly
+# probe on 09-30 and that fixed the heap probe's false alarm earlier today.
+#
+# So: push when the SET of problems changes, or when a long-running problem
+# needs re-asserting, and stay quiet otherwise. The printed output is
+# unchanged — the log always lists everything, every run.
+
+#: Where the last-seen problem set lives, so change can be detected across
+#: runs. On the Mini, next to the watchdog's own log.
+STATE_PATH = Path(__file__).resolve().parents[1] / "logs" / "offbox_watchdog_state.json"
+
+#: Re-assert an unchanged, unresolved problem set this often, so something
+#: broken for days does not go completely silent.
+REASSERT_HOURS = 12
+
+
+def problem_key(problem: str) -> str:
+    """Identity of a problem, with the parts that move every cycle removed.
+
+    THIS IS THE LOAD-BEARING PART. "heartbeat_probe has not run for 375
+    minutes" becomes a different string every single cycle, so naive
+    change-detection would fire every time and change nothing. Collapsing the
+    numbers makes one defect one key for as long as it lasts.
+    """
+    k = re.sub(r"\d+\.\d+", "N", problem)
+    k = re.sub(r"\b\d+\b", "N", k)
+    return re.sub(r"\s+", " ", k).strip()
+
+
+def decide_notification(
+    problems: list[str],
+    state: dict,
+    now: datetime,
+) -> "tuple[bool, str, dict]":
+    """Should we push, what should the title say, and what state do we keep?
+
+    Pure, so the policy is testable without a box or an ntfy topic.
+
+    Pushes when a problem is NEW, when one has RESOLVED since the last push,
+    or when REASSERT_HOURS have passed with problems still outstanding.
+    """
+    # A corrupt or hand-edited state file must never stop the watchdog from
+    # watching. Anything unreadable reads as "nothing seen before", which
+    # errs toward pushing — the safe direction.
+    raw_seen = state.get("problems")
+    seen: dict = raw_seen if isinstance(raw_seen, dict) else {}
+    keys = {problem_key(p): p for p in problems}
+
+    new_keys = [k for k in keys if k not in seen]
+    gone_keys = [k for k in seen if k not in keys]
+
+    last_push_raw = state.get("last_push")
+    last_push = None
+    if last_push_raw:
+        try:
+            last_push = datetime.fromisoformat(last_push_raw)
+            if last_push.tzinfo is None:
+                last_push = last_push.replace(tzinfo=timezone.utc)
+        except ValueError:
+            last_push = None
+
+    due_reassert = bool(keys) and (
+        last_push is None or (now - last_push) >= timedelta(hours=REASSERT_HOURS)
+    )
+
+    should = bool(new_keys) or bool(gone_keys) or due_reassert
+
+    if new_keys and gone_keys:
+        title = f"Studio watchdog: {len(new_keys)} new, {len(gone_keys)} resolved"
+    elif new_keys:
+        title = f"Studio watchdog: {len(new_keys)} NEW problem(s)"
+    elif gone_keys and not keys:
+        title = "Studio watchdog: all clear"
+    elif gone_keys:
+        title = f"Studio watchdog: {len(gone_keys)} resolved, {len(keys)} remain"
+    elif due_reassert:
+        oldest = min(seen.values()) if seen else None
+        age = ""
+        if oldest:
+            try:
+                t = datetime.fromisoformat(oldest)
+                if t.tzinfo is None:
+                    t = t.replace(tzinfo=timezone.utc)
+                age = f", oldest {int((now - t).total_seconds() // 3600)}h"
+            except ValueError:
+                pass
+        title = f"Studio watchdog: still {len(keys)} problem(s){age}"
+    else:
+        title = f"Studio watchdog: {len(keys)} problem(s)"
+
+    next_state = {
+        # Keep the first-seen time for a problem that persists, so the
+        # re-assert can say how old it is.
+        "problems": {k: seen.get(k, now.isoformat()) for k in keys},
+        "last_push": now.isoformat() if should else state.get("last_push"),
+    }
+    return should, title, next_state
+
+
+def _load_state() -> dict:
+    try:
+        return json.loads(STATE_PATH.read_text())
+    except Exception:  # noqa: BLE001  — missing or corrupt reads as empty
+        return {}
+
+
+def _save_state(state: dict) -> None:
+    try:
+        STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        STATE_PATH.write_text(json.dumps(state, indent=2, sort_keys=True))
+    except Exception as exc:  # noqa: BLE001
+        print(f"  [watchdog state write failed: {exc}]", file=sys.stderr)
+
+
 def _finish(problems: list[str], topic: str, dry_run: bool) -> None:
-    if not problems:
+    now = datetime.now(timezone.utc)
+    state = _load_state()
+    should, title, next_state = decide_notification(problems, state, now)
+
+    if problems:
+        body = "\n".join(f"• {p}" for p in problems)
+        print(f"=== {len(problems)} PROBLEM(S) ===\n{body}")
+    else:
         print("=== all checks passed ===")
-        return
-    body = "\n".join(f"• {p}" for p in problems)
-    print(f"=== {len(problems)} PROBLEM(S) ===\n{body}")
+        body = "every check passed"
+
     if dry_run:
-        print("(dry run — no alert sent)")
+        print(f"(dry run — would {'PUSH: ' + title if should else 'stay quiet'})")
         return
-    notify(f"Studio watchdog: {len(problems)} problem(s)", body, topic)
+
+    if should:
+        notify(title, body, topic)
+    else:
+        print(f"  (unchanged since the last push — not re-pushing; "
+              f"re-assert in {REASSERT_HOURS}h)")
+    _save_state(next_state)
 
 
 if __name__ == "__main__":
