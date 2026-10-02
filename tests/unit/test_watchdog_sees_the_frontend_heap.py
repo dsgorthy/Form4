@@ -57,14 +57,19 @@ HEALTHY = (
 )
 
 
+def ran(tail: str) -> str:
+    """A tail as the real probe emits it: findings, then the sentinel."""
+    return tail + "\n" + watchdog.PROBE_OK + "\n"
+
+
 def test_a_quiet_frontend_is_clean():
-    assert watchdog.evaluate_frontend_heap(HEALTHY) == []
-    assert watchdog.evaluate_frontend_heap("") == []
+    assert watchdog.evaluate_frontend_heap(ran(HEALTHY)) == []
+    assert watchdog.evaluate_frontend_heap(ran("")) == []
 
 
 def test_the_uncacheable_fetch_is_caught_and_the_route_is_named():
     """This is the EARLY signal — it appeared for days before the OOM."""
-    (problem,) = watchdog.evaluate_frontend_heap(UNCACHEABLE)
+    (problem,) = watchdog.evaluate_frontend_heap(ran(UNCACHEABLE))
     assert "UNCACHEABLE" in problem
     # The reader has to know which response to shrink.
     assert "/api/v1/sitemap/urls" in problem
@@ -74,7 +79,7 @@ def test_the_uncacheable_fetch_is_caught_and_the_route_is_named():
 
 def test_the_gc_spiral_is_caught_before_the_process_dies():
     """1,967 MB of a 2,080 MB ceiling is a slow site, not yet a dead one."""
-    (problem,) = watchdog.evaluate_frontend_heap(GC_SPIRAL)
+    (problem,) = watchdog.evaluate_frontend_heap(ran(GC_SPIRAL))
     # The WORST cycle in the window, not the first one it happened to match.
     assert "1967 MB" in problem, problem
     assert "2081 MB" in problem, problem
@@ -83,12 +88,12 @@ def test_the_gc_spiral_is_caught_before_the_process_dies():
 
 
 def test_the_oom_itself_is_caught():
-    problems = watchdog.evaluate_frontend_heap(OOM)
+    problems = watchdog.evaluate_frontend_heap(ran(OOM))
     assert any("out of memory" in p for p in problems)
 
 
 def test_the_whole_incident_reports_all_three_signals():
-    problems = watchdog.evaluate_frontend_heap(UNCACHEABLE + "\n" + GC_SPIRAL + OOM)
+    problems = watchdog.evaluate_frontend_heap(ran(UNCACHEABLE + "\n" + GC_SPIRAL + OOM))
     assert len(problems) == 3, problems
 
 
@@ -97,9 +102,9 @@ def test_a_healthy_heap_near_a_small_ceiling_does_not_alarm():
     megabyte count — a container started with a different --max-old-space-size
     must not read as either permanently sick or permanently fine."""
     small = "Mark-Compact 300.0 (1024.0) -> 280.0 (1020.0) MB"
-    assert watchdog.evaluate_frontend_heap(small) == []
+    assert watchdog.evaluate_frontend_heap(ran(small)) == []
     big_but_fine = "Mark-Compact 2000.0 (8192.0) -> 1900.0 (8100.0) MB"
-    assert watchdog.evaluate_frontend_heap(big_but_fine) == []
+    assert watchdog.evaluate_frontend_heap(ran(big_but_fine)) == []
 
 
 # ── the sitemap section self-report ─────────────────────────────────────────
@@ -159,3 +164,39 @@ def test_the_heap_probe_reads_the_frontend_not_the_api():
             f"the probe does not grep for {marker!r}, so "
             f"evaluate_frontend_heap can never see it"
         )
+
+
+def test_a_quiet_frontend_is_not_confused_with_a_broken_probe():
+    """THE FALSE ALARM THIS ALMOST SHIPPED WITH.
+
+    `grep` exits 1 when it matches nothing and `ssh_run` returns None on any
+    non-zero exit, so a perfectly healthy frontend originally read as "could
+    not read the container log" — a page every thirty minutes, forever, for
+    nothing. Noise in a pager is worse than no pager: it teaches the reader to
+    swipe the whole topic away, which is how the real one gets missed.
+
+    So the probe prints a sentinel when it actually ran. No sentinel is a
+    problem; sentinel with nothing else is health.
+    """
+    assert watchdog.evaluate_frontend_heap(ran("")) == [], (
+        "a frontend with nothing to report is being treated as a failure"
+    )
+    (problem,) = watchdog.evaluate_frontend_heap("")
+    assert "did not run" in problem
+    assert "nothing is watching the heap" in problem
+
+
+def test_the_probe_emits_its_sentinel_only_when_docker_succeeded():
+    """`|| true` would hide a real docker failure. The sentinel must be
+    guarded by docker's own exit status, not appended unconditionally."""
+    cmd = watchdog.FRONTEND_LOG_CMD
+    assert watchdog.PROBE_OK in cmd, "the probe never emits its sentinel"
+    assert "||" not in cmd, (
+        "the probe swallows a non-zero exit, so a docker failure reads as a "
+        "quiet frontend"
+    )
+    docker_at = cmd.index("docker logs")
+    sentinel_at = cmd.index(watchdog.PROBE_OK)
+    assert "&&" in cmd[docker_at:sentinel_at], (
+        "the sentinel is not gated on docker logs succeeding"
+    )

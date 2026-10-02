@@ -137,8 +137,19 @@ def evaluate_frontend_heap(log_tail: str) -> list[str]:
     uncacheable-fetch line appears as soon as a payload crosses the ceiling,
     hours or days before the heap actually runs out, while the GC lines appear
     once it is already too late to be graceful.
+
+    A tail with no PROBE_OK sentinel means the probe itself did not run, which
+    is a problem in its own right and NOT the same as a quiet frontend. See
+    PROBE_OK.
     """
     problems: list[str] = []
+
+    if PROBE_OK not in log_tail:
+        return [
+            "frontend heap: the probe did not run (no sentinel) — docker logs "
+            "failed on Studio, so nothing is watching the heap right now"
+        ]
+    log_tail = log_tail.replace(PROBE_OK, "")
 
     if UNCACHEABLE_MARKER in log_tail:
         # Name the URLs, because the fix is always "make that response smaller"
@@ -177,12 +188,25 @@ def evaluate_frontend_heap(log_tail: str) -> list[str]:
     return problems
 
 
+#: Printed last when the probe genuinely ran. Without it a HEALTHY frontend is
+#: indistinguishable from a broken probe: `grep` exits 1 when it matches
+#: nothing, `ssh_run` returns None on any non-zero exit, and the watchdog read
+#: that as "could not read the container log" — pushing a false alarm every
+#: thirty minutes for a frontend that was perfectly well. Caught on the first
+#: dry run after writing it, 2026-10-01.
+#:
+#: `|| true` alone would be worse than the bug: it makes a real docker failure
+#: look like silence, which is the direction that hides outages.
+PROBE_OK = "__PROBE_OK__"
+
 #: Enough log to see a GC spiral building without shipping megabytes over ssh.
 #: The container is restarted on deploy, so this is minutes-to-hours of history.
 FRONTEND_LOG_CMD = (
-    "/opt/homebrew/bin/docker logs --tail 4000 trading-framework-frontend-1 2>&1 "
-    "| /usr/bin/grep -E 'can not be cached|heap out of memory|Mark-Compact' "
-    "| /usr/bin/tail -60"
+    "/opt/homebrew/bin/docker logs --tail 4000 trading-framework-frontend-1 "
+    "> /tmp/watchdog_frontend.log 2>&1 && { "
+    "/usr/bin/grep -E 'can not be cached|heap out of memory|Mark-Compact' "
+    "/tmp/watchdog_frontend.log | /usr/bin/tail -60; "
+    f"/bin/echo {PROBE_OK}; }}"
 )
 
 #: The sections the sitemap index actually names, asked for the way the
