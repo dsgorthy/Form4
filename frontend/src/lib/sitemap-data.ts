@@ -114,28 +114,75 @@ export interface SitemapEntry {
   priority?: number;
 }
 
+/** An insider as the sitemap needs them. */
+export type InsiderRef = { id: string; name?: string; slug?: string } | string;
+
 interface SitemapData {
   tickers: string[];
-  // The API returns {id, name, slug}. Older deploys returned bare id strings,
-  // and a version skew during a rolling deploy must not publish
-  // /insider/undefined into Google, so both shapes are accepted.
-  insiders: ({ id: string; name: string; slug?: string } | string)[];
+  // The API returns {id, slug} and adds {name} only when there is no slug.
+  // Older deploys returned bare id strings, or {id, name, slug} with the name
+  // always present; a version skew during a rolling deploy must not publish
+  // /insider/undefined into Google, so every shape is accepted.
+  insiders: InsiderRef[];
   filings: string[];
+  // Full-corpus totals, which a section response carries even though it only
+  // holds its own slice. Lets a caller tell "this chunk is legitimately past
+  // the end of the list" from "the fetch failed".
+  counts?: { tickers: number; insiders: number; filings: number };
+  returned?: { tickers: number; insiders: number; filings: number };
 }
 
-export async function fetchSitemapData(): Promise<SitemapData> {
+const EMPTY: SitemapData = { tickers: [], insiders: [], filings: [] };
+
+/**
+ * FETCH ONE SECTION, NEVER THE WHOLE CORPUS.
+ *
+ * Every sitemap file used to call a single `fetchSitemapData()` that returned
+ * all 10,683 tickers, all 30,764 insiders and all 28,828 filing IDs — 2.33 MB
+ * — and then sliced its own 20,000 URLs out of it client-side. Four live files
+ * meant four full transfers and four full JSON parses per crawl.
+ *
+ * None of them were cached. Next refuses to write a fetch response over 2 MB
+ * into its data cache and only LOGS that it declined, so `revalidate: 3600`
+ * above looked like it was working for weeks. On 2026-10-01 the repeated parses
+ * walked the Node heap to its 2,080 MB ceiling: the container OOMed nine times,
+ * 32% of origin requests returned 502 and p95 on /filing/ hit 43 seconds, while
+ * /api/v1/health answered 200 the whole time.
+ *
+ * Asking for one section keeps every response an order of magnitude under the
+ * ceiling, so the data cache actually engages and the repeated work disappears
+ * rather than merely shrinking. The API computes the corpus at most once an
+ * hour either way, so this costs it a list slice.
+ */
+async function fetchSection(
+  section: "companies" | "insiders" | "filings",
+  chunk = 0,
+): Promise<SitemapData> {
+  const qs = new URLSearchParams({
+    section,
+    chunk: String(chunk),
+    chunk_size: String(CHUNK),
+    limit_insiders: String(INSIDER_LIMIT),
+    filing_days: "90",
+  });
   try {
-    const resp = await fetch(
-      `${API}/sitemap/urls?limit_insiders=${INSIDER_LIMIT}&filing_days=90`,
-      { next: { revalidate: 3600 } },
-    );
-    if (resp.ok) return await resp.json();
+    const resp = await fetch(`${API}/sitemap/urls?${qs}`, {
+      next: { revalidate: 3600 },
+    });
+    if (resp.ok) {
+      const data = (await resp.json()) as SitemapData;
+      return { ...EMPTY, ...data };
+    }
   } catch {
     // A failed fetch yields an empty section rather than a broken document.
     // An empty <urlset> is valid; a 500 tells Google the sitemap is unhealthy.
   }
-  return { tickers: [], insiders: [], filings: [] };
+  return EMPTY;
 }
+
+export const fetchCompanies = () => fetchSection("companies");
+export const fetchInsiderChunk = (chunk: number) => fetchSection("insiders", chunk);
+export const fetchFilingChunk = (chunk: number) => fetchSection("filings", chunk);
 
 /**
  * A ticker we are willing to publish.

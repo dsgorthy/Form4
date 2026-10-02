@@ -33,6 +33,7 @@ Usage (on the Mini):
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import subprocess
@@ -95,6 +96,137 @@ def check_page(url: str, code: int, body: str) -> list[str]:
         problems.append("page has no canonical")
     if len(body) < 20_000:
         problems.append(f"page is only {len(body)} bytes; the record did not render")
+    return problems
+
+
+# ── THE FRONTEND HEAP, AND WHY THIS IS NOT A SITEMAP CHECK ──────────────────
+#
+# On 2026-10-01 the frontend container was OOM-killed nine times. 32% of origin
+# requests returned 502 and p95 on /filing/ reached 43 seconds. The cause was a
+# 2.33 MB sitemap payload that Next declined to cache — it logs that it declined
+# and serves the request, so every crawl re-parsed the whole corpus into a
+# 2,080 MB heap.
+#
+# The sitemap is now sliced server-side and a test bounds every section
+# (tests/unit/test_sitemap_payload_stays_cacheable.py). But the thing that made
+# this expensive was not the sitemap: it was that NOTHING WATCHED THE HEAP.
+# /api/v1/health answered 200 the whole time, Postgres answered in 0.01s,
+# Dagster was green and every launchd agent was up. The first signal was a user
+# saying the site was throwing errors.
+#
+# So these two checks are deliberately about the SYMPTOM CLASS rather than this
+# cause. Any oversized fetch, from any route, added at any time, trips the
+# first. Any path to heap exhaustion trips the second.
+
+#: Next.js refuses to cache a fetch response over 2 MB. Mirrors
+#: NEXT_DATA_CACHE_MAX_BYTES in api/routers/sitemap.py; it is Next's constant,
+#: not ours, which is why both places name it rather than importing one from
+#: the other across a language boundary.
+UNCACHEABLE_MARKER = "items over 2MB can not be cached"
+
+#: Node's default old-space ceiling for this container, in MB, as its own GC
+#: reports it: "Mark-Compact 1967.1 (2080.6) -> ...". Past this fraction of the
+#: ceiling the process is spending its time in GC rather than serving.
+HEAP_ALARM_FRACTION = 0.85
+
+
+def evaluate_frontend_heap(log_tail: str) -> list[str]:
+    """Problems visible in the frontend container's recent log. Pure.
+
+    Two independent signals, because they fail at different times: the
+    uncacheable-fetch line appears as soon as a payload crosses the ceiling,
+    hours or days before the heap actually runs out, while the GC lines appear
+    once it is already too late to be graceful.
+    """
+    problems: list[str] = []
+
+    if UNCACHEABLE_MARKER in log_tail:
+        # Name the URLs, because the fix is always "make that response smaller"
+        # and the reader needs to know which one.
+        urls = sorted({
+            m.group(1)
+            for m in re.finditer(r"Failed to set Next\.js data cache for (\S+)", log_tail)
+        })
+        shown = ", ".join(u.split("?")[0] for u in urls[:3]) or "unknown route"
+        problems.append(
+            f"frontend has an UNCACHEABLE fetch ({shown}): over Next's 2 MB "
+            f"data-cache ceiling, so every request re-fetches and re-parses it "
+            f"into the Node heap. This is what OOM-killed the container on "
+            f"2026-10-01."
+        )
+
+    if "JavaScript heap out of memory" in log_tail:
+        problems.append(
+            "frontend hit 'JavaScript heap out of memory' — the container has "
+            "been OOM-killed; expect 502s and multi-second p95 until it settles"
+        )
+
+    # "Mark-Compact 1967.1 (2080.6) -> 1945.8 (2076.1) MB"
+    peaks = [
+        (float(m.group(1)), float(m.group(2)))
+        for m in re.finditer(r"Mark-Compact ([\d.]+) \(([\d.]+)\)", log_tail)
+    ]
+    near = [(used, cap) for used, cap in peaks if cap and used / cap >= HEAP_ALARM_FRACTION]
+    if near:
+        used, cap = max(near)
+        problems.append(
+            f"frontend heap reached {used:.0f} MB of a {cap:.0f} MB ceiling "
+            f"({100 * used / cap:.0f}%) in {len(near)} GC cycles — it is in a "
+            f"GC spiral, which shows up as slow pages before it shows up as 502s"
+        )
+    return problems
+
+
+#: Enough log to see a GC spiral building without shipping megabytes over ssh.
+#: The container is restarted on deploy, so this is minutes-to-hours of history.
+FRONTEND_LOG_CMD = (
+    "/opt/homebrew/bin/docker logs --tail 4000 trading-framework-frontend-1 2>&1 "
+    "| /usr/bin/grep -E 'can not be cached|heap out of memory|Mark-Compact' "
+    "| /usr/bin/tail -60"
+)
+
+#: The sections the sitemap index actually names, asked for the way the
+#: frontend asks. insiders-0 is the biggest and the first to cross a budget;
+#: companies is unchunked, so it is the one that grows without a bound of its
+#: own and is worth asking about every cycle.
+SITEMAP_SECTIONS = {
+    "companies": "section=companies&chunk=0&chunk_size=20000&limit_insiders=60000",
+    "insiders-0": "section=insiders&chunk=0&chunk_size=20000&limit_insiders=60000",
+}
+
+
+def evaluate_sitemap_sections(results: "dict[str, dict]") -> list[str]:
+    """Problems across the sitemap section responses. Pure.
+
+    `results` maps a label to the parsed JSON of one
+    /api/v1/sitemap/urls?section=... response, or {} where the fetch failed.
+
+    Checks the API's own self-report rather than re-deriving the budget here:
+    the endpoint measures the bytes it is about to send and says whether they
+    fit. One definition, on the side that knows.
+    """
+    problems: list[str] = []
+    for label, body in sorted(results.items()):
+        if not body:
+            problems.append(f"sitemap section {label}: fetch failed")
+            continue
+        if body.get("cacheable") is False:
+            problems.append(
+                f"sitemap section {label} is {body.get('payload_bytes', 0):,} "
+                f"bytes and reports itself NOT cacheable — lower CHUNK in "
+                f"frontend/src/lib/sitemap-data.ts before the frontend heap "
+                f"pays for it"
+            )
+        counts = body.get("counts") or {}
+        # An empty corpus is the silent-shrink failure: a valid, empty sitemap
+        # is indistinguishable from a broken one without the totals.
+        if not counts.get("tickers") or not counts.get("insiders"):
+            problems.append(
+                f"sitemap section {label}: corpus reports "
+                f"{counts.get('tickers', 0)} tickers / "
+                f"{counts.get('insiders', 0)} insiders — the sitemap would "
+                f"publish an empty urlset"
+            )
     return problems
 
 # (label, database, SQL returning one date/text, max age in days)
@@ -695,6 +827,40 @@ def main() -> int:
         agent_problems, agent_report = evaluate_must_run_agents(listing)
         print("\n".join(agent_report))
         problems.extend(agent_problems)
+
+    # Is the frontend about to run out of heap? Nothing watched this before
+    # 2026-10-01 and it cost 40 minutes of 502s. See evaluate_frontend_heap.
+    heap_log = ssh_run(FRONTEND_LOG_CMD)
+    if heap_log is None:
+        problems.append("frontend heap: could not read the container log on Studio")
+        print("  FAIL frontend heap: docker logs failed")
+    else:
+        heap_problems = evaluate_frontend_heap(heap_log)
+        print("\n".join(f"  {'FAIL' if heap_problems else 'OK  '} frontend heap"
+                        f"{': ' + p if p else ''}" for p in (heap_problems or [""])))
+        problems.extend(heap_problems)
+
+    # Does every sitemap section still fit the cache it depends on?
+    sections = {}
+    for label, qs in SITEMAP_SECTIONS.items():
+        raw = ssh_run(
+            "/usr/bin/curl -s --max-time 30 "
+            f"'http://127.0.0.1/api/v1/sitemap/urls?{qs}'"
+        )
+        try:
+            body = json.loads(raw) if raw else {}
+            # Keep the envelope, drop the URL lists — this runs every cycle and
+            # there is no reason to move a megabyte through ssh to count it.
+            sections[label] = {k: body.get(k) for k in
+                               ("counts", "returned", "payload_bytes", "cacheable")}
+        except (ValueError, TypeError):
+            sections[label] = {}
+    sitemap_problems = evaluate_sitemap_sections(sections)
+    for label in sorted(sections):
+        b = sections[label]
+        print(f"  {'OK  ' if b.get('cacheable') else 'FAIL'} sitemap {label}: "
+              f"{b.get('payload_bytes') or 0:,} bytes, cacheable={b.get('cacheable')}")
+    problems.extend(sitemap_problems)
 
     _finish(problems, topic, args.dry_run)
     return 1 if problems else 0

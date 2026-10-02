@@ -35,6 +35,19 @@ def _const(text: str, name: str) -> int:
     return int(m.group(1))
 
 
+def _api_module():
+    """The real router module, for the invariants that are now behaviour.
+
+    Most of this file reads source text, because the subject is TypeScript. The
+    chunk-boundary invariant moved into Python on 2026-10-01 and is worth
+    asserting by running it. Skips rather than fails where fastapi is absent —
+    run the suite with /Users/derekg/.venvs/form4-tests/bin/python.
+    """
+    pytest.importorskip("fastapi")
+    import api.routers.sitemap as sitemap
+    return sitemap
+
+
 @pytest.fixture(scope="module")
 def data_ts() -> str:
     return DATA_TS.read_text()
@@ -132,9 +145,13 @@ def test_filings_are_retired_cleanly_rather_than_404ing(data_ts):
         "submitted filings sitemaps now 404"
     )
     retired_at = route.index("RETIRED_SECTIONS.includes(section)")
-    fetch_at = route.index("await fetchSitemapData()")
-    assert retired_at < fetch_at, (
-        "the retired-section branch runs after fetchSitemapData, so an "
+    # The whole-corpus `fetchSitemapData()` became three per-section fetchers on
+    # 2026-10-01; the invariant is unchanged — the retired branch must return
+    # before ANY of them is called.
+    fetches = [m.start() for m in re.finditer(r"await fetch(Companies|InsiderChunk|FilingChunk)\(", route)]
+    assert fetches, "no per-section fetch found in the section route"
+    assert retired_at < min(fetches), (
+        "the retired-section branch runs after a section fetch, so an "
         "unpublished section still pays for the URL list"
     )
     not_found_at = route.index('status: 404')
@@ -182,24 +199,40 @@ def test_chunked_sections_filter_before_slicing():
     """Dropping rows after slicing leaves a gap no file covers.
 
     The insider list is filtered for missing ids. If that filter runs per-chunk
-    after .slice(), a dropped row shortens one file without shifting the next,
+    after the slice, a dropped row shortens one file without shifting the next,
     so an insider on the boundary falls out of the sitemap entirely.
+
+    THIS INVARIANT MOVED TO THE API ON 2026-10-01 and is asserted there now.
+    The client used to fetch the whole corpus, filter it, then slice its own
+    chunk; it now asks the API for one chunk, so the API has to do both in that
+    order. Checked on behaviour rather than on source order, because the two
+    steps are no longer adjacent lines in one expression.
     """
-    route = ROUTE_TS.read_text()
-    m = re.search(r'section\.startsWith\("insiders-"\)(.*?)\}\s*else', route, re.S)
-    assert m, "insiders- branch not found in the section route"
-    branch = m.group(1)
-    filter_at = branch.find(".filter(")
-    # The CHUNK slice specifically. `section.slice("insiders-".length)` parses
-    # the chunk index out of the section name and sits above both of these, so
-    # a bare ".slice(" search matches the wrong call and always fails.
-    slice_m = re.search(r"\.slice\(\s*n\s*\*\s*CHUNK", branch)
-    assert filter_at != -1, "expected a .filter() on the insider list"
-    assert slice_m, "expected a .slice(n * CHUNK, ...) chunk slice"
-    slice_at = slice_m.start()
-    assert filter_at < slice_at, (
-        "the insiders branch slices before filtering; a filtered-out row would "
-        "then leave a hole at the chunk boundary"
+    sitemap = _api_module()
+
+    class _Row(dict):
+        def __getitem__(self, k):      # rows are mapping-like in both drivers
+            return dict.get(self, k)
+
+    # A corpus where every third row is unusable, straddling a chunk boundary.
+    rows = [
+        _Row(insider_id=(0 if i % 3 == 2 else 1000 + i), name=f"n{i}", slug=f"s{i}")
+        for i in range(30)
+    ]
+    shaped = sitemap._as_insider_list(rows)
+    assert len(shaped) == 20, (
+        "_as_insider_list must drop rows with no insider_id BEFORE any caller "
+        f"slices; got {len(shaped)} of 30 rows for 10 unusable"
+    )
+
+    full = {"tickers": [], "insiders": shaped, "filings": [],
+            "counts": {"tickers": 0, "insiders": len(shaped), "filings": 0}}
+    seen = []
+    for chunk in range(3):
+        seen += sitemap.project_section(full, "insiders", chunk, 8)["insiders"]
+    assert seen == shaped, (
+        "chunking the filtered list lost or duplicated rows at a boundary; "
+        "every insider must appear in exactly one chunk"
     )
 
 

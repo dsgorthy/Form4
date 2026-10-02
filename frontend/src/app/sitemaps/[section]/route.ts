@@ -2,10 +2,11 @@ import { getAllResearch, RESEARCH_TYPES } from "@/lib/research";
 import { insiderPath } from "@/lib/insider-url";
 import {
   BASE,
-  CHUNK,
   RETIRED_SECTIONS,
   SECTIONS,
-  fetchSitemapData,
+  fetchCompanies,
+  fetchFilingChunk,
+  fetchInsiderChunk,
   isPublishableTicker,
   renderUrlset,
   type SitemapEntry,
@@ -88,54 +89,51 @@ export async function GET(
         priority: p.type === "whitepapers" ? 0.9 : 0.7,
       })),
     ];
-  } else {
-    const data = await fetchSitemapData();
-
-    if (section === "companies") {
-      // Drop the 23 values that are not tickers — "(CALX)", "[NONE]",
-      // "$FEED", bare CIKs. Their pages render, so they are not broken links,
-      // but they are thin and there is no reason to invite a crawler.
-      entries = data.tickers.filter(isPublishableTicker).map((t) => ({
-        loc: `${BASE}/company/${t}`,
+  } else if (section === "companies") {
+    // Drop the 23 values that are not tickers — "(CALX)", "[NONE]",
+    // "$FEED", bare CIKs. Their pages render, so they are not broken links,
+    // but they are thin and there is no reason to invite a crawler.
+    const data = await fetchCompanies();
+    entries = data.tickers.filter(isPublishableTicker).map((t) => ({
+      loc: `${BASE}/company/${t}`,
+      lastmod: today,
+      changefreq: "daily",
+      priority: 0.8,
+    }));
+  } else if (section.startsWith("insiders-")) {
+    // insiderPath prefers the STORED slug, which is the canonical URL the
+    // page itself declares. Deriving one from the name instead would publish
+    // a URL that 301s to the real one — a redirect chain in the sitemap,
+    // pointing at the surface this whole SEO push was for.
+    //
+    // THE SLICE MOVED TO THE API, and with it the obligation that used to live
+    // in this file: filter the unusable rows out BEFORE chunking, never after,
+    // or a dropped row shrinks one file and leaves a gap no other file covers
+    // and an insider falls out of the sitemap on a boundary. `_as_insider_list`
+    // in api/routers/sitemap.py now owns that ordering and says so.
+    const n = Number(section.slice("insiders-".length));
+    const data = await fetchInsiderChunk(n);
+    entries = data.insiders
+      .map((i) => (typeof i === "string" ? { id: i } : i))
+      .filter((i) => i && i.id)            // never emit /insider/undefined
+      .map((i) => ({
+        loc: `${BASE}${insiderPath(i.name, i.id, i.slug)}`,
         lastmod: today,
-        changefreq: "daily",
-        priority: 0.8,
+        changefreq: "weekly",
+        priority: 0.6,
       }));
-    } else if (section.startsWith("insiders-")) {
-      // insiderPath prefers the STORED slug, which is the canonical URL the
-      // page itself declares. Deriving one from the name instead would publish
-      // a URL that 301s to the real one — a redirect chain in the sitemap,
-      // pointing at the surface this whole SEO push was for.
-      //
-      // Filter BEFORE slicing. Slicing the raw list and filtering each chunk
-      // afterwards would let a dropped row shrink one file while leaving a gap
-      // no other file covers, so an insider could fall out of the sitemap
-      // entirely on a boundary.
-      const n = Number(section.slice("insiders-".length));
-      entries = data.insiders
-        .map((i) => (typeof i === "string" ? { id: i, name: "" } : i))
-        .filter((i) => i && i.id)          // never emit /insider/undefined
-        .slice(n * CHUNK, (n + 1) * CHUNK)
-        .map((i) => ({
-          loc: `${BASE}${insiderPath(i.name, i.id, i.slug)}`,
-          lastmod: today,
-          changefreq: "weekly",
-          priority: 0.6,
-        }));
-    } else if (section.startsWith("filings-")) {
-      // Only reachable when PUBLISH_FILINGS is true; a retired section returns
-      // above. Kept intact so restoring filings is one flag, not a rewrite.
-      const n = Number(section.slice("filings-".length));
-      entries = data.filings
-        .slice(n * CHUNK, (n + 1) * CHUNK)
-        .map((id) => ({
-          loc: `${BASE}/filing/${id}`,
-          // The one section where "never" is literally true: a filing's
-          // disclosure does not change once filed.
-          changefreq: "never",
-          priority: 0.5,
-        }));
-    }
+  } else if (section.startsWith("filings-")) {
+    // Only reachable when PUBLISH_FILINGS is true; a retired section returns
+    // above. Kept intact so restoring filings is one flag, not a rewrite.
+    const n = Number(section.slice("filings-".length));
+    const data = await fetchFilingChunk(n);
+    entries = data.filings.map((id) => ({
+      loc: `${BASE}/filing/${id}`,
+      // The one section where "never" is literally true: a filing's
+      // disclosure does not change once filed.
+      changefreq: "never",
+      priority: 0.5,
+    }));
   }
 
   return new Response(renderUrlset(entries), {
