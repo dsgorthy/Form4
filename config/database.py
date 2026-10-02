@@ -24,6 +24,7 @@ import logging
 import os
 import re
 import threading
+import time
 from contextlib import contextmanager
 from typing import Any, Generator, Iterator, Optional, Sequence
 
@@ -40,6 +41,23 @@ DATABASE_URL = os.getenv("DATABASE_URL", "postgresql:///form4")
 _pool: Optional[psycopg2.pool.ThreadedConnectionPool] = None
 _pool_lock = threading.Lock()
 
+#: Postgres `max_connections` on Studio. Not a guess — `SHOW max_connections`.
+PG_MAX_CONNECTIONS = 100
+
+#: Connections kept for everything that is not the API: Dagster's daemon and
+#: run workers, the launchd jobs, the nightly backfills, and a human with psql.
+#: 17 were in use box-wide at a quiet moment on 2026-10-02.
+NON_API_CONNECTION_RESERVE = 36
+
+#: Uvicorn worker processes, from the CMD in deploy/Dockerfile.api. This pool is
+#: module state, so each worker holds its own — the API's ceiling is
+#: workers x maxconn, which is the arithmetic that nearly shipped at 128/100.
+API_WORKERS = 4
+
+#: Per-worker pool ceiling, derived rather than typed so the three numbers
+#: above cannot drift apart silently.
+API_POOL_MAX_PER_WORKER = (PG_MAX_CONNECTIONS - NON_API_CONNECTION_RESERVE) // API_WORKERS
+
 
 def get_pool() -> psycopg2.pool.ThreadedConnectionPool:
     """Get or create the shared connection pool."""
@@ -49,7 +67,24 @@ def get_pool() -> psycopg2.pool.ThreadedConnectionPool:
             if _pool is None or _pool.closed:
                 _pool = psycopg2.pool.ThreadedConnectionPool(
                     minconn=2,
-                    maxconn=20,
+                    # PER WORKER PROCESS, AND THERE ARE FOUR OF THEM.
+                    # deploy/Dockerfile.api runs `uvicorn --workers 4`, and this
+                    # pool is module state, so the API's real ceiling is
+                    # 4 x maxconn. At maxconn=32 that is 128 connections against
+                    # Postgres's max_connections=100 — the API would exhaust the
+                    # server and take Dagster, the strategy runners and psql
+                    # down with it.
+                    #
+                    # The budget: 100 total, less ~36 reserved for everything
+                    # that is not the API (17 in use box-wide at a normal
+                    # moment, plus headroom for a backfill and a human). That
+                    # leaves 64 across 4 workers.
+                    #
+                    # Raising this is NOT the answer to a burst — _checkout
+                    # waits rather than failing. test_pool_fits_postgres_budget
+                    # fails the build if this, the worker count, or the reserve
+                    # stop adding up.
+                    maxconn=API_POOL_MAX_PER_WORKER,
                     dsn=DATABASE_URL,
                     # TCP keepalives prevent Postgres/kernel from silently
                     # closing idle connections that the pool then hands out dead.
@@ -59,6 +94,42 @@ def get_pool() -> psycopg2.pool.ThreadedConnectionPool:
                     keepalives_count=5,
                 )
     return _pool
+
+
+#: How long a request will wait for a free pooled connection before giving up.
+#: Matches the 5s `connect_timeout` the per-request implementation used, so the
+#: worst case a caller can see is unchanged by pooling.
+POOL_WAIT_SECONDS = 5.0
+
+
+def _checkout(deadline_s: float = POOL_WAIT_SECONDS):
+    """Take a connection from the pool, WAITING rather than failing on a burst.
+
+    `psycopg2.pool.ThreadedConnectionPool.getconn` does not block — it raises
+    `PoolError: connection pool exhausted` the moment `maxconn` are checked out.
+    Measured on Studio against the real database before this existed: 40
+    concurrent threads against maxconn=20 turned **593 of 1,000 requests into
+    errors**, and in production each one is a 500 the frontend renders as a 502.
+
+    A read API should turn a burst into LATENCY, not into errors. Queries here
+    are sub-50ms, so 20 connections serve several hundred requests a second;
+    waiting briefly is strictly better than failing, and the deadline keeps a
+    genuinely stuck pool from hanging a worker forever.
+
+    `PoolError` still propagates once the deadline passes — a pool that cannot
+    produce a connection in five seconds is a real problem and must be loud.
+    """
+    pool = get_pool()
+    start = time.monotonic()
+    delay = 0.005
+    while True:
+        try:
+            return pool.getconn()
+        except psycopg2.pool.PoolError:
+            if time.monotonic() - start >= deadline_s:
+                raise
+            time.sleep(delay)
+            delay = min(delay * 2, 0.05)
 
 
 def close_pool() -> None:
@@ -576,64 +647,106 @@ def get_connection(readonly: bool = False) -> ConnectionWrapper:
 
 @contextmanager
 def get_db(readonly: bool = True) -> Generator[ConnectionWrapper, None, None]:
-    """Context manager for API database connections. ONE PER REQUEST.
+    """Context manager for API database connections. POOLED, max 20.
 
-    Opens a fresh psycopg2 connection per request and closes it on exit, at the
-    cost of ~5ms per request.
+    ## Why this is pooled, on the third attempt
 
-    THE OLD JUSTIFICATION FOR THIS WAS WRONG AND IS WORTH CORRECTING: "Postgres
-    has 100 max_connections and the API's real concurrency is well below that,
-    so no risk of exhaustion." max_connections is not the binding resource. This
-    API runs in a Colima VM and reaches Postgres through Lima's loopback relay,
-    so every connection consumes a HOST EPHEMERAL PORT for 30 seconds after it
-    closes. On 2026-09-30 the host exhausted its 16,384-port range and form4.app
-    was down for over an hour while Postgres sat at ELEVEN of 100 connections.
+    The API runs in a Colima VM and reaches Postgres over TCP through Lima's
+    user-network relay (`DATABASE_URL=postgresql://host.docker.internal/form4`),
+    because the host's Postgres socket in /tmp is not mounted into the VM. So
+    every connection is a new TCP handshake through a userspace relay, not a
+    local socket open.
 
-    I POOLED IT THAT DAY AND BROKE PRODUCTION WITHIN THE HOUR. Do not repeat the
-    specific mistake: `ConnectionWrapper.close()` ALREADY returns a pooled
-    connection via `get_pool().putconn()` when its `from_pool` flag is set, and
-    it is called from both `__exit__` and `__del__`. My version called `putconn`
-    in a `finally` as well, so every connection was returned TWICE, landed in
-    the free list twice, and was handed to two concurrent requests at once:
+    A connection per request survives ordinary traffic and does not survive a
+    crawl. On 2026-10-02, with a scraper at **21 requests/second across 6,610
+    distinct IPs** (one request per IP, to defeat rate limiting), the API was
+    opening roughly 50 connections a second and logged **1,708**
+    `connection to server at "host.docker.internal" (192.168.5.2), port 5432
+    failed: timeout expired` in thirty minutes. 10% of all origin requests
+    returned 502.
+
+    Postgres was never involved in that failure: 17 of 100 connections, and
+    3ms to connect when asked directly. TIME_WAIT was 2,247 of 16,384 — 14%,
+    not exhaustion. **What saturated was the relay**, plus the API container's
+    1024-fd soft limit (`could not look up local user ID 100: Too many open
+    files`, 28 times — psycopg2 unable to read /etc/passwd for want of an fd).
+
+    Pooling takes steady-state connection churn from ~50/second to ~0 and caps
+    concurrent connections at 20. `minconn=2, maxconn=20` in `get_pool()`; at
+    21 req/s with sub-50ms queries the needed concurrency is 1-2, so 20 is
+    headroom, and an exhausted pool raises `PoolError` immediately rather than
+    hanging for the 5-second connect timeout.
+
+    ## The mistake this must not repeat
+
+    I pooled this on 2026-09-30 and broke production within the hour.
+    `ConnectionWrapper.close()` ALREADY returns a pooled connection via
+    `get_pool().putconn()` when its `from_pool` flag is set, and it is reached
+    from both `__exit__` and `__del__`. My version called `putconn` in a
+    `finally` as well, so every connection was returned TWICE, landed in the
+    free list twice, and was handed to two concurrent requests at once:
 
         psycopg2.OperationalError: connection pointer is NULL
         psycopg2.InterfaceError: cursor already closed
 
-    Two of the exact three failure modes the comment I overrode had named. If you
-    pool this, ONE thing must own the connection's lifecycle, and a test has to
-    pin that — not a docstring claiming it, which is what I wrote.
+    The rule that version lacked: **ONE object owns the connection's lifecycle,
+    and a test pins it** — not a docstring claiming it, which is what I wrote
+    last time. The owner is the `ConnectionWrapper`; the test is
+    `tests/unit/test_pooled_connection_has_one_owner.py`, which counts getconn
+    against putconn through normal exit, an exception, and a double close.
 
-    THE URGENCY WAS ALSO OVERSTATED, on a bad measurement. It came from
-    `grep '127.0.0.1.5432'`, which in netstat output also matches ephemeral ports
-    54320-54329. Counted on the state column with the foreign port anchored,
-    steady state is ~483 TIME_WAIT sockets to Postgres against 16,384 ports —
-    three percent. Per-request connections are survivable at this traffic. What
-    is not survivable is a burst that turns into a retry loop, and that is the
-    thing to measure before changing this again.
+    ## What a pooled connection needs that a fresh one did not
+
+    Session state is inherited from the previous holder, so `readonly` and
+    `search_path` are set on every checkout, and a `rollback()` precedes
+    `set_session` because it refuses to run inside a transaction. See the
+    comments in the body.
+
+    Historical note, since it misled the 09-30 diagnosis: the urgency then came
+    from `grep '127.0.0.1.5432'`, which in netstat output also matches ephemeral
+    ports 54320-54329. Anchored on the state column with the foreign port
+    pinned, idle steady state is ~483 TIME_WAIT sockets to Postgres. The number
+    that justifies pooling is the 1,708 connect timeouts above, measured under
+    load — not a port count.
     """
-    raw_conn = psycopg2.connect(
-        DATABASE_URL,
-        connect_timeout=5,
-        keepalives=1,
-        keepalives_idle=30,
-        keepalives_interval=10,
-        keepalives_count=5,
-    )
+    raw_conn = _checkout()
+
+    # THE WRAPPER OWNS THE RETURN. It is constructed before anything that can
+    # raise, so there is exactly one object responsible for this connection from
+    # here on, and `finally` below is the single place it is released.
+    #
+    # Do NOT add a `get_pool().putconn()` anywhere in this function. That is the
+    # 2026-09-30 regression, verbatim: `ConnectionWrapper.close()` already
+    # returns the connection when `from_pool` is set and is reached from
+    # `__exit__` AND `__del__`, so a second putconn here puts the same
+    # connection in the free list twice and two concurrent requests get it.
+    # `tests/unit/test_pooled_connection_has_one_owner.py` fails the build if a
+    # second release path reappears.
+    wrapper = ConnectionWrapper(raw_conn, from_pool=True)
     try:
-        if readonly:
-            raw_conn.set_session(readonly=True)
-        raw_conn.cursor().execute("SET search_path TO public, prices, research, notifications")
+        # A POOLED CONNECTION CARRIES ITS PREVIOUS USER'S SESSION STATE, which a
+        # fresh connection never did. Both of these have to be set on every
+        # checkout rather than once at construction:
+        #   - rollback() first, because set_session() refuses to run inside a
+        #     transaction and we cannot assume how the last holder left it
+        #   - readonly EXPLICITLY in both directions. The old code only ever set
+        #     readonly=True and relied on a new connection defaulting to
+        #     read-write; on a reused connection that leaves a writer holding a
+        #     read-only session. Every one of the 72 get_db() call sites is
+        #     readonly today, so this is a trap for the next caller, not a live
+        #     bug — which is exactly when it is cheap to close.
+        raw_conn.rollback()
+        raw_conn.set_session(readonly=readonly)
+        cur = raw_conn.cursor()
+        cur.execute("SET search_path TO public, prices, research, notifications")
+        cur.close()
         raw_conn.commit()
-        wrapper = ConnectionWrapper(raw_conn, from_pool=False)
         yield wrapper
     except Exception:
         try:
-            raw_conn.rollback()
+            wrapper.rollback()
         except Exception:
             pass
         raise
     finally:
-        try:
-            raw_conn.close()
-        except Exception:
-            pass
+        wrapper.close()

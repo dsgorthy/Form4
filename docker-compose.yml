@@ -8,6 +8,17 @@ services:
       - DATABASE_URL=postgresql://host.docker.internal/form4
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # Docker's default soft limit here is 1024, and the API hit it on
+    # 2026-10-02: psycopg2 could not read /etc/passwd for want of a descriptor
+    # and raised `could not look up local user ID 100: Too many open files`, 28
+    # times, while opening ~50 Postgres connections a second under a crawl.
+    # Pooling in config.database.get_db is the actual fix for that churn; this
+    # is headroom so the next unanticipated burst degrades instead of erroring.
+    # The container's hard limit is 524288, so this is well within it.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     volumes:
       - ./data:/data/app_data:ro
       - ./pipelines/data:/data/runner:ro
