@@ -48,6 +48,31 @@ services:
     env_file: .env
     environment:
       - API_URL_INTERNAL=http://api:8000/api/v1
+      # ── HEAP HEADROOM. A MITIGATION, NOT A CURE ─────────────────────────
+      #
+      # Node defaults this container to a 2,080 MB old-space limit while the
+      # container itself has no memory cap and the box has 11.65 GiB free. On
+      # 2026-10-02/03 the server died at ~1,870 MB used, SIX times in one
+      # hour, and each recycle drops in-flight requests: 349 of 8,851 origin
+      # requests returned 502 and p95 on /filing/ reached 3.1 seconds.
+      #
+      # WHAT THIS DOES NOT DO: fix why the working set is ~1.9 GB. The load is
+      # a rotating-proxy scraper at ~37 req/s across 8,000+ distinct IPs per
+      # sample — 89% of origin traffic — walking distinct /filing/ and
+      # /insider/ URLs, and Next's per-request working set is simply large.
+      # Raising the ceiling trades OOM frequency for memory we are not using.
+      #
+      # Two readings I got wrong on the way here, recorded so nobody repeats
+      # them: container RSS is NOT the V8 heap (RSS passed 2.2 GiB while the
+      # heap limit was 2,096 MB, which looked like 108% of a limit it was not
+      # near), and a GC-cycle count of zero is NOT health — this process
+      # logged exactly ONE Mark-Compact and died on it, because V8 had not
+      # been forced to collect until it was already too late.
+      #
+      # The real fix is to stop serving 89% of origin to a scraper that never
+      # reuses an IP, which needs a Cloudflare managed challenge on cookieless
+      # HTML. Revisit this line when that lands.
+      - NODE_OPTIONS=--max-old-space-size=6144
     networks:
       - internal
     expose:
