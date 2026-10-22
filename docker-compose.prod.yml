@@ -23,9 +23,56 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # The Cloudflare connector, in a container and on the `internal` network so
+  # it reaches Caddy at `caddy:80` over Docker's bridge instead of through
+  # `localhost:80`, which is a Colima-published socket proxied by
+  # `limactl hostagent` over Lima's user-mode network.
+  #
+  # That hop has caused three outages on its own — 2026-09-16 (5h11m),
+  # 2026-10-01, and 2026-10-19 (~11h, a scraper burst at 394 req/s drove the
+  # hostagent to leak 146k descriptors and stop forwarding) — in every case
+  # with healthy containers answering 200 in milliseconds from inside the VM.
+  # waymarkmaps.com survived all three because its connector is a container.
+  # Rationale and the cutover procedure are in the mounted config file.
+  cloudflared:
+    image: cloudflare/cloudflared:2026.3.0
+    restart: unless-stopped
+    # `tunnel run` with no name: the tunnel UUID and ingress both come from
+    # the config file, so there is one source of truth for the routes.
+    command: tunnel --config /etc/cloudflared/config.yml run
+    # The credentials file is mode 0400 owned by derekg, and virtiofs presents
+    # it to the VM as uid=501 gid=1000. Measured 2026-10-20: the mount does
+    # NOT enforce that bit — the image's default uid 65532 reads it fine — so
+    # this override is not what makes the mount work today. It is here so the
+    # container's identity matches the file's actual owner instead of quietly
+    # depending on that leniency, which is a property of mountType: virtiofs
+    # and not a guarantee. cloudflared writes nothing (config and creds are
+    # read-only, autoupdate off, logs to stdout), so it needs no other uid.
+    user: "501:1000"
+    volumes:
+      - ./deploy/cloudflared-container-config.yml:/etc/cloudflared/config.yml:ro
+      # Same tunnel credentials the host connector uses. Read-only, and the
+      # file is 0400 on the host.
+      - ${HOME}/.cloudflared/6931fee1-02d8-490f-8840-e3d9432c43c1.json:/etc/cloudflared/creds.json:ro
+    networks:
+      - internal
+    depends_on:
+      - caddy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
+    # Kept published so host-side probes can still reach the origin directly —
+    # a `curl localhost:80` from the host is the ONLY check that detects a
+    # wedged Lima forward (a listening socket does not prove forwarding, and
+    # lima_master_keepalive.sh only watches the ssh master, which stays
+    # healthy through exactly this failure). Production traffic no longer
+    # crosses it, so probe volume alone cannot refill the descriptor leak.
     ports:
       - "80:80"
       - "443:443"

@@ -179,6 +179,15 @@ else
         sleep 3
         log "Rolling restart: frontend..."
         docker compose $COMPOSE_FILES up -d --no-deps frontend 2>&1 | tee -a "$LOG_FILE"
+        # The Cloudflare connector. `up -d` on an unchanged service is a
+        # no-op, so this only acts when the image or the mounted ingress
+        # config actually changed — it is not a per-deploy tunnel bounce.
+        # Without this line the service is defined and never started: this
+        # branch brings up api and frontend by name and nothing else, which
+        # is why a service added to docker-compose.prod.yml does not appear
+        # just because a deploy ran.
+        log "Rolling restart: cloudflared..."
+        docker compose $COMPOSE_FILES up -d --no-deps cloudflared 2>&1 | tee -a "$LOG_FILE"
     fi
 fi
 

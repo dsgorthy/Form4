@@ -1,0 +1,84 @@
+# Cloudflare Tunnel config for the CONTAINERISED connector.
+#
+# This file is mounted into the `cloudflared` service in
+# docker-compose.prod.yml. It is the same tunnel (same UUID, same
+# credentials) as the host-side connector that ~/.cloudflared/config.yml
+# describes — only the origin address differs, and that difference is the
+# whole point.
+#
+# ── WHY THIS EXISTS ──────────────────────────────────────────────────────
+#
+# The host connector sends every request to `http://localhost:80`, which on
+# this box is a port published by Colima. That address is not Caddy; it is a
+# socket held by `limactl hostagent`, which proxies each connection into the
+# VM over Lima's user-mode network. Three outages have now come from that one
+# hop, and none of them were Caddy, Docker, Postgres or the app:
+#
+#   2026-09-16  the unsupervised ssh master exited and every forward died
+#               (12 min, then 5h11m). Fix: scripts/lima_master_keepalive.sh.
+#   2026-10-01  the hostagent's TCP proxy for :80 died while the ssh master
+#               stayed alive, so the keepalive never fired. Only a
+#               `colima restart` cleared it.
+#   2026-10-19  a scraper burst peaking at 394 req/s (88% from Tencent Cloud
+#               Singapore, AS132203) drove the hostagent to close 13,761
+#               proxy connections for 0.0.0.0:80 at 13:32:40 and stop
+#               forwarding for ~11 hours. It was leaking a descriptor per
+#               connection: 146,407 sockets held in CLOSED state while the
+#               kernel showed zero, 4.9 GB RSS, and still climbing ~2,700/h
+#               the next day against a kern.maxfilesperproc of 245,760.
+#
+# In all three the containers were healthy and `curl localhost:80` from
+# inside the VM returned 200 in milliseconds. The failure is structural: a
+# user-mode TCP relay carrying production traffic, with a descriptor leak
+# proportional to request volume and no supervision that can see it. A
+# LISTENING host socket is not a working forward.
+#
+# waymarkmaps.com rode out all three untouched, because its connector runs
+# as a container and talks to its origin over the Docker network. That is
+# the pattern this file adopts: `http://caddy:80` is resolved by Docker's
+# embedded DNS and reached on the `internal` bridge, entirely inside the VM.
+# Lima's relay is no longer on the request path, so scraper volume can no
+# longer feed the leak.
+#
+# ── WHAT STAYS THE SAME ──────────────────────────────────────────────────
+#
+# cloudflared forwards the original Host header, and deploy/Caddyfile routes
+# on `host` — so form4.app, www.form4.app and sandbox.form4.app land exactly
+# where they did before. TLS still terminates at Cloudflare; the origin hop
+# was already plaintext HTTP over loopback.
+#
+# ── OPERATING NOTES ──────────────────────────────────────────────────────
+#
+# A tunnel may have several connectors at once; Cloudflare balances across
+# them. So this container can be brought up alongside the host connector and
+# verified before the host one is stopped, with no window where the tunnel
+# has no origin. Cutover:
+#
+#   1. docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d cloudflared
+#   2. confirm 4 connector registrations and 200s from the edge
+#   3. stop the host connector  (it is `cloudflared tunnel run form4`, a
+#      launchd-less background process started 2026-09-30 — pid 686 then)
+#   4. curl https://form4.app/ and /api/v1/health from off-box
+#
+# The accumulated descriptors in the running hostagent are NOT cleared by
+# this change — only a `colima restart` drains them. This stops the pool
+# growing; it does not empty it.
+
+tunnel: 6931fee1-02d8-490f-8840-e3d9432c43c1
+credentials-file: /etc/cloudflared/creds.json
+
+# The image's entrypoint already passes --no-autoupdate, so it is not
+# repeated here. No inbound connections are made to this connector, so it
+# needs no metrics or management port exposed; logs go to stdout for
+# `docker logs`.
+loglevel: info
+
+ingress:
+  - hostname: form4.app
+    service: http://caddy:80
+  - hostname: www.form4.app
+    service: http://caddy:80
+  - hostname: sandbox.form4.app
+    service: http://caddy:80
+  # Catch-all (required by cloudflared)
+  - service: http_status:404
