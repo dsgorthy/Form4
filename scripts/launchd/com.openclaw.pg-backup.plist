@@ -7,6 +7,10 @@
   03:15 PT: after the 17:30/17:45 PT ingest jobs and before backfill-returns
   at 05:00, so a dump captures a settled database rather than one mid-write.
 
+  Where the dumps live and for how long (scripts/backup_databases.sh):
+    Studio  ~/backups/postgres                     newest 2 per database (LOCAL_KEEP, script default)
+    Array   /Volumes/Areca Array/backups/postgres  RETENTION_DAYS below
+
   Install (on Studio):
     cp scripts/launchd/com.openclaw.pg-backup.plist ~/Library/LaunchAgents/
     launchctl load ~/Library/LaunchAgents/com.openclaw.pg-backup.plist
@@ -20,6 +24,10 @@
   <array>
     <string>/bin/bash</string>
     <string>/Users/derekg/trading-framework/scripts/backup_databases.sh</string>
+    <string>form4</string>
+    <string>pyrrho_data_dev</string>
+    <string>design_quiz_prod</string>
+    <string>dagster_runs</string>
   </array>
 
   <key>WorkingDirectory</key>
@@ -31,6 +39,12 @@
     <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
     <key>RETENTION_DAYS</key>
     <string>7</string>
+    <key>OFFBOX_HOST</key>
+    <string>localhost</string>
+    <key>OFFBOX_USER</key>
+    <string>derekg</string>
+    <key>OFFBOX_DIR</key>
+    <string>/Volumes/Areca Array/backups/postgres</string>
   </dict>
 
   <key>StartCalendarInterval</key>

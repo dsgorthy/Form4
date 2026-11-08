@@ -16,30 +16,37 @@
 #   Every dump is verified with `pg_restore --list` immediately after
 #        writing. An unverified backup is not a backup — a truncated dump
 #        looks fine on disk and only fails when you need it.
-#   Off-box copy to the Mini over Tailscale, because a backup sitting on
-#        the same disk as the database does not survive the failure it
-#        exists for. Non-fatal if the Mini is unreachable.
+#   Copy to the Areca array (2026-11-06, Derek: "it should only be backing up
+#        to the areca array"; it went to the Mini over Tailscale until then and
+#        filled the Mini's disk). The array is a separate volume, so a dump
+#        survives the Studio's own disk failing. launchd jobs can't write to the
+#        array, ssh sessions can, so the copy goes through ssh derekg@localhost.
+#   Retention is set per place (2026-11-08, Derek: backups down to two days to
+#        free the Studio's disk, which was 95% full with eight nights of form4
+#        taking 74 GB of it). The Studio keeps the newest LOCAL_KEEP (2) verified
+#        dumps of each database. The array keeps RETENTION_DAYS (7): it has
+#        ~97 TiB free, and it is the copy that survives the Studio's disk.
 #
 # Usage:
 #   scripts/backup_databases.sh                 # all databases
 #   scripts/backup_databases.sh form4           # one database
-#   RETENTION_DAYS=14 scripts/backup_databases.sh
+#   LOCAL_KEEP=3 RETENTION_DAYS=14 scripts/backup_databases.sh
 set -uo pipefail
 
 export PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin
 
 BACKUP_ROOT="${BACKUP_ROOT:-/Users/derekg/backups/postgres}"
-RETENTION_DAYS="${RETENTION_DAYS:-7}"
-OFFBOX_HOST="${OFFBOX_HOST:-100.102.80.61}"          # Mac Mini over Tailscale
+LOCAL_KEEP="${LOCAL_KEEP:-2}"                        # newest dumps per database kept in BACKUP_ROOT
+RETENTION_DAYS="${RETENTION_DAYS:-7}"                # days kept in the mirror on the array
+OFFBOX_HOST="${OFFBOX_HOST:-localhost}"              # this Studio, via ssh (see above); was the Mini until 2026-11-06
 OFFBOX_USER="${OFFBOX_USER:-derekg}"
-OFFBOX_DIR="${OFFBOX_DIR:-/Users/derekg/backups/studio-postgres}"
+OFFBOX_DIR="${OFFBOX_DIR:-/Volumes/Areca Array/backups/postgres}"
 STAMP="$(date +%Y%m%d_%H%M%S)"
 
 # Ordered by how painful the loss would be, so the important ones land first
 # if the run is interrupted.
 #
 #   form4            product + research data, almost none of it re-fetchable
-#   job_search_prod  Tailorly production (14GB) — was covered by NOTHING
 #   pyrrho_data_dev  the dataplane: signal_observations / signal_definitions
 #   design_quiz_prod small but live
 #   dagster_runs     materialization history; losing it loses lineage, not data
@@ -47,7 +54,10 @@ STAMP="$(date +%Y%m%d_%H%M%S)"
 # pyrrho_prod / pyrrho_staging were removed 2026-08-12 when the Pyrrho product
 # was decommissioned. Final archival dumps live in
 # backups/postgres-archive/pyrrho-final and on the Mini.
-DATABASES=("${@:-form4 job_search_prod pyrrho_data_dev design_quiz_prod dagster_runs}")
+#
+# job_search_prod (Tailorly) was dropped 2026-11-03 when Tailorly was retired, with its
+# job_search copy. Final dumps: Areca array backups/retired-2026-11-03/tailorly on the Studio.
+DATABASES=("${@:-form4 pyrrho_data_dev design_quiz_prod dagster_runs}")
 read -r -a DATABASES <<< "${DATABASES[*]}"
 
 mkdir -p "$BACKUP_ROOT"
@@ -59,27 +69,32 @@ declare -a SUMMARY=()
 
 for db in "${DATABASES[@]}"; do
     out="$BACKUP_ROOT/${db}_${STAMP}.dump"
+    # Written as .partial and renamed only after it verifies, so every *.dump in
+    # BACKUP_ROOT is a good one. The count-based prune below depends on that: a
+    # run killed mid-dump must not leave a file that counts as one of the N.
+    part="$out.partial"
     log "dumping $db -> $(basename "$out")"
     start=$(date +%s)
 
-    if ! pg_dump -Fc -d "$db" -f "$out" 2>"$out.err"; then
+    if ! pg_dump -Fc -d "$db" -f "$part" 2>"$out.err"; then
         log "  FAILED: $(tail -2 "$out.err" | tr '\n' ' ')"
         SUMMARY+=("$db: DUMP FAILED")
         overall_rc=1
-        rm -f "$out"
+        rm -f "$part"
         continue
     fi
     rm -f "$out.err"
 
     # Verify: a dump that pg_restore cannot read is worthless, and truncated
     # dumps are indistinguishable from good ones by size alone.
-    if ! pg_restore --list "$out" >/dev/null 2>&1; then
+    if ! pg_restore --list "$part" >/dev/null 2>&1; then
         log "  FAILED VERIFY — dump is not readable, discarding"
         SUMMARY+=("$db: VERIFY FAILED")
         overall_rc=1
-        rm -f "$out"
+        rm -f "$part"
         continue
     fi
+    mv -f "$part" "$out"
 
     elapsed=$(( $(date +%s) - start ))
     size=$(du -h "$out" | cut -f1)
@@ -88,10 +103,31 @@ for db in "${DATABASES[@]}"; do
     SUMMARY+=("$db: $size, ${elapsed}s, $tables tables")
 done
 
-# Prune old local dumps. -maxdepth 1 so a sibling archive directory can never
-# be caught by a retention rule written for the nightly set.
-pruned=$(find "$BACKUP_ROOT" -maxdepth 1 -name "*.dump" -type f -mtime +"$RETENTION_DAYS" -print -delete 2>/dev/null | wc -l | tr -d ' ')
-log "pruned $pruned local dump(s) older than ${RETENTION_DAYS}d"
+# Prune the local copy by COUNT, not age: keep the newest $LOCAL_KEEP dumps of
+# each database. At two days an age rule is the wrong one:
+#   - find -mtime deletes whether or not tonight's dump worked, so two failed
+#     nights in a row would leave no local dump at all. A count only drops a
+#     dump once a newer verified one exists.
+#   - -mtime truncates to whole days and dumps finish anywhere from 03:24 to
+#     03:45, so "+1" keeps two nights on some runs and three on others.
+# Names sort by date (db_YYYYmmdd_HHMMSS.dump). The pattern is per database and
+# -maxdepth 1, so a sibling archive directory, or anything else this script did
+# not write, can never match.
+if [[ "$LOCAL_KEEP" =~ ^[1-9][0-9]*$ ]]; then
+    pruned=0
+    for db in "${DATABASES[@]}"; do
+        while IFS= read -r old; do
+            [ -n "$old" ] && rm -f -- "$old" && pruned=$((pruned + 1))
+        done < <(find "$BACKUP_ROOT" -maxdepth 1 -type f -name "${db}_????????_??????.dump" | sort -r | tail -n +$((LOCAL_KEEP + 1)))
+    done
+    log "pruned $pruned local dump(s); keeping the newest ${LOCAL_KEEP} per database"
+else
+    log "LOCAL_KEEP='${LOCAL_KEEP}' is not a whole number >= 1 — local prune SKIPPED"
+    overall_rc=1
+fi
+# A run killed mid-dump leaves a .partial that never verified. One not written
+# to for 6 hours belongs to a run that is no longer going.
+find "$BACKUP_ROOT" -maxdepth 1 -type f -name "*.dump.partial" -mmin +360 -delete 2>/dev/null
 
 # Off-box copy. A same-disk backup does not survive a disk failure.
 #
