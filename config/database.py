@@ -75,28 +75,13 @@ def get_pool() -> psycopg2.pool.ThreadedConnectionPool:
     if _pool is None or _pool.closed:
         with _pool_lock:
             if _pool is None or _pool.closed:
-                _pool = psycopg2.pool.ThreadedConnectionPool(
-                    # KEEP EVERY CONNECTION: minconn == maxconn.
-                    #
-                    # psycopg2's pool keeps at most `minconn` IDLE connections
-                    # and CLOSES every connection handed back beyond that
-                    # (AbstractConnectionPool._putconn). At minconn=2 this
-                    # "pool" closed nearly everything it was given back, so
-                    # under any concurrency every checkout opened a fresh TCP
-                    # connection through Lima's relay -- and _connect runs
-                    # INSIDE the pool's lock, so one slow connect stalled every
-                    # checkout and every return in that worker. Measured
-                    # 2026-11-09: no API connection older than 7 seconds; relay
-                    # connects p90 119ms / p99 264ms; bursts held the pool past
-                    # POOL_WAIT_SECONDS and 2,900 requests over one weekend
-                    # ended in `PoolError: connection pool exhausted` (500s),
-                    # each a push to Derek's phone.
-                    #
-                    # With minconn == maxconn the pool opens its connections
-                    # once and never closes a healthy one, so a checkout is a
-                    # list pop. The cost is that all of them stay open, which
-                    # is what the budget below already assumed.
-                    minconn=API_POOL_MAX_PER_WORKER,
+                pool = psycopg2.pool.ThreadedConnectionPool(
+                    # Open ONE up front; the rest open on demand and are KEPT
+                    # (see _keep_what_it_opens below). A worker therefore holds
+                    # what its peak concurrency needed, and a one-at-a-time
+                    # script that also uses get_db (cw_runner,
+                    # portfolio_simulator) holds a single connection.
+                    minconn=1,
                     # PER WORKER PROCESS, AND THERE ARE FOUR OF THEM.
                     # deploy/Dockerfile.api runs `uvicorn --workers 4`, and this
                     # pool is module state, so the API's real ceiling is
@@ -118,8 +103,9 @@ def get_pool() -> psycopg2.pool.ThreadedConnectionPool:
                     dsn=DATABASE_URL,
                     # A connect happens under the pool's lock (see above), so it
                     # must not be able to hang: libpq's default is to wait
-                    # forever. Now that connections are kept, this only bounds
-                    # the rare reconnect after a dead one is discarded.
+                    # forever. Connections are kept, so connects happen only
+                    # while a worker warms up to its peak and when a dead one
+                    # is replaced; this bounds those.
                     connect_timeout=POOL_CONNECT_TIMEOUT_S,
                     # TCP keepalives prevent Postgres/kernel from silently
                     # closing idle connections that the pool then hands out dead.
@@ -128,7 +114,33 @@ def get_pool() -> psycopg2.pool.ThreadedConnectionPool:
                     keepalives_interval=10,
                     keepalives_count=5,
                 )
+                _keep_what_it_opens(pool)
+                _pool = pool
     return _pool
+
+
+def _keep_what_it_opens(pool) -> None:
+    """Make the pool KEEP every connection it is given back.
+
+    psycopg2 reads `minconn` twice: how many connections __init__ opens up
+    front, and how many IDLE ones `_putconn` keeps -- every connection handed
+    back beyond that is closed. At minconn=2 the API's pool closed nearly
+    everything it got back, so under any concurrency each checkout opened a
+    fresh TCP connection through Lima's relay, inside the pool's lock (psycopg2
+    connects while holding it), and one slow connect stalled every checkout and
+    every return in the worker. Measured 2026-11-09: no API connection in
+    Postgres older than 7 seconds; relay connects p90 119ms / p99 264ms; bursts
+    held the pool past POOL_WAIT_SECONDS, and ~2,900 requests over one weekend
+    ended in `PoolError: connection pool exhausted` -- 413 pushes.
+
+    minconn == maxconn at construction would also stop the churn, but every
+    process that touches get_db() -- the strategy runners too -- would then open
+    all maxconn up front: three runners alone ~48 connections against
+    max_connections=100. So open lazily (minconn=1 above) and raise the idle
+    cap afterwards, the only other place psycopg2 reads it.
+    `tests/unit/test_pooled_connection_has_one_owner.py` pins both halves.
+    """
+    pool.minconn = API_POOL_MAX_PER_WORKER
 
 
 #: How long a request will wait for a free pooled connection before giving up.

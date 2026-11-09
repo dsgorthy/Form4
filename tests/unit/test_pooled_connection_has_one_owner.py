@@ -619,3 +619,13 @@ def test_a_pool_of_dead_connections_still_raises_and_leaks_nothing(monkeypatch):
     assert pool.getconn_calls == db.CHECKOUT_ATTEMPTS
     assert pool.discarded == list(range(1, db.CHECKOUT_ATTEMPTS + 1))
     assert pool.double_returns == [] and pool.out == {}
+
+
+def test_a_one_at_a_time_process_opens_one_connection(real_pool):
+    """cw_runner and portfolio_simulator use get_db() too. A pool that opened
+    maxconn up front would give each of them 16 connections -- three runners
+    alone ~48 against max_connections=100. Open lazily; keep what was opened."""
+    pool, made, _ = real_pool
+    for _ in range(25):
+        pool.putconn(pool.getconn())
+    assert len(made) == 1, f"sequential use opened {len(made)} connections"
