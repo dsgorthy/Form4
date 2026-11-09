@@ -2684,6 +2684,31 @@ def _send_weekly_digest(config: dict, prefix: str = "") -> None:
 # Daily cycle
 # ---------------------------------------------------------------------------
 
+def _describe_closed(cl: dict) -> str:
+    """One log line for a closed position, from whatever check_exits returned.
+
+    The alert-only exit path (every published book) appends the raw OPEN
+    position row, whose pnl_pct, pnl_dollar and hold_days are still NULL, and
+    `None * 100` here crashed run_daily after the exit alerts had gone out and
+    before entries were processed: Insider Breakout, 2026-11-09 06:01, on the
+    TISI and FGBI time exits, with a "Dataplane run failed" page. Every
+    alert-only exit day did the same. A log line must never take down the run.
+    """
+    def _num(value, scale, spec, missing):
+        try:
+            return spec.format(float(value) * scale)
+        except (TypeError, ValueError):
+            return missing
+
+    return "  {}: {} ({}, {}, {})".format(
+        cl.get("ticker", "?"),
+        cl.get("exit_reason") or "exit",
+        _num(cl.get("pnl_pct"), 100, "{:.1f}%", "pnl n/a"),
+        _num(cl.get("pnl_dollar"), 1, "${:.0f}", "$?"),
+        _num(cl.get("hold_days"), 1, "{:.0f}d", "?d"),
+    )
+
+
 def run_daily(config: dict, dry_run: bool = False) -> dict:
     """One daily cycle: scan -> check exits -> enter."""
     state_path = DATA_DIR / f"{config['strategy_name']}_state.json"
@@ -2714,11 +2739,7 @@ def run_daily(config: dict, dry_run: bool = False) -> dict:
             if closed:
                 logger.info("Closed %d positions", len(closed))
                 for cl in closed:
-                    logger.info(
-                        "  %s: %s (%.1f%%, $%.0f, %dd)",
-                        cl["ticker"], cl["exit_reason"],
-                        cl["pnl_pct"] * 100, cl["pnl_dollar"], cl["hold_days"],
-                    )
+                    logger.info(_describe_closed(cl))
 
         # 3. Execute entries
         entered: list[dict] = []
