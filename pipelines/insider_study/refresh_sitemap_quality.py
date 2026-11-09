@@ -47,8 +47,12 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
+
+import psycopg2
+import psycopg2.errors
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -101,22 +105,44 @@ TABLES = (
 )
 
 
+#: Attempts at taking both live tables for the swap. Each fails instantly
+#: (NOWAIT) when a reader holds either one, so this is ~a minute of retrying.
+SWAP_ATTEMPTS = 60
+SWAP_RETRY_S = 1.0
+#: lock_not_available (NOWAIT refused) and deadlock_detected: both mean "a
+#: reader was there; try again", never "the refresh is broken".
+_RETRYABLE = (psycopg2.errors.LockNotAvailable, psycopg2.errors.DeadlockDetected)
+
+
 def refresh(*, dry_run: bool = False) -> dict[str, int]:
-    """Rebuild both tables. Returns {table: row_count}."""
+    """Rebuild both tables. Returns {table: row_count}.
+
+    BUILD, THEN SWAP -- never interleaved. Until 2026-11-09 this built and
+    swapped each table in turn inside one transaction, so the ACCESS EXCLUSIVE
+    lock taken by the insiders swap was HELD while the companies table was
+    built: every sitemap request waited out a full aggregate over `trades`,
+    and a request holding the companies table while waiting on insiders
+    deadlocked the swap. It failed that way on 11-08 and 11-09 at 03:00
+    (`deadlock detected`), so the tables went stale.
+
+    Now both replacements are built and committed under their _new names,
+    which no reader touches; then one short transaction takes both live tables
+    with NOWAIT and renames. A refusal costs nothing -- nothing is held while
+    waiting, so the swap can never be half of a deadlock -- and is retried.
+    """
     counts: dict[str, int] = {}
     conn = get_connection()
     try:
         cur = conn.cursor()
         # A queued ALTER/DROP blocks every later read on the table; see the
         # memory `feedback_alter_table_needs_lock_timeout`, which took
-        # form4.app down on 2026-08-27. The swap below holds an ACCESS
-        # EXCLUSIVE lock for the duration of two renames.
+        # form4.app down on 2026-08-27. The swap itself never queues (NOWAIT);
+        # this bounds anything else that might.
         cur.execute("SET lock_timeout = '10s'")
         cur.execute("SET statement_timeout = '1800s'")
 
         for name, sql, key in TABLES:
             tmp = f"{name}_new"
-            old = f"{name}_old"
             cur.execute(f"DROP TABLE IF EXISTS {tmp}")
             cur.execute(sql.format(tmp=tmp))
             cur.execute(f"CREATE UNIQUE INDEX ON {tmp} ({key})")
@@ -131,36 +157,53 @@ def refresh(*, dry_run: bool = False) -> dict[str, int]:
                     "table would unpublish the site."
                 )
 
-            if dry_run:
-                cur.execute(f"DROP TABLE {tmp}")
-                continue
-
-            # Atomic from a reader's point of view: the rename happens in
-            # the same transaction as the build, so nothing ever sees the
-            # table absent or half-built.
-            cur.execute(f"DROP TABLE IF EXISTS {old}")
-            cur.execute(
-                "SELECT 1 FROM information_schema.tables "
-                "WHERE table_schema = 'public' AND table_name = %s",
-                (name,),
-            )
-            if cur.fetchone():
-                cur.execute(f"ALTER TABLE {name} RENAME TO {old}")
-            cur.execute(f"ALTER TABLE {tmp} RENAME TO {name}")
-            cur.execute(f"DROP TABLE IF EXISTS {old}")
-            # COMMENT ON takes a literal, not an expression, so the stamp is
-            # built here. The sitemap reads it to decide whether the table is
-            # stale enough to distrust; no stamp is treated as stale.
-            stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
-            cur.execute(f"COMMENT ON TABLE {name} IS %s", (f"refreshed_at={stamp}",))
-
         if dry_run:
             conn.rollback()
-        else:
-            conn.commit()
+            return counts
+        conn.commit()   # the _new tables exist; the live ones are untouched
+
+        # COMMENT ON takes a literal, not an expression, so the stamp is built
+        # here. The sitemap reads it to decide whether the table is stale
+        # enough to distrust; no stamp is treated as stale.
+        stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        for attempt in range(1, SWAP_ATTEMPTS + 1):
+            try:
+                _swap(cur, stamp)
+                conn.commit()
+                break
+            except _RETRYABLE:
+                conn.rollback()
+                if attempt == SWAP_ATTEMPTS:
+                    raise
+                time.sleep(SWAP_RETRY_S)
     finally:
         conn.close()
     return counts
+
+
+def _swap(cur, stamp: str) -> None:
+    """Rename both _new tables into place. Atomic from a reader's point of view:
+    one transaction, so nothing ever sees a table absent or half-built."""
+    live = []
+    for name, _, _ in TABLES:
+        cur.execute(
+            "SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema = 'public' AND table_name = %s",
+            (name,),
+        )
+        if cur.fetchone():
+            live.append(name)
+    if live:
+        # Both at once, refusing rather than queueing behind a reader.
+        cur.execute(f"LOCK TABLE {', '.join(live)} IN ACCESS EXCLUSIVE MODE NOWAIT")
+    for name, _, _ in TABLES:
+        tmp, old = f"{name}_new", f"{name}_old"
+        cur.execute(f"DROP TABLE IF EXISTS {old}")
+        if name in live:
+            cur.execute(f"ALTER TABLE {name} RENAME TO {old}")
+        cur.execute(f"ALTER TABLE {tmp} RENAME TO {name}")
+        cur.execute(f"DROP TABLE IF EXISTS {old}")
+        cur.execute(f"COMMENT ON TABLE {name} IS %s", (f"refreshed_at={stamp}",))
 
 
 def main() -> int:

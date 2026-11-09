@@ -58,6 +58,16 @@ API_WORKERS = 4
 #: above cannot drift apart silently.
 API_POOL_MAX_PER_WORKER = (PG_MAX_CONNECTIONS - NON_API_CONNECTION_RESERVE) // API_WORKERS
 
+#: Upper bound on opening one pooled connection. Connects run under the pool's
+#: lock, so an unbounded one would freeze the whole worker.
+POOL_CONNECT_TIMEOUT_S = 5
+
+#: Pooled connections get_db will try before giving up on dead ones. Kept
+#: connections can die while idle (a Colima/Lima restart drops every forwarded
+#: socket); each dead one is discarded and the next taken, so a relay blip
+#: costs reconnects instead of 500s.
+CHECKOUT_ATTEMPTS = 3
+
 
 def get_pool() -> psycopg2.pool.ThreadedConnectionPool:
     """Get or create the shared connection pool."""
@@ -66,7 +76,27 @@ def get_pool() -> psycopg2.pool.ThreadedConnectionPool:
         with _pool_lock:
             if _pool is None or _pool.closed:
                 _pool = psycopg2.pool.ThreadedConnectionPool(
-                    minconn=2,
+                    # KEEP EVERY CONNECTION: minconn == maxconn.
+                    #
+                    # psycopg2's pool keeps at most `minconn` IDLE connections
+                    # and CLOSES every connection handed back beyond that
+                    # (AbstractConnectionPool._putconn). At minconn=2 this
+                    # "pool" closed nearly everything it was given back, so
+                    # under any concurrency every checkout opened a fresh TCP
+                    # connection through Lima's relay -- and _connect runs
+                    # INSIDE the pool's lock, so one slow connect stalled every
+                    # checkout and every return in that worker. Measured
+                    # 2026-11-09: no API connection older than 7 seconds; relay
+                    # connects p90 119ms / p99 264ms; bursts held the pool past
+                    # POOL_WAIT_SECONDS and 2,900 requests over one weekend
+                    # ended in `PoolError: connection pool exhausted` (500s),
+                    # each a push to Derek's phone.
+                    #
+                    # With minconn == maxconn the pool opens its connections
+                    # once and never closes a healthy one, so a checkout is a
+                    # list pop. The cost is that all of them stay open, which
+                    # is what the budget below already assumed.
+                    minconn=API_POOL_MAX_PER_WORKER,
                     # PER WORKER PROCESS, AND THERE ARE FOUR OF THEM.
                     # deploy/Dockerfile.api runs `uvicorn --workers 4`, and this
                     # pool is module state, so the API's real ceiling is
@@ -86,6 +116,11 @@ def get_pool() -> psycopg2.pool.ThreadedConnectionPool:
                     # stop adding up.
                     maxconn=API_POOL_MAX_PER_WORKER,
                     dsn=DATABASE_URL,
+                    # A connect happens under the pool's lock (see above), so it
+                    # must not be able to hang: libpq's default is to wait
+                    # forever. Now that connections are kept, this only bounds
+                    # the rare reconnect after a dead one is discarded.
+                    connect_timeout=POOL_CONNECT_TIMEOUT_S,
                     # TCP keepalives prevent Postgres/kernel from silently
                     # closing idle connections that the pool then hands out dead.
                     keepalives=1,
@@ -565,6 +600,7 @@ class ConnectionWrapper:
         self._conn = conn
         self._from_pool = from_pool
         self._closed = False
+        self._discard = False
         # Set autocommit off by default (match SQLite behavior)
         self._conn.autocommit = False
 
@@ -608,11 +644,21 @@ class ConnectionWrapper:
             except Exception:
                 pass
             try:
-                get_pool().putconn(self._conn)
+                if self._discard:
+                    get_pool().putconn(self._conn, close=True)
+                else:
+                    get_pool().putconn(self._conn)
             except Exception:
                 self._conn.close()
         else:
             self._conn.close()
+
+    def discard(self):
+        """Release a pooled connection known to be dead, so the pool CLOSES it
+        instead of handing it to the next request. Goes through close(), which
+        stays the single place a connection is released."""
+        self._discard = True
+        self.close()
 
     def __enter__(self):
         return self
@@ -647,7 +693,7 @@ def get_connection(readonly: bool = False) -> ConnectionWrapper:
 
 @contextmanager
 def get_db(readonly: bool = True) -> Generator[ConnectionWrapper, None, None]:
-    """Context manager for API database connections. POOLED, max 20.
+    """Context manager for API database connections. POOLED: API_POOL_MAX_PER_WORKER per worker process.
 
     ## Why this is pooled, on the third attempt
 
@@ -671,11 +717,12 @@ def get_db(readonly: bool = True) -> Generator[ConnectionWrapper, None, None]:
     1024-fd soft limit (`could not look up local user ID 100: Too many open
     files`, 28 times — psycopg2 unable to read /etc/passwd for want of an fd).
 
-    Pooling takes steady-state connection churn from ~50/second to ~0 and caps
-    concurrent connections at 20. `minconn=2, maxconn=20` in `get_pool()`; at
-    21 req/s with sub-50ms queries the needed concurrency is 1-2, so 20 is
-    headroom, and an exhausted pool raises `PoolError` immediately rather than
-    hanging for the 5-second connect timeout.
+    Pooling was meant to take connection churn from ~50/second to ~0. It did
+    not, until 2026-11-09: psycopg2's pool keeps only `minconn` idle
+    connections and closes the rest on return, and minconn was 2, so the churn
+    simply moved inside the pool -- where each connect also holds the pool's
+    lock. See the comment in `get_pool()` for what that cost; minconn now
+    equals maxconn.
 
     ## The mistake this must not repeat
 
@@ -709,38 +756,8 @@ def get_db(readonly: bool = True) -> Generator[ConnectionWrapper, None, None]:
     that justifies pooling is the 1,708 connect timeouts above, measured under
     load — not a port count.
     """
-    raw_conn = _checkout()
-
-    # THE WRAPPER OWNS THE RETURN. It is constructed before anything that can
-    # raise, so there is exactly one object responsible for this connection from
-    # here on, and `finally` below is the single place it is released.
-    #
-    # Do NOT add a `get_pool().putconn()` anywhere in this function. That is the
-    # 2026-09-30 regression, verbatim: `ConnectionWrapper.close()` already
-    # returns the connection when `from_pool` is set and is reached from
-    # `__exit__` AND `__del__`, so a second putconn here puts the same
-    # connection in the free list twice and two concurrent requests get it.
-    # `tests/unit/test_pooled_connection_has_one_owner.py` fails the build if a
-    # second release path reappears.
-    wrapper = ConnectionWrapper(raw_conn, from_pool=True)
+    wrapper = _checkout_prepared(readonly)
     try:
-        # A POOLED CONNECTION CARRIES ITS PREVIOUS USER'S SESSION STATE, which a
-        # fresh connection never did. Both of these have to be set on every
-        # checkout rather than once at construction:
-        #   - rollback() first, because set_session() refuses to run inside a
-        #     transaction and we cannot assume how the last holder left it
-        #   - readonly EXPLICITLY in both directions. The old code only ever set
-        #     readonly=True and relied on a new connection defaulting to
-        #     read-write; on a reused connection that leaves a writer holding a
-        #     read-only session. Every one of the 72 get_db() call sites is
-        #     readonly today, so this is a trap for the next caller, not a live
-        #     bug — which is exactly when it is cheap to close.
-        raw_conn.rollback()
-        raw_conn.set_session(readonly=readonly)
-        cur = raw_conn.cursor()
-        cur.execute("SET search_path TO public, prices, research, notifications")
-        cur.close()
-        raw_conn.commit()
         yield wrapper
     except Exception:
         try:
@@ -750,3 +767,57 @@ def get_db(readonly: bool = True) -> Generator[ConnectionWrapper, None, None]:
         raise
     finally:
         wrapper.close()
+
+
+def _checkout_prepared(readonly: bool) -> ConnectionWrapper:
+    """A pooled connection carrying this request's session state.
+
+    Kept connections can die while idle -- a Colima or Lima restart drops every
+    forwarded socket at once -- and the first sign is the next statement
+    failing. That statement is the session setup below, before any request
+    work, so a dead connection is discarded and the next one taken: up to
+    CHECKOUT_ATTEMPTS, then the error propagates, because a pool that is all
+    dead is a real outage and must be loud.
+    """
+    for attempt in range(1, CHECKOUT_ATTEMPTS + 1):
+        raw_conn = _checkout()
+
+        # THE WRAPPER OWNS THE RETURN. It is constructed before anything that
+        # can raise, so exactly one object is responsible for this connection
+        # from here on: get_db's `finally` on success, close()/discard() below
+        # on failure.
+        #
+        # Do NOT add a `get_pool().putconn()` anywhere here or in get_db. That
+        # is the 2026-09-30 regression, verbatim: `ConnectionWrapper.close()`
+        # already returns the connection when `from_pool` is set and is reached
+        # from `__exit__` AND `__del__`, so a second putconn puts the same
+        # connection in the free list twice and two concurrent requests get it.
+        # `tests/unit/test_pooled_connection_has_one_owner.py` fails the build
+        # if a second release path reappears.
+        wrapper = ConnectionWrapper(raw_conn, from_pool=True)
+        try:
+            # A POOLED CONNECTION CARRIES ITS PREVIOUS USER'S SESSION STATE,
+            # which a fresh connection never did. Both of these have to be set
+            # on every checkout rather than once at construction:
+            #   - rollback() first, because set_session() refuses to run inside
+            #     a transaction and we cannot assume how the last holder left it
+            #   - readonly EXPLICITLY in both directions. The old code only ever
+            #     set readonly=True and relied on a new connection defaulting to
+            #     read-write; on a reused connection that leaves a writer
+            #     holding a read-only session.
+            raw_conn.rollback()
+            raw_conn.set_session(readonly=readonly)
+            cur = raw_conn.cursor()
+            cur.execute("SET search_path TO public, prices, research, notifications")
+            cur.close()
+            raw_conn.commit()
+            return wrapper
+        except (psycopg2.OperationalError, psycopg2.InterfaceError):
+            # It died while it sat in the pool. Let the pool close it.
+            wrapper.discard()
+            if attempt == CHECKOUT_ATTEMPTS:
+                raise
+        except BaseException:
+            wrapper.close()
+            raise
+    raise AssertionError("unreachable")  # pragma: no cover

@@ -219,6 +219,17 @@ SITEMAP_SECTIONS = {
 }
 
 
+def sitemap_probe_cmd(qs: str) -> str:
+    """The Studio command that fetches one sitemap section from the API
+    container directly, so no host port forward sits in the path."""
+    return (
+        "/opt/homebrew/bin/docker exec trading-framework-api-1 python -c "
+        "\"import sys, urllib.request; sys.stdout.write(urllib.request.urlopen("
+        f"'http://127.0.0.1:8000/api/v1/sitemap/urls?{qs}', timeout=30)"
+        ".read().decode())\""
+    )
+
+
 def evaluate_sitemap_sections(results: "dict[str, dict]") -> list[str]:
     """Problems across the sitemap section responses. Pure.
 
@@ -471,7 +482,11 @@ SERVICE_HEARTBEAT_SQL = (
 # dagster-webserver and Ollama -- for 12 to 19 hours. The service-heartbeat
 # check below caught the Dagster symptom; nothing named the cause. This does.
 MUST_RUN_AGENTS = [
-    ("com.cloudflare.cloudflared", "form4.app tunnel"),
+    # com.cloudflare.cloudflared removed 2026-11-09. form4's tunnel has run as a
+    # container (trading-framework-cloudflared-1) since 651debf on 2026-10-21,
+    # so its launchd agent is gone on purpose, and from 11-02 this paged every
+    # 12 hours that the tunnel serving the site was "not loaded". The public
+    # page probes are what prove that tunnel works.
     # com.openclaw.tailorly-tunnel removed 2026-09-30 — see ENDPOINTS above.
     # It was one of the six agents that died in the 2026-09-15 Colima incident,
     # which is why it was listed; the service it fronts is now wound down.
@@ -867,10 +882,12 @@ def main() -> int:
     # Does every sitemap section still fit the cache it depends on?
     sections = {}
     for label, qs in SITEMAP_SECTIONS.items():
-        raw = ssh_run(
-            "/usr/bin/curl -s --max-time 30 "
-            f"'http://127.0.0.1/api/v1/sitemap/urls?{qs}'"
-        )
+        # Ask the API from inside the VM, the way the frontend does -- NOT
+        # http://127.0.0.1/ on the host. That is Lima's port-80 forward, which
+        # the site has not used since 651debf, and on 2026-11-08 it went dead
+        # while still LISTENING: this check then read an empty corpus off a
+        # healthy sitemap and paged "1 NEW / 1 resolved" as it flapped.
+        raw = ssh_run(sitemap_probe_cmd(qs))
         try:
             body = json.loads(raw) if raw else {}
             # Keep the envelope, drop the URL lists — this runs every cycle and

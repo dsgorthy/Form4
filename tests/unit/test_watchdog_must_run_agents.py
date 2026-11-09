@@ -63,8 +63,24 @@ def test_the_incident_listing_names_every_dead_agent_with_the_kickstart_command(
         (p,) = [p for p in problems if p.startswith(label)]
         assert "NOT RUNNING" in p
         assert f"launchctl kickstart -k gui/$(id -u)/{label}" in p
-    # form4's tunnel survived that night and must read OK.
-    assert any(line.startswith("  OK   com.cloudflare.cloudflared:") for line in report)
+
+
+def test_the_containerised_form4_tunnel_is_not_watched_as_a_launchd_agent():
+    """form4's tunnel is a container since 651debf (2026-10-21); its launchd
+    agent is gone on purpose. Listed here, it paged every 12 hours from 11-02
+    that the tunnel serving the site was "not loaded"."""
+    assert "com.cloudflare.cloudflared" not in LABELS
+    assert "com.cloudflare.cloudflared.designquiz" in LABELS, (
+        "the design-quiz tunnel is still a launchd agent and still watched")
+
+
+def test_the_sitemap_probe_does_not_go_through_the_hosts_port_80():
+    """Lima's :80 forward went dead on 2026-11-08 while still LISTENING; read
+    through it, a healthy sitemap looked empty and paged twice a day."""
+    cmd = watchdog.sitemap_probe_cmd(watchdog.SITEMAP_SECTIONS["companies"])
+    assert "docker exec trading-framework-api-1" in cmd
+    assert "http://127.0.0.1/" not in cmd and "localhost/" not in cmd
+    assert "127.0.0.1:8000/api/v1/sitemap/urls?section=companies" in cmd
 
 
 def test_an_unloaded_agent_is_a_different_problem_from_a_stopped_one():

@@ -110,6 +110,7 @@ class CountingPool:
         self.getconn_calls = 0
         self.putconn_calls = 0
         self.double_returns: list[int] = []
+        self.discarded: list[int] = []
         self._next = 0
         self.closed = False
 
@@ -120,8 +121,10 @@ class CountingPool:
         self.getconn_calls += 1
         return c
 
-    def putconn(self, conn):
+    def putconn(self, conn, close=False):
         self.putconn_calls += 1
+        if close:
+            self.discarded.append(conn.ident)
         if conn.ident not in self.out:
             # This is the production failure: the connection is already back in
             # the free list and is about to be handed to a second request.
@@ -487,3 +490,132 @@ def test_the_pool_is_actually_built_with_the_derived_ceiling(monkeypatch):
         "keepalives are off, so the pool will hand out connections the kernel "
         "has silently dropped"
     )
+
+
+# ── the pool must actually KEEP connections ─────────────────────────────────
+#
+# 2026-11-09: psycopg2's pool keeps at most `minconn` idle connections and
+# CLOSES every connection handed back beyond that. At minconn=2 the API's pool
+# closed nearly everything it got back, so each burst re-opened connections
+# through Lima's relay (p90 119ms) while holding the pool's lock. Postgres
+# showed no API connection older than 7 seconds, bursts stalled the pool past
+# its 5s wait, and ~2,900 requests over one weekend ended in
+# `PoolError: connection pool exhausted` -- 413 pushes to Derek's phone.
+
+
+class _Info:
+    transaction_status = psycopg2.extensions.TRANSACTION_STATUS_IDLE
+
+
+class _RealPoolConn:
+    """What psycopg2's own pool touches on a connection."""
+
+    def __init__(self):
+        self.closed = 0
+        self.info = _Info()
+
+    def rollback(self):
+        pass
+
+    def close(self):
+        self.closed = 1
+
+
+@pytest.fixture
+def real_pool(monkeypatch):
+    """db.get_pool() building a REAL ThreadedConnectionPool over fake sockets."""
+    made: list[_RealPoolConn] = []
+    kwargs_seen: list[dict] = []
+
+    def fake_connect(*a, **k):
+        kwargs_seen.append(k)
+        c = _RealPoolConn()
+        made.append(c)
+        return c
+
+    monkeypatch.setattr(psycopg2, "connect", fake_connect)
+    monkeypatch.setattr(db, "_pool", None)
+    yield db.get_pool(), made, kwargs_seen
+    monkeypatch.setattr(db, "_pool", None)
+
+
+def test_the_pool_keeps_the_connections_it_is_given_back(real_pool):
+    pool, made, _ = real_pool
+    n = db.API_POOL_MAX_PER_WORKER
+    for _burst in range(3):
+        conns = [pool.getconn() for _ in range(n)]   # a full-width burst
+        for c in conns:
+            pool.putconn(c)
+    assert len(made) == n, (
+        f"three bursts of {n} opened {len(made)} connections; a pool that keeps "
+        f"its connections opens {n} once. Every extra one is a TCP handshake "
+        f"through Lima's relay, made while holding the pool's lock."
+    )
+    assert not any(c.closed for c in made), "the pool closed healthy connections"
+
+
+def test_a_connect_cannot_hang_the_pool(real_pool):
+    """psycopg2 connects while holding the pool's lock, and libpq's default
+    connect timeout is forever: one hung connect would freeze every checkout
+    and every return in that worker."""
+    _, _, kwargs_seen = real_pool
+    assert kwargs_seen, "the pool opened no connections"
+    timeouts = {k.get("connect_timeout") for k in kwargs_seen}
+    assert timeouts == {db.POOL_CONNECT_TIMEOUT_S}, timeouts
+    assert 0 < db.POOL_CONNECT_TIMEOUT_S <= db.POOL_WAIT_SECONDS
+
+
+class _DeadRaw(FakeRaw):
+    """A kept connection whose socket died while it sat in the pool."""
+
+    def cursor(self, *a, **k):
+        conn = self
+
+        class Cur:
+            def execute(self, sql, params=None):
+                conn.closed = 2   # what psycopg2 does when the server is gone
+                raise psycopg2.OperationalError(
+                    "server closed the connection unexpectedly"
+                )
+
+            def close(self):
+                pass
+
+        return Cur()
+
+
+class _PoolWithDead(CountingPool):
+    def __init__(self, dead_first: int):
+        super().__init__()
+        self.dead_first = dead_first
+
+    def getconn(self):
+        self.getconn_calls += 1
+        self._next += 1
+        cls = _DeadRaw if self._next <= self.dead_first else FakeRaw
+        c = cls(self._next)
+        self.out[c.ident] = c
+        return c
+
+
+def test_a_dead_pooled_connection_is_discarded_and_replaced(monkeypatch):
+    pool = _PoolWithDead(dead_first=2)
+    monkeypatch.setattr(db, "get_pool", lambda: pool)
+    raws = _spy_raws(monkeypatch)
+    with db.get_db() as conn:
+        assert conn is not None
+    assert [type(r).__name__ for r in raws] == ["_DeadRaw", "_DeadRaw", "FakeRaw"]
+    assert pool.discarded == [1, 2], "dead connections went back into the pool"
+    assert (pool.getconn_calls, pool.putconn_calls) == (3, 3)
+    assert pool.double_returns == [] and pool.out == {}
+
+
+def test_a_pool_of_dead_connections_still_raises_and_leaks_nothing(monkeypatch):
+    pool = _PoolWithDead(dead_first=99)
+    monkeypatch.setattr(db, "get_pool", lambda: pool)
+    with pytest.raises(psycopg2.OperationalError):
+        with db.get_db():
+            pass
+    assert pool.getconn_calls == db.CHECKOUT_ATTEMPTS
+    assert pool.discarded == list(range(1, db.CHECKOUT_ATTEMPTS + 1))
+    assert pool.double_returns == [] and pool.out == {}
