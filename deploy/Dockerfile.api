@@ -9,8 +9,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install Python deps
 COPY api/requirements.txt /app/api/requirements.txt
+COPY api/constraints.txt /app/api/constraints.txt
 COPY requirements.txt /app/requirements.txt
+# -c: every package at the exact version production runs. See api/constraints.txt.
 RUN pip install --no-cache-dir \
+    -c /app/api/constraints.txt \
     -r /app/api/requirements.txt \
     -r /app/requirements.txt \
     httpx stripe "PyJWT[crypto]" pydantic psycopg2-binary
