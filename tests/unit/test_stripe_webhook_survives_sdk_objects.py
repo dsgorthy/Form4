@@ -162,6 +162,61 @@ def test_ending_one_of_two_subscriptions_keeps_pro(hook, event_type, status):
     assert hook.writes == [("user_1", {"tier": "pro", "api_access": False})]
 
 
+class _FakeClerk:
+    """Stands in for httpx.AsyncClient: every Clerk write answers `status`."""
+
+    def __init__(self, status, users=()):
+        self.status, self.users = status, list(users)
+
+    def __call__(self, *a, **k):
+        return self
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def patch(self, url, **k):
+        return SimpleNamespace(status_code=self.status, text="clerk unavailable")
+
+    async def get(self, url, **k):
+        return SimpleNamespace(status_code=200, json=lambda: self.users)
+
+
+_REAL_UPDATE = webhooks._update_clerk_metadata
+
+
+def test_a_failed_clerk_write_answers_500_so_stripe_retries(hook, monkeypatch):
+    """A 200 tells Stripe the event landed. If the Clerk write failed, the
+    paying customer is left on free and nothing ever retries."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(webhooks, "_update_clerk_metadata", _REAL_UPDATE)
+    monkeypatch.setattr(webhooks.httpx, "AsyncClient", _FakeClerk(503))
+    event = stripe.Event.construct_from({
+        "id": "evt_test", "object": "event", "type": "checkout.session.completed",
+        "data": {"object": {"id": "cs_test_1", "object": "checkout.session",
+                            "client_reference_id": "user_1", "customer": "cus_1"}},
+    }, KEY)
+    monkeypatch.setattr(stripe.Webhook, "construct_event", lambda *a, **k: event)
+    app = FastAPI()
+    app.include_router(webhooks.router)
+    resp = TestClient(app, raise_server_exceptions=False).post(
+        "/api/v1/webhooks/stripe", content=b"{}", headers={"Stripe-Signature": "test"})
+    assert resp.status_code == 500, f"Stripe was told {resp.status_code}; it will not retry"
+
+
+def test_a_failed_link_repair_still_finds_the_account(monkeypatch):
+    """The email fallback FOUND the account; failing to cache the link must
+    not turn that into 'nobody', which drops the event with a 200."""
+    monkeypatch.setattr(stripe.Customer, "retrieve", lambda *a, **k: stripe.Customer.construct_from(
+        {"id": "cus_1", "object": "customer", "email": "buyer@example.com"}, KEY))
+    monkeypatch.setattr(webhooks.httpx, "AsyncClient", _FakeClerk(503, users=[{"id": "user_1"}]))
+    assert asyncio.run(webhooks._find_clerk_user_by_customer_email("cus_1")) == "user_1"
+
+
 def test_ending_the_last_subscription_downgrades(hook):
     ended = _subscription("sub_only", "canceled")
     hook.subscriptions(ended, _subscription("sub_old", "canceled"))

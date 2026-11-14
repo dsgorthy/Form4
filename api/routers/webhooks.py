@@ -57,7 +57,14 @@ def _plain(obj):
 
 
 async def _update_clerk_metadata(user_id: str, public_metadata: dict) -> None:
-    """Update a Clerk user's public metadata via the Backend API."""
+    """Update a Clerk user's public metadata via the Backend API.
+
+    RAISES when Clerk refuses the write. This used to log and return, so the
+    webhook answered 200 and Stripe marked the event delivered: a Clerk blip
+    during a checkout would leave a paying customer on free with nothing ever
+    retrying. Raising makes the webhook answer 500, and Stripe retries for up
+    to three days. Every write here is idempotent, so a retry is always safe.
+    """
     async with httpx.AsyncClient() as client:
         resp = await client.patch(
             f"https://api.clerk.com/v1/users/{user_id}",
@@ -69,8 +76,8 @@ async def _update_clerk_metadata(user_id: str, public_metadata: dict) -> None:
         )
         if resp.status_code != 200:
             logger.error("Clerk metadata update failed: %s %s", resp.status_code, resp.text)
-        else:
-            logger.info("Updated Clerk metadata for %s: %s", user_id, public_metadata)
+            raise RuntimeError(f"Clerk metadata update for {user_id} failed: HTTP {resp.status_code}")
+        logger.info("Updated Clerk metadata for %s: %s", user_id, public_metadata)
 
 
 def _determine_tier_from_items(line_items: list) -> tuple[str, bool]:
@@ -368,7 +375,12 @@ async def _find_clerk_user_by_customer_email(customer_id: str) -> str | None:
                 "recovered %s for customer %s by email — the metadata link was "
                 "missing, repairing it", user_id, customer_id,
             )
-            await _update_clerk_metadata(user_id, {"stripe_customer_id": customer_id})
+            try:
+                await _update_clerk_metadata(user_id, {"stripe_customer_id": customer_id})
+            except Exception as exc:
+                # The account WAS found. A failed cache repair must not turn
+                # that into "nobody", which drops the event with a 200.
+                logger.error("could not repair the customer link on %s: %s", user_id, exc)
             return user_id
     except Exception as e:
         logger.error("email fallback failed for %s: %s", customer_id, e)
