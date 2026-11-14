@@ -103,6 +103,18 @@ def test_checkout_pins_the_customer_email():
     )
 
 
+def test_cache_writes_merge_never_replace():
+    """Clerk's users.updateUser REPLACES publicMetadata. Caching only
+    stripe_customer_id that way deletes `tier`, so the repair that exists to
+    keep a paying customer in locks them out. updateUserMetadata merges."""
+    assert "updateUserMetadata(" in RESOLVER.read_text(), "the cache write no longer merges"
+    offenders = [
+        str(p.relative_to(REPO)) for p in (REPO / "frontend/src").rglob("*.ts*")
+        if ".next" not in p.parts and re.search(r"users\.updateUser\(", p.read_text())
+    ]
+    assert not offenders, f"updateUser replaces publicMetadata; use updateUserMetadata: {offenders}"
+
+
 def test_checkout_never_opens_a_second_subscription():
     """2026-11-11: the webhook failed, the first paying customer still looked
     free, and checkout happily sold them a second subscription (a trial plus a

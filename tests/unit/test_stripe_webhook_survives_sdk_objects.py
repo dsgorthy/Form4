@@ -217,6 +217,84 @@ def test_a_failed_link_repair_still_finds_the_account(monkeypatch):
     assert asyncio.run(webhooks._find_clerk_user_by_customer_email("cus_1")) == "user_1"
 
 
+class _ClerkStore:
+    """Clerk's real semantics, in memory: PATCH /users/{id} REPLACES
+    public_metadata; PATCH /users/{id}/metadata merges it (null removes)."""
+
+    def __init__(self, meta):
+        self.meta = dict(meta)
+
+    def __call__(self, *a, **k):
+        return self
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def get(self, url, **k):
+        if url.rstrip("/").endswith("/users"):
+            return SimpleNamespace(status_code=200, json=lambda: [{"id": "user_1"}])
+        return SimpleNamespace(status_code=200, json=lambda: {"public_metadata": dict(self.meta)})
+
+    async def patch(self, url, json=None, **k):
+        new = (json or {}).get("public_metadata")
+        if new is not None:
+            if url.endswith("/metadata"):
+                for key, value in new.items():
+                    if value is None:
+                        self.meta.pop(key, None)
+                    else:
+                        self.meta[key] = value
+            else:
+                self.meta = dict(new)
+        return SimpleNamespace(status_code=200, text="")
+
+
+_REAL_DOWNGRADE = webhooks._downgrade_unless_comped
+
+
+@pytest.fixture
+def real_clerk_writes(hook, monkeypatch):
+    """The real Clerk write path against a store with Clerk's semantics."""
+    monkeypatch.setattr(webhooks, "_update_clerk_metadata", _REAL_UPDATE)
+    monkeypatch.setattr(webhooks, "_downgrade_unless_comped", _REAL_DOWNGRADE)
+
+    def install(meta):
+        store = _ClerkStore(meta)
+        monkeypatch.setattr(webhooks.httpx, "AsyncClient", store)
+        return store
+    return install
+
+
+def test_a_subscription_update_keeps_the_customer_link(hook, real_clerk_writes):
+    """Seen live 2026-11-14: a subscription.updated wrote {tier, api_access}
+    with a REPLACING endpoint and erased the paying customer's
+    stripe_customer_id, which the billing portal and every later event use."""
+    store = real_clerk_writes({"stripe_customer_id": "cus_1", "tier": "pro"})
+    hook.deliver("customer.subscription.updated", _subscription("sub_kept", "active"))
+    assert store.meta == {"stripe_customer_id": "cus_1", "tier": "pro", "api_access": False}
+
+
+def test_a_downgrade_keeps_the_customer_link(hook, real_clerk_writes):
+    store = real_clerk_writes({"stripe_customer_id": "cus_1", "tier": "pro"})
+    ended = _subscription("sub_only", "canceled")
+    hook.subscriptions(ended)
+    hook.deliver("customer.subscription.deleted", ended)
+    assert store.meta == {"stripe_customer_id": "cus_1", "tier": "free", "api_access": False}
+
+
+def test_the_email_repair_keeps_the_tier(real_clerk_writes, monkeypatch):
+    """Repairing the link wrote {stripe_customer_id} alone, so a replacing
+    write erased tier: the repair that keeps a customer in locked them out."""
+    store = real_clerk_writes({"tier": "pro"})
+    monkeypatch.setattr(stripe.Customer, "retrieve", lambda *a, **k: stripe.Customer.construct_from(
+        {"id": "cus_1", "object": "customer", "email": "buyer@example.com"}, KEY))
+    assert asyncio.run(webhooks._find_clerk_user_by_customer_email("cus_1")) == "user_1"
+    assert store.meta == {"tier": "pro", "stripe_customer_id": "cus_1"}
+
+
 def test_ending_the_last_subscription_downgrades(hook):
     ended = _subscription("sub_only", "canceled")
     hook.subscriptions(ended, _subscription("sub_old", "canceled"))

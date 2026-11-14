@@ -36,11 +36,17 @@ function emailsFor(user: User | null): string[] {
     .filter(Boolean);
 }
 
-/** Cache the id on Clerk so the slow path runs once, not forever. */
+/**
+ * Cache the id on Clerk so the slow path runs once, not forever.
+ *
+ * updateUserMetadata MERGES. updateUser, used until 2026-11-14, REPLACES
+ * publicMetadata, so writing only the customer id deleted `tier`: the path
+ * that exists to keep a paying customer in would have locked them out.
+ */
 async function cacheOnClerk(userId: string, customerId: string): Promise<void> {
   try {
     const client = await clerkClient();
-    await client.users.updateUser(userId, {
+    await client.users.updateUserMetadata(userId, {
       publicMetadata: { stripe_customer_id: customerId },
     });
   } catch (err) {

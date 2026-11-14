@@ -57,7 +57,16 @@ def _plain(obj):
 
 
 async def _update_clerk_metadata(user_id: str, public_metadata: dict) -> None:
-    """Update a Clerk user's public metadata via the Backend API.
+    """MERGE keys into a Clerk user's public metadata via the Backend API.
+
+    The /metadata endpoint deep-merges. `PATCH /v1/users/{id}`, which this used
+    until 2026-11-14, REPLACES public_metadata wholesale. Every write here is
+    partial, so each one deleted everything it did not mention: a
+    subscription.updated wrote {tier, api_access} and erased the paying
+    customer's stripe_customer_id (seen live on the first customer's account),
+    a downgrade erased the pro_until that _downgrade_unless_comped exists to
+    protect, and the email-fallback repair wrote {stripe_customer_id} and
+    erased tier.
 
     RAISES when Clerk refuses the write. This used to log and return, so the
     webhook answered 200 and Stripe marked the event delivered: a Clerk blip
@@ -67,7 +76,7 @@ async def _update_clerk_metadata(user_id: str, public_metadata: dict) -> None:
     """
     async with httpx.AsyncClient() as client:
         resp = await client.patch(
-            f"https://api.clerk.com/v1/users/{user_id}",
+            f"https://api.clerk.com/v1/users/{user_id}/metadata",
             headers={
                 "Authorization": f"Bearer {CLERK_SECRET_KEY}",
                 "Content-Type": "application/json",
@@ -268,9 +277,9 @@ async def _downgrade_unless_comped(user_id: str) -> None:
     subscription.deleted set tier=free would revoke the comp the moment it was
     granted, which is the opposite of what comping means.
 
-    Clerk merges public_metadata on PATCH, so `pro_until` survives a tier
-    write — the flag stays but the access it was meant to grant disappears.
-    That is a silent revocation, and the user was told in writing they had it.
+    _update_clerk_metadata merges, so `pro_until` survives a tier write — the
+    flag stays but the access it was meant to grant disappears. That is a
+    silent revocation, and the user was told in writing they had it.
 
     comp_lapsed() is the same predicate the API and trial_emails use; do not
     reimplement the date handling here.
