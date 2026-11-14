@@ -25,6 +25,36 @@ router = APIRouter(prefix="/api/v1/webhooks", tags=["webhooks"])
 
 stripe.api_key = STRIPE_SECRET_KEY
 
+# A subscription in one of these states is paying for the plan, or about to.
+LIVE_SUBSCRIPTION_STATUSES = ("active", "trialing")
+
+
+def _plain(obj):
+    """Any Stripe SDK object as plain dicts and lists, all the way down.
+
+    EVERY object from the SDK goes through this before it is read. stripe-python
+    15.x stopped making StripeObject a dict, so `.get()` on one raises
+    `AttributeError: 'get' is a dict method`. The 2026-08-24 fix converted the
+    event payload but converted the re-fetched checkout Session with
+    `to_dict_recursive()` alone, which 15.x does not have. So the Session stayed
+    an SDK object, and the first real Form4 checkout (2026-11-11) 500'd on
+    `session.get("line_items")`. Stripe retried for three days and gave up. The
+    customer paid, never got Pro, and checked out a second time to try again.
+
+    Which conversion exists depends on the SDK version, so this tries both and
+    then walks the result, so that a shallow `to_dict()` cannot leave a nested
+    SDK object behind.
+    """
+    if hasattr(obj, "to_dict_recursive"):
+        obj = obj.to_dict_recursive()
+    elif hasattr(obj, "to_dict"):
+        obj = obj.to_dict()
+    if isinstance(obj, dict):
+        return {k: _plain(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_plain(v) for v in obj]
+    return obj
+
 
 async def _update_clerk_metadata(user_id: str, public_metadata: dict) -> None:
     """Update a Clerk user's public metadata via the Backend API."""
@@ -92,15 +122,11 @@ async def stripe_webhook(
     # stripe_customer_id, so the billing portal told him "No subscription
     # found" while Stripe kept charging him, and he could not self-cancel.
     #
-    # to_dict_recursive() because nested objects (line items, subscription
-    # items) are StripeObjects too and a shallow conversion just moves the
-    # crash one level down.
+    # Every SDK object, including ones fetched later in a branch, goes through
+    # _plain(). Converting only the payload is how the checkout branch stayed
+    # broken until 2026-11-11.
     event_type = event["type"]
-    data_obj = event["data"]["object"]
-    if hasattr(data_obj, "to_dict_recursive"):
-        data_obj = data_obj.to_dict_recursive()
-    elif hasattr(data_obj, "to_dict"):
-        data_obj = data_obj.to_dict()
+    data_obj = _plain(event["data"]["object"])
 
     if event_type == "checkout.session.completed":
         user_id = data_obj.get("client_reference_id")
@@ -109,11 +135,9 @@ async def stripe_webhook(
             return {"status": "ignored"}
 
         # Fetch line items to determine what was purchased
-        session = stripe.checkout.Session.retrieve(
+        session = _plain(stripe.checkout.Session.retrieve(
             data_obj["id"], expand=["line_items"]
-        )
-        if hasattr(session, "to_dict_recursive"):
-            session = session.to_dict_recursive()
+        ))
         items = (session.get("line_items") or {}).get("data", [])
         tier, api_access = _determine_tier_from_items(items)
 
@@ -147,7 +171,7 @@ async def stripe_webhook(
                 metadata["api_access"] = False
             await _update_clerk_metadata(user_id, metadata)
         elif status in ("canceled", "unpaid", "past_due"):
-            await _downgrade_unless_comped(user_id)
+            await _end_subscription(user_id, customer_id, data_obj.get("id"))
 
     elif event_type == "invoice.payment_failed":
         # Subscribed in Stripe since the endpoint was created, handled nowhere.
@@ -176,9 +200,57 @@ async def stripe_webhook(
         customer_id = data_obj.get("customer")
         user_id = await _find_clerk_user_by_customer(customer_id)
         if user_id:
-            await _downgrade_unless_comped(user_id)
+            await _end_subscription(user_id, customer_id, data_obj.get("id"))
 
     return {"status": "ok"}
+
+
+def _other_live_subscription_items(customer_id: str, ended_id: str | None) -> list | None:
+    """Price items of the customer's OTHER live subscriptions, read from Stripe.
+
+    None means Stripe could not be read. The caller treats that as unknown and
+    does not downgrade.
+    """
+    try:
+        subs = _plain(stripe.Subscription.list(customer=customer_id, status="all", limit=100))
+    except Exception as exc:
+        logger.error("could not list subscriptions for %s: %s", customer_id, exc)
+        return None
+    items: list = []
+    for sub in subs.get("data", []):
+        if sub.get("id") == ended_id or sub.get("status") not in LIVE_SUBSCRIPTION_STATUSES:
+            continue
+        items.extend({"price": i.get("price", {})} for i in (sub.get("items") or {}).get("data", []))
+    return items
+
+
+async def _end_subscription(user_id: str, customer_id: str, ended_id: str | None) -> None:
+    """One subscription ended. The ACCOUNT is free only if no other one is live.
+
+    An event describes one subscription, and a customer can hold two. The first
+    paying customer (2026-11-11) did: the webhook failed, the site kept showing
+    them as free, and they checked out a second time. Cancelling the duplicate
+    sent customer.subscription.deleted, and this used to downgrade on that
+    alone, so refunding the duplicate would have cut off the one they pay for.
+    Stripe is the source of truth for billing, so ask it what is still live.
+    """
+    others = _other_live_subscription_items(customer_id, ended_id)
+    if others is None:
+        logger.warning(
+            "%s: %s ended but Stripe could not be read — leaving tier alone",
+            user_id, ended_id,
+        )
+        return
+    if others:
+        tier, api_access = _determine_tier_from_items(others)
+        if tier != "free":
+            logger.info(
+                "%s: %s ended, another subscription is still live — keeping %s",
+                user_id, ended_id, tier,
+            )
+            await _update_clerk_metadata(user_id, {"tier": tier, "api_access": api_access})
+            return
+    await _downgrade_unless_comped(user_id)
 
 
 async def _downgrade_unless_comped(user_id: str) -> None:

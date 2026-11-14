@@ -103,6 +103,24 @@ def test_checkout_pins_the_customer_email():
     )
 
 
+def test_checkout_never_opens_a_second_subscription():
+    """2026-11-11: the webhook failed, the first paying customer still looked
+    free, and checkout happily sold them a second subscription (a trial plus a
+    full-price one, both live). A customer who already has a subscription must
+    be sent to it, and that check must run before any checkout session is made."""
+    src = CHECKOUT.read_text()
+    guard = re.search(r"ALREADY_SUBSCRIBED\s*=\s*new Set[^\[]*\[([^\]]*)\]", src)
+    assert guard, "checkout no longer checks for an existing subscription"
+    for status in ("active", "trialing", "past_due"):
+        assert f'"{status}"' in guard.group(1), f"a {status} subscriber can buy a second subscription"
+    portal = src.find("billingPortal.sessions.create")
+    create = src.find("checkout.sessions.create")
+    assert 0 <= portal < create, (
+        "an existing subscriber must be sent to the billing portal BEFORE a "
+        "checkout session can be created"
+    )
+
+
 def test_the_webhook_has_a_reverse_fallback():
     """Stripe customer -> email -> Clerk account, for when we never wrote the
     link in the first place."""

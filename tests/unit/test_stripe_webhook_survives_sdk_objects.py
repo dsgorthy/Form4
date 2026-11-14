@@ -1,113 +1,182 @@
 """The Stripe webhook must handle what the Stripe SDK actually hands it.
 
-WHAT BROKE
+WHAT BROKE, TWICE
 
-stripe-python 15.x stopped making StripeObject a dict subclass. Every branch of
-the handler called `.get()` on the event payload, so every branch raised:
+stripe-python 15.x stopped making StripeObject a dict subclass, so `.get()` on
+one raises:
 
-    AttributeError: 'get' is a dict method, but a Subscription is not a dict.
+    AttributeError: 'get' is a dict method, but a Session is not a dict.
 
-The webhook returned 500 to Stripe from the moment the library was upgraded.
-Stripe retried and gave up. Nothing alerted, because a webhook nobody calls
-looks identical to a webhook nobody needs.
+2026-08-24: every branch called `.get()` on the event payload, so the whole
+webhook returned 500. A paying customer was billed for months, never got
+stripe_customer_id, and could not cancel.
 
-THE COST. checkout.session.completed is the ONLY place
-public_metadata.stripe_customer_id is written. Without it:
+2026-11-11: the August fix converted the payload but converted the re-fetched
+checkout Session with `to_dict_recursive()` only, and 15.x has no such method.
+So the first real Form4 checkout 500'd on `session.get("line_items")`, Stripe
+gave up after three days, and the customer never got Pro. Still shown as
+free, they checked out again and ended up with a trial AND a full-price
+subscription, and still no access.
 
-  * the billing portal returns "No subscription found" — the user cannot cancel
-    (frontend/src/app/api/billing-portal/route.ts:28)
-  * _find_clerk_user_by_customer finds nobody, so every later subscription
-    event is logged and ignored
-  * Stripe keeps billing
+WHY THE TESTS DID NOT CATCH IT
 
-A paying customer hit all three, was charged for months, could not cancel, and
-had to email support.
+They ran against a hand-written fake that HAD `to_dict_recursive()`. The real
+SDK does not. They also asserted that the word appeared in the source, which
+it did. These tests drive the real handler with real SDK objects from the
+pinned SDK version, and fail if the venv's SDK is not the one production runs.
 
-AND: fixing it made Stripe replay the queued customer.subscription.deleted,
-which would have set tier=free on an account that had just been comped three
-months of Pro by hand. Clerk merges public_metadata, so pro_until would have
-survived while the access it grants vanished — a silent revocation of something
-promised in writing.
+AND: ending one subscription must not downgrade an account that still pays
+through another. The handler used to downgrade on any
+customer.subscription.deleted, so cancelling that customer's duplicate would
+have cut off the subscription they keep.
 """
 from __future__ import annotations
 
 import ast
+import asyncio
+import re
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+# API tests run in the form4-tests venv (CLAUDE.md). Where fastapi is present,
+# a missing stripe is an ERROR, never a skip: the August tests passed for
+# months against a fake because nothing here ever imported the real SDK.
+pytest.importorskip("fastapi")
+import stripe  # noqa: E402
+
+from api.routers import webhooks  # noqa: E402
+
 REPO = Path(__file__).resolve().parents[2]
 WEBHOOKS = REPO / "api/routers/webhooks.py"
+REQUIREMENTS = REPO / "api/requirements.txt"
+
+PRO = "price_pro_test"
+KEY = "sk_test_unused"
 
 
-class FakeStripeObject:
-    """Mimics stripe-python 15.x: attribute access, and .get() raises."""
-    def __init__(self, data):
-        self._data = data
-    def __getitem__(self, k):
-        return self._data[k]
-    def __getattr__(self, k):
-        if k in ("_data",):
-            raise AttributeError(k)
-        if k in ("get", "keys", "items", "values"):
-            raise AttributeError(
-                f"'{k}' is a dict method, but a Subscription is not a dict. "
-                "Use .to_dict() to convert it."
-            )
-        try:
-            return self._data[k]
-        except KeyError as e:
-            raise AttributeError(k) from e
-    def to_dict_recursive(self):
-        return {k: (v.to_dict_recursive() if isinstance(v, FakeStripeObject) else v)
-                for k, v in self._data.items()}
-
-
-def test_the_fake_reproduces_the_real_failure():
-    """Guards the test itself: if .get() stops raising, this proves nothing."""
-    obj = FakeStripeObject({"customer": "cus_1"})
-    with pytest.raises(AttributeError, match="not a dict"):
-        obj.get("customer")
-
-
-def _code_only(text: str) -> str:
-    """Strip comments. An earlier version of the test below matched the COMMENT
-    that explains to_dict_recursive and passed while the actual conversion had
-    been deleted — the same way a comment made a test pass for the wrong reason
-    earlier in this codebase."""
-    out = []
-    for line in text.splitlines():
-        st = line.lstrip()
-        if st.startswith("#"):
-            continue
-        if "  # " in line:
-            line = line.split("  # ", 1)[0]
-        out.append(line)
-    return "\n".join(out)
-
-
-def test_the_handler_converts_before_using_dict_methods():
-    """Structural: the payload must be converted before any .get() on it."""
-    src = WEBHOOKS.read_text()
-    body = src[src.index("async def stripe_webhook("):]
-    body = _code_only(body[:body.index("\nasync def ")])
-    assert "to_dict_recursive" in body, (
-        "the payload is never converted — every .get() on it raises "
-        "AttributeError and the webhook 500s, which is how a paying customer "
-        "went months unable to cancel"
-    )
-    assert body.index("to_dict_recursive") < body.index("data_obj.get("), (
-        "data_obj.get() is called before the conversion"
+def test_the_sdk_under_test_is_the_one_production_pins():
+    pinned = re.search(r"^stripe==(\S+)", REQUIREMENTS.read_text(), re.M)
+    assert pinned, "stripe is unpinned in api/requirements.txt; an unpinned upgrade is what broke this in August"
+    assert stripe.VERSION == pinned.group(1), (
+        f"testing against stripe {stripe.VERSION} but production pins {pinned.group(1)}; "
+        f"run: /Users/derekg/.venvs/form4-tests/bin/python -m pip install 'stripe=={pinned.group(1)}'"
     )
 
 
-def test_conversion_is_recursive():
-    """Nested line items and subscription items are StripeObjects too; a
-    shallow to_dict() just moves the crash one level down."""
-    src = WEBHOOKS.read_text()
-    assert "to_dict_recursive" in src, "conversion is shallow again"
-    obj = FakeStripeObject({"items": FakeStripeObject({"data": [1, 2]})})
-    assert obj.to_dict_recursive()["items"]["data"] == [1, 2]
+def _walk(obj):
+    yield obj
+    if isinstance(obj, dict):
+        for v in obj.values():
+            yield from _walk(v)
+    elif isinstance(obj, list):
+        for v in obj:
+            yield from _walk(v)
+
+
+def _session(customer="cus_1", user="user_1", price=PRO):
+    return stripe.checkout.Session.construct_from({
+        "id": "cs_test_1", "object": "checkout.session",
+        "client_reference_id": user, "customer": customer,
+        "line_items": {"object": "list", "data": [
+            {"id": "li_1", "object": "item", "price": {"id": price, "object": "price"}},
+        ]},
+    }, KEY)
+
+
+def _subscription(sub_id, status, price=PRO):
+    return {
+        "id": sub_id, "object": "subscription", "status": status, "customer": "cus_1",
+        "items": {"object": "list", "data": [
+            {"id": f"si_{sub_id}", "object": "subscription_item", "price": {"id": price, "object": "price"}},
+        ]},
+    }
+
+
+def test_plain_leaves_no_sdk_object_anywhere():
+    out = webhooks._plain(_session())
+    leftovers = [type(o).__name__ for o in _walk(out) if isinstance(o, stripe.StripeObject)]
+    assert not leftovers, f"SDK objects survived the conversion: {leftovers}"
+    assert out["line_items"]["data"][0]["price"]["id"] == PRO
+
+
+class _Request:
+    async def body(self):
+        return b"{}"
+
+
+@pytest.fixture
+def hook(monkeypatch):
+    """The real handler, with the network edges replaced: Clerk writes are
+    recorded, the signature check returns the event it is handed."""
+    writes, downgrades = [], []
+
+    async def update(user_id, metadata):
+        writes.append((user_id, metadata))
+
+    async def downgrade(user_id):
+        downgrades.append(user_id)
+
+    async def find(customer_id):
+        return "user_1"
+
+    monkeypatch.setattr(webhooks, "_update_clerk_metadata", update)
+    monkeypatch.setattr(webhooks, "_downgrade_unless_comped", downgrade)
+    monkeypatch.setattr(webhooks, "_find_clerk_user_by_customer", find)
+    monkeypatch.setattr(webhooks, "PRO_PRICE_IDS", {PRO})
+    monkeypatch.setattr(stripe.checkout.Session, "retrieve", lambda *a, **k: _session())
+
+    def subscriptions(*subs):
+        monkeypatch.setattr(stripe.Subscription, "list", lambda **k: stripe.ListObject.construct_from(
+            {"object": "list", "data": list(subs)}, KEY))
+
+    def deliver(event_type, obj):
+        event = stripe.Event.construct_from(
+            {"id": "evt_test", "object": "event", "type": event_type, "data": {"object": obj}}, KEY)
+        monkeypatch.setattr(stripe.Webhook, "construct_event", lambda *a, **k: event)
+        return asyncio.run(webhooks.stripe_webhook(_Request(), stripe_signature="test"))
+
+    return SimpleNamespace(writes=writes, downgrades=downgrades, deliver=deliver, subscriptions=subscriptions)
+
+
+def test_a_paid_checkout_grants_pro(hook):
+    """The 2026-11-11 incident: this raised AttributeError and returned 500."""
+    hook.deliver("checkout.session.completed", {
+        "id": "cs_test_1", "object": "checkout.session",
+        "client_reference_id": "user_1", "customer": "cus_1",
+    })
+    assert hook.writes == [("user_1", {"stripe_customer_id": "cus_1", "tier": "pro"})]
+
+
+@pytest.mark.parametrize("event_type, status", [
+    ("customer.subscription.deleted", "canceled"),
+    ("customer.subscription.updated", "canceled"),
+    ("customer.subscription.updated", "unpaid"),
+])
+def test_ending_one_of_two_subscriptions_keeps_pro(hook, event_type, status):
+    ended = _subscription("sub_dup", status)
+    hook.subscriptions(ended, _subscription("sub_kept", "active"))
+    hook.deliver(event_type, ended)
+    assert hook.downgrades == [], "downgraded an account that still pays through another subscription"
+    assert hook.writes == [("user_1", {"tier": "pro", "api_access": False})]
+
+
+def test_ending_the_last_subscription_downgrades(hook):
+    ended = _subscription("sub_only", "canceled")
+    hook.subscriptions(ended, _subscription("sub_old", "canceled"))
+    hook.deliver("customer.subscription.deleted", ended)
+    assert hook.downgrades == ["user_1"]
+    assert hook.writes == []
+
+
+def test_an_unreadable_stripe_does_not_downgrade(hook, monkeypatch):
+    """Unknown means leave it alone, the same rule as an unreadable Clerk."""
+    def down(**k):
+        raise stripe.error.APIConnectionError("stripe unreachable")
+    monkeypatch.setattr(stripe.Subscription, "list", down)
+    hook.deliver("customer.subscription.deleted", _subscription("sub_only", "canceled"))
+    assert hook.downgrades == [] and hook.writes == []
 
 
 # ── a comp must survive the end of a subscription ───────────────────────────
@@ -122,26 +191,27 @@ def test_downgrade_paths_go_through_the_comp_check():
     silently matched nothing.
     """
     tree = ast.parse(WEBHOOKS.read_text())
-    fn = next(n for n in ast.walk(tree)
-              if isinstance(n, ast.AsyncFunctionDef) and n.name == "stripe_webhook")
     direct = []
-    for n in ast.walk(fn):
-        if not (isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
-                and n.func.id == "_update_clerk_metadata"):
+    for fn in ast.walk(tree):
+        if not (isinstance(fn, ast.AsyncFunctionDef) and fn.name in ("stripe_webhook", "_end_subscription")):
             continue
-        for arg in n.args:
-            if not isinstance(arg, ast.Dict):
+        for n in ast.walk(fn):
+            if not (isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                    and n.func.id == "_update_clerk_metadata"):
                 continue
-            pairs = {
-                k.value: v.value
-                for k, v in zip(arg.keys, arg.values)
-                if isinstance(k, ast.Constant) and isinstance(v, ast.Constant)
-            }
-            if pairs.get("tier") == "free":
-                direct.append(n.lineno)
+            for arg in n.args:
+                if not isinstance(arg, ast.Dict):
+                    continue
+                pairs = {
+                    k.value: v.value
+                    for k, v in zip(arg.keys, arg.values)
+                    if isinstance(k, ast.Constant) and isinstance(v, ast.Constant)
+                }
+                if pairs.get("tier") == "free":
+                    direct.append(n.lineno)
     assert not direct, (
-        f"stripe_webhook writes tier=free directly at line(s) {direct}. A comp "
-        "is granted precisely to accounts with no subscription; downgrading on "
+        f"tier=free is written directly at line(s) {direct}. A comp is granted "
+        "precisely to accounts with no subscription; downgrading on "
         "subscription.deleted revokes it the moment it is given."
     )
     assert "_downgrade_unless_comped" in WEBHOOKS.read_text()
@@ -150,9 +220,6 @@ def test_downgrade_paths_go_through_the_comp_check():
 def test_an_unreadable_clerk_account_is_not_downgraded():
     """Fail safe. Wrongly keeping Pro for a cycle is recoverable; wrongly
     revoking a paid or comped account is not."""
-    # Source-inspected rather than imported: fastapi is not installed on the
-    # dev machine, and the rest of this suite reads the file for the same
-    # reason.
     body = WEBHOOKS.read_text()
     src = body[body.index("async def _get_clerk_metadata("):]
     src = src[:src.index("\nasync def ")]

@@ -7,6 +7,11 @@ import { resolveStripeCustomer } from "@/lib/stripe-customer";
 /** Days of Pro before the card is charged. Stated on /pricing; keep the two in step. */
 const PRO_TRIAL_DAYS = 7;
 
+/** A customer with a subscription in one of these states already has one. */
+const ALREADY_SUBSCRIBED = new Set<Stripe.Subscription.Status>([
+  "active", "trialing", "past_due", "unpaid", "paused",
+]);
+
 function getStripe() {
   return new Stripe(process.env.STRIPE_SECRET_KEY!, {
     apiVersion: "2026-02-25.clover",
@@ -46,13 +51,36 @@ export async function POST(request: NextRequest) {
       stripe, userId, user,
     );
 
+    const base = process.env.NEXT_PUBLIC_BASE_URL || request.headers.get("origin") || request.nextUrl.origin;
+    const subscriptions = existingCustomerId
+      ? (await stripe.subscriptions.list({ customer: existingCustomerId, status: "all", limit: 100 })).data
+      : [];
+
+    // ONE SUBSCRIPTION PER CUSTOMER. This route used to open a new one for
+    // anyone who asked. On 2026-11-11 the webhook failed, the site kept
+    // showing the first paying customer as free, and they checked out again:
+    // a trial plus a full-price subscription, both live, and still no Pro.
+    // Someone who already has a subscription goes to it, never to a second one.
+    const live = subscriptions.find((s) => ALREADY_SUBSCRIBED.has(s.status));
+    if (live && existingCustomerId) {
+      console.warn(
+        "[checkout]", userId, "already has", live.id, `(${live.status})`,
+        "— sending them to the billing portal, not a second checkout",
+      );
+      const portal = await stripe.billingPortal.sessions.create({
+        customer: existingCustomerId,
+        return_url: `${base}/settings`,
+      });
+      return NextResponse.json({ url: portal.url });
+    }
+
     const sessionParams: Stripe.Checkout.SessionCreateParams = {
       mode: "subscription",
       payment_method_types: ["card"],
       line_items: [{ price: priceId, quantity: 1 }],
       client_reference_id: userId,
-      success_url: `${process.env.NEXT_PUBLIC_BASE_URL || request.headers.get("origin") || request.nextUrl.origin}/settings?success=true`,
-      cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL || request.headers.get("origin") || request.nextUrl.origin}/pricing?canceled=true`,
+      success_url: `${base}/settings?success=true`,
+      cancel_url: `${base}/pricing?canceled=true`,
     };
 
     // THE PRO TRIAL LIVES HERE, AND ONLY HERE. Until 2026-09-17 every new
@@ -64,9 +92,7 @@ export async function POST(request: NextRequest) {
     //
     // One trial per customer: a subscriber who cancelled and comes back has
     // had theirs. Stripe would happily grant another.
-    const hadASubscription = existingCustomerId
-      ? (await stripe.subscriptions.list({ customer: existingCustomerId, status: "all", limit: 1 })).data.length > 0
-      : false;
+    const hadASubscription = subscriptions.length > 0;
     if (!hadASubscription) {
       sessionParams.subscription_data = { trial_period_days: PRO_TRIAL_DAYS };
     }
