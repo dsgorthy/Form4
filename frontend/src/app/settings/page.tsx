@@ -160,17 +160,32 @@ export default function SettingsPage() {
   const userHasApi = hasApiAccess(user);
 
   async function handleBillingPortal() {
+    // A NEW TAB, so Form4 stays open where it was. Stripe's portal shows no
+    // visible way back to the site, so opening it in place stranded people.
+    //
+    // The tab is opened HERE, synchronously inside the click: a window.open()
+    // after an await is no longer a user gesture, and Safari and Chrome block
+    // it as a popup. If the browser blocks it anyway, use this tab.
+    const tab = window.open("", "_blank");
     setLoading(true);
     setError(null);
     try {
       const res = await fetch("/api/billing-portal", { method: "POST" });
       const data = await res.json();
-      if (data.error) {
-        setError(data.error);
-      } else if (data.url) {
+      if (!res.ok || !data.url) {
+        tab?.close();
+        // `message` is the sentence written for people; `error` is a code.
+        setError(data.message || data.error || "Failed to open billing portal.");
+        return;
+      }
+      if (tab) {
+        tab.opener = null;
+        tab.location.href = data.url;
+      } else {
         window.location.href = data.url;
       }
     } catch {
+      tab?.close();
       setError("Failed to open billing portal.");
     } finally {
       setLoading(false);
