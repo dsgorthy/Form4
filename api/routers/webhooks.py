@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 import logging
+from datetime import datetime, timezone
 
 import httpx
+import pytz
 import stripe
 from fastapi import APIRouter, Header, HTTPException, Request
+
+from api.db import get_db
+from api.email import send_email
+from api.email_templates import pro_welcome_email
 
 from api.config import (
     CLERK_SECRET_KEY,
@@ -166,6 +173,15 @@ async def stripe_webhook(
 
         await _update_clerk_metadata(user_id, metadata)
 
+        # The confirmation, after the access it confirms. Best effort and off
+        # the event loop: a failed email must never fail the event, because a
+        # 500 here makes Stripe replay a checkout that already succeeded.
+        if tier != "free":
+            try:
+                await asyncio.to_thread(_send_pro_welcome, user_id, session)
+            except Exception:
+                logger.exception("pro welcome for %s failed; access was granted", user_id)
+
     elif event_type == "customer.subscription.updated":
         customer_id = data_obj.get("customer")
         status = data_obj.get("status")
@@ -219,6 +235,67 @@ async def stripe_webhook(
             await _end_subscription(user_id, customer_id, data_obj.get("id"))
 
     return {"status": "ok"}
+
+
+PRO_WELCOME = "pro_welcome"
+SUPPORT_EMAIL = "support@form4.app"
+# Dates are shown in Pacific time: for a US reader that is never LATER than
+# their own date, so a trial end is never read as a day after it happens.
+DISPLAY_TZ = pytz.timezone("America/Los_Angeles")
+
+
+def _claim_email(user_id: str, name: str) -> bool:
+    """Record a send BEFORE it happens, so a Stripe retry cannot send it twice."""
+    with get_db() as conn:
+        row = conn.execute(
+            "INSERT INTO sent_trial_emails (user_id, email_name) VALUES (?, ?) "
+            "ON CONFLICT DO NOTHING RETURNING user_id",
+            (user_id, name),
+        ).fetchone()
+        conn.commit()
+    return row is not None
+
+
+def _release_email(user_id: str, name: str) -> None:
+    """Undo a claim whose send failed, so a later attempt may send it."""
+    with get_db() as conn:
+        conn.execute("DELETE FROM sent_trial_emails WHERE user_id = ? AND email_name = ?", (user_id, name))
+        conn.commit()
+
+
+def _send_pro_welcome(user_id: str, session: dict) -> None:
+    """Tell a new subscriber what they bought: trial end, price, how to cancel.
+
+    Once per account, whatever Stripe retries. The price and dates come from
+    the subscription Stripe just created, so the email states exactly what
+    will be charged and when.
+    """
+    email = (session.get("customer_details") or {}).get("email") or session.get("customer_email")
+    sub_id = session.get("subscription")
+    if not email or not sub_id:
+        logger.warning("pro welcome skipped for %s: no email or subscription on the session", user_id)
+        return
+    sub = _plain(stripe.Subscription.retrieve(sub_id))
+    item = ((sub.get("items") or {}).get("data") or [{}])[0]
+    price = item.get("price") or {}
+    amount = price.get("unit_amount")
+    if amount is None:
+        logger.warning("pro welcome skipped for %s: no price on %s", user_id, sub_id)
+        return
+    interval = (price.get("recurring") or {}).get("interval") or "month"
+
+    def local(ts):
+        return datetime.fromtimestamp(ts, timezone.utc).astimezone(DISPLAY_TZ) if ts else None
+
+    trial_end = local(sub.get("trial_end")) if sub.get("status") == "trialing" else None
+    renews = local(item.get("current_period_end") or sub.get("current_period_end"))
+
+    if not _claim_email(user_id, PRO_WELCOME):
+        return
+    subject, html = pro_welcome_email(amount, interval, trial_end, renews)
+    if not send_email(email, subject, html, reply_to=SUPPORT_EMAIL, campaign=PRO_WELCOME):
+        _release_email(user_id, PRO_WELCOME)
+        logger.error("pro welcome to %s was not sent; claim released", user_id)
 
 
 def _other_live_subscription_items(customer_id: str, ended_id: str | None) -> list | None:

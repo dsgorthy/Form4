@@ -153,6 +153,18 @@ def in_window(age_days: float, target_day: int) -> bool:
     return (target_day - 0.5) <= age_days <= (target_day + DAY_TOLERANCE + 0.5)
 
 
+# THE WELCOME IS NOT WINDOWED LIKE THE OTHERS. It goes as soon as the job sees
+# the account, and it is still owed for WELCOME_LATEST_DAYS if the job was
+# down. A day-0 window of +/-1.5 days meant one outage lost it for good: an
+# account created 2026-10-27, mid-outage, never got one. Past this it would
+# arrive as a "welcome" to someone who has been here a while, so it is dropped.
+WELCOME_LATEST_DAYS = 3
+
+
+def welcome_due(age_days: float) -> bool:
+    return 0 <= age_days <= WELCOME_LATEST_DAYS
+
+
 # ───────────────────────────────────────────────────────────────────
 # What the emails are about: the account's follows
 # ───────────────────────────────────────────────────────────────────
@@ -274,12 +286,16 @@ def _top_filings(conn, days: int, limit: int = 5) -> list[dict]:
 # Email dispatch
 # ───────────────────────────────────────────────────────────────────
 
-def _build_email(email_name: str, user_data: dict, conn) -> tuple[str, str] | None:
-    user_id = user_data.get("id", "")
-    unsub_token = generate_unsubscribe_token(user_id)
+def _unsubscribe_url(user_id: str) -> str:
     # Param must be `user_id` — that's the name the endpoint declares
     # (api/routers/notifications.py). `user` returns 422.
-    unsub_url = f"{APP_URL}/api/v1/notifications/unsubscribe?user_id={user_id}&token={unsub_token}"
+    return (f"{APP_URL}/api/v1/notifications/unsubscribe"
+            f"?user_id={user_id}&token={generate_unsubscribe_token(user_id)}")
+
+
+def _build_email(email_name: str, user_data: dict, conn) -> tuple[str, str] | None:
+    user_id = user_data.get("id", "")
+    unsub_url = _unsubscribe_url(user_id)
 
     names, tickers, insiders = _follows(conn, user_id)
     following = bool(names)
@@ -324,7 +340,8 @@ def process_user(user_data: dict, conn, dry_run: bool = False, now: datetime | N
 
     sent = 0
     for email_name, target_day in EMAIL_SEQUENCE:
-        if not in_window(age_days, target_day):
+        due = welcome_due(age_days) if email_name == "welcome" else in_window(age_days, target_day)
+        if not due:
             continue
         if email_name == "win_back" and not win_back_due(user_data.get("last_sign_in_at"), now):
             continue
@@ -343,7 +360,8 @@ def process_user(user_data: dict, conn, dry_run: bool = False, now: datetime | N
         if dry_run:
             logger.info("[DRY RUN] Would send '%s' to %s (day %.1f)", email_name, email, age_days)
         else:
-            if not send_email(email, subject, html):
+            if not send_email(email, subject, html,
+                              unsubscribe_url=_unsubscribe_url(user_id), campaign=email_name):
                 logger.error("Failed to send '%s' to %s", email_name, email)
                 continue
             conn.execute(

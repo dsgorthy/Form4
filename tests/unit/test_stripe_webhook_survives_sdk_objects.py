@@ -79,6 +79,7 @@ def _session(customer="cus_1", user="user_1", price=PRO):
     return stripe.checkout.Session.construct_from({
         "id": "cs_test_1", "object": "checkout.session",
         "client_reference_id": user, "customer": customer,
+        "subscription": "sub_new", "customer_details": {"email": "buyer@example.com"},
         "line_items": {"object": "list", "data": [
             {"id": "li_1", "object": "item", "price": {"id": price, "object": "price"}},
         ]},
@@ -121,9 +122,11 @@ def hook(monkeypatch):
     async def find(customer_id):
         return "user_1"
 
+    welcomes = []
     monkeypatch.setattr(webhooks, "_update_clerk_metadata", update)
     monkeypatch.setattr(webhooks, "_downgrade_unless_comped", downgrade)
     monkeypatch.setattr(webhooks, "_find_clerk_user_by_customer", find)
+    monkeypatch.setattr(webhooks, "_send_pro_welcome", lambda user_id, session: welcomes.append(user_id))
     monkeypatch.setattr(webhooks, "PRO_PRICE_IDS", {PRO})
     monkeypatch.setattr(stripe.checkout.Session, "retrieve", lambda *a, **k: _session())
 
@@ -137,7 +140,8 @@ def hook(monkeypatch):
         monkeypatch.setattr(stripe.Webhook, "construct_event", lambda *a, **k: event)
         return asyncio.run(webhooks.stripe_webhook(_Request(), stripe_signature="test"))
 
-    return SimpleNamespace(writes=writes, downgrades=downgrades, deliver=deliver, subscriptions=subscriptions)
+    return SimpleNamespace(writes=writes, downgrades=downgrades, deliver=deliver,
+                           subscriptions=subscriptions, welcomes=welcomes)
 
 
 def test_a_paid_checkout_grants_pro(hook):
@@ -147,6 +151,79 @@ def test_a_paid_checkout_grants_pro(hook):
         "client_reference_id": "user_1", "customer": "cus_1",
     })
     assert hook.writes == [("user_1", {"stripe_customer_id": "cus_1", "tier": "pro"})]
+
+
+_REAL_SEND_WELCOME = webhooks._send_pro_welcome
+_CHECKOUT = {"id": "cs_test_1", "object": "checkout.session", "client_reference_id": "user_1", "customer": "cus_1"}
+
+
+@pytest.fixture
+def welcome(hook, monkeypatch):
+    """The real welcome path (subscription read, claim, send) with the claim
+    store and the mailer in memory."""
+    from datetime import datetime, timezone
+    claimed, mail = set(), []
+    monkeypatch.setattr(webhooks, "_send_pro_welcome", _REAL_SEND_WELCOME)
+
+    def claim(user_id, name):
+        if (user_id, name) in claimed:
+            return False
+        claimed.add((user_id, name))
+        return True
+    monkeypatch.setattr(webhooks, "_claim_email", claim)
+    monkeypatch.setattr(webhooks, "_release_email", lambda u, n: claimed.discard((u, n)))
+    monkeypatch.setattr(webhooks, "send_email",
+                        lambda to, subject, html, **kw: mail.append((to, subject, html, kw)) or True)
+    # The shape of the real first trial: ends Sat 2026-11-21 16:39 PT, which is
+    # already Sunday in UTC. The email must say Saturday.
+    trial_end = int(datetime(2026, 11, 22, 0, 39, 26, tzinfo=timezone.utc).timestamp())
+    monkeypatch.setattr(stripe.Subscription, "retrieve", lambda *a, **k: stripe.Subscription.construct_from({
+        "id": "sub_new", "object": "subscription", "status": "trialing", "trial_end": trial_end,
+        "items": {"object": "list", "data": [{
+            "id": "si_1", "object": "subscription_item", "current_period_end": trial_end,
+            "price": {"id": PRO, "object": "price", "unit_amount": 1900, "recurring": {"interval": "month"}},
+        }]},
+    }, KEY))
+    return SimpleNamespace(claimed=claimed, mail=mail)
+
+
+def test_a_paid_checkout_sends_one_welcome_with_the_real_terms(hook, welcome):
+    """The first customer paid and heard nothing. Stripe retries; they get one."""
+    hook.deliver("checkout.session.completed", dict(_CHECKOUT))
+    hook.deliver("checkout.session.completed", dict(_CHECKOUT))
+    assert len(welcome.mail) == 1, f"{len(welcome.mail)} welcomes for one checkout"
+    to, subject, html, kw = welcome.mail[0]
+    assert (to, subject) == ("buyer@example.com", "You're on Form4 Pro")
+    assert "Saturday, November 21" in html, "the trial end is shown in the wrong timezone or not at all"
+    assert "$19 a month" in html, "the price shown is not the price on the subscription"
+    assert kw.get("campaign") == "pro_welcome" and kw.get("reply_to")
+
+
+def test_a_failed_welcome_send_frees_its_claim(hook, welcome, monkeypatch):
+    monkeypatch.setattr(webhooks, "send_email", lambda *a, **k: False)
+    hook.deliver("checkout.session.completed", dict(_CHECKOUT))
+    assert not welcome.claimed, "a failed send kept its claim, so no later attempt could ever send it"
+
+
+def test_the_welcome_can_never_fail_the_checkout(hook, welcome, monkeypatch):
+    """A 500 makes Stripe replay a checkout that already granted access."""
+    def down(*a, **k):
+        raise stripe.error.APIConnectionError("stripe unreachable")
+    monkeypatch.setattr(stripe.Subscription, "retrieve", down)
+    assert hook.deliver("checkout.session.completed", dict(_CHECKOUT)) == {"status": "ok"}
+    assert hook.writes == [("user_1", {"stripe_customer_id": "cus_1", "tier": "pro"})]
+
+
+def test_the_pro_welcome_reads_plainly():
+    from datetime import datetime
+    import re as _re
+    from api.email_templates import pro_welcome_email
+    for trial_end, renews in ((datetime(2026, 11, 21), None), (None, datetime(2026, 12, 11))):
+        subject, html = pro_welcome_email(1900, "month", trial_end, renews)
+        body = _re.sub(r"<[^>]+>", " ", html[html.index("<h2"):html.index("Questions?")])
+        for banned in ("!", "—", "Unlock"):
+            assert banned not in body, f"{banned!r} in the Pro welcome"
+        assert "Manage billing" in body and "$19 a month" in body
 
 
 @pytest.mark.parametrize("event_type, status", [

@@ -67,7 +67,7 @@ class _Conn:
 def conn(monkeypatch):
     monkeypatch.setattr(ns, "_MAIL_BLOCKED", None)
     monkeypatch.setattr(ns, "_get_user_email", lambda uid: "x@example.com")
-    monkeypatch.setattr(ns, "build_notification_email", lambda t, b: "<p></p>")
+    monkeypatch.setattr(ns, "build_notification_email", lambda t, b, **kw: "<p></p>")
     monkeypatch.setattr(ns, "_email_cache", {})
     return _Conn()
 

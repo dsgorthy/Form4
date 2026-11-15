@@ -70,8 +70,8 @@ def test_the_realtime_path_is_reachable_without_error(monkeypatch):
     sent = {}
     monkeypatch.setattr(ns, "_get_user_email", lambda uid: "x@example.com")
     monkeypatch.setattr(ns, "send_email",
-                        lambda to, subj, html: sent.update(to=to, subj=subj) or True)
-    monkeypatch.setattr(ns, "build_notification_email", lambda t, b: "<p></p>")
+                        lambda to, subj, html, **kw: sent.update(to=to, subj=subj) or True)
+    monkeypatch.setattr(ns, "build_notification_email", lambda t, b, **kw: "<p></p>")
     ns._email_cache.pop("u_rt", None)
     ns._maybe_send_realtime_email(
         None, {"user_id": "u_rt", "email_enabled": 1, "email_frequency": "realtime"},

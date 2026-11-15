@@ -5,7 +5,9 @@ import os
 import hashlib
 import hmac
 import logging
+import re
 from typing import Optional
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
@@ -17,6 +19,28 @@ RESEND_URL = "https://api.resend.com/emails"
 FROM_ADDRESS = "Form4 <alerts@form4.app>"
 
 
+_APP_LINK = re.compile(r'href="(https://form4\.app[^"]*)"')
+
+
+def tag_links(html: str, campaign: str) -> str:
+    """Add utm tags to every form4.app link so a visit from an email is
+    counted as one in PostHog.
+
+    Until 2026-11-14 no email link carried any, so nothing could say whether
+    an email had ever brought anyone back. Unsubscribe links, and links that
+    are already tagged, are left exactly as they are.
+    """
+    def tag(m: re.Match) -> str:
+        url = m.group(1)
+        if "unsubscribe" in url or "utm_" in url:
+            return m.group(0)
+        parts = urlsplit(url)
+        utm = f"utm_source=email&utm_medium=email&utm_campaign={campaign}"
+        query = f"{parts.query}&{utm}" if parts.query else utm
+        return f'href="{urlunsplit(parts._replace(query=query))}"'
+    return _APP_LINK.sub(tag, html)
+
+
 def send_email(
     to: str,
     subject: str,
@@ -25,16 +49,22 @@ def send_email(
     reply_to: Optional[str] = None,
     from_address: Optional[str] = None,
     unsubscribe_url: Optional[str] = None,
+    campaign: Optional[str] = None,
 ) -> bool:
     """Send a transactional email via Resend. Returns True on success.
 
     from_address overrides the default alerts@ sender. Use it for mail a
     person is meant to reply to — a founder note should not arrive from an
     alerting address. Any override must be on a Resend-verified domain.
+
+    campaign tags every form4.app link with utm parameters (see tag_links).
+    Every email a customer receives should name one.
     """
     if not RESEND_API_KEY:
         logger.warning("RESEND_API_KEY not set, skipping email to %s", to)
         return False
+    if campaign:
+        html = tag_links(html, campaign)
 
     payload: dict = {
         "from": from_address or FROM_ADDRESS,
