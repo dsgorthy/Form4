@@ -103,6 +103,22 @@ def test_checkout_pins_the_customer_email():
     )
 
 
+SETTINGS = REPO / "frontend/src/app/settings/page.tsx"
+
+
+def test_billing_opens_in_a_new_tab_without_tripping_the_popup_blocker():
+    """Stripe's portal has no visible way back to the site, so it opens in a
+    new tab. The tab must be opened BEFORE the fetch is awaited: after an await
+    the click is no longer a user gesture and browsers block window.open()."""
+    src = SETTINGS.read_text()
+    body = src[src.index("async function handleBillingPortal()"):]
+    body = body[:body.index("\n  async function ", 10)]
+    opened, fetched = body.find("window.open("), body.find('await fetch("/api/billing-portal"')
+    assert opened != -1, "the billing portal no longer opens in a new tab"
+    assert 0 <= opened < fetched, "window.open() comes after an await: browsers will block it as a popup"
+    assert "opener = null" in body, "the portal tab can reach back into Form4 through window.opener"
+
+
 def test_cache_writes_merge_never_replace():
     """Clerk's users.updateUser REPLACES publicMetadata. Caching only
     stripe_customer_id that way deletes `tier`, so the repair that exists to
