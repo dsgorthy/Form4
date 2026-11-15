@@ -13,6 +13,8 @@ All share a common layout matching Form4's dark brand.
 """
 from __future__ import annotations
 
+from datetime import datetime
+
 APP_URL = "https://form4.app"
 
 
@@ -183,6 +185,36 @@ def pro_once_email(unsubscribe_url: str = "") -> tuple[str, str]:
 
 
 # --- Day 30: only if they have gone quiet ---
+
+def pro_welcome_email(amount_cents: int, interval: str,
+                      trial_end: datetime | None, renews: datetime | None) -> tuple[str, str]:
+    """(subject, html). Sent once, the moment a checkout completes.
+
+    Until 2026-11-14 a paying customer heard nothing from Form4: the account
+    sequence skips paying accounts, and a 7-day trial starts at $0, so Stripe
+    sends no receipt either. The first customer paid, heard nothing, and
+    checked out a second time. The price and dates are passed in from the
+    subscription itself, never from a constant, so this cannot quote a price
+    nobody is being charged. Dates must already be in the reader's timezone.
+    """
+    price = f"${amount_cents / 100:g} a {interval}"
+    if trial_end:
+        terms = (f"<p {_P}>Thanks for subscribing. Your free trial runs until "
+                 f"<strong {_STRONG}>{trial_end:%A, %B} {trial_end.day}</strong>. After that, Pro is {price}, "
+                 f"charged to the card you added. Cancel before then and you pay nothing.</p>")
+    else:
+        when = f" Your next payment is on <strong {_STRONG}>{renews:%B} {renews.day}</strong>." if renews else ""
+        terms = f"<p {_P}>Thanks for subscribing. Pro is {price}.{when}</p>"
+    content = f"""\
+    <h2 {_H}>You're on Form4 Pro</h2>
+    {terms}
+    <p {_P}>Three things to try first:</p>
+    <p {_P}><strong {_STRONG}>Insider grades.</strong> Every insider page shows their grade and full track record.</p>
+    <p {_P}><strong {_STRONG}>The screener.</strong> Filter any feed by grade on Explore.</p>
+    <p {_P}><strong {_STRONG}>Strategy book alerts.</strong> The books on the Portfolio page email you when they open or close a position.</p>
+    <p {_P}>To change your card or cancel, go to Settings and choose Manage billing. Questions? Reply to this email.</p>"""
+    return ("You're on Form4 Pro", _layout(content, "Open Form4", f"{APP_URL}/portfolio"))
+
 
 def win_back_email(items: list[dict], following: bool, unsubscribe_url: str = "") -> tuple[str, str]:
     """(subject, html). Sent only to an account with no sign-in for two weeks."""

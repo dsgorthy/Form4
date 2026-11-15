@@ -7,7 +7,11 @@ export function initPostHog() {
   posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY, {
     api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST || "https://us.i.posthog.com",
     person_profiles: "always",
-    capture_pageview: true,
+    // "history_change", not true: with true, posthog-js only records full page
+    // loads, so in-app navigation (which is nearly all of it in Next.js) was
+    // never counted. A 5-minute session across 8 routes logged 1 pageview
+    // (2026-11-06 audit), which also hid where email visitors went next.
+    capture_pageview: "history_change",
     capture_pageleave: true,
     autocapture: true,
     session_recording: {

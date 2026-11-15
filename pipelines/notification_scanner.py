@@ -1046,8 +1046,11 @@ def _maybe_send_realtime_email(nconn: ConnectionWrapper, user: dict, title: str,
     if not email:
         return False
 
-    html = build_notification_email(title, body)
-    return bool(send_email(email, f"Form4: {title}", html))
+    # The same unsubscribe the digest carries, in the body and as the one-click
+    # header. The realtime alert was sent with neither until 2026-11-14.
+    unsub = _unsubscribe_url(user_id)
+    html = build_notification_email(title, body, unsubscribe_url=unsub)
+    return bool(send_email(email, f"Form4: {title}", html, unsubscribe_url=unsub, campaign="alert"))
 
 
 def _try_send_realtime(nconn: ConnectionWrapper, user: dict,
@@ -1408,7 +1411,7 @@ def send_daily_digests(nconn: ConnectionWrapper) -> int:
                                   unsubscribe_url=unsub)
         subject = _digest_subject(len(pending))
 
-        if not send_email(email, subject, html, unsubscribe_url=unsub):
+        if not send_email(email, subject, html, unsubscribe_url=unsub, campaign="digest"):
             logger.warning("digest send failed for %s — left pending", user_id)
             continue
 
