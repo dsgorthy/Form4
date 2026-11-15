@@ -6,7 +6,7 @@
     Day 10  pro_once   what Pro adds; the only Pro pitch there is
     Day 30  win_back   only if there has been no sign-in for two weeks
 
-Runs every 6 hours under Dagster (ops_trial_emails_6h). Lists Clerk users,
+Runs hourly under Dagster (ops_trial_emails_hourly). Lists Clerk users,
 works out each account's age, sends whatever is due inside its window and
 records it in sent_trial_emails so nothing goes twice. Paying accounts and
 live comps get nothing.

@@ -11,7 +11,7 @@ from fastapi import APIRouter, Header, HTTPException, Request
 
 from api.db import get_db
 from api.email import send_email
-from api.email_templates import pro_welcome_email
+from api.email_templates import pro_welcome_email, trial_ending_email
 
 from api.config import (
     CLERK_SECRET_KEY,
@@ -228,6 +228,14 @@ async def stripe_webhook(
             customer_id, user_id, attempt, next_try, data_obj.get("amount_due"),
         )
 
+    elif event_type == "customer.subscription.trial_will_end":
+        user_id = await _find_clerk_user_by_customer(data_obj.get("customer"))
+        if user_id:
+            try:
+                await asyncio.to_thread(_send_trial_ending, user_id, data_obj)
+            except Exception:
+                logger.exception("trial reminder for %s failed", user_id)
+
     elif event_type == "customer.subscription.deleted":
         customer_id = data_obj.get("customer")
         user_id = await _find_clerk_user_by_customer(customer_id)
@@ -263,6 +271,50 @@ def _release_email(user_id: str, name: str) -> None:
         conn.commit()
 
 
+def _subscription_terms(sub: dict) -> tuple:
+    """(amount_cents, interval, trial_end, renews) from a plain subscription.
+
+    Dates are in DISPLAY_TZ; trial_end is None unless the subscription is
+    trialing. What an email says is charged is read from here, never typed.
+    """
+    item = ((sub.get("items") or {}).get("data") or [{}])[0]
+    price = item.get("price") or {}
+
+    def local(ts):
+        return datetime.fromtimestamp(ts, timezone.utc).astimezone(DISPLAY_TZ) if ts else None
+
+    trial_end = local(sub.get("trial_end")) if sub.get("status") == "trialing" else None
+    renews = local(item.get("current_period_end") or sub.get("current_period_end"))
+    return (price.get("unit_amount"), (price.get("recurring") or {}).get("interval") or "month",
+            trial_end, renews)
+
+
+def _send_trial_ending(user_id: str, sub: dict) -> None:
+    """Remind a trialing customer, before the first charge, what it will be.
+
+    Off customer.subscription.trial_will_end (3 days ahead by default). Not
+    sent when the trial was already cancelled: there is no charge to warn
+    about. Once per subscription, whatever Stripe retries.
+    """
+    if sub.get("status") != "trialing" or sub.get("cancel_at_period_end"):
+        return
+    amount, interval, trial_end, _ = _subscription_terms(sub)
+    if amount is None or trial_end is None:
+        logger.warning("trial reminder skipped for %s: no price or trial end on %s", user_id, sub.get("id"))
+        return
+    email = getattr(stripe.Customer.retrieve(sub["customer"]), "email", None)
+    if not email:
+        logger.warning("trial reminder skipped for %s: no email on %s", user_id, sub.get("customer"))
+        return
+    name = f"trial_ending:{sub['id']}"
+    if not _claim_email(user_id, name):
+        return
+    subject, html = trial_ending_email(amount, interval, trial_end)
+    if not send_email(email, subject, html, reply_to=SUPPORT_EMAIL, campaign="trial_ending"):
+        _release_email(user_id, name)
+        logger.error("trial reminder to %s was not sent; claim released", user_id)
+
+
 def _send_pro_welcome(user_id: str, session: dict) -> None:
     """Tell a new subscriber what they bought: trial end, price, how to cancel.
 
@@ -276,19 +328,10 @@ def _send_pro_welcome(user_id: str, session: dict) -> None:
         logger.warning("pro welcome skipped for %s: no email or subscription on the session", user_id)
         return
     sub = _plain(stripe.Subscription.retrieve(sub_id))
-    item = ((sub.get("items") or {}).get("data") or [{}])[0]
-    price = item.get("price") or {}
-    amount = price.get("unit_amount")
+    amount, interval, trial_end, renews = _subscription_terms(sub)
     if amount is None:
         logger.warning("pro welcome skipped for %s: no price on %s", user_id, sub_id)
         return
-    interval = (price.get("recurring") or {}).get("interval") or "month"
-
-    def local(ts):
-        return datetime.fromtimestamp(ts, timezone.utc).astimezone(DISPLAY_TZ) if ts else None
-
-    trial_end = local(sub.get("trial_end")) if sub.get("status") == "trialing" else None
-    renews = local(item.get("current_period_end") or sub.get("current_period_end"))
 
     if not _claim_email(user_id, PRO_WELCOME):
         return
