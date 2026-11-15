@@ -5,6 +5,9 @@ import Link from "next/link";
 import { useState } from "react";
 import { getUserTier } from "@/lib/subscription";
 import { posthog } from "@/lib/posthog";
+import {
+  PRO_MONTHLY_USD, PRO_YEARLY_USD, PRO_PLUS_MONTHLY_USD, PRO_PLUS_YEARLY_USD, usd, perMonth,
+} from "@/lib/pricing";
 
 const PRO_MONTHLY = process.env.NEXT_PUBLIC_STRIPE_PRO_MONTHLY_PRICE_ID || "";
 const PRO_YEARLY = process.env.NEXT_PUBLIC_STRIPE_PRO_YEARLY_PRICE_ID || "";
@@ -207,11 +210,11 @@ export default function PricingPage() {
           </div>
           <h2 className="text-lg font-bold text-[#E8E8ED] mb-1">Pro</h2>
           <div className="text-3xl font-bold text-[#E8E8ED] mb-1">
-            {billing === "monthly" ? "$25" : "$21"}
+            {billing === "monthly" ? usd(PRO_MONTHLY_USD) : perMonth(PRO_YEARLY_USD)}
             <span className="text-sm font-normal text-[#81819A]">/mo</span>
           </div>
           <p className="text-xs text-[#81819A] mb-6">
-            {billing === "yearly" ? "$250/yr billed annually" : "Billed monthly"}
+            {billing === "yearly" ? `${usd(PRO_YEARLY_USD)}/yr billed annually` : "Billed monthly"}
           </p>
 
           <ul className="space-y-2 mb-8 flex-1">
@@ -261,11 +264,11 @@ export default function PricingPage() {
           </div>
           <h2 className="text-lg font-bold text-[#E8E8ED] mb-1">Pro+</h2>
           <div className="text-3xl font-bold text-[#E8E8ED] mb-1">
-            {billing === "monthly" ? "$75" : "$63"}
+            {billing === "monthly" ? usd(PRO_PLUS_MONTHLY_USD) : perMonth(PRO_PLUS_YEARLY_USD)}
             <span className="text-sm font-normal text-[#81819A]">/mo</span>
           </div>
           <p className="text-xs text-[#81819A] mb-6">
-            {billing === "yearly" ? "$750/yr billed annually" : "Billed monthly"}
+            {billing === "yearly" ? `${usd(PRO_PLUS_YEARLY_USD)}/yr billed annually` : "Billed monthly"}
           </p>
 
           <ul className="space-y-2 mb-8 flex-1">
@@ -308,8 +311,9 @@ export default function PricingPage() {
           and Pro+ start with a 7-day free trial. You add a card to start it and
           nothing is charged until the trial ends; cancel before then and you
           pay nothing. After that your plan renews
-          automatically at the end of each billing period — $25/month or
-          $250/year for Pro, $75/month or $750/year for Pro+ — and your payment
+          automatically at the end of each billing period — {usd(PRO_MONTHLY_USD)}/month or{" "}
+          {usd(PRO_YEARLY_USD)}/year for Pro, {usd(PRO_PLUS_MONTHLY_USD)}/month or{" "}
+          {usd(PRO_PLUS_YEARLY_USD)}/year for Pro+ — and your payment
           method is charged until you cancel.
         </p>
         <p className="mt-2">

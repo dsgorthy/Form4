@@ -226,6 +226,54 @@ def test_the_pro_welcome_reads_plainly():
         assert "Manage billing" in body and "$19 a month" in body
 
 
+def _trialing(cancelled=False, status="trialing"):
+    from datetime import datetime, timezone
+    trial_end = int(datetime(2026, 11, 22, 0, 39, 26, tzinfo=timezone.utc).timestamp())
+    return {
+        "id": "sub_trial", "object": "subscription", "status": status, "customer": "cus_1",
+        "trial_end": trial_end, "cancel_at_period_end": cancelled,
+        "items": {"object": "list", "data": [{
+            "id": "si_t", "object": "subscription_item", "current_period_end": trial_end,
+            "price": {"id": PRO, "object": "price", "unit_amount": 1900, "recurring": {"interval": "month"}},
+        }]},
+    }
+
+
+@pytest.fixture
+def reminder(welcome, monkeypatch):
+    monkeypatch.setattr(stripe.Customer, "retrieve", lambda *a, **k: stripe.Customer.construct_from(
+        {"id": "cus_1", "object": "customer", "email": "buyer@example.com"}, KEY))
+    return welcome
+
+
+def test_a_trial_reminder_goes_once_before_the_charge(hook, reminder):
+    """Stripe's own reminder goes out at signup on a 7-day trial; this one
+    goes 3 days before the charge, once, whatever Stripe retries."""
+    hook.deliver("customer.subscription.trial_will_end", _trialing())
+    hook.deliver("customer.subscription.trial_will_end", _trialing())
+    assert len(reminder.mail) == 1, f"{len(reminder.mail)} reminders for one trial"
+    to, subject, html, kw = reminder.mail[0]
+    assert (to, subject) == ("buyer@example.com", "Your Form4 Pro trial ends Saturday")
+    assert "Saturday, November 21" in html and "$19" in html and "Manage billing" in html
+    assert kw.get("campaign") == "trial_ending"
+
+
+@pytest.mark.parametrize("sub", [_trialing(cancelled=True), _trialing(status="active")],
+                         ids=["already-cancelled", "not-trialing"])
+def test_no_reminder_when_there_is_no_charge_coming(hook, reminder, sub):
+    hook.deliver("customer.subscription.trial_will_end", sub)
+    assert reminder.mail == []
+
+
+def test_the_welcome_job_runs_at_least_hourly():
+    """The promise: a new account's welcome goes out within the hour."""
+    src = (REPO / "dataplane/dagster_project/assets/form4_ops.py").read_text()
+    m = re.search(r'_sched\("(ops_trial_emails\w*)",\s*\[ops_trial_emails\],\s*"([^"]+)"\)', src)
+    assert m, "the account email job is not scheduled"
+    minute, hour = m.group(2).split()[:2]
+    assert hour == "*" and minute.isdigit(), f"{m.group(1)} runs on {m.group(2)!r}, not hourly"
+
+
 @pytest.mark.parametrize("event_type, status", [
     ("customer.subscription.deleted", "canceled"),
     ("customer.subscription.updated", "canceled"),

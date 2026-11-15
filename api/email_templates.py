@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from api.pricing import PRO_MONTHLY_USD
+
 APP_URL = "https://form4.app"
 
 
@@ -179,7 +181,7 @@ def pro_once_email(unsubscribe_url: str = "") -> tuple[str, str]:
     <h2 {_H}>What Pro adds</h2>
     <p {_P}>Free is the record: who filed, what they did, back to 2016, and an email when the people you follow file again.</p>
     <p {_P}>Pro is the judgement on top of it: each insider's grade and full track record, any feed filtered by grade, the screener and clusters, and entry and exit alerts from the strategy books the moment they fire.</p>
-    <p {_P}>It is $25 a month. There is a 7-day free trial, started from the pricing page, and nothing is charged until it ends.</p>
+    <p {_P}>It is ${PRO_MONTHLY_USD} a month. There is a 7-day free trial, started from the pricing page, and nothing is charged until it ends.</p>
     <p {_P}>If free does what you need, keep it. This is the only time we will bring Pro up.</p>"""
     return ("What Pro adds", _layout(content, "See what Pro adds", f"{APP_URL}/pricing", unsubscribe_url))
 
@@ -214,6 +216,26 @@ def pro_welcome_email(amount_cents: int, interval: str,
     <p {_P}><strong {_STRONG}>Strategy book alerts.</strong> The books on the Portfolio page email you when they open or close a position.</p>
     <p {_P}>To change your card or cancel, go to Settings and choose Manage billing. Questions? Reply to this email.</p>"""
     return ("You're on Form4 Pro", _layout(content, "Open Form4", f"{APP_URL}/portfolio"))
+
+
+def trial_ending_email(amount_cents: int, interval: str, trial_end: datetime) -> tuple[str, str]:
+    """(subject, html). Sent off Stripe's customer.subscription.trial_will_end,
+    3 days before the first charge.
+
+    Stripe's own trial reminder goes out "7 days before the trial ends", which
+    on Form4's 7-day trial is the moment it starts, so nothing reached a
+    customer near the charge. A charge nobody expected is how chargebacks
+    start. Price and date come from the subscription; the date in the
+    reader's timezone.
+    """
+    day = f"{trial_end:%A, %B} {trial_end.day}"
+    price = f"${amount_cents / 100:g}"
+    content = f"""\
+    <h2 {_H}>Your trial ends {trial_end:%A}</h2>
+    <p {_P}>Your Form4 Pro free trial ends on <strong {_STRONG}>{day}</strong>. That day your card is charged {price} for the next {interval}, and Pro carries on without a break.</p>
+    <p {_P}>If you would rather not continue, cancel before then under Settings, Manage billing. You keep Pro until the trial ends, and you are not charged.</p>
+    <p {_P}>Questions? Reply to this email.</p>"""
+    return (f"Your Form4 Pro trial ends {trial_end:%A}", _layout(content, "Manage billing", f"{APP_URL}/settings"))
 
 
 def win_back_email(items: list[dict], following: bool, unsubscribe_url: str = "") -> tuple[str, str]:

@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { EquitySparkline } from "@/components/equity-sparkline";
 import { insiderPath } from "@/lib/insider-url";
 import { insiderRating, insiderRatingColor } from "@/lib/ratings";
+import { PRO_MONTHLY_USD, PRO_PLUS_MONTHLY_USD, usd } from "@/lib/pricing";
 
 export const metadata = {
   title: "Form4 — Insider Trading Intelligence",
@@ -506,7 +507,7 @@ export default async function LandingPage() {
                 ],
               },
               {
-                name: "Pro", price: "$25", cadence: "/mo",
+                name: "Pro", price: usd(PRO_MONTHLY_USD), cadence: "/mo",
                 cta: "Try Pro free", featured: true,
                 perks: [
                   "Insider grades & full track records",
@@ -516,7 +517,7 @@ export default async function LandingPage() {
                 ],
               },
               {
-                name: "Pro+", price: "$75", cadence: "/mo",
+                name: "Pro+", price: usd(PRO_PLUS_MONTHLY_USD), cadence: "/mo",
                 cta: "Get Pro+", featured: false,
                 perks: [
                   "Everything in Pro",

@@ -109,7 +109,7 @@ def ops_breaking_signal(context: AssetExecutionContext) -> Output:
                                   f"{REPO}/pipelines/run_breaking_signal.sh"), timeout=1800)
 
 
-# ── every 6 hours ──────────────────────────────────────────────────────────
+# ── hourly ─────────────────────────────────────────────────────────────────
 
 @asset(group_name=GROUP, compute_kind="python",
        description="Account email sequence for free users (was com.openclaw.trial-emails).")
@@ -499,7 +499,9 @@ form4_ops_schedules = [
     _sched("ops_runner_dip",        [ops_runner_reversal_dip],     "*/10 6-13 * * 1-5"),
     _sched("ops_narratives_5min",   [ops_enrich_narratives],     "*/5 * * * *"),
     _sched("ops_breaking_30min",    [ops_breaking_signal],       "*/30 * * * *"),
-    _sched("ops_trial_emails_6h",   [ops_trial_emails],          "0 */6 * * *"),
+    # Hourly so a welcome reaches a new account within the hour (it was every
+    # 6 h, so up to 6 h late). The sequence is idempotent; extra runs send nothing.
+    _sched("ops_trial_emails_hourly", [ops_trial_emails],        "7 * * * *"),
     _sched("ops_morning_weekday",   [ops_monday_paper_monitor],  "30 7 * * 1"),
     _sched("ops_ceowatcher_daily",  [ops_ceowatcher_reader],     "30 8 * * *"),
     _sched("ops_midday_weekday",    [ops_alpaca_reconcile,
