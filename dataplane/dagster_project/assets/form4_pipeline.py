@@ -40,13 +40,32 @@ twice.
 # native anyway.
 
 import os
-import subprocess
 from datetime import date, datetime, timedelta
 
 import psycopg2
-from dagster import AssetExecutionContext, MetadataValue, Output, asset
+from dagster import AssetExecutionContext, MetadataValue, Output, RetryPolicy, asset
+
+from dagster_project.assets.proc_tree import TreeTimeout, run_tree
 
 REPO = "/Users/derekg/trading-framework"
+
+#: The nightly chain may retry a failed step. Its scripts are re-runnable by
+#: design (refresh_features_daily.sh: "Idempotent ... Safe to re-run"), and both
+#: Friday failures in November were transient:
+#:
+#:   2026-11-06  backfill_returns.py ran past its 3600 s budget (normally ~33 min)
+#:   2026-11-13  compute_career_grades.py died on DeadlockDetected against the
+#:               ingestion job's own compute_cw_indicators, which fetch_latest.py
+#:               runs after every 5-minute fetch that lands filings, and filings
+#:               keep arriving until 19:00 PT
+#:
+#: Nothing retried either one, and the chain does not run on weekends, so each
+#: left the features stale until Monday 17:30: the runners' preflight halted all
+#: three books for every scan on Monday 11-09 and Monday 11-16.
+#:
+#: Only these four assets carry it. The digest must not: a retry after a
+#: partial send emails the same people twice.
+NIGHTLY_RETRY = RetryPolicy(max_retries=2, delay=600)
 FORM4_DSN = os.environ.get("FORM4_DSN", "dbname=form4 host=localhost")
 
 # Shared environment for the wrapped scripts. backfill_returns.py shells out
@@ -98,15 +117,20 @@ def _assert_fresh(context: AssetExecutionContext, label: str, sql: str,
 
 def _run(context: AssetExecutionContext, args: list[str], timeout: int = 3600) -> str:
     context.log.info("running: %s", " ".join(args))
-    proc = subprocess.run(args, cwd=REPO, env=SCRIPT_ENV, timeout=timeout,
-                          capture_output=True, text=True)
+    # run_tree, not subprocess.run: a timeout here must stop the python steps
+    # under /bin/bash too, or they keep writing beside the retry.
+    try:
+        proc = run_tree(args, cwd=REPO, env=SCRIPT_ENV, timeout=timeout)
+    except TreeTimeout as exc:
+        tail = exc.stdout[-2000:] + exc.stderr[-2000:]
+        raise RuntimeError(f"{exc}:\n{tail[-1500:]}") from None
     tail = (proc.stdout or "")[-2000:] + (proc.stderr or "")[-2000:]
     if proc.returncode != 0:
         raise RuntimeError(f"{args[0]} exited {proc.returncode}:\n{tail[-1500:]}")
     return tail
 
 
-@asset(group_name="form4_pipeline", compute_kind="python",
+@asset(group_name="form4_pipeline", compute_kind="python", retry_policy=NIGHTLY_RETRY,
        description="EOD prices from Alpaca into form4.prices.daily_prices.")
 def form4_daily_prices(context: AssetExecutionContext) -> Output:
     # --max-tickers defaults to 2000 and truncates a SORTED list. The refresh
@@ -170,7 +194,7 @@ def form4_ticker_metadata(context: AssetExecutionContext) -> Output:
     })
 
 
-@asset(group_name="form4_pipeline", compute_kind="python",
+@asset(group_name="form4_pipeline", compute_kind="python", retry_policy=NIGHTLY_RETRY,
        deps=[form4_daily_prices],
        description="Forward returns. Fails closed if prices are stale.")
 def form4_trade_returns(context: AssetExecutionContext) -> Output:
@@ -185,7 +209,7 @@ def form4_trade_returns(context: AssetExecutionContext) -> Output:
     return Output(latest, metadata={"latest_return_filing": MetadataValue.text(str(latest))})
 
 
-@asset(group_name="form4_pipeline", compute_kind="python",
+@asset(group_name="form4_pipeline", compute_kind="python", retry_policy=NIGHTLY_RETRY,
        deps=[form4_trade_returns],
        description="PIT scores, grades and indicators. Fails closed on stale prices.")
 def form4_features(context: AssetExecutionContext) -> Output:
@@ -198,7 +222,7 @@ def form4_features(context: AssetExecutionContext) -> Output:
     return Output(latest, metadata={"latest_score_as_of": MetadataValue.text(str(latest))})
 
 
-@asset(group_name="form4_pipeline", compute_kind="python",
+@asset(group_name="form4_pipeline", compute_kind="python", retry_policy=NIGHTLY_RETRY,
        deps=[form4_features],
        description="Tagged trade signals. Fails closed if PIT scores are stale.")
 def form4_signals(context: AssetExecutionContext) -> Output:
