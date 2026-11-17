@@ -1124,6 +1124,25 @@ def _try_send_realtime(nconn: ConnectionWrapper, user: dict,
                        user.get("user_id"), type(exc).__name__, exc)
 
 
+#: scripts/alert_canary.py proves the alert path end to end. It commits a real
+#: execution_source='alert' row with entry_reasoning "canary:<epoch>", runs
+#: scan_portfolio_alerts with the audience pinned to this one test user, then
+#: deletes the row. This scanner also runs on its own every 5 minutes. Both run
+#: at 07:00, and on 2026-11-14 the scheduled scan landed while the canary's row
+#: existed: two real subscribers, one of them outside the company, were emailed
+#: "Outsized Buys: bought SPY at $1.00". So a canary row goes to the canary user
+#: and no one else, whichever process runs the scan.
+CANARY_USER = "canary__alert_pipeline"
+CANARY_MARKER_PREFIX = "canary:"
+
+
+def _audience_for(row: dict, users: list[dict]) -> list[dict]:
+    """Who may hear about this strategy_portfolio row."""
+    if str(row.get("entry_reasoning") or "").startswith(CANARY_MARKER_PREFIX):
+        return [u for u in users if u["user_id"] == CANARY_USER]
+    return users
+
+
 def scan_portfolio_alerts(iconn: ConnectionWrapper, nconn: ConnectionWrapper, latest: str) -> int:
     """Detect new entries and exits in the three published strategies.
 
@@ -1173,7 +1192,7 @@ def scan_portfolio_alerts(iconn: ConnectionWrapper, nconn: ConnectionWrapper, la
     # Check for new entries (trades that started after watermark)
     new_entries = iconn.execute(
         f"""SELECT id, strategy, ticker, insider_name, entry_date, entry_price,
-                   signal_quality, position_size
+                   signal_quality, position_size, entry_reasoning
             FROM strategy_portfolio
             WHERE strategy IN ({placeholders})
               AND execution_source IN ({source_ph})
@@ -1199,7 +1218,7 @@ def scan_portfolio_alerts(iconn: ConnectionWrapper, nconn: ConnectionWrapper, la
     # Check for new exits (trades that closed after watermark)
     new_exits = iconn.execute(
         f"""SELECT id, strategy, ticker, insider_name, exit_date, exit_price,
-                   entry_price, pnl_pct, pnl_dollar, exit_reason
+                   entry_price, pnl_pct, pnl_dollar, exit_reason, entry_reasoning
             FROM strategy_portfolio
             WHERE strategy IN ({placeholders})
               AND execution_source IN ({source_ph})
@@ -1221,7 +1240,7 @@ def scan_portfolio_alerts(iconn: ConnectionWrapper, nconn: ConnectionWrapper, la
             f"{insider} — {r['ticker']} at ${r['entry_price']:.2f} on "
             f"{r['entry_date']}."
         )
-        for user in users:
+        for user in _audience_for(r, users):
             dedup = _dedup_key("pfe", user["user_id"], r["strategy"],
                                r["ticker"], r["entry_date"])
             _nid = _insert_notification(nconn, user["user_id"], "portfolio_alert", title, body, r["ticker"], dedup)
@@ -1255,7 +1274,7 @@ def scan_portfolio_alerts(iconn: ConnectionWrapper, nconn: ConnectionWrapper, la
             f"Closed {r['ticker']} at ${r['exit_price']:.2f}, "
             f"{pnl_sign}{pnl_pct:.1f}%. {reason.capitalize()}."
         )
-        for user in users:
+        for user in _audience_for(r, users):
             dedup = _dedup_key("pfx", user["user_id"], r["strategy"],
                                r["ticker"], r["exit_date"])
             _nid = _insert_notification(nconn, user["user_id"], "portfolio_alert", title, body, r["ticker"], dedup)
