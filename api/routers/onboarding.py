@@ -71,6 +71,9 @@ class OnboardingRequest(BaseModel):
     """
     default_strategy: Optional[str] = None
     referral_source: Optional[ReferralSource] = None
+    # "Skip for now". The form still sends the book it is about to open as
+    # default_strategy, because that is the book the account lands on.
+    skipped: bool = False
     user_type: Optional[UserType] = None
     primary_use_case: Optional[PrimaryUseCase] = None
     experience_level: Optional[ExperienceLevel] = None
@@ -99,6 +102,20 @@ def pick_seed_tickers(positions: list[dict], limit: int = SEED_FOLLOWS) -> list[
     if open_now:
         return open_now[:limit]
     return newest(positions)[:min(limit, 3)]
+
+
+def ensure_alert_settings(nconn, user_id: str) -> None:
+    """Give the account its default alert settings row, if it has none.
+
+    notification_scanner selects recipients FROM notification_preferences, so
+    an account without a row hears about nothing, whatever it follows. Following
+    from a company or insider page already creates the row; onboarding has to
+    as well, including a skip."""
+    nconn.execute(
+        "INSERT INTO notification_preferences (user_id) VALUES (?) ON CONFLICT (user_id) DO NOTHING",
+        (user_id,),
+    )
+    nconn.commit()
 
 
 def seed_follows(nconn, iconn, user_id: str, strategy: str | None) -> list[str]:
@@ -150,18 +167,27 @@ def submit_onboarding(
 
     referral = body.referral_source.value if body.referral_source else "not_specified"
     strategy = body.default_strategy if body.default_strategy in ACTIVE_STRATEGIES else None
+    # Until 2026-11-16 a skip never reached this endpoint: no profile row, no
+    # alert settings, no follows, so the account could not be told anything.
+    # Every signup tracked since October skipped. A skip records no choice of
+    # book, but it still follows the one the form is about to open.
+    chosen = None if body.skipped else strategy
 
     with get_notifications_db() as conn:
         conn.execute(
             """INSERT INTO user_profiles
-                   (user_id, user_type, primary_use_case, experience_level, referral_source, default_strategy)
-               VALUES (?, ?, ?, ?, ?, ?)
+                   (user_id, user_type, primary_use_case, experience_level, referral_source,
+                    default_strategy, onboarding_skipped)
+               VALUES (?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(user_id) DO UPDATE SET
                    user_type = COALESCE(excluded.user_type, user_profiles.user_type),
                    primary_use_case = COALESCE(excluded.primary_use_case, user_profiles.primary_use_case),
                    experience_level = COALESCE(excluded.experience_level, user_profiles.experience_level),
-                   referral_source = excluded.referral_source,
+                   referral_source = CASE WHEN excluded.referral_source = 'not_specified'
+                                          THEN COALESCE(user_profiles.referral_source, 'not_specified')
+                                          ELSE excluded.referral_source END,
                    default_strategy = COALESCE(excluded.default_strategy, user_profiles.default_strategy),
+                   onboarding_skipped = excluded.onboarding_skipped,
                    updated_at = datetime('now')""",
             (
                 user.user_id,
@@ -169,10 +195,12 @@ def submit_onboarding(
                 body.primary_use_case.value if body.primary_use_case else None,
                 body.experience_level.value if body.experience_level else None,
                 referral,
-                strategy,
+                chosen,
+                1 if body.skipped else 0,
             ),
         )
         conn.commit()
+        ensure_alert_settings(conn, user.user_id)
         with get_db() as iconn:
             followed = seed_follows(conn, iconn, user.user_id, strategy)
 

@@ -54,20 +54,24 @@ export default function OnboardingForm({ strategies }: { strategies: StrategyCho
         },
       });
 
-      if (!skipped) {
-        const token = await getToken();
-        fetch(`${apiBase}/onboarding`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({
-            default_strategy: selectedStrategy,
-            referral_source: referral || null,
-          }),
-        }).catch(() => {});
-      }
+      // A skip posts too. Until 2026-11-16 it did not, so a skipped account
+      // had no alert settings and followed nothing, and could not be told
+      // about anything. `default_strategy` is the book the redirect below
+      // opens; with `skipped` the API follows its positions without recording
+      // it as a choice.
+      const token = await getToken();
+      fetch(`${apiBase}/onboarding`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          default_strategy: selectedStrategy,
+          referral_source: skipped ? null : referral || null,
+          skipped,
+        }),
+      }).catch(() => {});
 
       try {
         posthog.capture("onboarding_complete", {
@@ -97,26 +101,25 @@ export default function OnboardingForm({ strategies }: { strategies: StrategyCho
           </p>
         </div>
 
-        {/* The trial, said out loud at the only moment the user is certain to
-            be reading.
-            
-            It was already granted automatically and already surfaced — a
-            banner on every page and a six-email ladder from day 0 — but
-            nowhere in the signup flow did anything say what had just been
-            given. A thin strip above the fold is easy to read as an upsell;
-            the sentence below is the one that lands, because it arrives while
-            the user is still deciding whether this was worth signing up for.
-            
-            No card was taken and none is required, so that is stated plainly:
-            it is the single most reassuring fact available here and leaving it
-            implied wastes it. */}
+        {/* What the account is, said at the one moment the user is sure to be
+            reading it.
+
+            This used to promise "Your 7 days of Pro start now, free ... No card
+            required". That stopped being true on 2026-09-17: accounts are free,
+            and the Pro trial is started at checkout with a card. The signup of
+            2026-11-16 read the old promise and then met a Pro gate.
+
+            Both buttons below follow the chosen book's current positions, so
+            the second sentence is what will actually happen. */}
         <div className="mb-8 rounded-lg border border-[#22C55E]/25 bg-[#22C55E]/5 px-5 py-4 text-center">
           <p className="text-sm font-semibold text-[#22C55E]">
-            Your 7 days of Pro start now — free
+            Your account is free
           </p>
           <p className="mt-1.5 text-xs leading-relaxed text-[#8888A0]">
-            Every strategy, the full filing feed, insider ratings and real-time
-            alerts. No card required, and nothing to cancel.
+            You&apos;ll follow the companies this strategy holds. When an insider
+            at one of them buys or sells $100,000 or more, it&apos;s in your
+            morning email. Pro adds the strategies&apos; own buy and sell alerts,
+            and you can try it free for 7 days.
           </p>
         </div>
 

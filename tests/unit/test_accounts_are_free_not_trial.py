@@ -58,7 +58,11 @@ def test_no_surface_sells_a_trial_as_the_way_in():
     """The words that made a free account read as a paid one."""
     banned = ("Start Free Trial", "Start a free trial", "Start 7-day trial", "7 days of full Pro access",
               "7 days of full access", "7-day free trial, no card", "trial, no card", "trial requires no card",
-              "Full access for 7 days")
+              "Full access for 7 days",
+              # Missed by the 2026-09-17 sweep and found 2026-11-16: onboarding told
+              # every signup "Your 7 days of Pro start now", and the homepage said
+              # "Seven days of Pro included, no card", next to the sign-up button.
+              "days of Pro start", "days of Pro included", "Seven days of Pro")
     hits = []
     for p, src in _frontend_sources():
         code = _code(src)

@@ -287,7 +287,7 @@ export default async function LandingPage() {
           </Link>
         </div>
         <p className="mt-4 text-sm text-[#81819A]">
-          Follow any company free, forever. Seven days of Pro included, no card.
+          Follow any company free, forever. Try Pro free for 7 days.
         </p>
       </section>
 
