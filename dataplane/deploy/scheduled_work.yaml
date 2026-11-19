@@ -146,7 +146,7 @@ dagster:
       That is the same loss found independently against EDGAR on 2026-08-26.
 
   - name: form4_ops
-    schedule: "25 schedules, 27 assets — see assets/form4_ops.py"
+    schedule: "26 schedules, 28 assets — see assets/form4_ops.py"
     replaced: [enrich-narratives, breaking-signal, trial-emails,
                ceowatcher-reader, monday-paper-monitor, alpaca-reconcile,
                thesis-monitor, post-deploy-audit, daily-summary,

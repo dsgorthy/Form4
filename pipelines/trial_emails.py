@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""Account email sequence — four emails to a free account, by account age.
+"""Account email sequence — five emails to a free account, by account age.
 
-    Day 0   welcome    what the account does, who they already follow
-    Day 3   your_week  what the people they follow filed (or the market, if nobody)
+    Day 0   welcome       what the account does, who they already follow
+    Day 1   founder_note  plain text from Derek: what did you come here to do?
+                          Sent from and replied to support@form4.app; replies
+                          are read by pipelines/support_replies.py
+    Day 3   your_week     what the people they follow filed (or the market, if nobody)
     Day 10  pro_once   what Pro adds; the only Pro pitch there is
     Day 30  win_back   only if there has been no sign-in for two weeks
 
@@ -41,11 +44,13 @@ if _root_env.exists():
     load_dotenv(_root_env)
 
 from api.comp import comp_lapsed
-from api.email import send_email, generate_unsubscribe_token
+from api.email import SUPPORT_ADDRESS, send_email, generate_unsubscribe_token
 from api.email_templates import (
     APP_URL,
     EMAIL_SEQUENCE,
+    FOUNDER_NOTE_SENDER,
     WIN_BACK_QUIET_DAYS,
+    founder_note_email,
     welcome_email,
     your_week_email,
     pro_once_email,
@@ -163,6 +168,36 @@ WELCOME_LATEST_DAYS = 3
 
 def welcome_due(age_days: float) -> bool:
     return 0 <= age_days <= WELCOME_LATEST_DAYS
+
+
+# The founder note goes a day after signup -- the first hourly run past 24 h,
+# so about the time of day they were last on the site -- and is owed for the
+# same reason the welcome is: an outage must not lose it. Past this the
+# account is a backfill (founder_backfill), which words it differently.
+FOUNDER_NOTE_LATEST_DAYS = 4
+
+
+def founder_note_due(age_days: float) -> bool:
+    return 1 <= age_days <= FOUNDER_NOTE_LATEST_DAYS
+
+
+#: Derek's own and test accounts. The founder note asks a stranger what they
+#: came here to do; it does not go to the person who wrote it.
+INTERNAL_DOMAINS = ("sidequestgroup.com", "form4.app")
+INTERNAL_LOCAL_PARTS = ("derek.gorthy",)
+
+
+def is_internal(email: str) -> bool:
+    local, _, domain = (email or "").lower().partition("@")
+    return domain in INTERNAL_DOMAINS or local.split("+")[0] in INTERNAL_LOCAL_PARTS
+
+
+def is_due(email_name: str, target_day: int, age_days: float) -> bool:
+    if email_name == "welcome":
+        return welcome_due(age_days)
+    if email_name == "founder_note":
+        return founder_note_due(age_days)
+    return in_window(age_days, target_day)
 
 
 # ───────────────────────────────────────────────────────────────────
@@ -294,6 +329,11 @@ def _unsubscribe_url(user_id: str) -> str:
 
 
 def _build_email(email_name: str, user_data: dict, conn) -> tuple[str, str] | None:
+    """(subject, body). The body is html for every email except the founder
+    note, which is plain text (see _send)."""
+    if email_name == "founder_note":
+        return founder_note_email(first_name=user_data.get("first_name") or "")
+
     user_id = user_data.get("id", "")
     unsub_url = _unsubscribe_url(user_id)
 
@@ -321,8 +361,28 @@ def _build_email(email_name: str, user_data: dict, conn) -> tuple[str, str] | No
     return None
 
 
+def _send(email_name: str, to: str, subject: str, body: str, user_id: str) -> bool:
+    if email_name == "founder_note":
+        # Plain text from Derek, from and replied to support@ so the answer
+        # lands where pipelines/support_replies.py reads it. The one-click
+        # unsubscribe header is kept: it is a header, not a footer, and it is
+        # how anyone opts out of this sequence.
+        return send_email(to, subject, html=None, text=body,
+                          from_address=f"{FOUNDER_NOTE_SENDER} <{SUPPORT_ADDRESS}>",
+                          reply_to=SUPPORT_ADDRESS,
+                          unsubscribe_url=_unsubscribe_url(user_id), campaign=email_name)
+    return send_email(to, subject, body,
+                      unsubscribe_url=_unsubscribe_url(user_id), campaign=email_name)
+
+
 def process_user(user_data: dict, conn, dry_run: bool = False, now: datetime | None = None) -> int:
-    """Send whatever is due for one account. Returns the number sent."""
+    """Send the first email due for one account. Returns the number sent (0 or 1).
+
+    ONE PER RUN. A welcome missed during an outage and the founder note can
+    both be owed at day 2.5, and two emails in the same minute read as a
+    machine. The next hourly run sends the other; every window is days wide.
+    A failed send stops the account for this run too, so the sequence never
+    goes out of order."""
     now = now or datetime.utcnow()
     user_id = user_data.get("id", "")
     created_at = user_data.get("created_at")
@@ -338,12 +398,12 @@ def process_user(user_data: dict, conn, dry_run: bool = False, now: datetime | N
     if not email:
         return 0
 
-    sent = 0
     for email_name, target_day in EMAIL_SEQUENCE:
-        due = welcome_due(age_days) if email_name == "welcome" else in_window(age_days, target_day)
-        if not due:
+        if not is_due(email_name, target_day, age_days):
             continue
         if email_name == "win_back" and not win_back_due(user_data.get("last_sign_in_at"), now):
+            continue
+        if email_name == "founder_note" and is_internal(email):
             continue
         existing = conn.execute(
             "SELECT 1 FROM sent_trial_emails WHERE user_id = ? AND email_name = ?",
@@ -355,23 +415,70 @@ def process_user(user_data: dict, conn, dry_run: bool = False, now: datetime | N
         result = _build_email(email_name, user_data, conn)
         if not result:
             continue
-        subject, html = result
+        subject, body = result
 
         if dry_run:
             logger.info("[DRY RUN] Would send '%s' to %s (day %.1f)", email_name, email, age_days)
+            return 1
+        if not _send(email_name, email, subject, body, user_id):
+            logger.error("Failed to send '%s' to %s", email_name, email)
+            return 0
+        conn.execute(
+            "INSERT OR IGNORE INTO sent_trial_emails (user_id, email_name) VALUES (?, ?)",
+            (user_id, email_name),
+        )
+        conn.commit()
+        logger.info("Sent '%s' to %s (day %.1f)", email_name, email, age_days)
+        return 1
+    return 0
+
+
+def founder_backfill(users: list[dict], conn, since: datetime, dry_run: bool = True,
+                     now: datetime | None = None, exclude: tuple[str, ...] = ()) -> list[str]:
+    """The founder note, worded for accounts that signed up before it existed.
+
+    Accounts created on or after `since` whose day-1 window has passed (the
+    sequence handles younger ones); never a paying, internal or already-asked
+    account, and never an address in `exclude` (someone who filed a
+    chargeback is not asked for feedback). Dry run by default: it prints the
+    list, and Derek approves the list before anything goes. Returns the
+    addresses sent to (or that would be, on a dry run)."""
+    now = now or datetime.utcnow()
+    skip = {e.strip().lower() for e in exclude if e.strip()}
+    chosen: list[str] = []
+    for user_data in users:
+        user_id, created_at = user_data.get("id", ""), user_data.get("created_at")
+        if not user_id or not created_at:
+            continue
+        created = datetime.utcfromtimestamp(created_at / 1000 if created_at > 1e12 else created_at)
+        if created < since or (now - created).total_seconds() / 86400 <= FOUNDER_NOTE_LATEST_DAYS:
+            continue
+        if is_paying(user_data.get("public_metadata") or {}):
+            continue
+        email = _get_user_email(user_data)
+        if not email or is_internal(email) or email.lower() in skip:
+            continue
+        if conn.execute(
+            "SELECT 1 FROM sent_trial_emails WHERE user_id = ? AND email_name = ?",
+            (user_id, "founder_note"),
+        ).fetchone():
+            continue
+        subject, body = founder_note_email(first_name=user_data.get("first_name") or "", signed_up=created)
+        if dry_run:
+            logger.info("[DRY RUN] Would send the founder note (backfill) to %s, signed up %s",
+                        email, created.date())
         else:
-            if not send_email(email, subject, html,
-                              unsubscribe_url=_unsubscribe_url(user_id), campaign=email_name):
-                logger.error("Failed to send '%s' to %s", email_name, email)
+            if not _send("founder_note", email, subject, body, user_id):
+                logger.error("Failed to send the founder note (backfill) to %s", email)
                 continue
             conn.execute(
                 "INSERT OR IGNORE INTO sent_trial_emails (user_id, email_name) VALUES (?, ?)",
-                (user_id, email_name),
+                (user_id, "founder_note"),
             )
             conn.commit()
-            logger.info("Sent '%s' to %s (day %.1f)", email_name, email, age_days)
-        sent += 1
-    return sent
+            logger.info("Sent the founder note (backfill) to %s", email)
+        chosen.append(email)
+    return chosen
 
 
 # ───────────────────────────────────────────────────────────────────
@@ -381,7 +488,14 @@ def process_user(user_data: dict, conn, dry_run: bool = False, now: datetime | N
 def main() -> None:
     parser = argparse.ArgumentParser(description="Account email sequence runner")
     parser.add_argument("--dry-run", action="store_true", help="Preview without sending")
+    parser.add_argument("--founder-backfill", action="store_true",
+                        help="Send ONLY the founder note, to older accounts (see founder_backfill)")
+    parser.add_argument("--since", help="With --founder-backfill: accounts created on/after YYYY-MM-DD")
+    parser.add_argument("--exclude", default="",
+                        help="With --founder-backfill: comma-separated addresses never to send to")
     args = parser.parse_args()
+    if args.founder_backfill and not args.since:
+        parser.error("--founder-backfill needs --since YYYY-MM-DD")
 
     conn = get_connection(readonly=False)
     _ensure_schema(conn)
@@ -390,6 +504,14 @@ def main() -> None:
     if not users:
         logger.warning("No users fetched — check CLERK_SECRET_KEY")
         conn.close()
+        return
+
+    if args.founder_backfill:
+        chosen = founder_backfill(users, conn, datetime.strptime(args.since, "%Y-%m-%d"),
+                                  dry_run=args.dry_run, exclude=tuple(args.exclude.split(",")))
+        conn.close()
+        logger.info("%sFounder note backfill: %d account(s).",
+                    "[DRY RUN] " if args.dry_run else "", len(chosen))
         return
 
     total_sent = 0

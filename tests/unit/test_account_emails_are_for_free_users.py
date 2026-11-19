@@ -4,7 +4,7 @@ Until 2026-09-17 it was six emails -- "your trial starts now", value, "2 days
 left on your trial", "your trial has ended", "your grace period has ended",
 win-back -- sent every six hours to everyone who signed up, because every
 account was a trial by age. 41 went out. Accounts are free now; these pin
-what the four remaining emails say, when they go, and to whom.
+what the emails say, when they go, and to whom.
 """
 from __future__ import annotations
 
@@ -29,9 +29,11 @@ def _text(html: str) -> str:
     return re.sub(r"<[^>]+>", " ", html)
 
 
-def test_the_sequence_is_four_emails_and_none_is_a_countdown():
-    assert [n for n, _ in t.EMAIL_SEQUENCE] == ["welcome", "your_week", "pro_once", "win_back"]
-    assert dict(t.EMAIL_SEQUENCE) == {"welcome": 0, "your_week": 3, "pro_once": 10, "win_back": 30}
+def test_the_sequence_is_five_emails_and_none_is_a_countdown():
+    # The day-1 founder note joined 2026-11-19: one plain-text question from Derek.
+    assert [n for n, _ in t.EMAIL_SEQUENCE] == ["welcome", "founder_note", "your_week", "pro_once", "win_back"]
+    assert dict(t.EMAIL_SEQUENCE) == {"welcome": 0, "founder_note": 1, "your_week": 3, "pro_once": 10,
+                                      "win_back": 30}
     for gone in ("urgency_email", "trial_ended_email", "hard_gate_email", "value_email"):
         assert not hasattr(t, gone), f"{gone} is back"
 

@@ -118,6 +118,13 @@ def ops_trial_emails(context: AssetExecutionContext) -> Output:
                                   f"{REPO}/pipelines/trial_emails.py"), timeout=1800)
 
 
+@asset(group_name=GROUP, compute_kind="python",
+       description="Replies to support@form4.app (the founder note's answers): store, record, push Derek.")
+def ops_support_replies(context: AssetExecutionContext) -> Output:
+    return _run(context, _wrapped("support_replies", BREW,
+                                  f"{REPO}/pipelines/support_replies.py"), timeout=600)
+
+
 # ── daily / weekday ────────────────────────────────────────────────────────
 
 @asset(group_name=GROUP, compute_kind="python",
@@ -463,7 +470,7 @@ def ops_sitemap_quality(context: AssetExecutionContext) -> Output:
                 timeout=3600)
 
 form4_ops_assets = [
-    ops_enrich_narratives, ops_breaking_signal, ops_trial_emails,
+    ops_enrich_narratives, ops_breaking_signal, ops_trial_emails, ops_support_replies,
     ops_ceowatcher_reader, ops_monday_paper_monitor, ops_alpaca_reconcile,
     ops_thesis_monitor, ops_post_deploy_audit, ops_daily_summary,
     ops_daily_content, ops_strategy_health, ops_pit_shadow,
@@ -502,6 +509,9 @@ form4_ops_schedules = [
     # Hourly so a welcome reaches a new account within the hour (it was every
     # 6 h, so up to 6 h late). The sequence is idempotent; extra runs send nothing.
     _sched("ops_trial_emails_hourly", [ops_trial_emails],        "7 * * * *"),
+    # A reply to the founder note reaches Derek's phone within 15 minutes. The
+    # read is IMAP EXAMINE, so it cannot mark, move or delete anything.
+    _sched("ops_support_replies_15min", [ops_support_replies],   "3,18,33,48 * * * *"),
     _sched("ops_morning_weekday",   [ops_monday_paper_monitor],  "30 7 * * 1"),
     _sched("ops_ceowatcher_daily",  [ops_ceowatcher_reader],     "30 8 * * *"),
     _sched("ops_midday_weekday",    [ops_alpaca_reconcile,
