@@ -47,8 +47,6 @@ def test_every_email_reads_as_a_free_account_and_never_as_a_trial():
                             "value": 252000, "filing_date": "2026-09-16"}], following=False),
         t.pro_once_email(),
         t.win_back_email([], following=False),
-        t.founder_note_email(),
-        t.founder_note_email(first_name="Cara", signed_up=datetime(2026, 10, 13)),
     ]
     for subject, html in rendered:
         body = _text(html)

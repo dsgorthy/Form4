@@ -46,7 +46,9 @@ def test_the_note_is_plain_text_from_a_person_and_follows_the_copy_rules():
         subject, body = t.founder_note_email(**kwargs)
         assert subject == t.FOUNDER_NOTE_SUBJECT
         assert "<" not in body and "http" not in body, "the note is plain text with no links"
-        assert "!" not in subject + body
+        assert "!" not in subject, "the subject line stays plain"
+        for gone in ("your trial", "trial has ended", "grace period", "days left"):
+            assert gone not in body.lower()
         assert "—" not in body, "no em-dash joins"
         assert "unlock" not in body.lower()
         for n, (_, label) in t.FOUNDER_NOTE_OPTIONS.items():

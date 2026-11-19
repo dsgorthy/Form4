@@ -351,12 +351,16 @@ def founder_note_email(first_name: str = "", signed_up: datetime | None = None) 
     ask = (f"You signed up for Form4 in {signed_up:%B}. What were you hoping to do with it?"
            if signed_up else "What were you hoping to do when you signed up?")
     options = "\n".join(f"{n}. {label}" for n, (_, label) in FOUNDER_NOTE_OPTIONS.items())
+    # Derek's words, 2026-11-19. One line per paragraph: mail clients wrap
+    # plain text themselves, and hard breaks look broken on a phone.
     body = (
         f"{greeting}\n\n"
-        "I'm Derek, the founder of Form4. I read every reply to this email.\n\n"
+        "I'm Derek, the founder of Form4, and I read every reply to this email. "
+        "I'm reaching out to everyone that signs up to better understand what they want to get out of "
+        "Form4 and figure out what we can build that will be most helpful to you.\n\n"
         f"{ask} Replying with a number is plenty:\n\n"
         f"{options}\n\n"
-        "Your answer decides what I build next.\n\n"
+        "Your answer helps me decide what to build next and any feedback is greatly appreciated!\n\n"
         "Thanks,\n"
         "Derek\n\n"
         "PS: If you found Form4 through ChatGPT or another AI, I'd like to know what you asked it.\n"
