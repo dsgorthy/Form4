@@ -10,7 +10,7 @@ import stripe
 from fastapi import APIRouter, Header, HTTPException, Request
 
 from api.db import get_db
-from api.email import send_email
+from api.email import SUPPORT_ADDRESS, send_email
 from api.email_templates import pro_welcome_email, trial_ending_email
 
 from api.config import (
@@ -246,7 +246,7 @@ async def stripe_webhook(
 
 
 PRO_WELCOME = "pro_welcome"
-SUPPORT_EMAIL = "support@form4.app"
+SUPPORT_EMAIL = SUPPORT_ADDRESS
 # Dates are shown in Pacific time: for a US reader that is never LATER than
 # their own date, so a trial end is never read as a day after it happens.
 DISPLAY_TZ = pytz.timezone("America/Los_Angeles")

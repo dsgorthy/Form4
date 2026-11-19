@@ -18,6 +18,13 @@ logger = logging.getLogger(__name__)
 RESEND_URL = "https://api.resend.com/emails"
 FROM_ADDRESS = "Form4 <alerts@form4.app>"
 
+#: The address people write to. It is a Google Group that delivers to Derek's
+#: Workspace inbox, which pipelines/support_replies.py reads. Verified
+#: 2026-11-19: 241 messages had reached it, all readable over IMAP. Named on
+#: the legal pages, as the reply-to of the billing emails, and as the sender
+#: of the founder note -- one definition, so a reply can never go astray.
+SUPPORT_ADDRESS = "support@form4.app"
+
 
 _APP_LINK = re.compile(r'href="(https://form4\.app[^"]*)"')
 
@@ -44,8 +51,9 @@ def tag_links(html: str, campaign: str) -> str:
 def send_email(
     to: str,
     subject: str,
-    html: str,
+    html: Optional[str] = None,
     *,
+    text: Optional[str] = None,
     reply_to: Optional[str] = None,
     from_address: Optional[str] = None,
     unsubscribe_url: Optional[str] = None,
@@ -57,21 +65,31 @@ def send_email(
     person is meant to reply to — a founder note should not arrive from an
     alerting address. Any override must be on a Resend-verified domain.
 
+    text sends a plain-text body. A note meant to read as a person writing
+    goes as text alone: no layout, no images, no tracked links. Pass html,
+    text, or both.
+
     campaign tags every form4.app link with utm parameters (see tag_links).
     Every email a customer receives should name one.
     """
     if not RESEND_API_KEY:
         logger.warning("RESEND_API_KEY not set, skipping email to %s", to)
         return False
-    if campaign:
+    if not html and not text:
+        logger.error("send_email to %s has neither html nor text; not sent", to)
+        return False
+    if campaign and html:
         html = tag_links(html, campaign)
 
     payload: dict = {
         "from": from_address or FROM_ADDRESS,
         "to": [to],
         "subject": subject,
-        "html": html,
     }
+    if html:
+        payload["html"] = html
+    if text:
+        payload["text"] = text
     if reply_to:
         payload["reply_to"] = reply_to
 

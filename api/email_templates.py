@@ -1,9 +1,11 @@
 """Email templates for Form4.app.
 
-The account sequence is 4 emails at days 0, 3, 10 and 30 after signup (see
+The account sequence is 5 emails at days 0, 1, 3, 10 and 30 after signup (see
 EMAIL_SEQUENCE, driven by pipelines/trial_emails.py; the day-30 one only to an
 account that has gone quiet). It replaced a 6-step trial funnel on 2026-09-17
-when accounts stopped being trials.
+when accounts stopped being trials. The day-1 one is the founder note: plain
+text from Derek asking one question, the only email here meant to be replied
+to.
 
 comp_grant_email is separate: a hand-sent note for when an account is comped
 to Pro via scripts/comp_user.py. It is not part of the sequence and is never
@@ -317,9 +319,55 @@ def comp_grant_email(
     )
 
 
+# --- Day 1: the founder note ---
+#
+# Signups skip every question onboarding asks, and PostHog shows what people
+# click, never why. This asks, once, in plain text from Derek: no layout, no
+# links, no images, nothing tracked, no pitch. It is sent from and replied to
+# support@form4.app; pipelines/support_replies.py reads the replies, records
+# the answer on user_profiles.primary_use_case and pushes Derek.
+#
+# The options are numbered so a reply can be one character. The reader maps the
+# number back through FOUNDER_NOTE_OPTIONS, so the email and the parser cannot
+# disagree about what "2" means. Change a label here and both move together.
+
+FOUNDER_NOTE_SENDER = "Derek from Form4"
+FOUNDER_NOTE_SUBJECT = "What brought you to Form4?"
+
+#: number -> (value stored on user_profiles.primary_use_case, line in the email)
+FOUNDER_NOTE_OPTIONS = {
+    1: ("alerts_on_my_companies", "Get an email when insiders buy at companies I own or watch"),
+    2: ("follow_strategies", "Follow the strategies and the trades they make"),
+    3: ("research", "Research a stock or an insider before I buy"),
+    4: ("other", "Something else"),
+}
+
+
+def founder_note_email(first_name: str = "", signed_up: datetime | None = None) -> tuple[str, str]:
+    """(subject, plain text). Pass signed_up for an account that joined before
+    the note existed (the backfill): it names the month they signed up rather
+    than pretending they joined yesterday."""
+    greeting = f"Hi {first_name}," if first_name else "Hi there,"
+    ask = (f"You signed up for Form4 in {signed_up:%B}. What were you hoping to do with it?"
+           if signed_up else "What were you hoping to do when you signed up?")
+    options = "\n".join(f"{n}. {label}" for n, (_, label) in FOUNDER_NOTE_OPTIONS.items())
+    body = (
+        f"{greeting}\n\n"
+        "I'm Derek, the founder of Form4. I read every reply to this email.\n\n"
+        f"{ask} Replying with a number is plenty:\n\n"
+        f"{options}\n\n"
+        "Your answer decides what I build next.\n\n"
+        "Thanks,\n"
+        "Derek\n\n"
+        "PS: If you found Form4 through ChatGPT or another AI, I'd like to know what you asked it.\n"
+    )
+    return FOUNDER_NOTE_SUBJECT, body
+
+
 # Registry: maps (email_name, target_day) for the sequence runner
 EMAIL_SEQUENCE = [
     ("welcome", 0),
+    ("founder_note", 1),  # owed for FOUNDER_NOTE_LATEST_DAYS, like the welcome
     ("your_week", 3),
     ("pro_once", 10),
     ("win_back", 30),   # only if there has been no sign-in for WIN_BACK_QUIET_DAYS
