@@ -434,15 +434,17 @@ def process_user(user_data: dict, conn, dry_run: bool = False, now: datetime | N
 
 
 def founder_backfill(users: list[dict], conn, since: datetime, dry_run: bool = True,
-                     now: datetime | None = None) -> list[str]:
+                     now: datetime | None = None, exclude: tuple[str, ...] = ()) -> list[str]:
     """The founder note, worded for accounts that signed up before it existed.
 
     Accounts created on or after `since` whose day-1 window has passed (the
     sequence handles younger ones); never a paying, internal or already-asked
-    account. Dry run by default: it prints the list, and Derek approves the
-    list before anything goes. Returns the addresses sent to (or that would
-    be, on a dry run)."""
+    account, and never an address in `exclude` (someone who filed a
+    chargeback is not asked for feedback). Dry run by default: it prints the
+    list, and Derek approves the list before anything goes. Returns the
+    addresses sent to (or that would be, on a dry run)."""
     now = now or datetime.utcnow()
+    skip = {e.strip().lower() for e in exclude if e.strip()}
     chosen: list[str] = []
     for user_data in users:
         user_id, created_at = user_data.get("id", ""), user_data.get("created_at")
@@ -454,7 +456,7 @@ def founder_backfill(users: list[dict], conn, since: datetime, dry_run: bool = T
         if is_paying(user_data.get("public_metadata") or {}):
             continue
         email = _get_user_email(user_data)
-        if not email or is_internal(email):
+        if not email or is_internal(email) or email.lower() in skip:
             continue
         if conn.execute(
             "SELECT 1 FROM sent_trial_emails WHERE user_id = ? AND email_name = ?",
@@ -489,6 +491,8 @@ def main() -> None:
     parser.add_argument("--founder-backfill", action="store_true",
                         help="Send ONLY the founder note, to older accounts (see founder_backfill)")
     parser.add_argument("--since", help="With --founder-backfill: accounts created on/after YYYY-MM-DD")
+    parser.add_argument("--exclude", default="",
+                        help="With --founder-backfill: comma-separated addresses never to send to")
     args = parser.parse_args()
     if args.founder_backfill and not args.since:
         parser.error("--founder-backfill needs --since YYYY-MM-DD")
@@ -504,7 +508,7 @@ def main() -> None:
 
     if args.founder_backfill:
         chosen = founder_backfill(users, conn, datetime.strptime(args.since, "%Y-%m-%d"),
-                                  dry_run=args.dry_run)
+                                  dry_run=args.dry_run, exclude=tuple(args.exclude.split(",")))
         conn.close()
         logger.info("%sFounder note backfill: %d account(s).",
                     "[DRY RUN] " if args.dry_run else "", len(chosen))

@@ -196,6 +196,9 @@ def test_the_backfill_reaches_only_older_unasked_strangers(monkeypatch):
 
     assert pipe.founder_backfill(users, Conn(), since, dry_run=True, now=now) == \
         ["old@example.com", "older@example.com"]
+    # someone who filed a chargeback is left out by address, whatever its case
+    assert pipe.founder_backfill(users, Conn(), since, dry_run=True, now=now,
+                                 exclude=("OLDER@example.com",)) == ["old@example.com"]
 
     bodies = []
     monkeypatch.setattr(pipe, "send_email",
