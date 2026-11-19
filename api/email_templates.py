@@ -356,8 +356,8 @@ def founder_note_email(first_name: str = "", signed_up: datetime | None = None) 
     body = (
         f"{greeting}\n\n"
         "I'm Derek, the founder of Form4, and I read every reply to this email. "
-        "I'm reaching out to everyone that signs up to better understand what they want to get out of "
-        "Form4 and figure out what we can build that will be most helpful to you.\n\n"
+        "I'm reaching out to everyone that signs up to better understand what you want to get out of "
+        "Form4 and what we can build that would be most helpful to you.\n\n"
         f"{ask} Replying with a number is plenty:\n\n"
         f"{options}\n\n"
         "Your answer helps me decide what to build next and any feedback is greatly appreciated!\n\n"
