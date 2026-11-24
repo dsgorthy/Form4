@@ -15,3 +15,9 @@ PRO_MONTHLY_USD = 19
 PRO_YEARLY_USD = 149
 PRO_PLUS_MONTHLY_USD = 75
 PRO_PLUS_YEARLY_USD = 750
+
+#: The free trial checkout grants a first-time subscriber. Checkout owns the
+#: clock (PRO_TRIAL_DAYS in frontend/src/app/api/checkout/route.ts); this is the
+#: number the emails quote, and tests/unit/test_prices_are_one_definition.py
+#: fails the build if the two disagree.
+PRO_TRIAL_DAYS = 7
