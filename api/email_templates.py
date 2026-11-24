@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from api.pricing import PRO_MONTHLY_USD
+from api.pricing import PRO_MONTHLY_USD, PRO_TRIAL_DAYS, PRO_YEARLY_USD
 
 APP_URL = "https://form4.app"
 
@@ -176,16 +176,65 @@ def your_week_email(items: list[dict], following: bool, unsubscribe_url: str = "
 
 
 # --- Day 10: what Pro adds, said once ---
+#
+# Rewritten 2026-11-23. Derek on the old one: "sounds super AI, no clear CTA --
+# we should list out benefits of what they get." So: the benefits as a list,
+# the price and trial terms, one button. Every benefit is a real gate, and
+# tests/unit/test_account_emails_are_for_free_users.py ties each one to the
+# code that enforces it, so a feature that moves to Free fails the build
+# instead of this email going on selling it.
+
+PRO_EMAIL_SUBJECT = f"Try Form4 Pro free for {PRO_TRIAL_DAYS} days"
+
+#: (what it is, what it does for you), strongest first.
+PRO_BENEFITS = (
+    ("Strategy alerts",
+     "Get an email when one of our strategies buys or sells, and see their portfolios "
+     "in real time instead of 24 hours later."),
+    ("Insider grades and track records",
+     "See how every insider's past buys actually performed, and which ones have a record worth following."),
+    ("Screener and leaderboard",
+     "Find the top-graded insiders and see what they are trading."),
+    ("Feeds filtered by grade",
+     "Cut any feed down to the insiders with the strongest records."),
+    ("Clusters and other signals",
+     "See when several insiders at one company trade around the same time, when filing activity "
+     "spikes, and when insiders who sold regularly stop."),
+    ("Congress trades",
+     "See what members of Congress buy and sell, and when they trade the same stocks as insiders."),
+    ("Unlimited follows",
+     "Follow as many companies and insiders as you want. Free accounts stop at 10 of each."),
+)
+
+
+def pro_terms() -> str:
+    """The offer, as printed right above the button."""
+    return (f"Pro is ${PRO_MONTHLY_USD} a month or ${PRO_YEARLY_USD} a year, and the first "
+            f"{PRO_TRIAL_DAYS} days are free. You add a card to start, but you won't be charged "
+            "until the trial ends. Cancel anytime in Settings.")
+
+
+def _benefit_rows(benefits: tuple[tuple[str, str], ...]) -> str:
+    rows = ""
+    for title, line in benefits:
+        rows += f"""\
+        <div style="padding:10px 0;border-bottom:1px solid #1E1E2E;">
+          <div style="font-size:14px;color:#E8E8ED;font-weight:600;">{title}</div>
+          <div style="font-size:13px;color:#8888A0;margin-top:3px;line-height:1.5;">{line}</div>
+        </div>"""
+    return rows
+
 
 def pro_once_email(unsubscribe_url: str = "") -> tuple[str, str]:
-    """(subject, html). The only Pro pitch in the sequence."""
+    """(subject, html). The only Pro pitch in the sequence: what you get, the
+    price and the trial terms, one button."""
     content = f"""\
-    <h2 {_H}>What Pro adds</h2>
-    <p {_P}>Free is the record: who filed, what they did, back to 2016, and an email when the people you follow file again.</p>
-    <p {_P}>Pro is the judgement on top of it: each insider's grade and full track record, any feed filtered by grade, the screener and clusters, and entry and exit alerts from the strategy books the moment they fire.</p>
-    <p {_P}>It is ${PRO_MONTHLY_USD} a month. There is a 7-day free trial, started from the pricing page, and nothing is charged until it ends.</p>
-    <p {_P}>If free does what you need, keep it. This is the only time we will bring Pro up.</p>"""
-    return ("What Pro adds", _layout(content, "See what Pro adds", f"{APP_URL}/pricing", unsubscribe_url))
+    <h2 {_H}>What you get with Pro</h2>
+    <p {_P}>Here's everything Pro adds to your free account.</p>
+    {_benefit_rows(PRO_BENEFITS)}
+    <p style="margin:20px 0 0;font-size:14px;color:#8888A0;line-height:1.6;">{pro_terms()}</p>"""
+    return (PRO_EMAIL_SUBJECT,
+            _layout(content, f"Try Pro free for {PRO_TRIAL_DAYS} days", f"{APP_URL}/pricing", unsubscribe_url))
 
 
 # --- Day 30: only if they have gone quiet ---

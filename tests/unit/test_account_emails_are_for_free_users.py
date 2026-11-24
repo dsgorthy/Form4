@@ -14,9 +14,11 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from api import email_templates as t
+from api import pricing
 
+REPO = Path(__file__).resolve().parents[2]
 _SPEC = importlib.util.spec_from_file_location(
-    "trial_emails", Path(__file__).resolve().parents[2] / "pipelines" / "trial_emails.py",
+    "trial_emails", REPO / "pipelines" / "trial_emails.py",
 )
 pipe = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(pipe)
@@ -66,15 +68,56 @@ def test_welcome_says_free_and_names_who_they_follow():
     assert "/explore" in html
 
 
-def test_pro_is_mentioned_once_and_only_as_a_choice():
+def test_the_pro_email_lists_what_you_get_and_ends_on_one_offer():
+    """Rewritten 2026-11-23 (Derek: "sounds super AI, no clear CTA"): the
+    benefits as a list, the price and trial terms, one button to /pricing."""
     subject, html = t.pro_once_email()
     body = _text(html)
-    assert "7-day free trial" in body and "nothing is charged until it ends" in body
-    assert "only time we will bring Pro up" in body
-    assert "/pricing" in html
+    assert subject == t.PRO_EMAIL_SUBJECT
+    for title, line in t.PRO_BENEFITS:
+        assert title in body and line in body
+    assert t.pro_terms() in body
+    assert f"the first {pricing.PRO_TRIAL_DAYS} days are free" in body
+    assert "won't be charged until the trial ends" in body
+    assert f'href="{t.APP_URL}/pricing"' in html
+    assert f"Try Pro free for {pricing.PRO_TRIAL_DAYS} days" in body
     # the welcome mentions Pro exists, in one sentence, without a link to it
     _, welcome = t.welcome_email([], None)
     assert "/pricing" not in welcome
+
+
+def test_the_pro_email_copy_follows_dereks_rules():
+    """Nothing that reads as AI: plain sentences, no em-dash joins, no
+    "Unlock", no exclamation marks. The layout's footer is not copy."""
+    copy = [t.PRO_EMAIL_SUBJECT, t.pro_terms()] + [s for pair in t.PRO_BENEFITS for s in pair]
+    for s in copy:
+        for bad in ("—", "&mdash;", " -- ", "Unlock", "!"):
+            assert bad not in s, f"{bad!r} in {s!r}"
+
+
+def test_every_pro_benefit_the_email_sells_is_a_real_gate():
+    """If a feature moves to Free, this fails instead of the email going on
+    selling it."""
+    from api.notification_policy import is_direct
+    from api.public_fields import PRO_ALERT_EVENTS
+
+    # "Get an email when one of our strategies buys or sells": Pro only, sent at once.
+    assert "portfolio_alert" in PRO_ALERT_EVENTS and is_direct("portfolio_alert")
+    # Clusters, spikes and Congress convergence are Pro-only alerts.
+    for event in ("cluster_formation", "activity_spike", "congress_convergence"):
+        assert event in PRO_ALERT_EVENTS, event
+    # "Free accounts stop at 10 of each", and Pro has no cap.
+    src = (REPO / "api/routers/notifications.py").read_text()
+    free = int(re.search(r"^WATCHLIST_LIMIT_FREE = (\d+)", src, re.M).group(1))
+    assert re.search(r"^WATCHLIST_LIMIT_PRO = None", src, re.M)
+    assert f"stop at {free} of each" in dict(t.PRO_BENEFITS)["Unlimited follows"]
+    # The pricing page sells the same things as Pro.
+    page = (REPO / "frontend/src/app/pricing/page.tsx").read_text()
+    pro = page[page.index("const PRO_FEATURES"):page.index("const PRO_PLUS_FEATURES")]
+    for feature in ("Follow unlimited", "Insider grades & full track records", "Filter any feed by grade",
+                    "Real-time portfolio", "Trade entry/exit alerts", "Screener & leaderboard",
+                    "Clusters, spikes & sell-cessation", "Congress trades"):
+        assert feature in pro, f"the pricing page no longer sells {feature!r} as Pro, and this email still does"
 
 
 def test_win_back_goes_only_to_an_account_that_has_gone_quiet():

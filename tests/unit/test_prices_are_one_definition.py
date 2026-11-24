@@ -49,5 +49,12 @@ def test_the_homepage_cards_type_no_price():
 
 def test_the_pro_pitch_quotes_the_real_price():
     _, html = pro_once_email()
-    assert f"It is ${pricing.PRO_MONTHLY_USD} a month" in html
+    assert f"${pricing.PRO_MONTHLY_USD} a month" in html
+    assert f"${pricing.PRO_YEARLY_USD} a year" in html
     assert "$25" not in html
+
+
+def test_the_trial_the_emails_quote_is_the_one_checkout_grants():
+    src = (REPO / "frontend/src/app/api/checkout/route.ts").read_text()
+    days = int(re.search(r"const PRO_TRIAL_DAYS = (\d+);", src).group(1))
+    assert pricing.PRO_TRIAL_DAYS == days, f"checkout grants {days} days, the emails say {pricing.PRO_TRIAL_DAYS}"
